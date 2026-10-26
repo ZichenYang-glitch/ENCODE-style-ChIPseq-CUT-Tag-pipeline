@@ -211,6 +211,14 @@ rule analysis_policy:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        FRAGMENT_QC_ARGS=()
+        if [[ -n "{params.fragment_qc}" ]]; then
+            FRAGMENT_QC_ARGS+=(--fragment-qc {params.fragment_qc:q})
+        fi
+        MNASE_QC_ARGS=()
+        if [[ -n "{params.mnase_qc}" ]]; then
+            MNASE_QC_ARGS+=(--mnase-qc {params.mnase_qc:q})
+        fi
         python3 {params.script:q} \
             --sample {params.sample:q} \
             --assay {params.assay:q} \
@@ -224,8 +232,8 @@ rule analysis_policy:
             --blacklist-applied {params.blacklist_applied:q} \
             --stage-metrics {input.stage_metrics:q} \
             --mito {input.mito:q} \
-            --fragment-qc {params.fragment_qc:q} \
-            --mnase-qc {params.mnase_qc:q} \
+            "${{FRAGMENT_QC_ARGS[@]}}" \
+            "${{MNASE_QC_ARGS[@]}}" \
             --output {output:q} \
             2>&1 | tee {log:q}
         """

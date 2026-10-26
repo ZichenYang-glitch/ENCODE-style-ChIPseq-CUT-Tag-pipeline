@@ -830,6 +830,14 @@ rule qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
+        FRAGMENT_QC_ARGS=()
+        if [[ -n "{params.fragment_qc}" ]]; then
+            FRAGMENT_QC_ARGS+=(--fragment-qc {params.fragment_qc:q})
+        fi
+        CROSS_CORRELATION_QC_ARGS=()
+        if [[ -n "{params.cross_correlation_qc}" ]]; then
+            CROSS_CORRELATION_QC_ARGS+=(--cross-correlation-qc {params.cross_correlation_qc:q})
+        fi
         python3 {params.script:q} \\
         --sample {params.sample:q} \\
         --assay {params.assay:q} \\
@@ -852,8 +860,8 @@ rule qc_summary:
         --nrf-pbc {input.nrf_pbc:q} \\
         --mito-tsv {input.mito:q} \\
         --analysis-policy {input.analysis_policy:q} \\
-        --fragment-qc {params.fragment_qc:q} \\
-        --cross-correlation-qc {params.cross_correlation_qc:q} \\
+        "${{FRAGMENT_QC_ARGS[@]}}" \\
+        "${{CROSS_CORRELATION_QC_ARGS[@]}}" \\
         --cross-correlation-enabled {params.cross_correlation_enabled} \\
         --output {output:q}
         """
