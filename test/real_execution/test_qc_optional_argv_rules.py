@@ -127,6 +127,8 @@ def _write_project(
     assay: str,
     cuttag_fragment_size: bool,
     cross_correlation: bool,
+    outdir: str = "results",
+    profile: str = "legacy",
 ) -> Path:
     target = {
         "chipseq": ("H3K27ac", "narrow"),
@@ -157,12 +159,12 @@ def _write_project(
         )
     config = {
         "samples": "config/samples.tsv",
-        "outdir": "results",
+        "outdir": outdir,
         "threads": 1,
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": "legacy",
+        "analysis_profile": profile,
         "config_schema_version": "2.0.0",
         "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
@@ -174,13 +176,23 @@ def _write_project(
             "cross_correlation": cross_correlation,
         },
     }
+    if profile == "updated":
+        config["duplicate_backend"] = "picard"
+        config["control_mode"] = "matched"
     config_path = tmp_path / "config" / "config.yaml"
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
     return config_path
 
 
-def _seed_identity(tmp_path: Path, snakemake_executable: str, config_path: Path):
-    seed_run_identity(tmp_path, snakemake_executable, SNAKEFILE, config_path)
+def _seed_identity(
+    tmp_path: Path,
+    snakemake_executable: str,
+    config_path: Path,
+    outdir: str = "results",
+):
+    seed_run_identity(
+        tmp_path, snakemake_executable, SNAKEFILE, config_path, outdir=outdir
+    )
 
 
 def _run_snakemake(
@@ -326,7 +338,7 @@ def _write_mnase_qc(path: Path) -> None:
     _write_tsv(path, MNASE_QC_V2_COLUMNS, row)
 
 
-def _write_policy(path: Path, assay: str) -> None:
+def _write_policy(path: Path, assay: str, profile: str = "legacy") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     stage_counts = {
         "analysis_input_alignments": 6,
@@ -346,7 +358,7 @@ def _write_policy(path: Path, assay: str) -> None:
         "scientific_policy_revision": 5,
         "sample": SAMPLE,
         "assay": assay,
-        "profile": "legacy",
+        "profile": profile,
         "resolved_duplicate_analysis": "exclude",
         "resolved_max_insert": 700,
         "organelle_mode": "exclude",
@@ -371,8 +383,10 @@ def _write_policy(path: Path, assay: str) -> None:
     )
 
 
-def _write_summary_inputs(tmp_path: Path, assay: str) -> None:
-    base = tmp_path / "results" / SAMPLE
+def _write_summary_inputs(
+    tmp_path: Path, assay: str, *, outdir: str = "results", profile: str = "legacy"
+) -> None:
+    base = tmp_path / outdir / SAMPLE
     _write_tsv(
         base / "01_qc" / f"{SAMPLE}.peak_counts.tsv",
         PEAK_COLUMNS,
@@ -391,8 +405,8 @@ def _write_summary_inputs(tmp_path: Path, assay: str) -> None:
             "total_reads": "10",
             "reads_in_peaks": "4",
             "frip": "0.4",
-            "bam": f"results/{SAMPLE}/02_align/{SAMPLE}.analysis.bam",
-            "peaks": f"results/{SAMPLE}/04_peaks/{SAMPLE}_peaks.narrowPeak",
+            "bam": f"{outdir}/{SAMPLE}/02_align/{SAMPLE}.analysis.bam",
+            "peaks": f"{outdir}/{SAMPLE}/04_peaks/{SAMPLE}_peaks.narrowPeak",
         },
     )
     _write_tsv(
@@ -419,7 +433,7 @@ def _write_summary_inputs(tmp_path: Path, assay: str) -> None:
         bam.parent.mkdir(parents=True, exist_ok=True)
         bam.write_bytes(b"fixture placeholder; qc_summary consumes it as a path\n")
     _write_mito(base / "05_qc" / f"{SAMPLE}.mito_fraction.tsv")
-    _write_policy(base / "05_qc" / f"{SAMPLE}.analysis_policy.json", assay)
+    _write_policy(base / "05_qc" / f"{SAMPLE}.analysis_policy.json", assay, profile)
 
 
 def _write_cross_correlation(path: Path) -> None:
@@ -550,5 +564,127 @@ def test_qc_summary_rule_handles_optional_qc(
         assert row["cross_correlation_nsc"] == "1.2"
         assert row["cross_correlation_rsc"] == "1.1"
     else:
+        assert row["cross_correlation_nsc"] == "NA"
+        assert row["cross_correlation_rsc"] == "NA"
+
+
+POLICY_SENTINEL = "R1_POLICY_UNEXPECTED_SIDE_EFFECT"
+SUMMARY_SENTINEL = "R1_SUMMARY_UNEXPECTED_SIDE_EFFECT"
+
+
+def _outdir_for(path_kind: str, sentinel: str) -> str:
+    if path_kind == "space":
+        return "results with spaces"
+    return f"results $(touch {sentinel}) 'single' \"double\""
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+@pytest.mark.parametrize("assay", ["cuttag", "mnase"])
+@pytest.mark.parametrize("path_kind", ["space", "literal"])
+def test_analysis_policy_rule_preserves_literal_paths(
+    tmp_path, snakemake_executable, path_kind, assay, profile
+):
+    outdir = _outdir_for(path_kind, POLICY_SENTINEL)
+    config_path = _write_project(
+        tmp_path,
+        assay=assay,
+        cuttag_fragment_size=True,
+        cross_correlation=False,
+        outdir=outdir,
+        profile=profile,
+    )
+    _seed_identity(tmp_path, snakemake_executable, config_path, outdir=outdir)
+
+    base = tmp_path / outdir / SAMPLE
+    _write_stage_metrics(
+        base / "05_qc" / f"{SAMPLE}.blacklist_dropped.stage_metrics.json"
+    )
+    _write_mito(base / "05_qc" / f"{SAMPLE}.mito_fraction.tsv")
+    if assay == "cuttag":
+        _write_fragment_qc(base / "01_qc" / f"{SAMPLE}.cuttag_fragment_size.tsv")
+    else:
+        _write_mnase_qc(base / "01_qc" / f"{SAMPLE}.mnase_qc_summary.tsv")
+
+    target = f"{outdir}/{SAMPLE}/05_qc/{SAMPLE}.analysis_policy.json"
+    _run_snakemake(
+        tmp_path, snakemake_executable, config_path, "analysis_policy", target
+    )
+
+    assert (tmp_path / outdir).is_dir()
+    assert (tmp_path / target).is_file()
+    assert not (tmp_path / POLICY_SENTINEL).exists(), (
+        "analysis_policy expanded the optional QC path as shell code"
+    )
+    policy = json.loads((tmp_path / target).read_text(encoding="utf-8"))
+    assert policy["profile"] == profile
+    assert policy["input_stages"]["fragment_size"] == (
+        "analysis_bam" if assay == "cuttag" else "not_applicable"
+    )
+    assert policy["input_stages"]["mnase_classification"] == (
+        "analysis_bam" if assay == "mnase" else "not_applicable"
+    )
+    assert policy["stage_counts"]["analysis_valid_templates"] == (
+        3 if assay == "cuttag" else 5
+    )
+
+
+@pytest.mark.parametrize("profile", ["legacy", "updated"])
+@pytest.mark.parametrize("path_kind", ["space", "literal"])
+@pytest.mark.parametrize(
+    ("fragment_enabled", "cross_correlation_enabled"),
+    [(True, False), (False, True), (True, True)],
+)
+def test_qc_summary_rule_preserves_literal_paths(
+    tmp_path,
+    snakemake_executable,
+    path_kind,
+    profile,
+    fragment_enabled,
+    cross_correlation_enabled,
+):
+    outdir = _outdir_for(path_kind, SUMMARY_SENTINEL)
+    config_path = _write_project(
+        tmp_path,
+        assay="cuttag",
+        cuttag_fragment_size=fragment_enabled,
+        cross_correlation=cross_correlation_enabled,
+        outdir=outdir,
+        profile=profile,
+    )
+    _seed_identity(tmp_path, snakemake_executable, config_path, outdir=outdir)
+    _write_summary_inputs(tmp_path, "cuttag", outdir=outdir, profile=profile)
+
+    base = tmp_path / outdir / SAMPLE
+    if fragment_enabled:
+        _write_fragment_qc(base / "01_qc" / f"{SAMPLE}.cuttag_fragment_size.tsv")
+    if cross_correlation_enabled:
+        _write_cross_correlation(
+            base / "05_qc" / "cross_correlation" / f"{SAMPLE}.cc.qc"
+        )
+
+    target = f"{outdir}/{SAMPLE}/01_qc/{SAMPLE}.qc_summary.tsv"
+    _run_snakemake(tmp_path, snakemake_executable, config_path, "qc_summary", target)
+
+    assert (tmp_path / outdir).is_dir()
+    assert (tmp_path / target).is_file()
+    assert not (tmp_path / SUMMARY_SENTINEL).exists(), (
+        "qc_summary expanded the optional QC path as shell code"
+    )
+    with (tmp_path / target).open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        rows = list(reader)
+    assert reader.fieldnames == list(SAMPLE_QC_V2_COLUMNS)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["assay"] == "cuttag"
+    assert row["final_bam"] == f"{outdir}/{SAMPLE}/02_align/{SAMPLE}.final.bam"
+    assert row["analysis_bam"] == f"{outdir}/{SAMPLE}/02_align/{SAMPLE}.analysis.bam"
+    assert row["analysis_valid_fragments"] == ("3" if fragment_enabled else "NA")
+    if cross_correlation_enabled:
+        assert row["cross_correlation_status"] == "reported"
+        assert row["cross_correlation_nsc"] == "1.2"
+        assert row["cross_correlation_rsc"] == "1.1"
+    else:
+        assert row["cross_correlation_status"] == "not_enabled"
         assert row["cross_correlation_nsc"] == "NA"
         assert row["cross_correlation_rsc"] == "NA"

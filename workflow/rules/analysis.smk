@@ -211,13 +211,15 @@ rule analysis_policy:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
+        FRAGMENT_QC_PATH={params.fragment_qc:q}
         FRAGMENT_QC_ARGS=()
-        if [[ -n "{params.fragment_qc}" ]]; then
-            FRAGMENT_QC_ARGS+=(--fragment-qc {params.fragment_qc:q})
+        if [[ -n "$FRAGMENT_QC_PATH" ]]; then
+            FRAGMENT_QC_ARGS+=(--fragment-qc "$FRAGMENT_QC_PATH")
         fi
+        MNASE_QC_PATH={params.mnase_qc:q}
         MNASE_QC_ARGS=()
-        if [[ -n "{params.mnase_qc}" ]]; then
-            MNASE_QC_ARGS+=(--mnase-qc {params.mnase_qc:q})
+        if [[ -n "$MNASE_QC_PATH" ]]; then
+            MNASE_QC_ARGS+=(--mnase-qc "$MNASE_QC_PATH")
         fi
         python3 {params.script:q} \
             --sample {params.sample:q} \

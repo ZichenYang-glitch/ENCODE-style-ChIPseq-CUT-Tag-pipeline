@@ -830,13 +830,15 @@ rule qc_summary:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
+        FRAGMENT_QC_PATH={params.fragment_qc:q}
         FRAGMENT_QC_ARGS=()
-        if [[ -n "{params.fragment_qc}" ]]; then
-            FRAGMENT_QC_ARGS+=(--fragment-qc {params.fragment_qc:q})
+        if [[ -n "$FRAGMENT_QC_PATH" ]]; then
+            FRAGMENT_QC_ARGS+=(--fragment-qc "$FRAGMENT_QC_PATH")
         fi
+        CROSS_CORRELATION_QC_PATH={params.cross_correlation_qc:q}
         CROSS_CORRELATION_QC_ARGS=()
-        if [[ -n "{params.cross_correlation_qc}" ]]; then
-            CROSS_CORRELATION_QC_ARGS+=(--cross-correlation-qc {params.cross_correlation_qc:q})
+        if [[ -n "$CROSS_CORRELATION_QC_PATH" ]]; then
+            CROSS_CORRELATION_QC_ARGS+=(--cross-correlation-qc "$CROSS_CORRELATION_QC_PATH")
         fi
         python3 {params.script:q} \\
         --sample {params.sample:q} \\
