@@ -110,6 +110,9 @@ def test_analysis_outdir_separates_raw_and_analysis_rows(tmp_config):
     assert paths["cpm_bigwig"].startswith("raw/analysis_filtered/S1/")
     assert paths["macs3_peak"].startswith("raw/analysis_filtered/S1/")
     assert paths["qc_summary"].startswith("raw/analysis_filtered/S1/")
+    assert paths["analysis_template_metrics"].startswith(
+        "raw/analysis_filtered/S1/"
+    )
 
 
 def test_mnase_rows_use_analysis_outdir(tmp_config):

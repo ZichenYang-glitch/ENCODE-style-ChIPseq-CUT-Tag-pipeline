@@ -52,6 +52,7 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
 | `analysis_filtered_blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
 | `analysis_policy` | write_analysis_policy.py | analysis_policy | `results/<sample>/05_qc/<sample>.analysis_policy.json` | implemented |
+| `analysis_template_metrics` | calc_analysis_template_metrics.py | analysis_template_metrics | `results/<sample>/05_qc/<sample>.analysis_template_metrics.tsv` | implemented |
 | `analysis_filtered_cuttag_fragment_size` | calc_cuttag_fragment_size.py | cuttag_fragment_size | `results/analysis_filtered/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv` | implemented |
 | `analysis_filtered_project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/analysis_filtered/multiqc/project_qc_summary.tsv` | implemented |
 | `analysis_filtered_bam` | samtools + filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam` | implemented |
@@ -210,6 +211,16 @@ bound, organelle mode/status/matched contigs, blacklist mode/application,
 scientific input stage for each QC product, stage counts, and the QC schema
 versions. It contains no absolute workspace paths, environment values, or
 contract in the filtered namespace.
+
+`analysis_template_metrics` is the assay-independent PE template-count
+component. It is written as a versioned v2 TSV for every sample from the
+canonical analysis BAM; SE is explicitly `not_applicable` with NA counts, and a
+missing or malformed BAM is `parse_failed` rather than a fabricated zero. The
+component is authoritative for the general valid/invalid template counts in
+`analysis_policy` schema version 2, which adds `analysis_template_status` and
+`input_stages.analysis_template_metrics`. Policy version 1 records remain
+readable. Both namespaces keep the canonical output type; the analysis-filtered
+branch is expressed by the path and `analysis_branch` metadata.
 
 `cuttag_fragment_size` counts each complete valid PE template once using
 `abs(TLEN)` and consumes the canonical analysis BAM. Zero TLEN, orphan,

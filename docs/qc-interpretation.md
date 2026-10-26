@@ -376,6 +376,28 @@ NA when there are no valid templates. `window_overlap` records whether the
 configured windows overlap. A missing or malformed analysis BAM reports
 `analysis_status: parse_failed` with NA counts rather than zero.
 
+## General Analysis-Template Counts
+
+**Output:** `*.analysis_template_metrics.tsv` (v2)
+
+Every sample gets an assay-independent template count from the canonical
+analysis BAM. One complete valid PE template contributes one count; legal
+negative TLEN is preserved as `abs(TLEN)`, while zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted in separate invalid
+categories. The component is independent of CUT&Tag fragment QC, so ChIP-seq,
+ATAC-seq, and CUT&Tag with `qc.cuttag_fragment_size: false` still record
+general valid/invalid counts.
+
+SE samples are explicitly `not_applicable` with NA counts; a missing or
+malformed BAM is `parse_failed`, never zero. A conserved table with zero valid
+templates is `no_valid_templates` and reports the legitimate zero. The
+`analysis_policy` schema version 2 records `analysis_template_status` and the
+`analysis_template_metrics` input stage. Policy version 1 records remain
+readable. The fixed sample v2 summary uses the general counts for
+`analysis_valid_fragments` and `analysis_invalid_templates` when the
+fragment-specific component is absent; fragment-only reason and upstream fields
+remain NA in that case.
+
 ## Replicate-Level Outputs
 
 **Outputs:** `experiments/<exp>/` with pooled BAMs, pooled peaks, pooled

@@ -25,6 +25,7 @@ from conftest import seed_run_identity
 
 from encode_pipeline.qc.contract import (
     ANALYSIS_POLICY_INPUT_STAGE_KEYS,
+    ANALYSIS_TEMPLATE_METRICS_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V2_COLUMNS,
     MNASE_QC_V2_COLUMNS,
@@ -338,6 +339,36 @@ def _write_mnase_qc(path: Path) -> None:
     _write_tsv(path, MNASE_QC_V2_COLUMNS, row)
 
 
+def _write_analysis_template_metrics(
+    path: Path,
+    *,
+    valid: int,
+    invalid: int,
+    layout: str = "PE",
+) -> None:
+    row = {column: "NA" for column in ANALYSIS_TEMPLATE_METRICS_COLUMNS}
+    row.update(
+        {
+            "schema_version": "2",
+            "sample": SAMPLE,
+            "layout": layout,
+            "analysis_status": "ok" if valid else "no_valid_templates",
+            "input_stage": "analysis_bam",
+            "analysis_total_templates": str(valid + invalid),
+            "analysis_valid_templates": str(valid),
+            "analysis_invalid_templates": str(invalid),
+            "analysis_tlen_zero_templates": "0",
+            "analysis_orphan_templates": "0",
+            "analysis_cross_contig_templates": "0",
+            "analysis_inconsistent_templates": str(invalid),
+            "alignments_total": str((valid + invalid) * 2),
+            "upstream_dropped_templates": "2",
+            "upstream_dropped_alignments": "4",
+        }
+    )
+    _write_tsv(path, ANALYSIS_TEMPLATE_METRICS_COLUMNS, row)
+
+
 def _write_policy(path: Path, assay: str, profile: str = "legacy") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     stage_counts = {
@@ -454,8 +485,8 @@ def _write_cross_correlation(path: Path) -> None:
         "mnase_stage",
     ),
     [
-        ("chipseq", True, None, None, "not_applicable", "not_applicable"),
-        ("cuttag", False, None, None, "not_applicable", "not_applicable"),
+        ("chipseq", True, 2, 0, "not_applicable", "not_applicable"),
+        ("cuttag", False, 3, 1, "not_applicable", "not_applicable"),
         ("cuttag", True, 3, 1, "analysis_bam", "not_applicable"),
         ("mnase", True, 5, 1, "not_applicable", "analysis_bam"),
     ],
@@ -483,6 +514,11 @@ def test_analysis_policy_rule_handles_optional_qc(
         base / "05_qc" / f"{SAMPLE}.blacklist_dropped.stage_metrics.json"
     )
     _write_mito(base / "05_qc" / f"{SAMPLE}.mito_fraction.tsv")
+    _write_analysis_template_metrics(
+        base / "05_qc" / f"{SAMPLE}.analysis_template_metrics.tsv",
+        valid=expected_valid,
+        invalid=expected_invalid,
+    )
     if assay == "cuttag" and cuttag_fragment_size:
         _write_fragment_qc(base / "01_qc" / f"{SAMPLE}.cuttag_fragment_size.tsv")
     if assay == "mnase":
@@ -496,11 +532,13 @@ def test_analysis_policy_rule_handles_optional_qc(
     policy = json.loads((tmp_path / target).read_text(encoding="utf-8"))
     assert policy["sample"] == SAMPLE
     assert policy["assay"] == assay
+    assert policy["schema_version"] == 2
+    assert policy["analysis_template_status"] == "ok"
     assert policy["input_stages"]["fragment_size"] == fragment_stage
     assert policy["input_stages"]["mnase_classification"] == mnase_stage
-    if expected_valid is not None:
-        assert policy["stage_counts"]["analysis_valid_templates"] == expected_valid
-        assert policy["stage_counts"]["analysis_invalid_templates"] == expected_invalid
+    assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"
+    assert policy["stage_counts"]["analysis_valid_templates"] == expected_valid
+    assert policy["stage_counts"]["analysis_invalid_templates"] == expected_invalid
 
 
 @pytest.mark.parametrize(
@@ -509,13 +547,14 @@ def test_analysis_policy_rule_handles_optional_qc(
         "cuttag_fragment_size",
         "cross_correlation",
         "fragment_valid",
+        "fragment_invalid",
         "cc_status",
     ),
     [
-        ("chipseq", True, False, "NA", "not_enabled"),
-        ("cuttag", True, False, "3", "not_enabled"),
-        ("cuttag", False, True, "NA", "reported"),
-        ("cuttag", True, True, "3", "reported"),
+        ("chipseq", True, False, "1", "0", "not_enabled"),
+        ("cuttag", True, False, "3", "1", "not_enabled"),
+        ("cuttag", False, True, "1", "0", "reported"),
+        ("cuttag", True, True, "3", "1", "reported"),
     ],
 )
 def test_qc_summary_rule_handles_optional_qc(
@@ -525,6 +564,7 @@ def test_qc_summary_rule_handles_optional_qc(
     cuttag_fragment_size,
     cross_correlation,
     fragment_valid,
+    fragment_invalid,
     cc_status,
 ):
     config_path = _write_project(
@@ -559,6 +599,7 @@ def test_qc_summary_rule_handles_optional_qc(
     assert row["raw_peak_count"] == "3"
     assert row["delivered_peak_count"] == "3"
     assert row["analysis_valid_fragments"] == fragment_valid
+    assert row["analysis_invalid_templates"] == fragment_invalid
     assert row["cross_correlation_status"] == cc_status
     if cc_status == "reported":
         assert row["cross_correlation_nsc"] == "1.2"
@@ -600,6 +641,11 @@ def test_analysis_policy_rule_preserves_literal_paths(
         base / "05_qc" / f"{SAMPLE}.blacklist_dropped.stage_metrics.json"
     )
     _write_mito(base / "05_qc" / f"{SAMPLE}.mito_fraction.tsv")
+    _write_analysis_template_metrics(
+        base / "05_qc" / f"{SAMPLE}.analysis_template_metrics.tsv",
+        valid=3 if assay == "cuttag" else 5,
+        invalid=1,
+    )
     if assay == "cuttag":
         _write_fragment_qc(base / "01_qc" / f"{SAMPLE}.cuttag_fragment_size.tsv")
     else:
@@ -617,6 +663,9 @@ def test_analysis_policy_rule_preserves_literal_paths(
     )
     policy = json.loads((tmp_path / target).read_text(encoding="utf-8"))
     assert policy["profile"] == profile
+    assert policy["schema_version"] == 2
+    assert policy["analysis_template_status"] == "ok"
+    assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"
     assert policy["input_stages"]["fragment_size"] == (
         "analysis_bam" if assay == "cuttag" else "not_applicable"
     )
@@ -679,7 +728,8 @@ def test_qc_summary_rule_preserves_literal_paths(
     assert row["assay"] == "cuttag"
     assert row["final_bam"] == f"{outdir}/{SAMPLE}/02_align/{SAMPLE}.final.bam"
     assert row["analysis_bam"] == f"{outdir}/{SAMPLE}/02_align/{SAMPLE}.analysis.bam"
-    assert row["analysis_valid_fragments"] == ("3" if fragment_enabled else "NA")
+    assert row["analysis_valid_fragments"] == ("3" if fragment_enabled else "1")
+    assert row["analysis_invalid_templates"] == ("1" if fragment_enabled else "0")
     if cross_correlation_enabled:
         assert row["cross_correlation_status"] == "reported"
         assert row["cross_correlation_nsc"] == "1.2"

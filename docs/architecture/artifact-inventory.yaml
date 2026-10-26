@@ -467,6 +467,19 @@ artifacts:
   rule_all: true
   config_gate: null
   notes: adapter-owned JSON; no absolute workspace paths or environment values
+- id: analysis_template_metrics
+  description: General PE analysis-template counts from the canonical analysis BAM
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/<sample>.analysis_template_metrics.tsv
+  producing_rule: analysis_template_metrics
+  tool: calc_analysis_template_metrics.py
+  manifest_output_type: analysis_template_metrics
+  pipeline_done: false
+  rule_all: true
+  config_gate: null
+  notes: versioned v2 QC component; SE is not_applicable with NA counts
 - id: analysis_filtered_cpm_bigwig
   description: Analysis-filtered CPM BigWig
   scope: sample

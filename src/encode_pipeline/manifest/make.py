@@ -219,6 +219,22 @@ def _build_sample_rows(
             "write_analysis_policy.py",
             _resolve_path(analysis_root, sid, "05_qc", f"{sid}.analysis_policy.json"),
         )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_template_metrics",
+            "calc_analysis_template_metrics.py",
+            _resolve_path(
+                analysis_root,
+                sid,
+                "05_qc",
+                f"{sid}.analysis_template_metrics.tsv",
+            ),
+        )
         if cuttag_fragment_size and assay == "cuttag":
             _add_row(
                 rows,
