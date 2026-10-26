@@ -3,8 +3,9 @@
 
 Version 1 inputs stay version 1 when every input is version 1.  If any input
 is version 2, the project summary is written with the exact v2 header and v1
-rows are padded with NA for fields that version did not define.  Arbitrary
-extra columns are rejected.
+rows are padded with NA for fields that version did not define.  A v2 header
+must declare ``schema_version=2`` in every row; unknown versions are rejected
+rather than re-labelled.  Arbitrary extra columns are rejected.
 """
 
 from __future__ import annotations
@@ -57,7 +58,15 @@ def _read_table(filepath):
             if len(row) != len(header):
                 print(f"ERROR: row width mismatch in {filepath}", file=sys.stderr)
                 sys.exit(1)
-            rows.append(dict(zip(header, row, strict=True)))
+            parsed = dict(zip(header, row, strict=True))
+            if version == "2" and parsed.get("schema_version") != "2":
+                print(
+                    f"ERROR: unsupported schema_version in {filepath}",
+                    file=sys.stderr,
+                )
+                print("  A v2 header must declare schema_version=2", file=sys.stderr)
+                sys.exit(1)
+            rows.append(parsed)
     return version, rows
 
 

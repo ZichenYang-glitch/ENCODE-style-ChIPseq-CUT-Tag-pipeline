@@ -36,7 +36,8 @@ def read_versioned_tsv(path: str, v1_columns, v2_columns):
 
     The function rejects duplicate columns, unknown headers, extra columns,
     missing files, empty tables and multi-row files.  It never guesses a
-    version from context.
+    version from context: a v2 header must also declare ``schema_version=2``
+    in its single row, so an unknown version cannot be re-labelled as current.
     """
     if not path or not os.path.isfile(path):
         raise ValueError(f"QC source is missing: {path}")
@@ -61,7 +62,10 @@ def read_versioned_tsv(path: str, v1_columns, v2_columns):
         raise ValueError(f"QC source must contain exactly one row: {path}")
     if len(rows[0]) != len(expected):
         raise ValueError(f"QC source row width is invalid: {path}")
-    return version, dict(zip(expected, rows[0], strict=True))
+    row = dict(zip(expected, rows[0], strict=True))
+    if version == "2" and row.get("schema_version") != "2":
+        raise ValueError(f"QC source schema version is unsupported: {path}")
+    return version, row
 
 
 def write_exact_tsv(path: str, columns, row):
