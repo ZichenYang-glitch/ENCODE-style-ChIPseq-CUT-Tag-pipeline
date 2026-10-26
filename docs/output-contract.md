@@ -45,6 +45,16 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `blacklist_filtered_bam` | bedtools intersect | blacklist_filter_bam | `results/<sample>/02_align/<sample>.blacklist_filtered.bam` | stable |
 | `pipeline_done` | touch | (common.smk) | `results/<sample>/logs/<sample>.pipeline.done` | stable |
 | `analysis_bam` | samtools | prepare_analysis_bam | `results/<sample>/02_align/<sample>.analysis.bam` | implemented |
+| `analysis_bai` | samtools index | prepare_analysis_bam | `results/<sample>/02_align/<sample>.analysis.bam.bai` | implemented |
+| `analysis_filtered_bai` | samtools index | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam.bai` | implemented |
+| `mito_fraction` | calc_organelle_metrics.py | mito_fraction | `results/<sample>/05_qc/<sample>.mito_fraction.tsv` | implemented |
+| `analysis_filtered_mito_fraction` | calc_organelle_metrics.py | mito_fraction | `results/analysis_filtered/<sample>/05_qc/<sample>.mito_fraction.tsv` | implemented |
+| `blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
+| `analysis_filtered_blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
+| `analysis_policy` | write_analysis_policy.py | analysis_policy | `results/<sample>/05_qc/<sample>.analysis_policy.json` | implemented |
+| `analysis_template_metrics` | calc_analysis_template_metrics.py | analysis_template_metrics | `results/<sample>/05_qc/<sample>.analysis_template_metrics.tsv` | implemented |
+| `analysis_filtered_cuttag_fragment_size` | calc_cuttag_fragment_size.py | cuttag_fragment_size | `results/analysis_filtered/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv` | implemented |
+| `analysis_filtered_project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/analysis_filtered/multiqc/project_qc_summary.tsv` | implemented |
 | `analysis_filtered_bam` | samtools + filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam` | implemented |
 | `blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
 | `analysis_filtered_blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
@@ -177,13 +187,59 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 
 With `blacklist_mode: analysis`, sample and pooled outputs are written under
 `results/analysis_filtered/...`; with `copies` or `off`, they remain under
-`results/...`. The table above lists the base/raw templates for most output
-types; the analysis-filtered variants are registered only for a subset in the
-v1 catalog (`analysis_filtered_bam`, `analysis_filtered_blacklist_dropped`,
-`analysis_filtered_cpm_bigwig`, `pooled_filtered_peak`). The manifest resolves
-the correct namespace at generation time. Complete mode-dependent catalog
-registration and the versioned raw/delivered QC column contract are deferred
-to SCI-5; the v1 table is not a complete index of both namespaces.
+`results/...`. The catalog registers the analysis-filtered variants for the
+canonical analysis BAM, organelle diagnostics, blacklist stage metrics,
+analysis policy, fragment-size/MNase/sample/pooled/project QC summaries, CPM
+and fragment CPM tracks, peaks, TSS profiles, and reference-filtered peak
+files. The manifest keeps the canonical QC output type; the analysis-filtered
+namespace is expressed by the relative path and the adapter's
+`analysis_branch` metadata, not by an `analysis_filtered_*` output type. A
+raw-only file such as `final.bam` remains under the raw root in both modes.
+
+## QC Contract (v2)
+
+`qc_summary` and `mnase_qc_summary` are version 2 writers. Their first column
+is `schema_version`, followed by the complete version 1 column order, then the
+new analysis-stage fields. `cuttag_fragment_size` and `mito_fraction` use the
+same version-first layout. The adapter reads exact v1 and exact v2 headers; it
+does not accept arbitrary extra columns, duplicate columns, unknown versions,
+undefined status values, or loose numeric types. Historical v1 artifacts are
+not rewritten or recomputed.
+
+The `analysis_policy` JSON records the resolved duplicate policy, PE insert
+bound, organelle mode/status/matched contigs, blacklist mode/application,
+scientific input stage for each QC product, stage counts, and the QC schema
+versions. It contains no absolute workspace paths, environment values, or
+contract in the filtered namespace.
+
+`analysis_template_metrics` is the assay-independent PE template-count
+component. It is written as a versioned v2 TSV for every sample from the
+canonical analysis BAM; SE is explicitly `not_applicable` with NA counts, and a
+missing or malformed BAM is `parse_failed` rather than a fabricated zero. The
+component is authoritative for the general valid/invalid template counts in
+`analysis_policy` schema version 2, which adds `analysis_template_status` and
+`input_stages.analysis_template_metrics`. Policy version 1 records remain
+readable. Both namespaces keep the canonical output type; the analysis-filtered
+branch is expressed by the path and `analysis_branch` metadata.
+
+`cuttag_fragment_size` counts each complete valid PE template once using
+`abs(TLEN)` and consumes the canonical analysis BAM. Zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted as invalid and never
+enter a biological length bin. Duplicate handling follows the upstream
+resolved policy; the script does not remove 0x400 records by itself.
+
+`mnase_qc_summary` reports read counts from the sub/mono/di BAMs separately
+from fragment counts classified from the canonical analysis BAM. Window
+counts may overlap; `analysis_unclassified_templates` is computed against the
+union of configured windows. `mito_fraction` consumes the pre-duplicate MAPQ
+BAM and reports `unresolved_contigs`/`no_mapped_reads` with NA values rather
+than fabricating zero.
+
+When every input to `project_qc_summary` is v1, aggregation preserves the v1
+header. If any input is v2, the project summary uses the v2 header and pads v1
+rows with NA for fields that version did not define. `pooled_qc_summary`
+keeps its existing fixed columns; `pooled_peak_count` is the delivered peak
+count.
 
 ## Manifest Field Schema
 
@@ -220,6 +276,11 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `picard_*` | `qc.picard_metrics: true` + `genome_resources.<genome>.reference_fasta` |
 | `tss_*` | `qc.tss_enrichment: true` + `genome_resources.<genome>.gtf` |
 | `cuttag_fragment_size` | `qc.cuttag_fragment_size: true` + `assay: cuttag` |
+| `analysis_bam`, `analysis_bai` | canonical analysis view for active samples |
+| `mito_fraction`, `blacklist_dropped`, `blacklist_stage_metrics` | active samples |
+| `analysis_policy` | treatment samples; analysis-filtered variant under `blacklist_mode: analysis` |
+| `mnase_qc_summary` | `assay: mnase` |
+| `qc_summary` | `qc.summary: true` + peak-centric treatment sample |
 | `seacr_*` | `cuttag.seacr.enabled: true` + `assay: cuttag` + `layout: PE` |
 | `pooled_mnase_*` | `replicate_analysis: true` + `>=2 MNase treatment bioreps` |
 | `idr_*` | `chipseq_idr: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |

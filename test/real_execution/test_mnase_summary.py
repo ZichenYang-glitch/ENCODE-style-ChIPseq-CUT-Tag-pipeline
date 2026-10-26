@@ -15,18 +15,15 @@ import pytest
 
 from _complexity import REPO, run
 from _tool_resolver import resolve_tool
+from encode_pipeline.qc.contract import MNASE_QC_V2_COLUMNS
 
 
 pytestmark = pytest.mark.real_execution
 
 SUMMARY = "results/M1/01_qc/M1.mnase_qc_summary.tsv"
 METRICS = "results/M1/05_qc/picard/M1.insert_size_metrics"
-HEADER = (
-    "sample assay peak_mode sub_min sub_max mono_min mono_max di_min di_max "
-    "dyad_min dyad_max sub_bam mono_bam di_bam dyad_bigwig mono_bigwig "
-    "insert_size_metrics caller_danpos3_enabled caller_inps_enabled "
-    "caller_sem_enabled sub_reads mono_reads di_reads"
-).split()
+
+HEADER = list(MNASE_QC_V2_COLUMNS)
 
 
 def _bam(workdir, samtools, name, pairs, length):
@@ -218,6 +215,39 @@ print("PICARD_STUB_COMPLETE")
         final.parent.mkdir(parents=True)
         shutil.copyfile(tmp_path / "mono.bam", final)
         shutil.copyfile(tmp_path / "mono.bam.bai", str(final) + ".bai")
+        analysis = tmp_path / "results/M1/02_align/M1.analysis.bam"
+        shutil.copyfile(tmp_path / "mono.bam", analysis)
+        shutil.copyfile(tmp_path / "mono.bam.bai", str(analysis) + ".bai")
+        stage = tmp_path / "results/M1/05_qc/M1.blacklist_dropped.stage_metrics.json"
+        stage.parent.mkdir(parents=True)
+        stage.write_text(
+            json.dumps(
+                {
+                    "sample": "M1",
+                    "layout": "PE",
+                    "organelle_mode": "report",
+                    "exclude_dup": False,
+                    "has_blacklist": False,
+                    "total_alignments": 4,
+                    "kept_alignments": 4,
+                    "dropped_alignments": 0,
+                    "dropped_alignments_by_reason": {
+                        "invalid": 0,
+                        "duplicate": 0,
+                        "organelle": 0,
+                        "blacklist": 0,
+                    },
+                    "dropped_templates": 0,
+                    "dropped_templates_by_reason": {
+                        "invalid": 0,
+                        "duplicate": 0,
+                        "organelle": 0,
+                        "blacklist": 0,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         for kind in ("mono", "dyad"):
             path = tmp_path / f"results/M1/04_signal/M1.{kind}.CPM.bw"
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -282,6 +312,7 @@ def assert_summary(workdir, metrics):
         rows = list(reader)
     assert reader.fieldnames == HEADER
     expected = dict(
+        schema_version="2",
         sample="M1",
         assay="mnase",
         peak_mode="nucleosome",
@@ -300,6 +331,25 @@ def assert_summary(workdir, metrics):
         sub_reads="2",
         mono_reads="4",
         di_reads="6",
+        analysis_bam="results/M1/02_align/M1.analysis.bam",
+        analysis_input_stage="analysis_bam",
+        analysis_status="ok",
+        analysis_total_templates="2",
+        analysis_valid_templates="2",
+        analysis_invalid_templates="0",
+        analysis_tlen_zero_templates="0",
+        analysis_orphan_templates="0",
+        analysis_cross_contig_templates="0",
+        analysis_inconsistent_templates="0",
+        analysis_classified_templates="2",
+        analysis_unclassified_templates="0",
+        analysis_fraction_classified="1.000000",
+        window_overlap="false",
+        sub_fragments="0",
+        mono_fragments="2",
+        di_fragments="0",
+        upstream_dropped_templates="0",
+        upstream_dropped_alignments="0",
     )
     for kind in ("sub", "mono", "di"):
         expected[f"{kind}_bam"] = f"results/M1/03_fragments/M1.{kind}.bam"

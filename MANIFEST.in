@@ -1,9 +1,12 @@
 prune test
 include scripts/bootstrap_helixweave_operator.py
+include scripts/qc_common.py
+include scripts/qc_template.py
 include scripts/aggregate_qc_summary.py
 include scripts/assemble_qc_summary.py
 include scripts/blacklist_filter.py
 include scripts/calc_cuttag_fragment_size.py
+include scripts/calc_analysis_template_metrics.py
 include scripts/calc_frip.py
 include scripts/calc_nrf_pbc.py
 include scripts/calc_organelle_metrics.py
@@ -20,6 +23,7 @@ include scripts/split_pseudoreps.py
 include scripts/chipseq_idr_summary.py
 include scripts/validate_blacklist.py
 include scripts/validate_samples.py
+include scripts/write_analysis_policy.py
 include docs/architecture/artifact-inventory.yaml
 include profiles/default/config.yaml
 include workflow/Snakefile

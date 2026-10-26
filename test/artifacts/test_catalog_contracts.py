@@ -902,6 +902,53 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
             tmp_config,
         )
         assert "pooled_filtered_peak" not in mode_types
+        all_types |= mode_types
+
+    # 16. Raw-namespace per-sample QC for MNase and CUT&Tag
+    all_types |= _run_manifest(
+        {"blacklist_mode": "off"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "M1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "mnase",
+                "H3",
+                "nucleosome",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+    all_types |= _run_manifest(
+        {"blacklist_mode": "off"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "C1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
 
     missing = []
     for mot in sorted(catalog_mots):
@@ -1073,3 +1120,60 @@ def test_artifact_instances_are_frozen():
     a = catalog[0]
     with pytest.raises((FrozenInstanceError, AttributeError)):
         a.id = "mutated"
+
+
+def test_fragment_cpm_manifest_respects_analysis_profile(tmp_path):
+    """The manifest must not advertise updated-only fragment tracks for legacy."""
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+    ]
+    samples = tmp_path / "samples.tsv"
+    samples.write_text(
+        "\t".join(columns)
+        + "\n"
+        + "\t".join(
+            [
+                "A1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def types_for(profile):
+        config = _base_config()
+        config.update(
+            {
+                "samples": str(samples),
+                "outdir": str(tmp_path / profile),
+                "analysis_profile": profile,
+                "fragment_cpm": "auto",
+            }
+        )
+        rows, _, _ = build_manifest_rows(config)
+        return {row["output_type"] for row in rows}
+
+    assert "fragment_cpm_bigwig" not in types_for("legacy")
+    assert "fragment_cpm_bigwig" in types_for("updated")

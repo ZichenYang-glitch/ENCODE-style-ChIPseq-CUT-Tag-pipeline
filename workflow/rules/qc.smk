@@ -1,5 +1,8 @@
 # qc.smk — Single-Sample QC rules
 # ========================================
+# Shared versioned-QC runtime helpers: scripts/qc_common.py and
+# scripts/qc_template.py are imported by the QC writers below and are part
+# of the controlled runtime closure.
 # Blacklist filtering (BAM + peaks), peak counts, FRiP, library complexity,
 # MACS3 signal tracks, and QC summary.
 # All QC features are resource-gated — blacklist operations only run when
@@ -173,7 +176,6 @@ rule peak_counts:
     params:
         peak_mode=lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
         sample="{sample}",
-        analysis_mode="yes" if ANALYSIS_FILTERED else "no",
         bl_peak=lambda wc: (
             _analysis_filtered_peak_file(wc.sample)
             if ANALYSIS_FILTERED
@@ -191,9 +193,6 @@ rule peak_counts:
         BL_PEAK={params.bl_peak:q}
         if [[ -n "$BL_PEAK" && -f "$BL_PEAK" ]]; then
             BL_COUNT=$(wc -l <"$BL_PEAK")
-            if [[ "{params.analysis_mode}" == "yes" ]]; then
-                PEAK_COUNT="$BL_COUNT"
-            fi
         else
             BL_COUNT="NA"
         fi
@@ -351,7 +350,8 @@ rule seacr_call:
 
 rule cuttag_fragment_size:
     input:
-        lambda wc: analysis_bam(wc.sample),
+        bam=lambda wc: analysis_bam(wc.sample),
+        stage_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.stage_metrics.json",
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.cuttag_fragment_size.tsv",
     log:
@@ -361,14 +361,21 @@ rule cuttag_fragment_size:
     params:
         script=f"{workflow.basedir}/../scripts/calc_cuttag_fragment_size.py",
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        duplicate_analysis=lambda wc: get_duplicate_policy(wc.sample),
+        blacklist_applied=lambda wc: (
+            "true" if (ANALYSIS_FILTERED and has_genome_resource(wc.sample, "blacklist")) else "false"
+        ),
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         python3 {params.script:q} \
             --sample {wildcards.sample:q} \
-            --bam {input:q} \
+            --bam {input.bam:q} \
             --layout {params.layout:q} \
+            --duplicate-analysis {params.duplicate_analysis:q} \
+            --blacklist-applied {params.blacklist_applied:q} \
+            --stage-metrics {input.stage_metrics:q} \
             --output {output:q} \
             2>&1 | tee {log:q}
         """
@@ -754,7 +761,23 @@ rule qc_summary:
         frip=f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.frip.tsv",
         library_complexity=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.library_complexity.tsv",
         nrf_pbc=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.nrf_pbc.tsv",
-        final_bam=lambda wc: analysis_bam(wc.sample),
+        final_bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam",
+        analysis_bam=lambda wc: analysis_bam(wc.sample),
+        mito=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.mito_fraction.tsv",
+        analysis_policy=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_policy.json",
+        fragment_qc=lambda wc: (
+            [f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.cuttag_fragment_size.tsv"]
+            if (
+                QC_CONFIG.get("cuttag_fragment_size", True)
+                and SAMPLE_MAP[wc.sample]["assay"] == "cuttag"
+            )
+            else []
+        ),
+        cross_correlation_qc=lambda wc: (
+            [f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.qc"]
+            if QC_CONFIG.get("cross_correlation", False)
+            else []
+        ),
     output:
         f"{OUTDIR}/{{sample}}/01_qc/{{sample}}.qc_summary.tsv",
     conda:
@@ -785,10 +808,34 @@ rule qc_summary:
             else (_blacklist_peak_file(wc.sample) if _has_blacklist_qc(wc.sample) else "NA")
         ),
         ctrl_type=lambda wc: _control_type(wc.sample),
+        fragment_qc=lambda wc: (
+            f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.cuttag_fragment_size.tsv"
+            if (
+                QC_CONFIG.get("cuttag_fragment_size", True)
+                and SAMPLE_MAP[wc.sample]["assay"] == "cuttag"
+            )
+            else ""
+        ),
+        cross_correlation_qc=lambda wc: (
+            f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.qc"
+            if QC_CONFIG.get("cross_correlation", False)
+            else ""
+        ),
+        cross_correlation_enabled=str(QC_CONFIG.get("cross_correlation", False)).lower(),
     shell:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
+        FRAGMENT_QC_PATH={params.fragment_qc:q}
+        FRAGMENT_QC_ARGS=()
+        if [[ -n "$FRAGMENT_QC_PATH" ]]; then
+            FRAGMENT_QC_ARGS+=(--fragment-qc "$FRAGMENT_QC_PATH")
+        fi
+        CROSS_CORRELATION_QC_PATH={params.cross_correlation_qc:q}
+        CROSS_CORRELATION_QC_ARGS=()
+        if [[ -n "$CROSS_CORRELATION_QC_PATH" ]]; then
+            CROSS_CORRELATION_QC_ARGS+=(--cross-correlation-qc "$CROSS_CORRELATION_QC_PATH")
+        fi
         python3 {params.script:q} \\
         --sample {params.sample:q} \\
         --assay {params.assay:q} \\
@@ -799,6 +846,7 @@ rule qc_summary:
         --use-control "{USE_CONTROL}" \\
         --control-type {params.ctrl_type:q} \\
         --final-bam {input.final_bam:q} \\
+        --analysis-bam {input.analysis_bam:q} \\
         --peaks-file {params.peaks_file:q} \\
         --has-blacklist {params.has_blacklist:q} \\
         --blacklist {params.blacklist:q} \\
@@ -808,6 +856,11 @@ rule qc_summary:
         --frip {input.frip:q} \\
         --library-complexity {input.library_complexity:q} \\
         --nrf-pbc {input.nrf_pbc:q} \\
+        --mito-tsv {input.mito:q} \\
+        --analysis-policy {input.analysis_policy:q} \\
+        "${{FRAGMENT_QC_ARGS[@]}}" \\
+        "${{CROSS_CORRELATION_QC_ARGS[@]}}" \\
+        --cross-correlation-enabled {params.cross_correlation_enabled} \\
         --output {output:q}
         """
 

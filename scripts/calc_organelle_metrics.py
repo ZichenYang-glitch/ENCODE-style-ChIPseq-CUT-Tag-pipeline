@@ -10,16 +10,19 @@ Invariants:
 - If organelle_mode == 'report' and no candidates match: records status 'unresolved_contigs',
   fraction 'NA', organelle_reads 'NA' (does not fabricate 0.0).
 - If matching contigs exist but total mapped reads == 0: records status 'no_mapped_reads',
-  fraction 'NA'.
+  fraction 'NA', organelle_reads 'NA' (missing is not a biological zero).
 - If matching contigs exist, mapped reads > 0, and organelle reads == 0: records status 'ok',
   fraction '0.000000'.
 - If organelle_mode == 'keep': does not enforce exclusion or fail on missing contigs.
 """
 
+from __future__ import annotations
+
 import argparse
-import os
 import subprocess
 import sys
+
+from qc_common import MITO_QC_V2_COLUMNS, NA, write_exact_tsv
 
 
 def parse_args(argv=None):
@@ -78,6 +81,29 @@ def run_idxstats(bam: str) -> dict[str, int]:
     return mapped_counts
 
 
+def _resolve(mapped_counts, candidate_chroms, is_explicit, mode, sample):
+    if is_explicit:
+        missing = [c for c in candidate_chroms if c not in mapped_counts]
+        if missing:
+            sys.stderr.write(
+                f"Error: Sample {sample}: explicit organelle contig(s) {missing} "
+                f"not found in BAM reference contigs\n"
+            )
+            return None
+        matched_contigs = list(candidate_chroms)
+    else:
+        matched_contigs = [c for c in candidate_chroms if c in mapped_counts]
+
+    if mode == "exclude" and not matched_contigs:
+        sys.stderr.write(
+            f"Error: Sample {sample}: organelle_mode is 'exclude' but none of "
+            f"candidate contigs {candidate_chroms} exist in BAM contigs. "
+            f"Configure genome_resources.<genome>.organelle_chroms or set organelle_mode: keep.\n"
+        )
+        return None
+    return matched_contigs
+
+
 def main(argv=None):
     args = parse_args(argv)
 
@@ -88,79 +114,43 @@ def main(argv=None):
     for item in args.chroms:
         candidate_chroms.extend(item.split())
 
-    if args.is_explicit:
-        missing = [c for c in candidate_chroms if c not in mapped_counts]
-        if missing:
-            sys.stderr.write(
-                f"Error: Sample {args.sample}: explicit organelle contig(s) {missing} "
-                f"not found in BAM reference contigs\n"
-            )
-            return 1
-        matched_contigs = [c for c in candidate_chroms if c in mapped_counts]
-    else:
-        matched_contigs = [c for c in candidate_chroms if c in mapped_counts]
-
-    # Resolve metrics and status
-    if args.mode == "keep":
-        if not matched_contigs:
-            status = "unresolved_contigs"
-            organelle_str = "NA"
-            fraction_str = "NA"
-        elif total_mapped == 0:
-            status = "no_mapped_reads"
-            organelle_str = "0"
-            fraction_str = "NA"
-        else:
-            organelle_reads = sum(mapped_counts[c] for c in matched_contigs)
-            frac = organelle_reads / total_mapped
-            status = "ok"
-            fraction_str = f"{frac:.6f}"
-            organelle_str = str(organelle_reads)
-    elif args.mode == "exclude":
-        if not matched_contigs:
-            sys.stderr.write(
-                f"Error: Sample {args.sample}: organelle_mode is 'exclude' but none of "
-                f"candidate contigs {candidate_chroms} exist in BAM contigs. "
-                f"Configure genome_resources.<genome>.organelle_chroms or set organelle_mode: keep.\n"
-            )
-            return 1
-        organelle_reads = sum(mapped_counts[c] for c in matched_contigs)
-        if total_mapped == 0:
-            status = "no_mapped_reads"
-            organelle_str = "0"
-            fraction_str = "NA"
-        else:
-            status = "ok"
-            organelle_str = str(organelle_reads)
-            frac = organelle_reads / total_mapped
-            fraction_str = f"{frac:.6f}"
-    elif args.mode == "report":
-        if not matched_contigs:
-            status = "unresolved_contigs"
-            organelle_str = "NA"
-            fraction_str = "NA"
-        elif total_mapped == 0:
-            status = "no_mapped_reads"
-            organelle_str = "0"
-            fraction_str = "NA"
-        else:
-            status = "ok"
-            organelle_reads = sum(mapped_counts[c] for c in matched_contigs)
-            organelle_str = str(organelle_reads)
-            frac = organelle_reads / total_mapped
-            fraction_str = f"{frac:.6f}"
-    else:
-        sys.stderr.write(f"Error: Unknown organelle mode: {args.mode!r}\n")
+    matched_contigs = _resolve(
+        mapped_counts,
+        candidate_chroms,
+        args.is_explicit,
+        args.mode,
+        args.sample,
+    )
+    if matched_contigs is None:
         return 1
 
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as handle:
-        handle.write(
-            "sample\torganelle_reads\ttotal_mapped_reads\tfraction\tmode\tstatus\n"
-        )
-        handle.write(
-            f"{args.sample}\t{organelle_str}\t{total_mapped}\t{fraction_str}\t{args.mode}\t{status}\n"
-        )
+    if not matched_contigs:
+        status = "unresolved_contigs"
+        organelle_str = NA
+        fraction_str = NA
+    elif total_mapped == 0:
+        status = "no_mapped_reads"
+        organelle_str = NA
+        fraction_str = NA
+    else:
+        organelle_reads = sum(mapped_counts[c] for c in matched_contigs)
+        status = "ok"
+        organelle_str = str(organelle_reads)
+        fraction_str = f"{organelle_reads / total_mapped:.6f}"
+
+    row = {
+        "schema_version": "2",
+        "sample": args.sample,
+        "organelle_reads": organelle_str,
+        "total_mapped_reads": str(total_mapped),
+        "fraction": fraction_str,
+        "mode": args.mode,
+        "status": status,
+        "input_stage": "pre_duplicate_mapq_bam",
+        "matched_contigs": ",".join(matched_contigs) if matched_contigs else NA,
+        "organelle_chroms_explicit": "true" if args.is_explicit else "false",
+    }
+    write_exact_tsv(args.output, MITO_QC_V2_COLUMNS, row)
     return 0
 
 

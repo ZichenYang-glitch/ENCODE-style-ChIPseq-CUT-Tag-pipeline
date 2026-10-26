@@ -528,7 +528,18 @@ def test_calc_organelle_metrics_statuses(tmp_path: Path, samtools_path: str):
         env=env,
     )
     rows1 = tsv1.read_text(encoding="utf-8").strip().splitlines()
-    assert rows1[1].split("\t") == ["S1", "2", "4", "0.500000", "report", "ok"]
+    assert rows1[1].split("\t") == [
+        "2",
+        "S1",
+        "2",
+        "4",
+        "0.500000",
+        "report",
+        "ok",
+        "pre_duplicate_mapq_bam",
+        "chrM",
+        "false",
+    ]
 
     # 2. Unresolved candidate: chrMT not in @SQ -> unresolved_contigs and NA
     tsv2 = tmp_path / "mito2.tsv"
@@ -551,12 +562,16 @@ def test_calc_organelle_metrics_statuses(tmp_path: Path, samtools_path: str):
     )
     rows2 = tsv2.read_text(encoding="utf-8").strip().splitlines()
     assert rows2[1].split("\t") == [
+        "2",
         "S1",
         "NA",
         "4",
         "NA",
         "report",
         "unresolved_contigs",
+        "pre_duplicate_mapq_bam",
+        "NA",
+        "false",
     ]
 
     # 3. Mode exclude fails closed when candidate not in @SQ

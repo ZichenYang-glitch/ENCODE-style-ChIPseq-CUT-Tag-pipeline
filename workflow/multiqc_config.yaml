@@ -268,6 +268,36 @@ custom_data:
       di_reads:
         title: "Di reads"
         description: "Read count in di-nucleosome BAM (> mono range)."
+      analysis_status:
+        title: "Analysis status"
+        description: "ok, no_valid_templates, or parse_failed for the canonical analysis BAM."
+      analysis_valid_templates:
+        title: "Valid fragments"
+        description: "Complete valid PE templates in the canonical analysis BAM."
+      analysis_invalid_templates:
+        title: "Invalid templates"
+        description: "TLEN=0, orphan, cross-contig, or inconsistent templates."
+      analysis_classified_templates:
+        title: "Classified fragments"
+        description: "Valid fragments in the union of the configured windows."
+      analysis_unclassified_templates:
+        title: "Unclassified fragments"
+        description: "Valid fragments outside every configured window."
+      analysis_fraction_classified:
+        title: "Classified fraction"
+        description: "Classified / valid fragments; NA when there are no valid templates."
+      window_overlap:
+        title: "Window overlap"
+        description: "true when configured windows overlap; unclassified uses their union."
+      sub_fragments:
+        title: "Sub fragments"
+        description: "Fragment count in the sub window (may overlap other windows)."
+      mono_fragments:
+        title: "Mono fragments"
+        description: "Fragment count in the mono window (may overlap other windows)."
+      di_fragments:
+        title: "Di fragments"
+        description: "Fragment count in the di window (may overlap other windows)."
       mono_min:
         title: "Mono min (bp)"
         hidden: true
@@ -326,6 +356,44 @@ custom_data:
         title: "PBC2"
       percent_duplication:
         title: "Duplication fraction"
+      analysis_valid_fragments:
+        title: "Analysis fragments"
+        description: "Complete valid templates in the canonical analysis BAM."
+      analysis_invalid_templates:
+        title: "Invalid templates"
+        description: "Invalid templates found in the canonical analysis BAM."
+      raw_peak_count:
+        title: "Raw peaks"
+        description: "Peak count before final peak-level blacklist filtering."
+      delivered_peak_count:
+        title: "Delivered peaks"
+        description: "Peak count in the delivered analysis-view peak file."
+      duplicate_analysis:
+        title: "Duplicate policy"
+        description: "Resolved duplicate analysis policy for this sample."
+      resolved_max_insert:
+        title: "Max insert"
+        description: "Resolved PE insert bound, or not_applicable for SE."
+      blacklist_mode:
+        title: "Blacklist mode"
+      blacklist_applied:
+        title: "Blacklist applied"
+      organelle_mode:
+        title: "Organelle mode"
+      organelle_status:
+        title: "Organelle status"
+      organelle_fraction:
+        title: "Organelle fraction"
+        description: "Organelle reads / total mapped reads at the pre-duplicate stage."
+      cross_correlation_nsc:
+        title: "NSC"
+        description: "Descriptive when reported; no pass/fail threshold is applied."
+      cross_correlation_rsc:
+        title: "RSC"
+        description: "Descriptive when reported; no pass/fail threshold is applied."
+      cross_correlation_status:
+        title: "Cross-correlation status"
+        description: "reported, not_enabled, missing, or parse_failed."
       qc_flag:
         title: "QC flag"
 
@@ -356,6 +424,27 @@ custom_data:
         title: "Fraction >=500 bp"
       status:
         title: "Status"
+      templates_total:
+        title: "Templates"
+        description: "All templates observed in the canonical analysis BAM."
+      templates_invalid:
+        title: "Invalid templates"
+        description: "Zero TLEN, orphan, cross-contig, or inconsistent templates."
+      invalid_tlen_zero:
+        title: "TLEN=0"
+        description: "Templates with zero TLEN; never placed in a biological bin."
+      invalid_orphan:
+        title: "Orphan"
+        description: "Templates without two complete mates in the final input."
+      invalid_cross_contig:
+        title: "Cross-contig"
+        description: "Templates whose mates are on different contigs."
+      invalid_inconsistent:
+        title: "Inconsistent"
+        description: "Templates whose mate coordinates, flags, or TLEN disagree."
+      upstream_dropped_templates:
+        title: "Upstream dropped"
+        description: "Templates removed by the analysis-view filter before this BAM."
 
 sp:
   cross_correlation_qc:

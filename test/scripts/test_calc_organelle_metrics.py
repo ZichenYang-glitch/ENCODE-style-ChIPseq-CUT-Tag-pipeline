@@ -80,7 +80,18 @@ def test_calc_organelle_metrics_modes(tmp_path: Path, monkeypatch):
     )
     assert ret1 == 0
     lines1 = out1.read_text(encoding="utf-8").strip().splitlines()
-    assert lines1[1].split("\t") == ["S1", "100", "1100", "0.090909", "report", "ok"]
+    assert lines1[1].split("\t") == [
+        "2",
+        "S1",
+        "100",
+        "1100",
+        "0.090909",
+        "report",
+        "ok",
+        "pre_duplicate_mapq_bam",
+        "chrM",
+        "false",
+    ]
 
     # 2. Mode report: unresolved contigs
     out2 = tmp_path / "out2.tsv"
@@ -101,12 +112,16 @@ def test_calc_organelle_metrics_modes(tmp_path: Path, monkeypatch):
     assert ret2 == 0
     lines2 = out2.read_text(encoding="utf-8").strip().splitlines()
     assert lines2[1].split("\t") == [
+        "2",
         "S1",
         "NA",
         "1100",
         "NA",
         "report",
         "unresolved_contigs",
+        "pre_duplicate_mapq_bam",
+        "NA",
+        "false",
     ]
 
     # 3. Mode exclude: success
@@ -127,7 +142,18 @@ def test_calc_organelle_metrics_modes(tmp_path: Path, monkeypatch):
     )
     assert ret3 == 0
     lines3 = out3.read_text(encoding="utf-8").strip().splitlines()
-    assert lines3[1].split("\t") == ["S1", "100", "1100", "0.090909", "exclude", "ok"]
+    assert lines3[1].split("\t") == [
+        "2",
+        "S1",
+        "100",
+        "1100",
+        "0.090909",
+        "exclude",
+        "ok",
+        "pre_duplicate_mapq_bam",
+        "chrM",
+        "false",
+    ]
 
     # 4. Mode exclude: no matches fails closed
     out4 = tmp_path / "out4.tsv"
@@ -183,7 +209,18 @@ def test_calc_organelle_metrics_modes(tmp_path: Path, monkeypatch):
     )
     assert ret6 == 0
     lines6 = out6.read_text(encoding="utf-8").strip().splitlines()
-    assert lines6[1].split("\t") == ["S1", "100", "1100", "0.090909", "keep", "ok"]
+    assert lines6[1].split("\t") == [
+        "2",
+        "S1",
+        "100",
+        "1100",
+        "0.090909",
+        "keep",
+        "ok",
+        "pre_duplicate_mapq_bam",
+        "chrM",
+        "false",
+    ]
 
     # 7. Zero total mapped reads
     monkeypatch.setattr(om, "run_idxstats", lambda bam: {"chr1": 0, "chrM": 0})
@@ -204,4 +241,15 @@ def test_calc_organelle_metrics_modes(tmp_path: Path, monkeypatch):
     )
     assert ret7 == 0
     lines7 = out7.read_text(encoding="utf-8").strip().splitlines()
-    assert lines7[1].split("\t") == ["S1", "0", "0", "NA", "report", "no_mapped_reads"]
+    assert lines7[1].split("\t") == [
+        "2",
+        "S1",
+        "NA",
+        "0",
+        "NA",
+        "report",
+        "no_mapped_reads",
+        "pre_duplicate_mapq_bam",
+        "chrM",
+        "false",
+    ]
