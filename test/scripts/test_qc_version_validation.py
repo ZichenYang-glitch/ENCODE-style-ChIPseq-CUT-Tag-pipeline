@@ -15,7 +15,10 @@ from encode_pipeline.qc.contract import (
     SAMPLE_QC_V1_COLUMNS,
     SAMPLE_QC_V2_COLUMNS,
 )
-from encode_pipeline.qc.policy import parse_analysis_policy_bytes
+from encode_pipeline.qc.policy import (
+    AnalysisPolicyError,
+    parse_analysis_policy_bytes,
+)
 from scripts import aggregate_qc_summary, assemble_qc_summary, write_analysis_policy
 from scripts.qc_common import read_versioned_tsv
 
@@ -433,3 +436,111 @@ def test_assembly_accepts_a_matching_v2_component_version(tmp_path, monkeypatch)
     assert row["schema_version"] == "2"
     assert row["organelle_status"] == "ok"
     assert row["organelle_reads"] == "3"
+
+
+def _v1_policy_record() -> dict:
+    return {
+        "schema_version": 1,
+        "scientific_policy_revision": 5,
+        "sample": "S1",
+        "assay": "chipseq",
+        "profile": "legacy",
+        "resolved_duplicate_analysis": "exclude",
+        "resolved_max_insert": 2000,
+        "organelle_mode": "report",
+        "organelle_status": "ok",
+        "matched_organelle_contigs": ["chrM"],
+        "blacklist_mode": "analysis",
+        "blacklist_applied": True,
+        "input_stages": {
+            "fragment_size": "not_applicable",
+            "mnase_classification": "not_applicable",
+            "duplicate_metrics": "pre_duplicate_markdup_bam",
+            "nrf_pbc": "pre_duplicate_mapq_bam",
+            "organelle": "pre_duplicate_mapq_bam",
+            "blacklist": "final_bam_to_analysis_bam",
+            "peaks": "analysis_bam",
+        },
+        "stage_counts": {
+            "analysis_input_alignments": 12,
+            "analysis_kept_alignments": 10,
+            "analysis_valid_templates": None,
+            "analysis_invalid_templates": None,
+            "upstream_dropped_templates": 1,
+            "upstream_dropped_alignments": 2,
+            "blacklist_dropped_templates": 1,
+            "blacklist_dropped_alignments": 2,
+            "organelle_reads": 3,
+            "organelle_total_mapped_reads": 100,
+        },
+        "reference_summary": {
+            "genome": "hs",
+            "organelle_chroms_explicit": False,
+        },
+        "qc_schema_versions": {
+            "sample": "2",
+            "mnase": "2",
+            "fragment": "2",
+            "mito": "2",
+        },
+    }
+
+
+def _v2_policy_record() -> dict:
+    record = _v1_policy_record()
+    record["schema_version"] = 2
+    record["analysis_template_status"] = "ok"
+    record["input_stages"]["analysis_template_metrics"] = "analysis_bam"
+    record["stage_counts"]["analysis_valid_templates"] = 4
+    record["stage_counts"]["analysis_invalid_templates"] = 1
+    return record
+
+
+def _policy_bytes(record: dict) -> bytes:
+    return json.dumps(record, sort_keys=True).encode("utf-8")
+
+
+def test_policy_parser_accepts_valid_v1_and_v2():
+    v1 = parse_analysis_policy_bytes(_policy_bytes(_v1_policy_record()))
+    v2 = parse_analysis_policy_bytes(_policy_bytes(_v2_policy_record()))
+
+    assert v1["schema_version"] == 1
+    assert v1["stage_counts"]["analysis_valid_templates"] is None
+    assert v2["schema_version"] == 2
+    assert v2["analysis_template_status"] == "ok"
+    assert v2["stage_counts"]["analysis_valid_templates"] == 4
+
+
+def test_policy_parser_rejects_null_v2_analysis_template_status():
+    record = _v2_policy_record()
+    record["analysis_template_status"] = None
+
+    with pytest.raises(AnalysisPolicyError, match="analysis template status"):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_null_v2_status_and_counts():
+    record = _v2_policy_record()
+    record["analysis_template_status"] = None
+    record["stage_counts"]["analysis_valid_templates"] = None
+    record["stage_counts"]["analysis_invalid_templates"] = None
+
+    with pytest.raises(AnalysisPolicyError):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+@pytest.mark.parametrize("declared", (True, False, 1.0, "1", None))
+def test_policy_parser_rejects_a_non_integer_schema_version(declared):
+    record = _v1_policy_record()
+    record["schema_version"] = declared
+
+    with pytest.raises(AnalysisPolicyError):
+        parse_analysis_policy_bytes(_policy_bytes(record))
+
+
+def test_policy_parser_rejects_boolean_true_as_v1():
+    record = _v1_policy_record()
+    record["schema_version"] = True
+
+    with pytest.raises(AnalysisPolicyError, match="version"):
+        parse_analysis_policy_bytes(_policy_bytes(record))

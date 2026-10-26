@@ -111,14 +111,15 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
     if not isinstance(value, dict):
         raise AnalysisPolicyError("analysis policy must be an object")
     schema_version = value.get("schema_version")
+    # JSON booleans satisfy ``True == 1``; require an exact integer version.
+    if type(schema_version) is not int:
+        raise AnalysisPolicyError("analysis policy version is unsupported")
     if schema_version == 1:
         expected_keys = ANALYSIS_POLICY_V1_KEYS
         input_stage_keys = ANALYSIS_POLICY_INPUT_STAGE_KEYS
-        template_status = None
     elif schema_version == ANALYSIS_POLICY_VERSION:
         expected_keys = ANALYSIS_POLICY_KEYS
         input_stage_keys = ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS
-        template_status = value.get("analysis_template_status")
     else:
         raise AnalysisPolicyError("analysis policy version is unsupported")
     _require_exact_keys(value, expected_keys, "analysis policy")
@@ -169,8 +170,12 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
         if counts["organelle_reads"] is not None:
             raise AnalysisPolicyError("organelle counts are inconsistent")
 
-    if template_status is not None:
-        _validate_analysis_template_status(value, counts, template_status)
+    # A declared v2 record always carries an explicit status.  Validate it even
+    # when it is null so a broken writer cannot skip the consistency checks.
+    if schema_version == ANALYSIS_POLICY_VERSION:
+        _validate_analysis_template_status(
+            value, counts, value["analysis_template_status"]
+        )
 
     _require_exact_keys(
         value["reference_summary"],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from decimal import Decimal
 import io
+import json
 
 import pytest
 
@@ -714,6 +715,114 @@ def test_encode_qc_parser_rejects_deprecated_analysis_filtered_analysis_policy_t
     ],
 )
 def test_encode_qc_parser_rejects_invalid_policy(content):
+    source = _source(
+        "artifact-policy",
+        "analysis_policy",
+        content,
+        sample_id="S1",
+        assay="chipseq",
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"
+
+
+def _v2_stage_counts(**overrides):
+    counts = {
+        "analysis_input_alignments": 120,
+        "analysis_kept_alignments": 100,
+        "analysis_valid_templates": 45,
+        "analysis_invalid_templates": 5,
+        "upstream_dropped_templates": 10,
+        "upstream_dropped_alignments": 20,
+        "blacklist_dropped_templates": 2,
+        "blacklist_dropped_alignments": 4,
+        "organelle_reads": 3,
+        "organelle_total_mapped_reads": 100,
+    }
+    counts.update(overrides)
+    return counts
+
+
+def _v2_policy_content(**overrides):
+    policy = {
+        "schema_version": 2,
+        "scientific_policy_revision": 5,
+        "sample": "S1",
+        "assay": "chipseq",
+        "profile": "updated",
+        "resolved_duplicate_analysis": "exclude",
+        "resolved_max_insert": 2000,
+        "organelle_mode": "report",
+        "organelle_status": "ok",
+        "matched_organelle_contigs": ["chrM"],
+        "blacklist_mode": "analysis",
+        "blacklist_applied": True,
+        "analysis_template_status": "ok",
+        "input_stages": {
+            "fragment_size": "analysis_bam",
+            "mnase_classification": "not_applicable",
+            "duplicate_metrics": "pre_duplicate_markdup_bam",
+            "nrf_pbc": "pre_duplicate_mapq_bam",
+            "organelle": "pre_duplicate_mapq_bam",
+            "blacklist": "final_bam_to_analysis_bam",
+            "peaks": "analysis_bam",
+            "analysis_template_metrics": "analysis_bam",
+        },
+        "stage_counts": _v2_stage_counts(),
+        "reference_summary": {
+            "genome": "hs",
+            "organelle_chroms_explicit": False,
+        },
+        "qc_schema_versions": {
+            "sample": "2",
+            "mnase": "2",
+            "fragment": "2",
+            "mito": "2",
+        },
+    }
+    policy.update(overrides)
+    return json.dumps(policy, sort_keys=True).encode()
+
+
+def test_encode_qc_parser_extracts_v2_policy_stage_counts():
+    source = _source(
+        "artifact-policy",
+        "analysis_policy",
+        _v2_policy_content(),
+        sample_id="S1",
+        assay="chipseq",
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+
+    assert result.is_success
+    by_key = {item.metric_key: item for item in result.value}
+    assert by_key["analysis.stage.valid_templates"].value == Decimal("45")
+    assert by_key["analysis.stage.invalid_templates"].value == Decimal("5")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        _v2_policy_content(analysis_template_status=None),
+        _v2_policy_content(
+            analysis_template_status=None,
+            stage_counts=_v2_stage_counts(
+                analysis_valid_templates=None,
+                analysis_invalid_templates=None,
+            ),
+        ),
+        _policy_content(schema_version=True),
+    ],
+)
+def test_encode_qc_parser_fails_closed_for_unusable_policy(content):
     source = _source(
         "artifact-policy",
         "analysis_policy",
