@@ -47,9 +47,7 @@ _POOLED_HEADER = POOLED_QC_COLUMNS
 _SAMPLE_OUTPUT_TYPES = frozenset({"qc_summary"})
 _MNASE_OUTPUT_TYPES = frozenset({"mnase_qc_summary"})
 _POOLED_OUTPUT_TYPES = frozenset({"pooled_qc_summary"})
-_POLICY_OUTPUT_TYPES = frozenset(
-    {"analysis_policy", "analysis_filtered_analysis_policy"}
-)
+_POLICY_OUTPUT_TYPES = frozenset({"analysis_policy"})
 
 _DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
 _SIGNED_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")

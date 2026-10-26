@@ -190,7 +190,9 @@ With `blacklist_mode: analysis`, sample and pooled outputs are written under
 canonical analysis BAM, organelle diagnostics, blacklist stage metrics,
 analysis policy, fragment-size/MNase/sample/pooled/project QC summaries, CPM
 and fragment CPM tracks, peaks, TSS profiles, and reference-filtered peak
-files. The manifest emits the output type matching the actual namespace; a
+files. The manifest keeps the canonical QC output type; the analysis-filtered
+namespace is expressed by the relative path and the adapter's
+`analysis_branch` metadata, not by an `analysis_filtered_*` output type. A
 raw-only file such as `final.bam` remains under the raw root in both modes.
 
 ## QC Contract (v2)

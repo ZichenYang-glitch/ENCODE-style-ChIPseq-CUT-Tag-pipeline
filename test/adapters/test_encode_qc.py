@@ -433,14 +433,17 @@ def test_encode_qc_parser_reads_v2_sample_metrics_and_signed_rsc():
     assert by_key["cross_correlation.rsc"].value == Decimal("-0.5")
 
 
-def test_encode_qc_parser_accepts_analysis_filtered_output_types():
+def test_encode_qc_parser_accepts_canonical_qc_summary_in_analysis_filtered_namespace():
     document = _sample_v2_document()
     filtered = QcSourceDocument(
         source=QcSourceArtifact(
             artifact_id=document.source.artifact_id,
-            output_type="analysis_filtered_qc_summary",
-            relative_path=document.source.relative_path,
-            metadata=document.source.metadata,
+            output_type="qc_summary",
+            relative_path="results/analysis_filtered/S1/01_qc/S1.qc_summary.tsv",
+            metadata={
+                **document.source.metadata,
+                "analysis_branch": "analysis_filtered",
+            },
         ),
         content=document.content,
     )
@@ -454,6 +457,29 @@ def test_encode_qc_parser_accepts_analysis_filtered_output_types():
         "analysis.valid_fragments",
         "organelle.fraction",
     }
+
+
+def test_encode_qc_parser_rejects_deprecated_analysis_filtered_qc_summary_type():
+    document = _sample_v2_document()
+    deprecated = QcSourceDocument(
+        source=QcSourceArtifact(
+            artifact_id=document.source.artifact_id,
+            output_type="analysis_filtered_qc_summary",
+            relative_path="results/analysis_filtered/S1/01_qc/S1.qc_summary.tsv",
+            metadata={
+                **document.source.metadata,
+                "analysis_branch": "analysis_filtered",
+            },
+        ),
+        content=document.content,
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (deprecated,)
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"
 
 
 @pytest.mark.parametrize(
@@ -639,6 +665,23 @@ def test_encode_qc_parser_extracts_policy_stage_counts():
     assert by_key["analysis.stage.input_alignments"].value == Decimal("120")
     assert by_key["analysis.stage.valid_templates"].value == Decimal("45")
     assert by_key["analysis.stage.blacklist_dropped_templates"].value == Decimal("2")
+
+
+def test_encode_qc_parser_rejects_deprecated_analysis_filtered_analysis_policy_type():
+    source = _source(
+        "artifact-policy",
+        "analysis_filtered_analysis_policy",
+        _policy_content(),
+        sample_id="S1",
+        assay="chipseq",
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"
 
 
 @pytest.mark.parametrize(
