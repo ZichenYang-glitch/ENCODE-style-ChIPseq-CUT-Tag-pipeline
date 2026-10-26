@@ -15,6 +15,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputs,
 )
 from encode_pipeline.qc.contract import (
+    ANALYSIS_TEMPLATE_METRICS_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V2_COLUMNS,
     SAMPLE_QC_V2_COLUMNS,
@@ -31,7 +32,7 @@ def _write_tsv(path: Path, header, row) -> None:
 
 def _policy() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "scientific_policy_revision": 5,
         "sample": "S1",
         "assay": "cuttag",
@@ -51,6 +52,7 @@ def _policy() -> dict:
             "organelle": "pre_duplicate_mapq_bam",
             "blacklist": "not_applicable",
             "peaks": "analysis_bam",
+            "analysis_template_metrics": "analysis_bam",
         },
         "stage_counts": {
             "analysis_input_alignments": 20,
@@ -64,6 +66,7 @@ def _policy() -> dict:
             "organelle_reads": 2,
             "organelle_total_mapped_reads": 20,
         },
+        "analysis_template_status": "ok",
         "reference_summary": {"genome": "tiny", "organelle_chroms_explicit": False},
         "qc_schema_versions": {
             "sample": "2",
@@ -172,6 +175,27 @@ def test_config_files_manifest_and_adapter_share_one_qc_contract(tmp_path):
         },
     )
     _write_tsv(
+        results / "S1/05_qc/S1.analysis_template_metrics.tsv",
+        ANALYSIS_TEMPLATE_METRICS_COLUMNS,
+        {
+            "schema_version": "2",
+            "sample": "S1",
+            "layout": "PE",
+            "analysis_status": "ok",
+            "input_stage": "analysis_bam",
+            "analysis_total_templates": "10",
+            "analysis_valid_templates": "9",
+            "analysis_invalid_templates": "1",
+            "analysis_tlen_zero_templates": "0",
+            "analysis_orphan_templates": "0",
+            "analysis_cross_contig_templates": "0",
+            "analysis_inconsistent_templates": "1",
+            "alignments_total": "18",
+            "upstream_dropped_templates": "1",
+            "upstream_dropped_alignments": "2",
+        },
+    )
+    _write_tsv(
         results / "S1/01_qc/S1.cuttag_fragment_size.tsv",
         FRAGMENT_QC_V2_COLUMNS,
         {
@@ -209,6 +233,7 @@ def test_config_files_manifest_and_adapter_share_one_qc_contract(tmp_path):
     } >= {
         "qc_summary",
         "analysis_policy",
+        "analysis_template_metrics",
         "mito_fraction",
         "cuttag_fragment_size",
     }
