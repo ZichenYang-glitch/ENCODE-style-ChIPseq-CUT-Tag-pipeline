@@ -348,3 +348,340 @@ def test_encode_qc_parser_maps_only_existing_pooled_status_vocabulary(status, ex
         ).qc_flag
         == expected
     )
+
+
+# ---------------------------------------------------------------------------
+# Version 2 sample/MNase contracts and analysis policy
+# ---------------------------------------------------------------------------
+
+from encode_pipeline.qc.contract import (  # noqa: E402
+    MNASE_QC_V2_COLUMNS,
+    SAMPLE_QC_V2_COLUMNS,
+)
+
+
+def _v2_values(header, **overrides):
+    row = {column: "NA" for column in header}
+    row.update(
+        {
+            "schema_version": "2",
+            "sample": "S1",
+            "assay": "chipseq",
+            "analysis_input_stage": "analysis_bam",
+            "duplicate_analysis": "exclude",
+            "resolved_max_insert": "2000",
+            "blacklist_mode": "analysis",
+            "blacklist_applied": "true",
+            "organelle_mode": "report",
+            "organelle_status": "ok",
+            "cross_correlation_status": "not_enabled",
+            "scientific_policy_revision": "5",
+        }
+    )
+    row.update(overrides)
+    return row
+
+
+def _sample_v2_document(**overrides):
+    row = _v2_values(
+        SAMPLE_QC_V2_COLUMNS,
+        sample="S1",
+        assay="chipseq",
+        total_reads="1000",
+        frip="0.125",
+        peak_count="50",
+        percent_duplication="0.2",
+        estimated_library_size="900",
+        nrf="0.8",
+        pbc1="0.75",
+        pbc2="3.0",
+        analysis_valid_fragments="10",
+        analysis_invalid_templates="2",
+        raw_peak_count="55",
+        delivered_peak_count="50",
+        organelle_reads="3",
+        organelle_total_mapped_reads="100",
+        organelle_fraction="0.03",
+        cross_correlation_status="reported",
+        cross_correlation_nsc="1.1",
+        cross_correlation_rsc="-0.5",
+    )
+    row.update(overrides)
+    return _source(
+        "artifact-sample-v2",
+        "qc_summary",
+        _tsv(SAMPLE_QC_V2_COLUMNS, row),
+        sample_id="S1",
+        experiment_id="EXP1",
+        assay="chipseq",
+    )
+
+
+def test_encode_qc_parser_reads_v2_sample_metrics_and_signed_rsc():
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (_sample_v2_document(),)
+    )
+
+    assert result.is_success
+    by_key = {item.metric_key: item for item in result.value}
+    assert by_key["analysis.valid_fragments"].value == Decimal("10")
+    assert by_key["analysis.invalid_templates"].value == Decimal("2")
+    assert by_key["peaks.raw_count"].value == Decimal("55")
+    assert by_key["peaks.delivered_count"].value == Decimal("50")
+    assert by_key["organelle.fraction"].value == Decimal("0.03")
+    assert by_key["cross_correlation.nsc"].value == Decimal("1.1")
+    assert by_key["cross_correlation.rsc"].value == Decimal("-0.5")
+
+
+def test_encode_qc_parser_accepts_analysis_filtered_output_types():
+    document = _sample_v2_document()
+    filtered = QcSourceDocument(
+        source=QcSourceArtifact(
+            artifact_id=document.source.artifact_id,
+            output_type="analysis_filtered_qc_summary",
+            relative_path=document.source.relative_path,
+            metadata=document.source.metadata,
+        ),
+        content=document.content,
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (filtered,)
+    )
+
+    assert result.is_success
+    assert {item.metric_key for item in result.value} >= {
+        "analysis.valid_fragments",
+        "organelle.fraction",
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"schema_version": "3"},
+        {"duplicate_analysis": "maybe"},
+        {"resolved_max_insert": "0"},
+        {"blacklist_mode": "sometimes"},
+        {"blacklist_applied": "yes"},
+        {"organelle_status": "unknown"},
+        {"cross_correlation_status": "maybe"},
+        {"cross_correlation_status": "reported", "cross_correlation_nsc": "NA"},
+        {"cross_correlation_status": "not_enabled", "cross_correlation_nsc": "1.0"},
+        {"analysis_valid_fragments": "1.5"},
+        {"organelle_fraction": "1.01"},
+    ],
+)
+def test_encode_qc_parser_rejects_invalid_v2_state(overrides):
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (_sample_v2_document(**overrides),)
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"
+
+
+def test_encode_qc_parser_rejects_v2_extra_and_duplicate_columns():
+    header = SAMPLE_QC_V2_COLUMNS + ("extra",)
+    rows = _v2_values(SAMPLE_QC_V2_COLUMNS)
+    content = (
+        "\t".join(header)
+        + "\n"
+        + "\t".join([rows[column] for column in SAMPLE_QC_V2_COLUMNS] + ["x"])
+        + "\n"
+    ).encode()
+    source = _source(
+        "artifact-extra",
+        "qc_summary",
+        content,
+        sample_id="S1",
+        assay="chipseq",
+    )
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+    assert result.is_failure
+
+    duplicate = ["sample"] + [
+        "sample" if column == "assay" else column for column in SAMPLE_QC_V2_COLUMNS[1:]
+    ]
+    content = (
+        "\t".join(duplicate) + "\n" + "\t".join(["x"] * len(duplicate)) + "\n"
+    ).encode()
+    source = _source(
+        "artifact-duplicate",
+        "qc_summary",
+        content,
+        sample_id="S1",
+        assay="chipseq",
+    )
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+    assert result.is_failure
+
+
+def _mnase_v2_document():
+    row = {column: "NA" for column in MNASE_QC_V2_COLUMNS}
+    row.update(
+        {
+            "schema_version": "2",
+            "sample": "M1",
+            "assay": "mnase",
+            "analysis_input_stage": "analysis_bam",
+            "analysis_status": "ok",
+            "analysis_total_templates": "10",
+            "analysis_valid_templates": "8",
+            "analysis_invalid_templates": "2",
+            "analysis_classified_templates": "6",
+            "analysis_unclassified_templates": "2",
+            "analysis_fraction_classified": "0.75",
+            "window_overlap": "true",
+            "sub_fragments": "1",
+            "mono_fragments": "4",
+            "di_fragments": "2",
+            "sub_reads": "2",
+            "mono_reads": "8",
+            "di_reads": "4",
+        }
+    )
+    return _source(
+        "artifact-mnase-v2",
+        "mnase_qc_summary",
+        _tsv(MNASE_QC_V2_COLUMNS, row),
+        sample_id="M1",
+        assay="mnase",
+    )
+
+
+def test_encode_qc_parser_reads_mnase_v2_counts_and_union_fraction():
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (_mnase_v2_document(),)
+    )
+
+    assert result.is_success
+    by_key = {item.metric_key: item for item in result.value}
+    assert by_key["mnase.valid_templates"].value == Decimal("8")
+    assert by_key["mnase.classified_templates"].value == Decimal("6")
+    assert by_key["mnase.unclassified_templates"].value == Decimal("2")
+    assert by_key["mnase.fraction_classified"].value == Decimal("0.75")
+    assert by_key["mnase.mononucleosomal_fragments"].value == Decimal("4")
+    assert by_key["mnase.mononucleosomal_reads"].value == Decimal("8")
+
+
+def _policy_content(**overrides):
+    policy = {
+        "schema_version": 1,
+        "scientific_policy_revision": 5,
+        "sample": "S1",
+        "assay": "chipseq",
+        "profile": "updated",
+        "resolved_duplicate_analysis": "exclude",
+        "resolved_max_insert": 2000,
+        "organelle_mode": "report",
+        "organelle_status": "ok",
+        "matched_organelle_contigs": ["chrM"],
+        "blacklist_mode": "analysis",
+        "blacklist_applied": True,
+        "input_stages": {
+            "fragment_size": "analysis_bam",
+            "mnase_classification": "not_applicable",
+            "duplicate_metrics": "pre_duplicate_markdup_bam",
+            "nrf_pbc": "pre_duplicate_mapq_bam",
+            "organelle": "pre_duplicate_mapq_bam",
+            "blacklist": "final_bam_to_analysis_bam",
+            "peaks": "analysis_bam",
+        },
+        "stage_counts": {
+            "analysis_input_alignments": 120,
+            "analysis_kept_alignments": 100,
+            "analysis_valid_templates": 45,
+            "analysis_invalid_templates": 5,
+            "upstream_dropped_templates": 10,
+            "upstream_dropped_alignments": 20,
+            "blacklist_dropped_templates": 2,
+            "blacklist_dropped_alignments": 4,
+            "organelle_reads": 3,
+            "organelle_total_mapped_reads": 100,
+        },
+        "reference_summary": {
+            "genome": "hs",
+            "organelle_chroms_explicit": False,
+        },
+        "qc_schema_versions": {
+            "sample": "2",
+            "mnase": "2",
+            "fragment": "2",
+            "mito": "2",
+        },
+    }
+    policy.update(overrides)
+    import json
+
+    return json.dumps(policy, sort_keys=True).encode()
+
+
+def test_encode_qc_parser_extracts_policy_stage_counts():
+    source = _source(
+        "artifact-policy",
+        "analysis_policy",
+        _policy_content(),
+        sample_id="S1",
+        assay="chipseq",
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+
+    assert result.is_success
+    by_key = {item.metric_key: item for item in result.value}
+    assert by_key["analysis.stage.input_alignments"].value == Decimal("120")
+    assert by_key["analysis.stage.valid_templates"].value == Decimal("45")
+    assert by_key["analysis.stage.blacklist_dropped_templates"].value == Decimal("2")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"{not-json",
+        _policy_content(schema_version=2),
+        _policy_content(extra_key="unexpected"),
+        _policy_content(sample="OTHER"),
+        _policy_content(
+            reference_summary={
+                "genome": "/private/ref",
+                "organelle_chroms_explicit": False,
+            }
+        ),
+        _policy_content(
+            stage_counts={
+                "analysis_input_alignments": -1,
+                "analysis_kept_alignments": 100,
+                "analysis_valid_templates": 45,
+                "analysis_invalid_templates": 5,
+                "upstream_dropped_templates": 10,
+                "upstream_dropped_alignments": 20,
+                "blacklist_dropped_templates": 2,
+                "blacklist_dropped_alignments": 4,
+                "organelle_reads": 3,
+                "organelle_total_mapped_reads": 100,
+            }
+        ),
+    ],
+)
+def test_encode_qc_parser_rejects_invalid_policy(content):
+    source = _source(
+        "artifact-policy",
+        "analysis_policy",
+        content,
+        sample_id="S1",
+        assay="chipseq",
+    )
+
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}), (source,)
+    )
+
+    assert result.is_failure
+    assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"

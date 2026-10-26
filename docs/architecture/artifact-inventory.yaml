@@ -299,7 +299,7 @@ artifacts:
   config_gate: 'qc.nrf_pbc: true or qc.summary: true'
   notes: BAM-derived; applies to all treatment samples including MNase
 - id: qc_summary
-  description: Per-sample QC summary TSV (37 columns)
+  description: Per-sample QC summary TSV (v2; exact v1 remains readable)
   scope: sample
   level: per_sample
   assay_gate: peak_centric
@@ -310,7 +310,7 @@ artifacts:
   pipeline_done: true
   rule_all: true
   config_gate: 'qc.summary: true'
-  notes: depends on peak_counts + frip; not produced for MNase
+  notes: depends on peak_counts + frip + analysis policy; not produced for MNase
 - id: blacklist_filtered_bam
   description: Blacklist-filtered BAM
   scope: sample
@@ -325,31 +325,83 @@ artifacts:
   config_gate: 'qc.blacklist_filter: true + blacklist BED configured'
   notes: resource-gated per genome
 - id: analysis_bam
-  description: Updated-profile analysis BAM
+  description: Canonical analysis BAM in the raw namespace
   scope: sample
   level: per_sample
   assay_gate: all
   path_template: results/<sample>/02_align/<sample>.analysis.bam
   producing_rule: prepare_analysis_bam
-  tool: samtools
-  manifest_output_type: null
+  tool: samtools + filter_blacklist_templates.py
+  manifest_output_type: analysis_bam
   pipeline_done: false
   rule_all: true
-  config_gate: 'analysis_profile: updated'
-  notes: duplicate/organelle-derived view; raw final.bam remains available
+  config_gate: 'blacklist_mode: off|copies'
+  notes: duplicate/organelle-derived analysis view; raw final.bam remains available
+- id: analysis_bai
+  description: Canonical analysis BAM index in the raw namespace
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/02_align/<sample>.analysis.bam.bai
+  producing_rule: prepare_analysis_bam
+  tool: samtools index
+  manifest_output_type: analysis_bai
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'blacklist_mode: off|copies'
+  notes: index for the canonical analysis BAM
 - id: analysis_filtered_bam
-  description: Analysis-filtered branch BAM
+  description: Canonical analysis BAM in the analysis-filtered namespace
   scope: sample
   level: per_sample
   assay_gate: all
   path_template: results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam
   producing_rule: prepare_analysis_bam
   tool: samtools + filter_blacklist_templates.py
-  manifest_output_type: null
+  manifest_output_type: analysis_filtered_bam
   pipeline_done: true
   rule_all: true
   config_gate: 'blacklist_mode: analysis'
   notes: duplicate/organelle/blacklist-filtered analysis view
+- id: analysis_filtered_bai
+  description: Analysis-filtered BAM index
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam.bai
+  producing_rule: prepare_analysis_bam
+  tool: samtools index
+  manifest_output_type: analysis_filtered_bai
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: index for the analysis-filtered canonical BAM
+- id: mito_fraction
+  description: Organelle diagnostic metrics from the pre-duplicate MAPQ BAM
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/<sample>.mito_fraction.tsv
+  producing_rule: mito_fraction
+  tool: calc_organelle_metrics.py
+  manifest_output_type: mito_fraction
+  pipeline_done: false
+  rule_all: true
+  config_gate: null
+  notes: raw namespace; pre-duplicate/pre-organelle/pre-blacklist stage
+- id: analysis_filtered_mito_fraction
+  description: Organelle diagnostic metrics in the analysis-filtered namespace
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/05_qc/<sample>.mito_fraction.tsv
+  producing_rule: mito_fraction
+  tool: calc_organelle_metrics.py
+  manifest_output_type: analysis_filtered_mito_fraction
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: same pre-duplicate diagnostic stage; namespace follows the analysis root
 - id: blacklist_dropped
   description: Template-aware blacklist drop counts
   scope: sample
@@ -358,10 +410,10 @@ artifacts:
   path_template: results/<sample>/05_qc/<sample>.blacklist_dropped.tsv
   producing_rule: prepare_analysis_bam
   tool: filter_blacklist_templates.py
-  manifest_output_type: null
+  manifest_output_type: blacklist_dropped
   pipeline_done: false
   rule_all: true
-  config_gate: 'blacklist_mode: analysis'
+  config_gate: null
   notes: counts whole templates/alignments removed by the analysis filter
 - id: analysis_filtered_blacklist_dropped
   description: Analysis-filtered branch blacklist drop counts
@@ -371,11 +423,50 @@ artifacts:
   path_template: results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.tsv
   producing_rule: prepare_analysis_bam
   tool: filter_blacklist_templates.py
-  manifest_output_type: null
+  manifest_output_type: analysis_filtered_blacklist_dropped
   pipeline_done: true
   rule_all: true
   config_gate: 'blacklist_mode: analysis'
   notes: template and alignment counts for the filtered branch
+- id: blacklist_stage_metrics
+  description: Machine-readable analysis-filter stage counts
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json
+  producing_rule: prepare_analysis_bam
+  tool: filter_blacklist_templates.py
+  manifest_output_type: blacklist_stage_metrics
+  pipeline_done: false
+  rule_all: true
+  config_gate: null
+  notes: alignment-conserving counts by reason for the analysis view
+- id: analysis_filtered_blacklist_stage_metrics
+  description: Analysis-filtered machine-readable stage counts
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json
+  producing_rule: prepare_analysis_bam
+  tool: filter_blacklist_templates.py
+  manifest_output_type: analysis_filtered_blacklist_stage_metrics
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'blacklist_mode: analysis'
+  notes: same stage-count contract in the filtered namespace
+- id: analysis_policy
+  description: Versioned per-sample analysis policy and stage record
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/<sample>.analysis_policy.json
+  producing_rule: analysis_policy
+  tool: write_analysis_policy.py
+  manifest_output_type: analysis_policy
+  pipeline_done: false
+  rule_all: true
+  config_gate: null
+  notes: adapter-owned JSON; no absolute workspace paths or environment values
 - id: analysis_filtered_cpm_bigwig
   description: Analysis-filtered CPM BigWig
   scope: sample
@@ -520,18 +611,31 @@ artifacts:
   config_gate: 'qc.tss_enrichment: true + GTF configured'
   notes: not produced for MNase
 - id: cuttag_fragment_size
-  description: CUT&Tag fragment-size QC TSV
+  description: CUT&Tag fragment-size QC TSV (v2)
   scope: sample
   level: per_sample
   assay_gate: cuttag
   path_template: results/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv
   producing_rule: cuttag_fragment_size
   tool: calc_cuttag_fragment_size.py
-  manifest_output_type: null
+  manifest_output_type: cuttag_fragment_size
   pipeline_done: false
   rule_all: true
   config_gate: 'qc.cuttag_fragment_size: true'
-  notes: CUT&Tag PE treatment only
+  notes: CUT&Tag PE treatment/control; consumes the canonical analysis BAM
+- id: analysis_filtered_cuttag_fragment_size
+  description: CUT&Tag fragment-size QC in the analysis-filtered namespace
+  scope: sample
+  level: per_sample
+  assay_gate: cuttag
+  path_template: results/analysis_filtered/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv
+  producing_rule: cuttag_fragment_size
+  tool: calc_cuttag_fragment_size.py
+  manifest_output_type: analysis_filtered_cuttag_fragment_size
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.cuttag_fragment_size: true + blacklist_mode: analysis'
+  notes: same v2 contract; consumes the filtered analysis BAM
 - id: seacr_bedgraph
   description: SEACR input bedGraph
   scope: sample
@@ -663,7 +767,7 @@ artifacts:
   config_gate: null
   notes: Stage 39; from mono.bam
 - id: mnase_qc_summary
-  description: MNase per-sample QC summary TSV
+  description: MNase per-sample QC summary TSV (v2)
   scope: sample
   level: per_sample
   assay_gate: mnase
@@ -674,7 +778,7 @@ artifacts:
   pipeline_done: true
   rule_all: true
   config_gate: null
-  notes: Stage 40
+  notes: analysis-BAM template classes plus separate read counts
 - id: pooled_final_bam
   description: Pooled treatment final BAM
   scope: experiment
@@ -817,7 +921,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: 'replicate_analysis: true + >=2 peak-centric treatment bioreps'
-  notes: Stage 6b; not produced for MNase experiments
+  notes: fixed v1 columns; pooled_peak_count is the delivered peak count
 - id: pooled_mnase_mono_bam
   description: Pooled MNase mono-nucleosome BAM
   scope: experiment
@@ -1333,7 +1437,20 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: 'qc.summary: true'
-  notes: aggregates per-sample qc_summary.tsv files
+  notes: aggregates per-sample qc_summary.tsv files; v2 when any input is v2
+- id: analysis_filtered_project_qc_summary
+  description: Project-level QC summary in the analysis-filtered namespace
+  scope: project
+  level: project
+  assay_gate: peak_centric
+  path_template: results/analysis_filtered/multiqc/project_qc_summary.tsv
+  producing_rule: project_qc_summary
+  tool: aggregate_qc_summary.py
+  manifest_output_type: analysis_filtered_project_qc_summary
+  pipeline_done: false
+  rule_all: true
+  config_gate: 'qc.summary: true + blacklist_mode: analysis'
+  notes: same aggregation contract in the filtered namespace
 - id: result_manifest
   description: Project-level result manifest TSV
   scope: project

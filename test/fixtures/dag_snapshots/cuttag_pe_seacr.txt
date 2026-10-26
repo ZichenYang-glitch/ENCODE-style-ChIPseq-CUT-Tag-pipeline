@@ -5,6 +5,7 @@
 
 all
 analysis_identity_marker
+analysis_policy
 bamcoverage
 bowtie2_align
 cuttag_fragment_size

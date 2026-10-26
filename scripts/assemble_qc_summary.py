@@ -1,89 +1,56 @@
 #!/usr/bin/env python3
-"""Assemble per-sample QC summary TSV from component QC metric files.
+"""Assemble the versioned per-sample QC summary TSV.
 
-Replaces the shell printf + tail/cut logic in the qc_summary Snakemake rule.
-Reads input TSVs by header (csv.DictReader), handles missing optional metrics
-with "NA", and preserves the exact 37-column output contract.
-
-Usage:
-    python3 scripts/assemble_qc_summary.py \\
-        --sample S1 --assay chipseq --target CTCF --genome hs --layout PE \\
-        --peak-mode narrow --use-control False --control-type none \\
-        --final-bam results/S1/02_align/S1.final.bam \\
-        --peaks-file results/S1/04_peaks/S1/S1_peaks.narrowPeak \\
-        --has-blacklist yes --blacklist /opt/genomes/bl.bed \\
-        --bl-bam results/S1/02_align/S1.blacklist_filtered.bam \\
-        --bl-peaks results/S1/04_peaks/S1_bl/S1_peaks.blacklist_filtered.narrowPeak \\
-        --peak-counts results/S1/01_qc/S1.peak_counts.tsv \\
-        --frip results/S1/01_qc/S1.frip.tsv \\
-        --library-complexity results/S1/01_qc/S1.library_complexity.tsv \\
-        --nrf-pbc results/S1/01_qc/S1.nrf_pbc.tsv \\
-        --output results/S1/01_qc/S1.qc_summary.tsv
+Reads component QC tables by exact header and writes the fixed v2 sample
+contract.  Version 1 columns keep their original order after the leading
+schema version; new analysis fields follow.  Values come from the same
+analysis-policy record used by the workflow, so policy, stage counts and
+user-visible metrics describe one resolved run.
 """
+
+from __future__ import annotations
 
 import argparse
 import csv
 import os
 import sys
 
-_NA = "NA"
+from qc_common import (
+    FRAGMENT_QC_V1_COLUMNS,
+    FRAGMENT_QC_V2_COLUMNS,
+    MITO_QC_V1_COLUMNS,
+    MITO_QC_V2_COLUMNS,
+    NA,
+    SAMPLE_QC_V2_COLUMNS,
+    read_versioned_tsv,
+    write_exact_tsv,
+)
 
-# Exact 37-column output order preserved from the legacy shell rule (lines 738-773).
-_QC_SUMMARY_COLUMNS = [
-    "sample",
-    "assay",
-    "target",
-    "genome",
-    "layout",
-    "peak_mode",
-    "use_control",
-    "control_type",
-    "final_bam",
-    "peaks",
-    "blacklist",
-    "blacklist_filtered_bam",
-    "blacklist_filtered_peaks",
-    "total_reads",
-    "reads_in_peaks",
-    "frip",
-    "peak_count",
-    "blacklist_filtered_peak_count",
-    "metrics_source",
-    "unpaired_reads_examined",
-    "read_pairs_examined",
-    "secondary_or_supplementary_reads",
-    "unmapped_reads",
-    "unpaired_read_duplicates",
-    "read_pair_duplicates",
-    "read_pair_optical_duplicates",
-    "percent_duplication",
-    "estimated_library_size",
-    "total_reads_examined",
-    "duplicate_reads_estimate",
-    "total_fragments",
-    "distinct_fragments",
-    "one_read_fragments",
-    "two_read_fragments",
-    "nrf",
-    "pbc1",
-    "pbc2",
-]
+from encode_pipeline.qc.policy import (
+    AnalysisPolicyError,
+    parse_analysis_policy_bytes,
+)
+
+_QC_SUMMARY_COLUMNS = SAMPLE_QC_V2_COLUMNS
 
 
 def _read_tsv_columns(filepath, *column_names):
     """Read named columns from a TSV file via csv.DictReader.
 
-    Returns a dict mapping each column name to its value, or _NA if the
+    Returns a dict mapping each column name to its value, or NA if the
     column is missing or empty.  Reads only the first data row.
     """
-    result = {name: _NA for name in column_names}
+    result = {name: NA for name in column_names}
     if not os.path.isfile(filepath):
         print(f"ERROR: required input file not found: {filepath}", file=sys.stderr)
         sys.exit(1)
-    with open(filepath, newline="") as fh:
+    with open(filepath, newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
         if reader.fieldnames is None:
             return result
+        if len(set(reader.fieldnames)) != len(reader.fieldnames):
+            print(f"ERROR: duplicate columns in {filepath}", file=sys.stderr)
+            sys.exit(1)
         for row in reader:
             for name in column_names:
                 val = row.get(name, "").strip()
@@ -93,11 +60,42 @@ def _read_tsv_columns(filepath, *column_names):
     return result
 
 
+def _read_policy(path):
+    try:
+        with open(path, "rb") as handle:
+            return parse_analysis_policy_bytes(handle.read())
+    except (OSError, AnalysisPolicyError) as exc:
+        print(f"ERROR: analysis policy is invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _read_optional_versioned(path, v1_columns, v2_columns):
+    if not path:
+        return None, None
+    try:
+        return read_versioned_tsv(path, v1_columns, v2_columns)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: QC source is invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _cross_correlation(path, enabled):
+    if not enabled:
+        return NA, NA, "not_enabled"
+    if not path or not os.path.isfile(path):
+        return NA, NA, "missing"
+    from parse_cross_correlation import parse_cc_qc_file
+
+    parsed = parse_cc_qc_file(path)
+    nsc = parsed.get("nsc")
+    rsc = parsed.get("rsc")
+    if nsc is None or rsc is None:
+        return NA, NA, "parse_failed"
+    return str(nsc), str(rsc), "reported"
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Assemble per-sample QC summary TSV from component metrics"
-    )
-    # Sample metadata
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", required=True)
     parser.add_argument("--assay", required=True)
     parser.add_argument("--target", required=True)
@@ -107,21 +105,30 @@ def main():
     parser.add_argument("--use-control", required=True)
     parser.add_argument("--control-type", required=True)
     parser.add_argument("--final-bam", required=True)
+    parser.add_argument("--analysis-bam", required=True)
     parser.add_argument("--peaks-file", required=True)
     parser.add_argument("--has-blacklist", required=True)
-    parser.add_argument("--blacklist", default=_NA)
-    parser.add_argument("--bl-bam", default=_NA)
-    parser.add_argument("--bl-peaks", default=_NA)
-    # Component TSV inputs
+    parser.add_argument("--blacklist", default=NA)
+    parser.add_argument("--bl-bam", default=NA)
+    parser.add_argument("--bl-peaks", default=NA)
     parser.add_argument("--peak-counts", required=True)
     parser.add_argument("--frip", required=True)
     parser.add_argument("--library-complexity", required=True)
     parser.add_argument("--nrf-pbc", required=True)
+    parser.add_argument("--mito-tsv", required=True)
+    parser.add_argument("--analysis-policy", required=True)
+    parser.add_argument("--fragment-qc", default="")
+    parser.add_argument("--cross-correlation-qc", default="")
+    parser.add_argument(
+        "--cross-correlation-enabled", default="false", choices=("true", "false")
+    )
     parser.add_argument("--output", required=True)
-
     args = parser.parse_args()
 
-    # ---- Read component TSVs by header ----
+    policy = _read_policy(args.analysis_policy)
+    if policy["sample"] != args.sample or policy["assay"] != args.assay:
+        print("ERROR: analysis policy identity is inconsistent", file=sys.stderr)
+        sys.exit(1)
 
     peak_data = _read_tsv_columns(args.peak_counts, "peaks", "blacklist_filtered_peaks")
     frip_data = _read_tsv_columns(args.frip, "total_reads", "reads_in_peaks", "frip")
@@ -151,22 +158,86 @@ def main():
         "pbc2",
     )
 
-    # ---- Apply blacklist override (matches legacy shell lines 731-734) ----
+    mito_version, mito = _read_optional_versioned(
+        args.mito_tsv, MITO_QC_V1_COLUMNS, MITO_QC_V2_COLUMNS
+    )
+    fragment_version, fragment = _read_optional_versioned(
+        args.fragment_qc, FRAGMENT_QC_V1_COLUMNS, FRAGMENT_QC_V2_COLUMNS
+    )
+
+    if mito is None:
+        organelle = {
+            "organelle_reads": NA,
+            "total_mapped_reads": NA,
+            "fraction": NA,
+            "status": "missing",
+            "matched_contigs": NA,
+        }
+    else:
+        organelle = {
+            "organelle_reads": mito["organelle_reads"],
+            "total_mapped_reads": mito["total_mapped_reads"],
+            "fraction": mito["fraction"],
+            "status": mito["status"],
+            "matched_contigs": (
+                mito.get("matched_contigs", NA) if mito_version == "2" else NA
+            ),
+        }
 
     bl_bam = args.bl_bam
     bl_peaks = args.bl_peaks
     bl_path = args.blacklist
     bl_peak_count = peak_data["blacklist_filtered_peaks"]
-
     if args.has_blacklist == "no":
-        bl_bam = _NA
-        bl_peaks = _NA
-        bl_path = _NA
-        bl_peak_count = _NA
+        bl_bam = NA
+        bl_peaks = NA
+        bl_path = NA
+        bl_peak_count = NA
 
-    # ---- Assemble into 37-column row ----
+    blacklist_applied = policy["blacklist_applied"] and args.has_blacklist != "no"
+    delivered_peak_count = (
+        peak_data["blacklist_filtered_peaks"]
+        if blacklist_applied
+        else peak_data["peaks"]
+    )
+    if blacklist_applied and delivered_peak_count == NA:
+        delivered_peak_count = NA
+
+    fragment_fields = {
+        "analysis_valid_fragments": NA,
+        "analysis_invalid_templates": NA,
+        "analysis_tlen_zero_templates": NA,
+        "analysis_orphan_templates": NA,
+        "analysis_cross_contig_templates": NA,
+        "analysis_inconsistent_templates": NA,
+        "analysis_upstream_dropped_templates": NA,
+        "analysis_upstream_dropped_alignments": NA,
+    }
+    if fragment is not None and fragment_version == "2":
+        fragment_fields = {
+            "analysis_valid_fragments": fragment["templates_valid"],
+            "analysis_invalid_templates": fragment["templates_invalid"],
+            "analysis_tlen_zero_templates": fragment["invalid_tlen_zero"],
+            "analysis_orphan_templates": fragment["invalid_orphan"],
+            "analysis_cross_contig_templates": fragment["invalid_cross_contig"],
+            "analysis_inconsistent_templates": fragment["invalid_inconsistent"],
+            "analysis_upstream_dropped_templates": fragment[
+                "upstream_dropped_templates"
+            ],
+            "analysis_upstream_dropped_alignments": fragment[
+                "upstream_dropped_alignments"
+            ],
+        }
+    elif fragment is not None:
+        fragment_fields["analysis_valid_fragments"] = fragment["fragment_count"]
+
+    nsc, rsc, cc_status = _cross_correlation(
+        args.cross_correlation_qc,
+        args.cross_correlation_enabled == "true",
+    )
 
     row = {
+        "schema_version": "2",
         "sample": args.sample,
         "assay": args.assay,
         "target": args.target,
@@ -183,9 +254,8 @@ def main():
         "total_reads": frip_data["total_reads"],
         "reads_in_peaks": frip_data["reads_in_peaks"],
         "frip": frip_data["frip"],
-        "peak_count": peak_data["peaks"],
+        "peak_count": delivered_peak_count,
         "blacklist_filtered_peak_count": bl_peak_count,
-        # Library complexity
         "metrics_source": lc_data["metrics_source"],
         "unpaired_reads_examined": lc_data["unpaired_reads_examined"],
         "read_pairs_examined": lc_data["read_pairs_examined"],
@@ -198,7 +268,6 @@ def main():
         "estimated_library_size": lc_data["estimated_library_size"],
         "total_reads_examined": lc_data["total_reads_examined"],
         "duplicate_reads_estimate": lc_data["duplicate_reads_estimate"],
-        # NRF/PBC
         "total_fragments": nrf_data["total_fragments"],
         "distinct_fragments": nrf_data["distinct_fragments"],
         "one_read_fragments": nrf_data["one_read_fragments"],
@@ -206,19 +275,28 @@ def main():
         "nrf": nrf_data["nrf"],
         "pbc1": nrf_data["pbc1"],
         "pbc2": nrf_data["pbc2"],
+        "analysis_bam": args.analysis_bam,
+        "analysis_input_stage": "analysis_bam",
+        **fragment_fields,
+        "raw_peak_count": peak_data["peaks"],
+        "delivered_peak_count": delivered_peak_count,
+        "duplicate_analysis": policy["resolved_duplicate_analysis"],
+        "resolved_max_insert": str(policy["resolved_max_insert"]),
+        "blacklist_mode": policy["blacklist_mode"],
+        "blacklist_applied": "true" if blacklist_applied else "false",
+        "organelle_mode": policy["organelle_mode"],
+        "organelle_status": organelle["status"],
+        "organelle_reads": organelle["organelle_reads"],
+        "organelle_total_mapped_reads": organelle["total_mapped_reads"],
+        "organelle_fraction": organelle["fraction"],
+        "matched_organelle_contigs": organelle["matched_contigs"],
+        "cross_correlation_nsc": nsc,
+        "cross_correlation_rsc": rsc,
+        "cross_correlation_status": cc_status,
+        "scientific_policy_revision": str(policy["scientific_policy_revision"]),
     }
 
-    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    with open(args.output, "w", newline="") as fh:
-        writer = csv.DictWriter(
-            fh,
-            fieldnames=_QC_SUMMARY_COLUMNS,
-            delimiter="\t",
-            lineterminator="\n",
-            extrasaction="ignore",
-        )
-        writer.writeheader()
-        writer.writerow(row)
+    write_exact_tsv(args.output, SAMPLE_QC_V2_COLUMNS, row)
 
 
 if __name__ == "__main__":

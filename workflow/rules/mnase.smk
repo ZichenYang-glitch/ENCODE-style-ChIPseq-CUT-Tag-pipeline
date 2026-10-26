@@ -439,6 +439,8 @@ rule mnase_qc_summary:
         di_bam=mnase_fragment_bam("{sample}", "di"),
         dyad_bw=mnase_signal_bw("{sample}", "dyad"),
         mono_bw=mnase_signal_bw("{sample}", "mono"),
+        analysis_bam=lambda wc: analysis_bam(wc.sample),
+        stage_metrics=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.blacklist_dropped.stage_metrics.json",
         insert_size_metrics=lambda wc: (
             [f"{RAW_OUTDIR}/{wc.sample}/05_qc/picard/{wc.sample}.insert_size_metrics"]
             if QC_CONFIG.get("picard_metrics", False)
@@ -482,6 +484,8 @@ rule mnase_qc_summary:
             --di-bam {input.di_bam:q} \
             --dyad-bw {input.dyad_bw:q} \
             --mono-bw {input.mono_bw:q} \
+            --analysis-bam {input.analysis_bam:q} \
+            --stage-metrics {input.stage_metrics:q} \
             --insert-size-metrics {params.insert_size_metrics:q} \
             --danpos3-enabled {params.danpos3_enabled} \
             --inps-enabled {params.inps_enabled} \

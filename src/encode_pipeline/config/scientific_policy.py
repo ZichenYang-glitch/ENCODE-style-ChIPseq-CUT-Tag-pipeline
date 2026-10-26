@@ -15,7 +15,9 @@ scientific behavior.
 # 4 = SCI-4 canonical analysis BAM across both profiles, complete PE template
 # closure, assay organelle default & verification, blacklist default analysis
 # filtering & resource checks.
-SCIENTIFIC_POLICY_REVISION = 4
+# 5 = SCI-5 versioned QC v2: template-aware fragment-size/MNase counts,
+# diagnostic stages, analysis policy JSON, and same-policy reporting.
+SCIENTIFIC_POLICY_REVISION = 5
 
 # Schema version of the .helixweave/analysis_identity.json marker.
 # Version 1 markers were the unversioned {"identity", "analysis_profile"}

@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Versioned QC v2 contract (SCI-5; `scientific_policy_revision` 5):
+  `qc_summary`, `mnase_qc_summary`, `cuttag_fragment_size`, and
+  `mito_fraction` start with `schema_version` and preserve the exact v1
+  column order, while the adapter still reads v1 artifacts without
+  recalculating them. CUT&Tag fragment sizes count each complete valid PE
+  template once with `abs(TLEN)` from the canonical analysis BAM; zero TLEN,
+  orphan, cross-contig, and inconsistent templates are reported separately
+  and never enter a 0 bp bin. MNase QC separates read records from fragment
+  classes, reports invalid/classified/unclassified counts against the union
+  of possibly overlapping windows, and no longer implies a divide-by-two
+  conversion. Organelle diagnostics preserve unresolved/no-mapped states as
+  NA and expose matched contigs. A versioned adapter-owned
+  `analysis_policy.json` records resolved policy, input stages, resource
+  matches, and stage counts without workspace paths, and is registered in
+  the manifest, artifact catalog, output contract, and MultiQC summary.
+  Raw/analysis namespace manifest rows and the updated-profile fragment-CPM
+  gate are corrected; pooled QC keeps its fixed columns and delivered peak
+  count.
+
 - Assay-resolved Bowtie2 paired-end maximum fragment length (`-X` /
   `tool_parameters.bowtie2.max_insert`, both profiles): `auto` resolves per
   PE sample by assay (`chipseq: 2000`, `atac: 2000`, `cuttag: 700`,

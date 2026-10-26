@@ -86,6 +86,7 @@ rule pipeline_done:
         mnase_qc_summ = lambda wc: (
             mnase_qc_summary_tsv(wc.sample) if _is_mnase(wc) else []
         ),
+        analysis_policy = f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_policy.json",
         cross_corr = (
             f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc"
             if QC_CONFIG.get("cross_correlation", False) else []

@@ -1362,6 +1362,8 @@ def _artifact_mime_type(relative_path: str) -> str:
     lowered = relative_path.lower()
     if lowered.endswith(".tsv"):
         return "text/tab-separated-values"
+    if lowered.endswith(".json"):
+        return "application/json"
     if lowered.endswith(".html"):
         return "text/html"
     if lowered.endswith((".bed", ".bedgraph", ".narrowpeak", ".broadpeak")):

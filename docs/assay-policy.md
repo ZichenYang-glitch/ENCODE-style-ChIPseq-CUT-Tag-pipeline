@@ -206,10 +206,15 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 
 ### Summary and manifest
 
-- Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
-- Project-level `project_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
-- `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
-- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv`.
+- Per-sample `qc_summary.tsv` is assembled by `scripts/assemble_qc_summary.py`
+  using the v2 contract (`schema_version` first, then the complete v1 column
+  order and analysis-stage fields). Historical v1 files remain readable.
+- Project-level `project_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`;
+  an all-v1 input set produces a v1 file, while any v2 input produces the v2 header.
+- Per-sample `analysis_policy.json` records the resolved duplicate, insert,
+  organelle, and blacklist policy plus QC input stages and stage counts.
+- `result_manifest.tsv` records core output existence with a 10-column TSV, using `validate_samples` for DAG-consistent gating.
+- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce the v2 `mnase_qc_summary.tsv` with separate read and template counts.
 
 ---
 

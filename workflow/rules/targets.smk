@@ -40,6 +40,7 @@ def _analysis_targets():
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.tsv")
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.stage_metrics.json")
+    targets += [f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.analysis_policy.json" for sample_id in TREATMENT_SAMPLE_IDS]
     return targets
 
 

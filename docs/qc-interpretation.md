@@ -322,6 +322,15 @@ and read-level `.CPM.bw` are unchanged. MNase and unknown CUT&Tag targets (under
 
 **Output:** `*.cuttag_fragment_size.tsv`
 
+The v2 table starts with `schema_version` and preserves the v1 columns. It
+consumes the canonical analysis BAM, so the distribution follows the resolved
+duplicate/organelle/blacklist policy. Each complete valid PE template is
+counted once with `abs(TLEN)`; negative TLEN is legal. Zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted in separate invalid
+columns and never enter a 0 bp biological bin. The `upstream_*` columns report
+templates/alignments removed while creating the analysis view; they are not
+mixed with invalid templates found in the final input.
+
 CUT&Tag uses Tn5 transposase which fragments DNA at nucleosome-adjacent sites.
 Fragment-size distributions reflect the underlying chromatin structure:
 
@@ -346,6 +355,26 @@ pipeline runs SEACR as a sidecar alongside MACS3.
 - SEACR relaxed peaks include lower-signal regions. Use relaxed when
   sensitivity is prioritized.
 - Compare SEACR and MACS3 peak sets to assess peak-caller agreement.
+
+## MNase-Specific QC
+
+**Output:** `*.mnase_qc_summary.tsv` (v2)
+
+The summary keeps the v1 sub/mono/di read counts and adds analysis-stage
+counts. Read counts come from the sub/mono/di BAMs via `samtools view -c` and
+are not divided by two; fragment counts come from complete valid PE templates
+in the canonical analysis BAM. `analysis_total_templates` is
+`analysis_valid_templates + analysis_invalid_templates`; invalid templates are
+also split into zero-TLEN, orphan, cross-contig, and inconsistent categories.
+
+Configured windows are inclusive. They may overlap, in which case each window
+still reports its own fragment count, while `analysis_classified_templates`
+counts each valid template once against the union and
+`analysis_unclassified_templates` is the remaining valid templates.
+`analysis_fraction_classified` is classified divided by valid templates and is
+NA when there are no valid templates. `window_overlap` records whether the
+configured windows overlap. A missing or malformed analysis BAM reports
+`analysis_status: parse_failed` with NA counts rather than zero.
 
 ## Replicate-Level Outputs
 
@@ -397,6 +426,15 @@ modules may still show overlapping metrics. Complete HTML visibility depends
 on actual module inputs and runtime and has not been established for every
 metric. CUT&Tag fragment-size TSVs likewise exist independently of whether a
 particular summary/platform consumer exposes every field.
+
+Each treatment sample also records `analysis_policy.json` with the resolved
+duplicate policy, PE insert bound, organelle mode/status and matched contigs,
+blacklist mode/application, QC input stages, and stage counts. The
+`mito_fraction.tsv` diagnostic uses the pre-duplicate MAPQ BAM; it reports
+`unresolved_contigs` or `no_mapped_reads` with NA values when the fraction is
+undefined. Neither record exposes absolute workspace paths or environment
+values. The v2 sample summary is the user-facing view of the same policy, and
+the platform extracts both the v2 metrics and the policy stage counts.
 
 ## Practical Checklists
 
