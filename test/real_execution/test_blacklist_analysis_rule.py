@@ -198,7 +198,7 @@ def test_prepare_analysis_bam_applies_all_filters(
     ).exists()
 
 
-def test_peak_counts_uses_filtered_primary_count(
+def test_peak_counts_preserves_caller_and_filtered_counts(
     tmp_path, snakemake_path, samtools_path
 ):
     blacklist = tmp_path / "blacklist.bed"
@@ -313,5 +313,7 @@ def test_peak_counts_uses_filtered_primary_count(
     fields = rows[1].split("\t")
     assert fields[0] == "T1"
     assert fields[1] == "narrow"
-    assert fields[2] == "1"
+    # ``peaks`` always keeps the true caller count; the blacklist-filtered
+    # count is reported separately for the delivered peak set.
+    assert fields[2] == "2"
     assert fields[3] == "1"

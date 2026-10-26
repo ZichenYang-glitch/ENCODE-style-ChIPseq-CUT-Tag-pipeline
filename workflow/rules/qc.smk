@@ -176,7 +176,6 @@ rule peak_counts:
     params:
         peak_mode=lambda wc: SAMPLE_MAP[wc.sample]["peak_mode"],
         sample="{sample}",
-        analysis_mode="yes" if ANALYSIS_FILTERED else "no",
         bl_peak=lambda wc: (
             _analysis_filtered_peak_file(wc.sample)
             if ANALYSIS_FILTERED
@@ -194,9 +193,6 @@ rule peak_counts:
         BL_PEAK={params.bl_peak:q}
         if [[ -n "$BL_PEAK" && -f "$BL_PEAK" ]]; then
             BL_COUNT=$(wc -l <"$BL_PEAK")
-            if [[ "{params.analysis_mode}" == "yes" ]]; then
-                PEAK_COUNT="$BL_COUNT"
-            fi
         else
             BL_COUNT="NA"
         fi
