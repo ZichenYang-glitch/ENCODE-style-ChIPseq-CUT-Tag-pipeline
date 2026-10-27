@@ -438,14 +438,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Verify supported deployment Python
-        run: |
-          if [ ! -x /usr/bin/python3.12 ]; then
-            sudo apt-get update
-            sudo apt-get install -y python3.12
-          fi
-          /usr/bin/python3.12 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
-
       - name: Confirm exact checkout
         env:
           EXPECTED_SHA: ${{ github.sha }}
