@@ -506,6 +506,19 @@ artifacts:
   rule_all: true
   config_gate: 'blacklist_mode: analysis'
   notes: final per-sample peaks after blacklist interval removal
+- id: cross_correlation_metadata
+  description: Versioned cross-correlation input lengths, counts and resolved window
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_metadata.json
+  producing_rule: cross_correlation
+  tool: make_cross_correlation_tagalign.py
+  manifest_output_type: cross_correlation_metadata
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.cross_correlation: true; treatment only'
+  notes: JSON schema_version 1; length estimate uses first 500 tags and distribution covers all tags; canonical namespace
 - id: cross_correlation_qc
   description: Versioned cross-correlation diagnostic detail (execution, interpretation and local threshold hint)
   scope: sample

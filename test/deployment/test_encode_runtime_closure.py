@@ -361,6 +361,7 @@ def test_exported_cross_correlation_detail_and_project_consumer(bundle):
     meta.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "status": "ready",
                 "assay": "chipseq",
                 "layout": "SE",

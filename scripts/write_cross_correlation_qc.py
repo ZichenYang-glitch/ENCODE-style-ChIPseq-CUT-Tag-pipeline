@@ -9,7 +9,6 @@ contract consumed by the sample QC summary, policy/reporting, and MultiQC.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import sys
@@ -30,7 +29,7 @@ from parse_cross_correlation import (  # noqa: E402
     interpret_cross_correlation,
     parse_cc_qc_record,
 )
-from qc_common import write_exact_tsv  # noqa: E402
+from qc_common import read_cross_correlation_metadata, write_exact_tsv  # noqa: E402
 
 NA = "NA"
 
@@ -47,8 +46,7 @@ def _read_metadata(path: str | None) -> dict:
     if not path:
         return {}
     try:
-        with open(path, encoding="utf-8") as handle:
-            value = json.load(handle)
+        value = read_cross_correlation_metadata(path)
     except (OSError, ValueError) as exc:
         return {"status": "parse_failed", "error": str(exc)}
     return value if isinstance(value, dict) else {"status": "parse_failed"}

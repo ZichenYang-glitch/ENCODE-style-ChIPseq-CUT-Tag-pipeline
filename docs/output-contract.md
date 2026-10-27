@@ -32,6 +32,7 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `qc_summary` | assemble_qc_summary | qc_summary | `results/<sample>/01_qc/<sample>.qc_summary.tsv` | implemented |
 | `cross_correlation` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.qc` | optional tool side artifact |
 | `cross_correlation_plot` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf` | optional tool side artifact |
+| `cross_correlation_metadata` | make_cross_correlation_tagalign.py | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_metadata.json` | versioned input diagnostics |
 | `cross_correlation_qc` | write_cross_correlation_qc.py | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_qc.tsv` | versioned detail, required when enabled |
 | `preseq` | preseq lc_extrap | preseq_complexity | `results/<sample>/05_qc/preseq/<sample>.preseq.txt` | stable |
 | `picard_alignment` | Picard CollectMultipleMetrics | picard_collect_multiple_metrics | `results/<sample>/05_qc/picard/<sample>.alignment_summary_metrics` | stable |
@@ -305,6 +306,8 @@ including `no_data` with NA metrics when the analysis BAM has no usable tags.
 The raw `.cc.qc` and PDF are optional SPP side artifacts, present only when SPP
 produces them; direct raw/PDF targets are no longer scheduled. They are not
 replaced by fake files. Deleting the required detail triggers recomputation.
-The tagAlign and metadata JSON are tracked intermediate outputs. Sample and
+The tagAlign and metadata JSON are tracked outputs. Metadata schema version 1
+is registered for platform download, including the full length distribution
+and first-500 estimate method; its manifest type is cross_correlation_metadata. Sample and
 project summaries consume the detail, not a second interpretation of raw SPP.
 The old seven-column scalar parser CLI remains available for historical files.

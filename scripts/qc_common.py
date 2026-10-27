@@ -36,6 +36,19 @@ from encode_pipeline.qc.contract import (  # noqa: E402
 NA = "NA"
 
 
+def read_cross_correlation_metadata(path: str) -> dict:
+    """Read the exact version of the input-length/window metadata."""
+    with open(path, encoding="utf-8") as handle:
+        value = json.load(handle)
+    if (
+        not isinstance(value, dict)
+        or type(value.get("schema_version")) is not int
+        or value["schema_version"] != 1
+    ):
+        raise ValueError("cross-correlation metadata version is unsupported")
+    return value
+
+
 def read_cross_correlation_detail(path: str):
     version, row = read_versioned_tsv(
         path, CROSS_CORRELATION_QC_V1_COLUMNS, CROSS_CORRELATION_QC_V2_COLUMNS

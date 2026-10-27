@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
+
+from qc_common import read_cross_correlation_metadata
 
 
 def main() -> int:
@@ -13,8 +14,7 @@ def main() -> int:
     parser.add_argument("--metadata", required=True)
     args = parser.parse_args()
     try:
-        with open(args.metadata, encoding="utf-8") as handle:
-            metadata = json.load(handle)
+        metadata = read_cross_correlation_metadata(args.metadata)
     except (OSError, ValueError) as exc:
         print(f"ERROR: cross-correlation metadata is invalid: {exc}", file=sys.stderr)
         return 1

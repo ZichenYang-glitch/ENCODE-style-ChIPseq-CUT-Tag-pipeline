@@ -1525,13 +1525,23 @@ def test_cross_correlation_artifact_uses_canonical_type_and_resolved_namespace(
     path = workspace / relative
     path.parent.mkdir(parents=True)
     path.write_text("detail\n")
+    metadata_path = path.with_name("S1.cross_correlation_metadata.json")
+    metadata_path.write_text('{"schema_version":1}')
     result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
     assert result.is_success, result.issues
     details = [
         item for item in result.value if item.output_type == "cross_correlation_qc"
     ]
     assert len(details) == (1 if enabled is True else 0)
+    metadata = [
+        item
+        for item in result.value
+        if item.output_type == "cross_correlation_metadata"
+    ]
+    assert len(metadata) == len(details)
     if details:
+        assert metadata[0].relative_path == str(metadata_path.relative_to(workspace))
+        assert metadata[0].mime_type == "application/json"
         assert details[0].relative_path == relative
         assert details[0].metadata["analysis_branch"] == (
             "analysis_filtered" if mode == "analysis" else "raw"

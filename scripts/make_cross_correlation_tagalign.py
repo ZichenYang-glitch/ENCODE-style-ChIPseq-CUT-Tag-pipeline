@@ -231,6 +231,7 @@ def main() -> int:
     if status != "ready":
         policy = "no_data"
     metadata = {
+        "schema_version": 1,
         "sample": args.sample,
         "assay": args.assay,
         "target": args.target,

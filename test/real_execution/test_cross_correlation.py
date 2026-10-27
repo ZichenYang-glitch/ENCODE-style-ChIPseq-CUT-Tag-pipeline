@@ -587,5 +587,6 @@ def test_pe_r1_from_real_bam_retains_both_orientations(tmp_path, cc_tools):
         "chr1\t399\t449\tN\t1000\t-",
     ]
     metadata = json.loads(meta.read_text())
+    assert metadata["schema_version"] == 1
     assert metadata["valid_templates"] == 2 and metadata["input_stage"] == "analysis_r1"
     assert metadata["target_type"] == "unknown" and metadata["window_upper"] == 100

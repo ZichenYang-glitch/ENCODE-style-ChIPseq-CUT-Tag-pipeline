@@ -131,6 +131,7 @@ def detail(tmp_path):
         **overrides,
     ):
         metadata = {
+            "schema_version": 1,
             "status": "ready",
             "assay": "chipseq",
             "layout": "SE",
@@ -271,7 +272,39 @@ def test_project_summary_preserves_diagnostic_status(detail, tmp_path):
 )
 def test_window_cli_distinguishes_ready_and_unusable_metadata(tmp_path, metadata, ok):
     path = tmp_path / "meta.json"
-    path.write_text(json.dumps(metadata))
+    path.write_text(json.dumps({"schema_version": 1, **metadata}))
     result = invoke("cross_correlation_spp_window.py", "--metadata", path, check=False)
     assert (result.returncode == 0) is ok
     assert result.stdout == ("-500:60\n" if ok else "")
+
+
+@pytest.mark.parametrize("version", [999, True, "1"])
+def test_unknown_metadata_version_is_parse_failure_not_a_quality_result(
+    tmp_path, version
+):
+    metadata = tmp_path / "meta.json"
+    metadata.write_text(json.dumps({"schema_version": version, "status": "ready"}))
+    detail = tmp_path / "detail.tsv"
+    invoke(
+        "write_cross_correlation_qc.py",
+        "--sample",
+        "S1",
+        "--assay",
+        "chipseq",
+        "--layout",
+        "SE",
+        "--metadata",
+        metadata,
+        "--output",
+        detail,
+    )
+    _, row = qc_common.read_cross_correlation_detail(str(detail))
+    assert (
+        row["execution_status"] == "parse_failed"
+        and row["threshold_hint"] == "not_evaluated"
+    )
+    assert row["nsc"] == row["rsc"] == "NA"
+    window = invoke(
+        "cross_correlation_spp_window.py", "--metadata", metadata, check=False
+    )
+    assert window.returncode != 0 and not window.stdout

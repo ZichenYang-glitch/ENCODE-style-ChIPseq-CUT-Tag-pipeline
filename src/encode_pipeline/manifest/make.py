@@ -244,6 +244,23 @@ def _build_sample_rows(
                 assay,
                 target,
                 genome,
+                "cross_correlation_metadata",
+                "make_cross_correlation_tagalign.py",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "cross_correlation",
+                    f"{sid}.cross_correlation_metadata.json",
+                ),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
                 "cross_correlation_qc",
                 "write_cross_correlation_qc.py",
                 _resolve_path(
