@@ -17,7 +17,9 @@ scientific behavior.
 # filtering & resource checks.
 # 5 = SCI-5 versioned QC v2: template-aware fragment-size/MNase counts,
 # diagnostic stages, analysis policy JSON, and same-policy reporting.
-SCIENTIFIC_POLICY_REVISION = 5
+# 6 = SCI-6 analysis R1/SE cross-correlation input, phantom exclusion and
+# versioned diagnostic interpretation shared by sample/project reports.
+SCIENTIFIC_POLICY_REVISION = 6
 
 # Schema version of the .helixweave/analysis_identity.json marker.
 # Version 1 markers were the unversioned {"identity", "analysis_profile"}

@@ -88,7 +88,7 @@ rule pipeline_done:
         ),
         analysis_policy = f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_policy.json",
         cross_corr = (
-            f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc"
+            f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cross_correlation_qc.tsv"
             if QC_CONFIG.get("cross_correlation", False) else []
         ),
         preseq = (
@@ -132,11 +132,12 @@ rule cross_correlation_summary:
         f"{OUTDIR}/multiqc/cross_correlation_summary.tsv",
     input:
         lambda wc: [
-            f"{OUTDIR}/{sid}/05_qc/cross_correlation/{sid}.cc.qc"
+            f"{OUTDIR}/{sid}/05_qc/cross_correlation/"
+            f"{sid}.cross_correlation_qc.tsv"
             for sid in TREATMENT_SAMPLE_IDS
         ],
     params:
-        script = f"{workflow.basedir}/../scripts/parse_cross_correlation.py",
+        script = f"{workflow.basedir}/../scripts/summarize_cross_correlation.py",
     conda:
         "../envs/python.yml",
     shell:

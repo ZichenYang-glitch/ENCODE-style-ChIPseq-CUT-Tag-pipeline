@@ -22,6 +22,7 @@ import os
 import sys
 
 from qc_common import (
+    read_cross_correlation_detail,
     FRAGMENT_QC_V1_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V1_COLUMNS,
@@ -35,6 +36,10 @@ from qc_common import (
 from encode_pipeline.qc.policy import (
     AnalysisPolicyError,
     parse_analysis_policy_bytes,
+)
+from encode_pipeline.qc.contract import (
+    CROSS_CORRELATION_EXECUTION_STATUSES,
+    CROSS_CORRELATION_INTERPRETATION_STATUSES,
 )
 
 _QC_SUMMARY_COLUMNS = SAMPLE_QC_V2_COLUMNS
@@ -85,9 +90,34 @@ def _read_optional_versioned(path, v1_columns, v2_columns):
         sys.exit(1)
 
 
-def _cross_correlation(path, enabled):
+def _cross_correlation(path, enabled, detail_path=None):
     if not enabled:
         return NA, NA, "not_enabled"
+    if detail_path:
+        try:
+            version, detail = read_cross_correlation_detail(detail_path)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if version == "1":
+            return detail.get("nsc", NA), detail.get("rsc", NA), "reported"
+        if detail is not None:
+            execution = detail.get("execution_status", "")
+            interpretation = detail.get("interpretation_status", "")
+            if (
+                execution not in CROSS_CORRELATION_EXECUTION_STATUSES
+                or interpretation not in CROSS_CORRELATION_INTERPRETATION_STATUSES
+            ):
+                print(
+                    "ERROR: cross-correlation detail status is invalid",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            if execution == "reported":
+                nsc = detail.get("nsc", NA) or NA
+                rsc = detail.get("rsc", NA) or NA
+                return nsc, rsc, interpretation
+            return NA, NA, execution
     if not path or not os.path.isfile(path):
         return NA, NA, "missing"
     from parse_cross_correlation import parse_cc_qc_file
@@ -125,6 +155,7 @@ def main():
     parser.add_argument("--analysis-policy", required=True)
     parser.add_argument("--fragment-qc", default="")
     parser.add_argument("--cross-correlation-qc", default="")
+    parser.add_argument("--cross-correlation-detail", default="")
     parser.add_argument(
         "--cross-correlation-enabled", default="false", choices=("true", "false")
     )
@@ -253,6 +284,7 @@ def main():
     nsc, rsc, cc_status = _cross_correlation(
         args.cross_correlation_qc,
         args.cross_correlation_enabled == "true",
+        args.cross_correlation_detail,
     )
 
     row = {

@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "3.0.0"
+SCHEMA_VERSION = "3.1.0"
 MAX_CORES = 1024
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
@@ -106,6 +106,12 @@ def _config_schema() -> dict[str, object]:
             ("picard_metrics", False),
             ("tss_enrichment", False),
         )
+    }
+    qc_properties["cross_correlation_target_type"] = {
+        "type": "string",
+        "enum": ["auto", "tf", "histone"],
+        "default": "auto",
+        "description": "Run-wide ChIP target override; non-ChIP remains diagnostic.",
     }
     schema: dict[str, object] = {
         "$schema": JSON_SCHEMA_DIALECT,

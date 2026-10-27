@@ -473,6 +473,11 @@ def _write_cross_correlation(path: Path) -> None:
         "S1\t1000\t150\t0.9\t150\t0.8\t150\t0.1\t1.2\t1.1\t0\n",
         encoding="utf-8",
     )
+    path.with_name(f"{SAMPLE}.cross_correlation_qc.tsv").write_text(
+        "sample\tcc_qc_file\testimated_fragment_length\tphantom_peak\tnsc\trsc\tquality_flag\n"
+        "S1\tS1.cc.qc\t150\t150\t1.2\t1.1\tok\n",
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.parametrize(

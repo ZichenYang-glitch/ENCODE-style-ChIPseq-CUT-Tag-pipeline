@@ -119,7 +119,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "3.0.0"
+    assert as_dict["schema_version"] == "3.1.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -213,7 +213,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/3.0.0")
+        assert document["$id"].endswith("/3.1.0")
         jsonschema.Draft202012Validator.check_schema(document)
 
 
@@ -1498,3 +1498,51 @@ def test_extract_artifacts_default_analysis_without_canonical_key(tmp_path):
         by_type["cpm_bigwig"].relative_path
         == "results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"
     )
+
+
+@pytest.mark.parametrize("mode", ["analysis", "off", "copies"])
+@pytest.mark.parametrize("enabled", [True, "false"])
+def test_cross_correlation_artifact_uses_canonical_type_and_resolved_namespace(
+    tmp_path, mode, enabled
+):
+    workspace = _artifact_workspace(tmp_path)
+    (workspace / "config/samples.tsv").write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
+        "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\tidx\n"
+    )
+    (workspace / "config/config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "blacklist_mode": mode,
+                "replicate_analysis": False,
+                "qc": {"cross_correlation": enabled},
+                "genome_resources": {"hs": {}},
+            }
+        )
+    )
+    namespace = "results/analysis_filtered" if mode == "analysis" else "results"
+    relative = f"{namespace}/S1/05_qc/cross_correlation/S1.cross_correlation_qc.tsv"
+    path = workspace / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("detail\n")
+    metadata_path = path.with_name("S1.cross_correlation_metadata.json")
+    metadata_path.write_text('{"schema_version":1}')
+    result = _adapter().extract_artifacts(WorkflowInputs(config={}), workspace)
+    assert result.is_success, result.issues
+    details = [
+        item for item in result.value if item.output_type == "cross_correlation_qc"
+    ]
+    assert len(details) == (1 if enabled is True else 0)
+    metadata = [
+        item
+        for item in result.value
+        if item.output_type == "cross_correlation_metadata"
+    ]
+    assert len(metadata) == len(details)
+    if details:
+        assert metadata[0].relative_path == str(metadata_path.relative_to(workspace))
+        assert metadata[0].mime_type == "application/json"
+        assert details[0].relative_path == relative
+        assert details[0].metadata["analysis_branch"] == (
+            "analysis_filtered" if mode == "analysis" else "raw"
+        )

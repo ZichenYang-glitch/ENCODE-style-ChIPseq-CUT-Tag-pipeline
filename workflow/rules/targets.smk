@@ -299,12 +299,7 @@ def _advanced_qc_targets():
     targets = []
     if QC_CONFIG.get("cross_correlation", False) and TREATMENT_SAMPLE_IDS:
         targets += expand(
-            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.qc",
-            outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        )
-        targets += expand(
-            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.plot.pdf",
+            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cross_correlation_qc.tsv",
             outdir=OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )

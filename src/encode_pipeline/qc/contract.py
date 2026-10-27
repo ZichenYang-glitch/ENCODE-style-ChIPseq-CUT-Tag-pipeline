@@ -9,6 +9,8 @@ are never rewritten during extraction.
 
 from __future__ import annotations
 
+import math
+
 SAMPLE_QC_SCHEMA_VERSION = "2"
 MNASE_QC_SCHEMA_VERSION = "2"
 FRAGMENT_QC_SCHEMA_VERSION = "2"
@@ -327,3 +329,155 @@ POLICY_MAX_INSERT_NOT_APPLICABLE = "not_applicable"
 def is_positive_integer_text(value: str) -> bool:
     """Return True for a canonical positive decimal integer string."""
     return isinstance(value, str) and value.isdigit() and int(value) > 0
+
+
+# Cross-correlation detail contract.  The raw phantompeakqualtools .cc.qc file
+# stays an external tool format; this versioned table is the parsed,
+# consumer-facing record with execution, interpretation, and threshold states.
+CROSS_CORRELATION_QC_SCHEMA_VERSION = "2"
+CROSS_CORRELATION_QC_V1_COLUMNS = (
+    "sample",
+    "cc_qc_file",
+    "estimated_fragment_length",
+    "phantom_peak",
+    "nsc",
+    "rsc",
+    "quality_flag",
+)
+CROSS_CORRELATION_QC_V2_NEW_COLUMNS = (
+    "assay",
+    "layout",
+    "input_stage",
+    "execution_status",
+    "interpretation_status",
+    "status_flags",
+    "threshold_hint",
+    "read_length",
+    "read_length_method",
+    "variable_read_length",
+    "target_type",
+    "target_type_source",
+    "target_inferred_histone_class",
+    "window_lower",
+    "window_upper",
+    "candidate_count",
+    "candidate_lengths",
+    "candidate_correlations",
+    "phantom_delta",
+    "phantom_position_selected",
+    "phantom_competes",
+)
+CROSS_CORRELATION_QC_V2_COLUMNS = (
+    ("schema_version",)
+    + CROSS_CORRELATION_QC_V1_COLUMNS[:-1]
+    + ("quality_tag",)
+    + CROSS_CORRELATION_QC_V2_NEW_COLUMNS
+)
+
+CROSS_CORRELATION_EXECUTION_STATUSES = frozenset(
+    {
+        "reported",
+        "missing",
+        "parse_failed",
+        "tool_failed",
+        "no_data",
+        "not_applicable",
+    }
+)
+CROSS_CORRELATION_INTERPRETATION_STATUSES = frozenset(
+    {
+        "ok",
+        "low_nsc",
+        "low_rsc",
+        "low_nsc_low_rsc",
+        "phantom_selected",
+        "unknown_target",
+        "non_chip_diagnostic",
+        "variable_read_length",
+        "missing_values",
+        "not_applicable",
+        "not_enabled",
+        "missing",
+        "parse_failed",
+        "tool_failed",
+        "no_data",
+    }
+)
+CROSS_CORRELATION_THRESHOLD_HINTS = frozenset(
+    {"local_pass", "local_fail", "not_evaluated"}
+)
+CROSS_CORRELATION_TARGET_TYPES = frozenset({"auto", "tf", "histone"})
+
+
+def validate_cross_correlation_detail(row: dict[str, str]) -> None:
+    """Validate current detail values after exact header/version validation.
+
+    This is shared by the writer and both table consumers. Signed finite RSC
+    is intentional; absent/undefined measurements stay NA rather than zero.
+    """
+    execution = row.get("execution_status")
+    interpretation = row.get("interpretation_status")
+    hint = row.get("threshold_hint")
+    if (
+        execution not in CROSS_CORRELATION_EXECUTION_STATUSES
+        or interpretation not in CROSS_CORRELATION_INTERPRETATION_STATUSES
+        or hint not in CROSS_CORRELATION_THRESHOLD_HINTS
+    ):
+        raise ValueError("cross-correlation detail status is invalid")
+    if row.get("input_stage") not in {"analysis_r1", "analysis_se"}:
+        raise ValueError("cross-correlation input stage is invalid")
+    if row.get("target_type") not in {"tf", "histone", "unknown"}:
+        raise ValueError("cross-correlation target type is invalid")
+    if execution == "reported":
+        length = row.get("read_length", "")
+        if not length.isdigit() or int(length) <= 0:
+            raise ValueError("cross-correlation read length is invalid")
+    for key in (
+        "variable_read_length",
+        "phantom_position_selected",
+        "phantom_competes",
+    ):
+        if row.get(key) not in {"true", "false"}:
+            raise ValueError("cross-correlation boolean is invalid")
+    for key in (
+        "nsc",
+        "rsc",
+        "estimated_fragment_length",
+        "phantom_peak",
+        "phantom_delta",
+    ):
+        value = row.get(key, "NA")
+        if value != "NA":
+            try:
+                number = float(value)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("cross-correlation numeric value is invalid") from exc
+            if not math.isfinite(number):
+                raise ValueError("cross-correlation numeric value is not finite")
+    count = row.get("candidate_count", "")
+    if not count.isdigit():
+        raise ValueError("cross-correlation candidate count is invalid")
+    for key in ("candidate_lengths", "candidate_correlations"):
+        values = [] if row.get(key) == "NA" else row.get(key, "").split(",")
+        if len(values) != int(count):
+            raise ValueError("cross-correlation candidates are not paired")
+        try:
+            if any(not math.isfinite(float(value)) for value in values):
+                raise ValueError("cross-correlation candidate is not finite")
+        except (ValueError, TypeError) as exc:
+            raise ValueError("cross-correlation candidate is invalid") from exc
+    if execution != "reported":
+        if interpretation != execution or hint != "not_evaluated":
+            raise ValueError("cross-correlation execution states disagree")
+        if any(row.get(key) != "NA" for key in ("nsc", "rsc")) or int(count):
+            raise ValueError("cross-correlation unreported values are inconsistent")
+    if hint != "not_evaluated":
+        if (
+            execution != "reported"
+            or row.get("assay") != "chipseq"
+            or row.get("target_type") not in {"tf", "histone"}
+            or row.get("variable_read_length") != "false"
+            or interpretation not in {"ok", "low_nsc", "low_rsc", "low_nsc_low_rsc"}
+            or any(row.get(key) == "NA" for key in ("nsc", "rsc"))
+        ):
+            raise ValueError("cross-correlation threshold hint is inapplicable")

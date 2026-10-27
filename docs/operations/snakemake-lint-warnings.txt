@@ -510,7 +510,7 @@ Lints for rule qc_summary (line 758, workflow/rules/qc.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
 
-Lints for rule picard_collect_multiple_metrics (line 948, workflow/rules/qc.smk):
+Lints for rule picard_collect_multiple_metrics (line 987, workflow/rules/qc.smk):
     * Shell command directly uses variable RAW_OUTDIR from outside of the rule:
       It is recommended to pass all files as input and output, and non-file
       parameters via the params directive. Otherwise, provenance tracking is
@@ -518,7 +518,7 @@ Lints for rule picard_collect_multiple_metrics (line 948, workflow/rules/qc.smk)
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
 
-Lints for rule picard_collect_multiple_metrics_se (line 985, workflow/rules/qc.smk):
+Lints for rule picard_collect_multiple_metrics_se (line 1024, workflow/rules/qc.smk):
     * Shell command directly uses variable RAW_OUTDIR from outside of the rule:
       It is recommended to pass all files as input and output, and non-file
       parameters via the params directive. Otherwise, provenance tracking is
@@ -526,7 +526,7 @@ Lints for rule picard_collect_multiple_metrics_se (line 985, workflow/rules/qc.s
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
 
-Lints for rule tss_bed_from_gtf (line 1025, workflow/rules/qc.smk):
+Lints for rule tss_bed_from_gtf (line 1064, workflow/rules/qc.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -535,7 +535,7 @@ Lints for rule tss_bed_from_gtf (line 1025, workflow/rules/qc.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule project_qc_summary (line 1138, workflow/rules/qc.smk):
+Lints for rule project_qc_summary (line 1177, workflow/rules/qc.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -568,7 +568,7 @@ Lints for rule cross_correlation_summary (line 130, workflow/rules/report.smk):
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule multiqc (line 154, workflow/rules/report.smk):
+Lints for rule multiqc (line 155, workflow/rules/report.smk):
     * Param multiqc_dir is a prefix of input or output file but hardcoded:
       If this is meant to represent a file path prefix, it will fail when
       running workflow in environments without a shared filesystem. Instead,
@@ -578,7 +578,7 @@ Lints for rule multiqc (line 154, workflow/rules/report.smk):
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#non-file-parameters-for-rules
       https://snakemake.readthedocs.io/en/stable/tutorial/advanced.html#tutorial-input-functions
 
-Lints for rule result_manifest (line 230, workflow/rules/report.smk):
+Lints for rule result_manifest (line 231, workflow/rules/report.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.

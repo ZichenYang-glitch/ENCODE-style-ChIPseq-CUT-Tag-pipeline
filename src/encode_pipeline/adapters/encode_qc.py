@@ -19,6 +19,8 @@ from encode_pipeline.platform.adapters import (
     QcSourceDocument,
 )
 from encode_pipeline.qc.contract import (
+    CROSS_CORRELATION_EXECUTION_STATUSES,
+    CROSS_CORRELATION_INTERPRETATION_STATUSES,
     MNASE_QC_V1_COLUMNS,
     MNASE_QC_V2_COLUMNS,
     POOLED_QC_COLUMNS,
@@ -50,7 +52,9 @@ _POOLED_OUTPUT_TYPES = frozenset({"pooled_qc_summary"})
 _POLICY_OUTPUT_TYPES = frozenset({"analysis_policy"})
 
 _DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
-_SIGNED_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$")
+_SIGNED_DECIMAL_PATTERN = re.compile(
+    r"^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?(?:[eE][+-]?\d{1,3})?$"
+)
 
 _SAMPLE_STATUSES = frozenset(
     {
@@ -62,8 +66,24 @@ _SAMPLE_STATUSES = frozenset(
         "parse_failed",
     }
 )
-_CROSS_CORRELATION_STATUSES = frozenset(
-    {"reported", "not_enabled", "missing", "parse_failed"}
+_CROSS_CORRELATION_STATUSES = (
+    frozenset({"reported", "not_enabled", "missing", "parse_failed"})
+    | CROSS_CORRELATION_EXECUTION_STATUSES
+    | CROSS_CORRELATION_INTERPRETATION_STATUSES
+)
+_CC_VALUE_STATUSES = frozenset(
+    {
+        "reported",
+        "ok",
+        "low_nsc",
+        "low_rsc",
+        "low_nsc_low_rsc",
+        "phantom_selected",
+        "unknown_target",
+        "non_chip_diagnostic",
+        "variable_read_length",
+        "missing_values",
+    }
 )
 _MNASE_ANALYSIS_STATUSES = frozenset({"ok", "no_valid_templates", "parse_failed"})
 
@@ -491,9 +511,18 @@ def _validate_sample_v2(row: dict[str, str]) -> None:
         raise EncodeQcSummaryError("cross-correlation status is invalid")
     nsc = row.get("cross_correlation_nsc", "NA")
     rsc = row.get("cross_correlation_rsc", "NA")
-    if cc_status == "reported":
-        _parse_decimal(nsc, signed=True)
-        _parse_decimal(rsc, signed=True)
+    if cc_status in _CC_VALUE_STATUSES:
+        complete = cc_status in {
+            "reported",
+            "ok",
+            "low_nsc",
+            "low_rsc",
+            "low_nsc_low_rsc",
+        }
+        for value in (nsc, rsc):
+            if value == "NA" and not complete:
+                continue
+            _parse_decimal(value, signed=True)
     elif nsc != "NA" or rsc != "NA":
         raise EncodeQcSummaryError("cross-correlation values are inconsistent")
     revision = row.get("scientific_policy_revision", "")

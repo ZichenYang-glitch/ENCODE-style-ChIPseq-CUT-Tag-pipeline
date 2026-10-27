@@ -40,6 +40,10 @@ HELP_SCRIPTS = (
     "assemble_qc_summary.py",
     "mnase_qc_summary.py",
     "aggregate_qc_summary.py",
+    "make_cross_correlation_tagalign.py",
+    "cross_correlation_spp_window.py",
+    "write_cross_correlation_qc.py",
+    "summarize_cross_correlation.py",
 )
 PEAK_HEADER = ("sample", "peak_mode", "peaks", "blacklist_filtered_peaks")
 FRIP_HEADER = ("sample", "total_reads", "reads_in_peaks", "frip", "bam", "peaks")
@@ -350,3 +354,61 @@ def test_exported_bundle_writes_policy_and_qc_summary(tmp_path, bundle):
     assert row["blacklist_applied"] == "true"
     assert row["cross_correlation_status"] == "not_enabled"
     assert row["scientific_policy_revision"] == "5"
+
+
+def test_exported_cross_correlation_detail_and_project_consumer(bundle):
+    meta = bundle / "meta.json"
+    meta.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "ready",
+                "assay": "chipseq",
+                "layout": "SE",
+                "input_stage": "analysis_se",
+                "read_length": 50,
+                "target_type": "tf",
+                "variable_read_length": False,
+                "window_lower": -500,
+                "window_upper": 60,
+            }
+        )
+    )
+    raw = bundle / "S1.cc.qc"
+    raw.write_text("S1\t1000\t200\t0.9\t50\t0.5\t1500\t0.1\t1.5\t2\t2\n")
+    detail = bundle / "detail.tsv"
+    result = _run_script(
+        bundle,
+        "write_cross_correlation_qc.py",
+        "--sample",
+        "S1",
+        "--assay",
+        "chipseq",
+        "--layout",
+        "SE",
+        "--cc-qc",
+        str(raw),
+        "--metadata",
+        str(meta),
+        "--output",
+        str(detail),
+    )
+    assert result.returncode == 0, result.stderr
+    with detail.open() as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert (
+        row["interpretation_status"] == "ok" and row["threshold_hint"] == "local_pass"
+    )
+    summary = bundle / "cross_correlation_summary.tsv"
+    result = _run_script(
+        bundle,
+        "summarize_cross_correlation.py",
+        "--input",
+        str(detail),
+        "--output",
+        str(summary),
+    )
+    assert result.returncode == 0, result.stderr
+    with summary.open() as handle:
+        row = next(csv.DictReader(handle, delimiter="\t"))
+    assert row["interpretation_status"] == "ok" and row["rsc"] == "2"

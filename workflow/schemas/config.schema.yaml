@@ -238,6 +238,7 @@ qc:
     summary: true
     cuttag_fragment_size: true
     cross_correlation: false
+    cross_correlation_target_type: auto
     preseq_complexity: false
     picard_metrics: false
     tss_enrichment: false
@@ -299,6 +300,13 @@ qc:
       description: >
         Enable phantompeakqualtools cross-correlation QC (NSC/RSC/fragment length).
         Produces .cc.qc and .cc.plot.pdf per sample.
+    cross_correlation_target_type:
+      type: string
+      default: auto
+      allowed: [auto, tf, histone]
+      description: >
+        Run-wide ChIP target type for the phantom exclusion window. Auto uses
+        known histone targets and leaves other names unknown; non-ChIP remains diagnostic.
     preseq_complexity:
       type: boolean
       default: false

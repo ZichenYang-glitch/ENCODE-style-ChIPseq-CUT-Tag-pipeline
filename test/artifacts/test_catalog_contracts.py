@@ -88,7 +88,7 @@ def _base_config():
         "multiqc": True,
         "replicate_analysis": True,
         "chipseq_idr": False,
-        "qc": {"signal_tracks": True, "summary": True},
+        "qc": {"signal_tracks": True, "summary": True, "cross_correlation": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},
         },
@@ -258,7 +258,7 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
         {
             "chipseq_idr": True,
             "idr": {"seed": 42, "threshold": 0.05, "rank": "p.value"},
-            "qc": {"signal_tracks": True, "summary": True},
+            "qc": {"signal_tracks": True, "summary": True, "cross_correlation": True},
         },
         "\t".join(columns_full)
         + "\n"

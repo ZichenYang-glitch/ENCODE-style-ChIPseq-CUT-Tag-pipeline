@@ -218,53 +218,56 @@ listing/download or complete MultiQC HTML visibility.
 
 ## Cross-Correlation (phantompeakqualtools)
 
-**Outputs:** `*.cc.qc`, `*.cc.plot.pdf`, `cross_correlation_summary.tsv`
+This QC remains opt-in (`qc.cross_correlation: false`). Its input is the
+canonical analysis BAM: one R1 per complete valid PE template (`analysis_r1`)
+or valid SE primary alignments (`analysis_se`). It follows the run's duplicate
+and blacklist choices; marked duplicates are retained when the analysis policy
+retains them. There is no additional deduplication or 50 bp clipping. These
+inputs differ from ENCODE's clipped, pre-deduplication input, so NSC/RSC are
+local diagnostics and are not directly comparable or certification results.
 
-The cross-correlation analysis is the ENCODE-standard approach for assessing
-ChIP-seq library quality. It computes the Pearson correlation between
-positive- and negative-strand reads at varying shift distances.
+`qc.cross_correlation_target_type` is `auto`, `tf`, or `histone` (run-wide).
+Auto recognizes the existing histone target classes; other ChIP targets remain
+unknown. Narrow/broad mode does not classify target type. Explicit types apply
+to ChIP only; ATAC/CUT&Tag/MNase always receive diagnostic interpretation.
+The exclusion window starts at -500. Its upper bound is max(read_length+10,50)
+for TF and max(read_length+10,100) for histone or diagnostic inputs.
 
-**Key metrics in `cross_correlation_summary.tsv`:**
+The read-length estimate matches pinned run_spp.R: median reference span of
+the first 500 tagAlign records, rounded to even at half-integers. The recorded
+length distribution and variable-length flag cover **all** emitted tags,
+including changes after record 500. Variable-length input is diagnostic only.
 
-- **NSC** (Normalized Strand Coefficient): ratio of the cross-correlation
-  value at the estimated fragment length to the background cross-correlation.
-  ENCODE guidelines: NSC > 1.05 is acceptable; NSC > 1.1 is good. Higher
-  values indicate stronger ChIP enrichment relative to background.
-- **RSC** (Relative Strand Correlation): ratio of the fragment-length
-  cross-correlation to the phantom-peak (read-length) cross-correlation.
-  ENCODE guidelines: RSC > 0.8 is acceptable. Higher values indicate that
-  the enrichment signal dominates over the read-length artifact.
-- **Estimated fragment length:** the shift distance at which the
-  cross-correlation peaks. Should be consistent with expected library insert
-  size (typically 100-300 bp for standard ChIP-seq). The scalar summary reports
-  the first candidate in the tool's correlation-ranked output, matching the
-  main peak used for NSC/RSC. All candidates remain in the raw `.cc.qc` file.
-  Empty or malformed candidate lists are reported as `NA`; quality flags
-  continue to depend only on NSC/RSC.
-- **Phantom peak:** the correlation peak at the read length. A prominent
-  phantom peak is expected and reflects the strand-separation of paired reads
-  at the read length.
+The required per-treatment `*.cross_correlation_qc.tsv` has an exact version 2
+header. It records paired candidate lengths/scores, input stage, target type,
+length/window and three distinct interpretations:
 
-**Quality flags** (auto-assigned):
-- `ok`: NSC >= 1.05 and RSC >= 0.8
-- `low_nsc`: NSC < 1.05 (weak signal-to-noise)
-- `low_rsc`: RSC < 0.8 (phantom peak dominating)
-- `low_nsc_low_rsc`: both thresholds failed
-- `parse_failed`: `.cc.qc` file could not be parsed
+- `execution_status`: reported, no_data, missing, parse_failed, tool_failed,
+  or not_applicable. An empty valid BAM yields no_data and NA measurements;
+  a missing/unreadable BAM is an execution error, not an empty library.
+- `interpretation_status`: includes phantom_selected, unknown_target,
+  non_chip_diagnostic, variable_read_length, missing_values, or local numeric
+  hints ok/low_nsc/low_rsc/low_nsc_low_rsc.
+- `threshold_hint`: local_pass/local_fail only for fixed-length known-type
+  ChIP with complete finite values and no selected phantom; otherwise
+  not_evaluated. Local hints use NSC >=1.05 and RSC >=0.8 and do not certify
+  biological quality.
 
-**Important caveats:**
-- These thresholds are ENCODE guidelines for TF ChIP-seq, not universal
-  pass/fail gates. Histone marks and CUT&Tag have different cross-correlation
-  profiles.
-- CUT&Tag cross-correlation is less canonical than ChIP-seq. Tn5-based
-  fragmentation produces different strand distributions.
-- A sample flagged `low_nsc` may still yield biologically meaningful peaks;
-  use it as a prioritization signal, not a rejection criterion.
+NSC = primary_correlation / min_correlation. RSC =
+(primary_correlation - min_correlation) /
+(phantom_correlation - min_correlation). Finite negative RSC is preserved;
+zero-denominator and non-finite results remain NA. A low value alone does not
+establish biological failure. The phantom check combines selected/tied
+candidate positions near the actual phantom and read-length neighborhood
+with their scores, allowing for SPP's printed precision. RSC near one alone
+is insufficient to label a phantom.
 
-The project-level summary at `results/multiqc/cross_correlation_summary.tsv`
-aggregates all samples for easy comparison. When MultiQC is enabled, the same
-summary is included in `multiqc_report.html` as a custom
-**Cross-correlation QC** section.
+Raw `*.cc.qc` and `*.cc.plot.pdf` are optional SPP side artifacts, absent for
+no-data input. The required detail, tagAlign and metadata are tracked by
+Snakemake. The project summary and MultiQC Cross-correlation QC table consume
+the same detail as sample summary/adapter QC. Optional measurements are not
+fabricated as zero. Historical scalar parser CLI output remains supported;
+new detail consumers reject unknown versions and malformed headers/values.
 
 ## Picard CollectMultipleMetrics
 

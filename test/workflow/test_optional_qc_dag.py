@@ -610,7 +610,7 @@ def test_explicit_cross_correlation_target_resolves():
             "s1",
             "05_qc",
             "cross_correlation",
-            "s1.cc.qc",
+            "s1.cross_correlation_qc.tsv",
         )
         rc, stdout, stderr = _run_snakemake_dryrun(
             config_yml,
@@ -804,7 +804,8 @@ def test_cross_correlation_default_targets_keep_treatment_gate(
         assert "sample=S1" in jobs[0]
         assert "sample=C1" not in jobs[0]
         assert "rule cross_correlation_summary:" in text
-        assert "-x=-500:15 -rf -p=" in text
+        assert '-x="$WINDOW" -rf -p=' in text
+        assert "--target-type auto" in text
         assert "-speak=" not in text
     else:
         assert "rule cross_correlation_summary:" not in text

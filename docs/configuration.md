@@ -531,3 +531,20 @@ not applied on top of an existing run directory. The standalone
 `validate --config FILE` command validates only that file; it does not
 validate `--config` values injected later. To check an overridden run, use
 the workflow's own merged-config validation and dry-run.
+
+### SCI-6 cross-correlation settings
+
+Cross-correlation remains opt-in. `qc.cross_correlation_target_type` defaults
+to `auto`; `tf`/`histone` are run-wide ChIP overrides. Auto leaves unrecognized
+ChIP targets unknown, and non-ChIP assays remain diagnostic regardless of the
+requested type. Authoring schema 3.1.0 exposes the enum; YAML config versions
+1.0.0/2.0.0 and both analysis profiles remain supported. For direct Snakemake,
+`--config 'qc={"cross_correlation":true,"cross_correlation_target_type":"tf"}'`
+uses the same validator as configuration files; unchanged sibling settings
+are preserved by the workflow merge. Platform runs use validated snapshots,
+with no arbitrary command injection.
+
+Scientific policy revision 6 isolates old cross-correlation semantics from new
+runs: use a fresh outdir. The required detail records the resolved window and
+analysis_r1/analysis_se stage; raw SPP QC/PDF are optional for no-data samples.
+See [QC interpretation](qc-interpretation.md#cross-correlation-phantompeakqualtools).

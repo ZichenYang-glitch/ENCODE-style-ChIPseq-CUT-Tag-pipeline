@@ -22,6 +22,7 @@ QC_DEFAULTS = {
     "summary": True,
     "cuttag_fragment_size": True,
     "cross_correlation": False,
+    "cross_correlation_target_type": "auto",
     "preseq_complexity": False,
     "picard_metrics": False,
     "tss_enrichment": False,
@@ -70,7 +71,9 @@ def test_qc_unknown_keys_are_rejected(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("key", list(QC_DEFAULTS))
+@pytest.mark.parametrize(
+    "key", [key for key, value in QC_DEFAULTS.items() if isinstance(value, bool)]
+)
 @pytest.mark.parametrize(
     "raw,expected",
     [
@@ -86,7 +89,9 @@ def test_qc_known_keys_accept_bool_and_string_booleans(tmp_path, key, raw, expec
     assert validated["qc"][key] == expected
 
 
-@pytest.mark.parametrize("key", list(QC_DEFAULTS))
+@pytest.mark.parametrize(
+    "key", [key for key, value in QC_DEFAULTS.items() if isinstance(value, bool)]
+)
 def test_qc_known_keys_reject_invalid_strings(tmp_path, key):
     with pytest.raises(ValidationError, match=f"qc.{key} must be true or false"):
         validate_config(_make_config(tmp_path, qc={key: "maybe"}))
