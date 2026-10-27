@@ -108,6 +108,7 @@ def test_encode_cores_reach_command_and_real_snakemake_allocation(
     client, tmp_path, monkeypatch
 ):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("SNAKEMAKE_PROFILE", "none")
     options = _materialized_defaults(client, ENCODE_ID)["options"]
     assert options["cores"] == 1
     options["cores"] = 2

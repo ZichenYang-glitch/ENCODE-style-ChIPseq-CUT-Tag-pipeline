@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   fast-checks-shard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -45,6 +45,14 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+
+      - name: Verify supported deployment Python
+        run: |
+          if [ ! -x /usr/bin/python3.12 ]; then
+            sudo apt-get update
+            sudo apt-get install -y python3.12
+          fi
+          /usr/bin/python3.12 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
 
       - name: Confirm exact checkout and tier
         env:
@@ -430,6 +438,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
+      - name: Verify supported deployment Python
+        run: |
+          if [ ! -x /usr/bin/python3.12 ]; then
+            sudo apt-get update
+            sudo apt-get install -y python3.12
+          fi
+          /usr/bin/python3.12 -I -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+
       - name: Confirm exact checkout
         env:
           EXPECTED_SHA: ${{ github.sha }}
@@ -494,7 +510,7 @@ jobs:
           echo "- Soft budget: 120s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
   browser-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:
       redis:
