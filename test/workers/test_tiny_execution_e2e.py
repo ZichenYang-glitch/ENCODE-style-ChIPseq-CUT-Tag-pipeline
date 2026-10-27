@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import json
 import os
 from pathlib import Path
 import shutil
@@ -282,8 +283,17 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     persisted_output = "\n".join(
         line for chunk in (*stdout, *stderr) for line in chunk.lines
     )
+    assert "localrule analysis_identity_marker:" in persisted_output
     assert "localrule all:" in persisted_output
-    assert "1 of 1 steps (100%) done" in persisted_output
+    assert "2 of 2 steps (100%) done" in persisted_output
+    identity_markers = list(
+        workspace_root.glob("**/.helixweave/analysis_identity.json")
+    )
+    assert len(identity_markers) == 1
+    identity = json.loads(identity_markers[0].read_text(encoding="utf-8"))
+    assert identity["marker_schema_version"]
+    assert isinstance(identity["scientific_policy_revision"], int)
+    assert len(identity["identity"]) == 64
     assert qc_metrics == ()
     assert result_state.artifact_revision == 1
     assert result_state.artifact_attempt_id is not None
