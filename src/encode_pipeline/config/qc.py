@@ -17,9 +17,14 @@ _QC_DEFAULTS = {
     "summary": True,
     "cuttag_fragment_size": True,
     "cross_correlation": False,
+    "cross_correlation_target_type": "auto",
     "preseq_complexity": False,
     "picard_metrics": False,
     "tss_enrichment": False,
+}
+
+_QC_STRING_DEFAULTS = {
+    "cross_correlation_target_type": frozenset({"auto", "tf", "histone"}),
 }
 
 
@@ -37,11 +42,20 @@ def validate_qc_config(qc: dict, error_cls=ValueError) -> dict:
         if key not in _QC_DEFAULTS:
             raise error_cls(f"qc: unknown key {key!r}. Known: {sorted(_QC_DEFAULTS)}")
 
-    return {
-        key: coerce_bool(
-            qc.get(key, default),
-            name=f"qc.{key}",
-            error_cls=error_cls,
-        )
-        for key, default in _QC_DEFAULTS.items()
-    }
+    normalized = {}
+    for key, default in _QC_DEFAULTS.items():
+        if key in _QC_STRING_DEFAULTS:
+            value = qc.get(key, default)
+            if not isinstance(value, str) or value not in _QC_STRING_DEFAULTS[key]:
+                raise error_cls(
+                    f"qc.{key} must be one of "
+                    f"{sorted(_QC_STRING_DEFAULTS[key])}, got {value!r}"
+                )
+            normalized[key] = value
+        else:
+            normalized[key] = coerce_bool(
+                qc.get(key, default),
+                name=f"qc.{key}",
+                error_cls=error_cls,
+            )
+    return normalized

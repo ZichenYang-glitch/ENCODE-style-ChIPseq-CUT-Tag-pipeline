@@ -34,3 +34,7 @@ recursive-include workflow/rules *.smk
 recursive-include workflow/schemas *.json *.yaml
 include src/encode_pipeline/persistence/migration-execution-inventory-1.0.0.json
 global-exclude __pycache__ *.py[cod]
+include scripts/make_cross_correlation_tagalign.py
+include scripts/cross_correlation_spp_window.py
+include scripts/write_cross_correlation_qc.py
+include scripts/summarize_cross_correlation.py

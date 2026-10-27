@@ -194,6 +194,9 @@
         "summary": { "type": ["boolean", "string"], "default": true },
         "cuttag_fragment_size": { "type": ["boolean", "string"], "default": true },
         "cross_correlation": { "type": ["boolean", "string"], "default": false },
+        "cross_correlation_target_type": {
+          "type": "string", "enum": ["auto", "tf", "histone"], "default": "auto"
+        },
         "preseq_complexity": { "type": ["boolean", "string"], "default": false },
         "picard_metrics": { "type": ["boolean", "string"], "default": false },
         "tss_enrichment": { "type": ["boolean", "string"], "default": false }

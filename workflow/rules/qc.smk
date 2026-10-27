@@ -317,7 +317,7 @@ rule seacr_bedgraph:
         """
         set -e -o pipefail
         mkdir -p "$(dirname {output:q})"
-        bedtools genomecov -ibam {input:q} -bg -pc > {output:q}
+        bedtools genomecov -ibam {input:q} -bg -pc >{output:q}
         """
 
 
@@ -336,7 +336,7 @@ rule seacr_call:
         """
         set -e -o pipefail
         SEACR_SCRIPT=$(command -v SEACR_1.3.sh) || {{ \\
-                    echo "ERROR: SEACR_1.3.sh not found in PATH" >&2; exit 1; }}
+                            echo "ERROR: SEACR_1.3.sh not found in PATH" >&2; exit 1; }}
         mkdir -p "$(dirname {output:q})"
         bash "$SEACR_SCRIPT" {input:q} {params.threshold} \\
         {params.norm:q} {params.mode:q} \\
@@ -767,14 +767,11 @@ rule qc_summary:
         analysis_policy=f"{OUTDIR}/{{sample}}/05_qc/{{sample}}.analysis_policy.json",
         fragment_qc=lambda wc: (
             [f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.cuttag_fragment_size.tsv"]
-            if (
-                QC_CONFIG.get("cuttag_fragment_size", True)
-                and SAMPLE_MAP[wc.sample]["assay"] == "cuttag"
-            )
+            if (QC_CONFIG.get("cuttag_fragment_size", True) and SAMPLE_MAP[wc.sample]["assay"] == "cuttag")
             else []
         ),
-        cross_correlation_qc=lambda wc: (
-            [f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.qc"]
+        cross_correlation_detail=lambda wc: (
+            [f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/" f"{wc.sample}.cross_correlation_qc.tsv"]
             if QC_CONFIG.get("cross_correlation", False)
             else []
         ),
@@ -810,14 +807,11 @@ rule qc_summary:
         ctrl_type=lambda wc: _control_type(wc.sample),
         fragment_qc=lambda wc: (
             f"{OUTDIR}/{wc.sample}/01_qc/{wc.sample}.cuttag_fragment_size.tsv"
-            if (
-                QC_CONFIG.get("cuttag_fragment_size", True)
-                and SAMPLE_MAP[wc.sample]["assay"] == "cuttag"
-            )
+            if (QC_CONFIG.get("cuttag_fragment_size", True) and SAMPLE_MAP[wc.sample]["assay"] == "cuttag")
             else ""
         ),
-        cross_correlation_qc=lambda wc: (
-            f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.qc"
+        cross_correlation_detail=lambda wc: (
+            f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/" f"{wc.sample}.cross_correlation_qc.tsv"
             if QC_CONFIG.get("cross_correlation", False)
             else ""
         ),
@@ -831,10 +825,10 @@ rule qc_summary:
         if [[ -n "$FRAGMENT_QC_PATH" ]]; then
             FRAGMENT_QC_ARGS+=(--fragment-qc "$FRAGMENT_QC_PATH")
         fi
-        CROSS_CORRELATION_QC_PATH={params.cross_correlation_qc:q}
-        CROSS_CORRELATION_QC_ARGS=()
-        if [[ -n "$CROSS_CORRELATION_QC_PATH" ]]; then
-            CROSS_CORRELATION_QC_ARGS+=(--cross-correlation-qc "$CROSS_CORRELATION_QC_PATH")
+        CROSS_CORRELATION_DETAIL_PATH={params.cross_correlation_detail:q}
+        CROSS_CORRELATION_DETAIL_ARGS=()
+        if [[ -n "$CROSS_CORRELATION_DETAIL_PATH" ]]; then
+            CROSS_CORRELATION_DETAIL_ARGS+=(--cross-correlation-detail "$CROSS_CORRELATION_DETAIL_PATH")
         fi
         python3 {params.script:q} \\
         --sample {params.sample:q} \\
@@ -859,7 +853,7 @@ rule qc_summary:
         --mito-tsv {input.mito:q} \\
         --analysis-policy {input.analysis_policy:q} \\
         "${{FRAGMENT_QC_ARGS[@]}}" \\
-        "${{CROSS_CORRELATION_QC_ARGS[@]}}" \\
+        "${{CROSS_CORRELATION_DETAIL_ARGS[@]}}" \\
         --cross-correlation-enabled {params.cross_correlation_enabled} \\
         --output {output:q}
         """
@@ -879,6 +873,7 @@ def _control_type(sample_id):
 
 # ---------------------------------------------------------------------------
 # 9. Stage 12: phantompeakqualtools cross-correlation
+# Runtime imports: scripts/qc_template.py scripts/qc_common.py scripts/parse_cross_correlation.py
 # ---------------------------------------------------------------------------
 
 
@@ -886,25 +881,69 @@ rule cross_correlation:
     input:
         bam=lambda wc: analysis_bam(wc.sample),
     output:
-        qc=f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.qc",
-        pdf=f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cc.plot.pdf",
+        tagalign=f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.tagAlign",
+        metadata=f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cross_correlation_metadata.json",
+        detail=f"{OUTDIR}/{{sample}}/05_qc/cross_correlation/{{sample}}.cross_correlation_qc.tsv",
     log:
         f"{OUTDIR}/{{sample}}/logs/{{sample}}.cross_correlation.log",
     conda:
         "../envs/phantompeakqualtools.yml"
     threads: THREADS
+    params:
+        sample=lambda wc: wc.sample,
+        assay=lambda wc: SAMPLE_MAP[wc.sample]["assay"],
+        target=lambda wc: SAMPLE_MAP[wc.sample]["target"],
+        layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
+        target_type=lambda wc: QC_CONFIG.get("cross_correlation_target_type", "auto"),
+        qc_path=lambda wc: (f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.qc"),
+        pdf_path=lambda wc: (f"{OUTDIR}/{wc.sample}/05_qc/cross_correlation/{wc.sample}.cc.plot.pdf"),
+        tagalign_script=f"{workflow.basedir}/../scripts/make_cross_correlation_tagalign.py",
+        window_script=f"{workflow.basedir}/../scripts/cross_correlation_spp_window.py",
+        writer_script=f"{workflow.basedir}/../scripts/write_cross_correlation_qc.py",
     shell:
         """
         set -e -o pipefail
-        command -v run_spp.R >/dev/null 2>&1 || {{
-                    echo "ERROR: run_spp.R not found. Install phantompeakqualtools conda env." >&2
-                    exit 1
-                }}
-        mkdir -p "$(dirname {output.qc:q})" "$(dirname {log:q})"
-        rm -f {output.qc:q} {output.pdf:q}
-        run_spp.R -c={input.bam:q} -savp={output.pdf:q} -out={output.qc:q} \
-            -x=-500:15 -rf -p={threads} \
+        mkdir -p "$(dirname {output.detail:q})" "$(dirname {log:q})"
+        rm -f {params.qc_path:q} {params.pdf_path:q} {output.detail:q} {output.tagalign:q} {output.metadata:q}
+        python3 {params.tagalign_script:q} \
+            --analysis-bam {input.bam:q} \
+            --layout {params.layout:q} \
+            --sample {params.sample:q} \
+            --assay {params.assay:q} \
+            --target {params.target:q} \
+            --target-type {params.target_type:q} \
+            --tagalign {output.tagalign:q} \
+            --metadata {output.metadata:q} \
             2>&1 | tee {log:q}
+        spp_status=0
+        WINDOW=""
+        if WINDOW=$(python3 {params.window_script:q} --metadata {output.metadata:q} 2>>{log:q}); then
+            if command -v run_spp.R >/dev/null 2>&1; then
+                run_spp.R -c={output.tagalign:q} -savp={params.pdf_path:q} -out={params.qc_path:q} \
+                    -x="$WINDOW" -rf -p={threads} >>{log:q} 2>&1 || spp_status=$?
+            else
+                echo "ERROR: run_spp.R not found. Install phantompeakqualtools conda env." >&2
+                spp_status=127
+            fi
+        fi
+        if [ "$spp_status" -ne 0 ]; then
+            python3 {params.writer_script:q} \
+                --sample {params.sample:q} \
+                --assay {params.assay:q} \
+                --layout {params.layout:q} \
+                --cc-qc {params.qc_path:q} \
+                --metadata {output.metadata:q} \
+                --execution-status tool_failed \
+                --output {output.detail:q} 2>&1 | tee -a {log:q}
+            exit "$spp_status"
+        fi
+        python3 {params.writer_script:q} \
+            --sample {params.sample:q} \
+            --assay {params.assay:q} \
+            --layout {params.layout:q} \
+            --cc-qc {params.qc_path:q} \
+            --metadata {output.metadata:q} \
+            --output {output.detail:q} 2>&1 | tee -a {log:q}
         """
 
 
@@ -928,9 +967,9 @@ rule preseq_complexity:
         """
         set -e -o pipefail
         command -v preseq >/dev/null 2>&1 || {{
-                    echo "ERROR: preseq not found. Install preseq conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: preseq not found. Install preseq conda env." >&2
+                            exit 1
+                        }}
         mkdir -p "$(dirname {output:q})" "$(dirname {log:q})"
         preseq lc_extrap -B {params.paired} -o {output:q} {input.bam:q} \
             2>&1 | tee {log:q}
@@ -966,9 +1005,9 @@ rule picard_collect_multiple_metrics:
         """
         set -e -o pipefail
         command -v picard >/dev/null 2>&1 || {{
-                    echo "ERROR: picard not found. Install picard conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: picard not found. Install picard conda env." >&2
+                            exit 1
+                        }}
         mkdir -p "$(dirname {output.alignment:q})" "$(dirname {log:q})"
         picard CollectMultipleMetrics \
             I={input.bam:q} \
@@ -1001,9 +1040,9 @@ rule picard_collect_multiple_metrics_se:
         """
         set -e -o pipefail
         command -v picard >/dev/null 2>&1 || {{
-                    echo "ERROR: picard not found. Install picard conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: picard not found. Install picard conda env." >&2
+                            exit 1
+                        }}
         mkdir -p "$(dirname {output.alignment:q})" "$(dirname {log:q})"
         picard CollectMultipleMetrics \
             I={input.bam:q} \
@@ -1059,13 +1098,13 @@ rule tss_enrichment_profile:
         """
         set -e -o pipefail
         command -v computeMatrix >/dev/null 2>&1 || {{
-                    echo "ERROR: computeMatrix not found. Install deeptools conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: computeMatrix not found. Install deeptools conda env." >&2
+                            exit 1
+                        }}
         command -v plotProfile >/dev/null 2>&1 || {{
-                    echo "ERROR: plotProfile not found. Install deeptools conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: plotProfile not found. Install deeptools conda env." >&2
+                            exit 1
+                        }}
         mkdir -p "$(dirname {output.matrix:q})" "$(dirname {log:q})"
         computeMatrix reference-point \
             --referencePoint TSS \
@@ -1104,13 +1143,13 @@ rule tss_fragment_profile:
         """
         set -e -o pipefail
         command -v computeMatrix >/dev/null 2>&1 || {{
-                    echo "ERROR: computeMatrix not found. Install deeptools conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: computeMatrix not found. Install deeptools conda env." >&2
+                            exit 1
+                        }}
         command -v plotProfile >/dev/null 2>&1 || {{
-                    echo "ERROR: plotProfile not found. Install deeptools conda env." >&2
-                    exit 1
-                }}
+                            echo "ERROR: plotProfile not found. Install deeptools conda env." >&2
+                            exit 1
+                        }}
         mkdir -p "$(dirname {output.matrix:q})" "$(dirname {log:q})"
         computeMatrix reference-point \
             --referencePoint TSS \

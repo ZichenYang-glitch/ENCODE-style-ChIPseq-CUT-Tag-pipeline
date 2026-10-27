@@ -223,7 +223,7 @@ table_columns_name:
 custom_data:
   cross_correlation_qc:
     section_name: "Cross-correlation QC"
-    description: "Project-level phantompeakqualtools summary with ENCODE-style NSC/RSC quality flags."
+    description: "Versioned phantompeakqualtools detail. NSC/RSC and threshold hints are local diagnostics, not ENCODE certification."
     plot_type: "table"
     pconfig:
       id: "cross_correlation_qc"
@@ -232,23 +232,38 @@ custom_data:
     headers:
       cc_qc_file:
         title: "Source .cc.qc"
-        description: "Original phantompeakqualtools output parsed into the summary."
         hidden: true
       estimated_fragment_length:
         title: "Estimated fragment length"
-        description: "Fragment-length estimate from the cross-correlation peak."
+      candidate_count:
+        title: "Candidate count"
       phantom_peak:
         title: "Phantom peak"
-        description: "Read-length artifact peak estimated by phantompeakqualtools."
+      phantom_delta:
+        title: "Phantom delta"
       nsc:
         title: "NSC"
-        description: "Normalized Strand Coefficient. ENCODE-style acceptable threshold is >= 1.05."
       rsc:
         title: "RSC"
-        description: "Relative Strand Correlation. ENCODE-style acceptable threshold is >= 0.8."
-      quality_flag:
-        title: "Quality flag"
-        description: "Project-assigned flag from NSC/RSC thresholds."
+      execution_status:
+        title: "Execution"
+      interpretation_status:
+        title: "Interpretation"
+      threshold_hint:
+        title: "Local threshold hint"
+        description: "local_pass/local_fail when a fixed-length known ChIP target permits the local hint; otherwise not_evaluated."
+      target_type:
+        title: "Target type"
+      read_length:
+        title: "Read length"
+      input_stage:
+        title: "Input stage"
+      window_lower:
+        title: "Window lower"
+      window_upper:
+        title: "Window upper"
+      variable_read_length:
+        title: "Variable read length"
 
   mnase_qc:
     section_name: "MNase-seq QC"
@@ -393,7 +408,7 @@ custom_data:
         description: "Descriptive when reported; no pass/fail threshold is applied."
       cross_correlation_status:
         title: "Cross-correlation status"
-        description: "reported, not_enabled, missing, or parse_failed."
+        description: "Execution/interpretation state from the versioned detail (ok, low_*, phantom_selected, unknown_target, non_chip_diagnostic, variable_read_length, not_enabled, missing, parse_failed, tool_failed, no_data)."
       qc_flag:
         title: "QC flag"
 

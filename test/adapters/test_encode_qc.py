@@ -837,3 +837,49 @@ def test_encode_qc_parser_fails_closed_for_unusable_policy(content):
 
     assert result.is_failure
     assert result.issues[0].code == "ENCODE_QC_SUMMARY_INVALID"
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "phantom_selected",
+        "unknown_target",
+        "non_chip_diagnostic",
+        "variable_read_length",
+        "missing_values",
+    ],
+)
+def test_diagnostic_cross_correlation_preserves_finite_signed_metrics_without_pass_claim(
+    status,
+):
+    adapter = EncodeStyleWorkflowAdapter()
+    result = adapter.extract_qc_metrics(
+        WorkflowInputs(config={}),
+        (
+            _sample_v2_document(
+                cross_correlation_status=status,
+                cross_correlation_nsc="1.1",
+                cross_correlation_rsc="-1.2e-07",
+            ),
+        ),
+    )
+    assert result.is_success, result.issues
+    metric = next(m for m in result.value if m.metric_key == "cross_correlation.rsc")
+    assert metric.value == Decimal("-1.2e-07") and metric.qc_flag is None
+
+
+def test_partial_cross_correlation_measurement_does_not_discard_other_sample_qc():
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}),
+        (
+            _sample_v2_document(
+                cross_correlation_status="missing_values",
+                cross_correlation_nsc="1.1",
+                cross_correlation_rsc="NA",
+            ),
+        ),
+    )
+    assert result.is_success, result.issues
+    keys = {m.metric_key for m in result.value}
+    assert "frip" in keys or "peaks.count" in keys
+    assert "cross_correlation.nsc" in keys and "cross_correlation.rsc" not in keys

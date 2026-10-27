@@ -111,6 +111,7 @@ def _build_sample_rows(
     analysis_profile="updated",
     blacklist_mode="analysis",
     cuttag_fragment_size=True,
+    cross_correlation=False,
 ):
     """Per-sample rows using validated sample dicts (key='id')."""
     analysis_root = analysis_outdir or outdir
@@ -235,6 +236,24 @@ def _build_sample_rows(
                 f"{sid}.analysis_template_metrics.tsv",
             ),
         )
+        if cross_correlation and s.get("role", "treatment") == "treatment":
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "cross_correlation_qc",
+                "write_cross_correlation_qc.py",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "cross_correlation",
+                    f"{sid}.cross_correlation_qc.tsv",
+                ),
+            )
         if cuttag_fragment_size and assay == "cuttag":
             _add_row(
                 rows,
@@ -1737,6 +1756,9 @@ def build_manifest_rows(config, samples_path=None):
             analysis_profile=analysis_profile,
             blacklist_mode=blacklist_mode,
             cuttag_fragment_size=cuttag_fragment_size,
+            cross_correlation=_manifest_bool(
+                qc.get("cross_correlation"), False, "qc.cross_correlation"
+            ),
         )
     )
     rows.extend(

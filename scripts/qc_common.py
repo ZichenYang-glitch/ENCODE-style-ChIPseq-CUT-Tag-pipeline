@@ -20,6 +20,8 @@ if str(_SRC) not in sys.path:
 from encode_pipeline.qc.contract import (  # noqa: E402
     ANALYSIS_TEMPLATE_METRICS_COLUMNS,
     ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS,
+    CROSS_CORRELATION_QC_V1_COLUMNS,
+    CROSS_CORRELATION_QC_V2_COLUMNS,
     FRAGMENT_QC_V1_COLUMNS,
     FRAGMENT_QC_V2_COLUMNS,
     MITO_QC_V1_COLUMNS,
@@ -28,9 +30,19 @@ from encode_pipeline.qc.contract import (  # noqa: E402
     MNASE_QC_V2_COLUMNS,
     SAMPLE_QC_V1_COLUMNS,
     SAMPLE_QC_V2_COLUMNS,
+    validate_cross_correlation_detail,
 )
 
 NA = "NA"
+
+
+def read_cross_correlation_detail(path: str):
+    version, row = read_versioned_tsv(
+        path, CROSS_CORRELATION_QC_V1_COLUMNS, CROSS_CORRELATION_QC_V2_COLUMNS
+    )
+    if version == "2":
+        validate_cross_correlation_detail(row)
+    return version, row
 
 
 def read_versioned_tsv(path: str, v1_columns, v2_columns):
@@ -128,6 +140,8 @@ def load_stage_metrics(path: str) -> dict:
 __all__ = [
     "ANALYSIS_TEMPLATE_METRICS_COLUMNS",
     "ANALYSIS_TEMPLATE_METRICS_V1_COLUMNS",
+    "CROSS_CORRELATION_QC_V1_COLUMNS",
+    "CROSS_CORRELATION_QC_V2_COLUMNS",
     "FRAGMENT_QC_V1_COLUMNS",
     "FRAGMENT_QC_V2_COLUMNS",
     "MITO_QC_V1_COLUMNS",

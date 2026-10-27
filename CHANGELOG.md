@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- SCI-6: opt-in analysis-R1/SE cross-correlation with SPP-matched read length,
+  assay/target exclusion windows, paired candidates and separate execution,
+  interpretation and local threshold hints. Detail v2 drives sample/project
+  QC and MultiQC; empty data produce NA without fake SPP files. Authoring
+  schema 3.1.0 adds the ChIP target-type override; policy revision 6 requires
+  fresh output directories.
+
 - Versioned QC v2 contract (SCI-5; `scientific_policy_revision` 5):
   `qc_summary`, `mnase_qc_summary`, `cuttag_fragment_size`, and
   `mito_fraction` start with `schema_version` and preserve the exact v1

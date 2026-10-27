@@ -506,6 +506,19 @@ artifacts:
   rule_all: true
   config_gate: 'blacklist_mode: analysis'
   notes: final per-sample peaks after blacklist interval removal
+- id: cross_correlation_qc
+  description: Versioned cross-correlation diagnostic detail (execution, interpretation and local threshold hint)
+  scope: sample
+  level: per_sample
+  assay_gate: all
+  path_template: results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_qc.tsv
+  producing_rule: cross_correlation
+  tool: write_cross_correlation_qc.py
+  manifest_output_type: cross_correlation_qc
+  pipeline_done: true
+  rule_all: true
+  config_gate: 'qc.cross_correlation: true; treatment only'
+  notes: canonical output type in raw or analysis_filtered namespace; no_data is recorded without fake raw QC/PDF
 - id: cross_correlation
   description: Cross-correlation QC metrics (NSC/RSC)
   scope: sample
@@ -515,10 +528,11 @@ artifacts:
   producing_rule: cross_correlation
   tool: phantompeakqualtools
   manifest_output_type: null
-  pipeline_done: true
-  rule_all: true
+  pipeline_done: false
+  rule_all: false
   config_gate: 'qc.cross_correlation: true'
   notes: applies to all treatment samples including MNase
+  # Raw tool side artifact: absent when there are no usable tags.
 - id: cross_correlation_plot
   description: Cross-correlation plot PDF
   scope: sample
@@ -529,9 +543,10 @@ artifacts:
   tool: phantompeakqualtools
   manifest_output_type: null
   pipeline_done: false
-  rule_all: true
+  rule_all: false
   config_gate: 'qc.cross_correlation: true'
   notes: companion to cross_correlation
+  # Raw tool side artifact: absent when there are no usable tags.
 - id: preseq
   description: Preseq library complexity extrapolation
   scope: sample
@@ -1484,7 +1499,7 @@ artifacts:
   assay_gate: all
   path_template: results/multiqc/cross_correlation_summary.tsv
   producing_rule: cross_correlation_summary
-  tool: parse_cross_correlation.py
+  tool: summarize_cross_correlation.py
   manifest_output_type: null
   pipeline_done: false
   rule_all: true

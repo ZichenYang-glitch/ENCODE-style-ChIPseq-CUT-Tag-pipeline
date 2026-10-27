@@ -188,6 +188,7 @@ qc:
   summary: true
   cuttag_fragment_size: true
   cross_correlation: false
+  cross_correlation_target_type: auto  # auto | tf | histone; ChIP-only override
   preseq_complexity: false
   picard_metrics: false
   tss_enrichment: false

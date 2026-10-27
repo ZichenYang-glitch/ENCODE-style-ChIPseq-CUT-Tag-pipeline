@@ -18,6 +18,7 @@ QC_DEFAULTS = {
     "summary": True,
     "cuttag_fragment_size": True,
     "cross_correlation": False,
+    "cross_correlation_target_type": "auto",
     "preseq_complexity": False,
     "picard_metrics": False,
     "tss_enrichment": False,

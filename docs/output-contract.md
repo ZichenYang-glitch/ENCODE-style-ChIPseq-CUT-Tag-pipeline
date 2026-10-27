@@ -30,8 +30,9 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `library_complexity` | parse_dup_metrics.py | library_complexity | `results/<sample>/01_qc/<sample>.library_complexity.tsv` | stable |
 | `nrf_pbc` | calc_nrf_pbc.py | nrf_pbc | `results/<sample>/01_qc/<sample>.nrf_pbc.tsv` | stable |
 | `qc_summary` | assemble_qc_summary | qc_summary | `results/<sample>/01_qc/<sample>.qc_summary.tsv` | implemented |
-| `cross_correlation` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.qc` | stable |
-| `cross_correlation_plot` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf` | stable |
+| `cross_correlation` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.qc` | optional tool side artifact |
+| `cross_correlation_plot` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf` | optional tool side artifact |
+| `cross_correlation_qc` | write_cross_correlation_qc.py | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_qc.tsv` | versioned detail, required when enabled |
 | `preseq` | preseq lc_extrap | preseq_complexity | `results/<sample>/05_qc/preseq/<sample>.preseq.txt` | stable |
 | `picard_alignment` | Picard CollectMultipleMetrics | picard_collect_multiple_metrics | `results/<sample>/05_qc/picard/<sample>.alignment_summary_metrics` | stable |
 | `picard_insert_size` | Picard CollectMultipleMetrics | picard_collect_multiple_metrics | `results/<sample>/05_qc/picard/<sample>.insert_size_metrics` | stable |
@@ -180,7 +181,7 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `multiqc_report` | MultiQC | (report.smk) | `results/multiqc/multiqc_report.html` | stable |
 | `project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/multiqc/project_qc_summary.tsv` | implemented |
 | `result_manifest` | make_manifest.py | result_manifest | `results/multiqc/result_manifest.tsv` | implemented |
-| `cross_correlation_summary` | cross_correlation_summary.py | (report.smk) | `results/multiqc/cross_correlation_summary.tsv` | stable |
+| `cross_correlation_summary` | summarize_cross_correlation.py | cross_correlation_summary | `results/multiqc/cross_correlation_summary.tsv` | stable |
 | `tss_bed` | gtf_to_tss_bed.py | tss_bed_from_gtf | `results/reference/<genome>.tss.bed` | stable |
 
 ## Analysis Namespace Boundary
@@ -294,3 +295,16 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 - **Pooled FE/ppois BigWig genome resolution:** the first treatment sample's genome is used for `chrom_sizes` lookup in pooled experiments. Mixed-genome pooled experiments are not currently rejected. If a pooled experiment contains samples with different genomes, the BigWig conversion may use the wrong chromosome sizes.
 - **MACS3 bdgcmp sorting:** MACS3 `bdgcmp` produces coordinate-sorted bedGraph in practice, but the BigWig rules defensively re-sort via `LC_ALL=C sort -k1,1 -k2,2n` before calling `bedGraphToBigWig`.
 - **chrom_sizes path validation:** when `genome_resources.<genome>.chrom_sizes` is non-empty, `validate_samples.py` checks that the file exists. An empty string means "no BigWig for this genome" — this is not a validation error.
+
+### SCI-6 cross-correlation delivery
+
+`cross_correlation_qc` retains one canonical manifest type; `blacklist_mode=analysis`
+places it beneath `results/analysis_filtered/`, with `analysis_branch` metadata.
+The detail TSV (exact version 2 header) is the scheduled per-treatment output,
+including `no_data` with NA metrics when the analysis BAM has no usable tags.
+The raw `.cc.qc` and PDF are optional SPP side artifacts, present only when SPP
+produces them; direct raw/PDF targets are no longer scheduled. They are not
+replaced by fake files. Deleting the required detail triggers recomputation.
+The tagAlign and metadata JSON are tracked intermediate outputs. Sample and
+project summaries consume the detail, not a second interpretation of raw SPP.
+The old seven-column scalar parser CLI remains available for historical files.
