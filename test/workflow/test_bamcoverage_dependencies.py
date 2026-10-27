@@ -148,6 +148,8 @@ def invoke(workdir, executable, config, *, peaks=False, prioritize=BW, dry_run=F
         REPO / "workflow/Snakefile",
         "--workflow-profile",
         "none",
+        "--profile",
+        "none",
         "--directory",
         workdir,
         "--configfile",
