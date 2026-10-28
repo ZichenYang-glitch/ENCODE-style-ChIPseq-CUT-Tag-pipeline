@@ -202,3 +202,22 @@ measurement.
 
 No stage in this preparation document is itself authorization for a large
 download or a real-library matrix run.
+
+## Measured minimal-smoke checkpoints (2026-10-28)
+
+These are measured final/point values, not scratch high-water marks:
+
+- Final reference directory: **7.7 GiB** (FASTA, FAI, chrom_sizes, six `.bt2`).
+- Final results directory: **3.7 GiB**.
+- Downloaded FASTQ + GRCh38 FASTA: **1,228,325,160 bytes**.
+- Production run wall time: **19:11.70**; user CPU **4,784.74 s**;
+  system CPU **183.61 s**; 431% average CPU.
+- `/usr/bin/time` max RSS for the timed Snakemake process:
+  **3,483,136 KiB**. This is not the simultaneous total RSS of all children.
+- Bowtie2-build `/usr/bin/time` max RSS: **7,305,712 KiB**.
+- Simultaneous scratch peak: **not measured**. Start/end `df` samples include
+  other host tasks and are not attributable to this run.
+- The earlier 1.2 TiB all-input/all-intermediates-retained figure is not a
+  startup requirement and is not used here. The measured final occupancy is
+  about 12.6 GiB for reference + results + inputs; scratch must be measured
+  before larger runs.
