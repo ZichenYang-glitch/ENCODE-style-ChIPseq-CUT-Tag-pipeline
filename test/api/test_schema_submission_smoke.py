@@ -156,8 +156,14 @@ def test_encode_cores_reach_command_and_real_snakemake_allocation(
     built = builder.build_command(planned.value, workspace)
     assert built.is_success, built.issues
     command = built.value.command_spec
-    executed = ProcessRunner(timeout_seconds=60).run(command)
-    assert executed.is_success, executed.issues
+    # Allow cold Snakemake startup within the browser job's bounded budget.
+    # The assertions below verify execution and allocation; this fixture has
+    # no 60-second startup requirement. Retain output if its hang guard fires.
+    output: list[str] = []
+    executed = ProcessRunner(timeout_seconds=180).run(
+        command, output_callback=lambda _stream, lines: output.extend(lines)
+    )
+    assert executed.is_success, (executed.issues, "".join(output)[-4000:])
     assert executed.value.exit_code == 0, executed.value
     assert (workspace / "result/complete.txt").read_text() == "success\n"
     assert (workspace / "results/C1/01_qc/C1.qc_summary.tsv").read_text() == (
