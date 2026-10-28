@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SAMPLE_SET>
+<SAMPLE accession="SAMN32933791" alias="HP pMSC cells_MNaseseq_FM2" center_name="Oakland University" broker_name="NCBI">
+     <IDENTIFIERS>
+          <PRIMARY_ID>SAMN32933791</PRIMARY_ID>
+          <SECONDARY_ID>SRS16603731</SECONDARY_ID>
+          <EXTERNAL_ID namespace="BioSample">SAMN32933791</EXTERNAL_ID>
+          <SUBMITTER_ID namespace="Oakland University">HP pMSC cells_MNaseseq_FM2</SUBMITTER_ID>
+     </IDENTIFIERS>
+     <TITLE>Human sample from Homo sapiens</TITLE>
+     <SAMPLE_NAME>
+          <TAXON_ID>9606</TAXON_ID>
+          <SCIENTIFIC_NAME>Homo sapiens</SCIENTIFIC_NAME>
+          <COMMON_NAME>human</COMMON_NAME>
+     </SAMPLE_NAME>
+     <SAMPLE_LINKS>
+    <SAMPLE_LINK>
+        <XREF_LINK>
+            <DB>ENA-FASTQ-FILES</DB>
+            <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRS16603731&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes]]></ID>
+        </XREF_LINK>
+    </SAMPLE_LINK>
+    <SAMPLE_LINK>
+        <XREF_LINK>
+            <DB>ENA-SUBMITTED-FILES</DB>
+            <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRS16603731&result=read_run&fields=run_accession,submitted_ftp,submitted_md5,submitted_bytes,submitted_format]]></ID>
+        </XREF_LINK>
+    </SAMPLE_LINK>
+</SAMPLE_LINKS>
+<SAMPLE_ATTRIBUTES>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>isolate</TAG>
+               <VALUE>HP Mesenchymal Stem Cells grown in FM MNaseseq rep 2</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>INSDC secondary accession</TAG>
+               <VALUE>SRS16603731</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>NCBI submission package</TAG>
+               <VALUE>Human.1.0</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>organism</TAG>
+               <VALUE>Homo sapiens</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>sex</TAG>
+               <VALUE>male</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>tissue</TAG>
+               <VALUE>Umbilical Cord</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>age</TAG>
+               <VALUE>N/A</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>biomaterial_provider</TAG>
+               <VALUE>Ascension Providence Hospital</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>BioSampleModel</TAG>
+               <VALUE>Human</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>ENA-FIRST-PUBLIC</TAG>
+               <VALUE>2023-01-26</VALUE>
+          </SAMPLE_ATTRIBUTE>
+          <SAMPLE_ATTRIBUTE>
+               <TAG>ENA-LAST-UPDATE</TAG>
+               <VALUE>2023-01-26</VALUE>
+          </SAMPLE_ATTRIBUTE>
+     </SAMPLE_ATTRIBUTES>
+</SAMPLE>
+</SAMPLE_SET>

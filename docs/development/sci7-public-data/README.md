@@ -1,89 +1,80 @@
-# SCI-7 public-data preparation (no downloads)
+# SCI-7 public-data validation preparation
 
-Status: preparation only. No scientific acceptance, no default freeze.
+Status: **execution preparation only**. No real-library comparison has run, no
+scientific acceptance has completed, and no default is frozen by these files.
+No large FASTQ, BAM, reference FASTA or index download has started.
 
-## Scope (from the repo SCI-7 handoff)
+## Scope
 
-Single-variable comparisons for the duplicate-policy, MACS3 keep-dup, and PE
-max_insert decisions on public ENCODE-style data. Candidate groups:
-ChIP-seq TF, ChIP-seq histone, CUT&Tag, ATAC-seq, MNase-seq; PE and SE where the
-assay supports it; treatment + matched control / input.
+The planned comparisons cover ChIP-seq TF, ChIP-seq histone, CUT&Tag, ATAC-seq
+and MNase-seq, with PE and SE where supported and matched controls where the
+assay design uses them. Duplicate policy, MACS3 keep-dup and PE `max_insert` are
+separate single-variable experiments. The executable matrix, effect sizes,
+decision rules and no-conclusion conditions are pre-registered in
+[`comparison-design.md`](comparison-design.md).
 
-## Candidate manifest fields
+## Verified discovery file metadata
 
-`/tmp/sci7-work/file-manifest.tsv` records:
-accession, assay, target, species, reference assembly/version, layout,
-replicate, control pairing, file accession/URL, official size, checksum
-(md5/sha256), source, query date, verification status.
+[`file-manifest.tsv`](file-manifest.tsv) records experiment, assay, target,
+species, proposed reference, layout, biological/technical replicate,
+library/biosample/donor, treatment background, control pairing, file accession,
+download URL, official byte size, official MD5, read length, mate pairing,
+source query, query date and verification status.
 
-Every row is currently `unverified`; no URL/size/checksum is asserted until the
-official portal response is captured. No FASTQ/BAM download has started.
+The first 15 rows are marked `official`: their file accessions, sizes, MD5
+values and pairing were read from the saved official ENCODE API responses in
+[`metadata/`](metadata/). The 14 GEO/SRA rows are marked `official metadata; URL
+HEAD verified`: their values come from ENA project filereports and every HTTPS
+HEAD Content-Length matched. These statuses describe metadata/link provenance,
+not local file possession, downloaded-content checksums, reference identity, or
+biological suitability. `reference_proposed` remains a proposed execution
+reference; raw FASTQ records do not themselves establish an official assembly.
 
-## Single-variable design
+| Discovery group | Selected experiment(s) | Layout/replicate facts | Official FASTQ bytes |
+| --- | --- | --- | ---: |
+| TF ChIP-seq | ENCSR054ZMK (NR2F2, HepG2, FOXA3 RNAi background) + control ENCSR142JFU | 100 bp PE; one biological replicate | 11,396,944,028 |
+| Histone ChIP-seq | ENCSR817LUF (H3K36me3) + control ENCSR603VTC | 36 bp SE; treatment files belong to one library and one technical replicate, not five independent replicates | 2,510,695,554 |
+| ATAC-seq | ENCSR844TIU | 26 bp PE; two biological replicates; short-read applicability remains an explicit limitation | 3,952,560,652 |
+| CUT&Tag | GSE159608 / PRJNA669859 H3K27me3 Rep1/Rep2 + matched IgG Rep1/Rep2 | 2x25 bp PE; submitter-labelled replicates; Rep1 is shallow | 443,578,936 |
+| MNase-seq | PRJNA928451 LP_pMSCs_FM Rep1/Rep2/Rep3 | PE, 2x51 bp inferred from official counts; SRA explicitly states three independent biological replicates | 4,402,061,533 |
+| **Total** | **29 FASTQ files** |  | **22,705,840,703** |
 
-1. Duplicate policy: same file set, only duplicate handling differs
-   (none/retain vs markdup/exclude vs auto). Hold aligner, MAPQ, blacklist,
-   peak caller, and thresholds fixed.
-2. MACS3 keep-dup: same analysis BAM and control, only `--keep-dup` differs.
-3. PE max_insert: same PE library, only the insert cap differs
-   (e.g. 500/700/2000), with fragment/template counts and peak sets compared.
+CUT&Tag/MNase selection, rejected candidates, control-pairing caveats and all 46
+official GEO/SRA/ENA/ENCODE queries are documented in
+[`cuttag-mnase-selection.md`](cuttag-mnase-selection.md) and
+[`metadata/geo-sra/`](metadata/geo-sra/). All 24 discovery plus optional
+confirmation ENA links returned HTTP 200 with matching Content-Length. ENCODE
+ENCSR000CXP/ENCSR000CXQ were rejected because they are SOLiD rather than
+standard Illumina FASTQ; an earlier empty ENCODE API search was not generalized
+into a claim that public databases lack these assays.
 
-Each comparison records: input file identities, tool versions, effective
-config, command, output checksums, and a pre-registered decision rule.
+## Confirmation and reference gates
 
-## Metrics
+The ENCODE confirmation candidates TF ENCSR785RQR, histone ENCSR213YKJ and ATAC
+ENCSR639PPN have now been checked for donor, biosample, library, source-file and
+checksum overlap in [`confirmation-review.md`](confirmation-review.md). TF is
+independent and uses background-matched control ENCSR194GTV; histone uses only
+rep1 with control ENCSR148TRG; ATAC shares donor ENCDO236IKC with discovery and
+therefore supports only library/cell-context confirmation. Optional GEO/SRA
+CUT&Tag/MNase candidates are recorded separately with shared-control,
+same-study/donor and depth limitations. Different experiment accessions alone
+are never treated as proof of independence.
 
-- Template/fragment counts by validity class; duplicate fraction; NRF/PBC.
-- FRiP, peak count, peak width distribution, peak-set Jaccard/overlap.
-- Cross-correlation NSC/RSC/phantom status where QC is enabled.
-- Qualitative failure modes: SE/PE mismatch, missing control, insufficient
-  depth, variable read length, phantom-dominated correlation.
+[`confirmation-file-manifest.tsv`](confirmation-file-manifest.tsv) contains 28
+ENCODE confirmation FASTQ (92,835,234,501 bytes), and
+[`geo-sra-confirmation-file-manifest.tsv`](geo-sra-confirmation-file-manifest.tsv)
+contains 10 optional GEO/SRA FASTQ (3,371,454,387 bytes). None is downloaded.
 
-## Data split
+[`reference-identity.md`](reference-identity.md) separately records proposed
+FASTA assembly/release, contig naming, FAI/chrom_sizes derivation, blacklist
+provenance/version/checksum, any required annotation, and Bowtie2 index build
+tool/parameters/input identity. The two small ENCODE blacklist payloads were
+downloaded and their official sizes/MD5 verified. Large FASTA/GTF/index payloads
+remain explicitly unbuilt and unverified.
 
-Discovery/verification cohorts are separate accessions. Any accession used to
-select a default is excluded from the confirmation cohort. No tuning on the
-confirmation cohort.
+## Execution limits and budget
 
-## Non-conclusions
-
-A comparison is inconclusive if the input is underpowered, controls are
-mismatched, the reference/assembly identity is unverified, or the tool version
-differs from the pinned closure.
-
-
-## Actual candidates selected 2026-10-28
-
-- TF ChIP-seq: ENCSR054ZMK (NR2F2, human HepG2, PE) + matched control
-  ENCSR142JFU; 4 FASTQ, 10.61 GiB.
-- Histone ChIP-seq: ENCSR817LUF (H3K36me3, human brain, SE) + matched control
-  ENCSR603VTC; 7 FASTQ, 2.34 GiB.
-- ATAC-seq: ENCSR844TIU (mouse Treg, PE, 2 bio replicates); 4 FASTQ, 3.68 GiB.
-- MNase-seq: ENCSR000CXP/ENCSR000CXQ are SOLiD csfasta/csqual/BAM hg19 with no
-  standard FASTQ; recorded as a gap. GEO/SRA query remains.
-- CUT&Tag: ENCODE API search did not return CUT&Tag experiments; recorded as a
-  gap. GEO/SRA query remains.
-
-File-level rows, official sizes/md5, source APIs and status are in
-`file-manifest.tsv`; query evidence is in `source-log.md` and `metadata/`.
-
-## Confirmation candidates (unverified independence)
-
-- TF: ENCSR785RQR (JUND) — independent-accession candidate; donor/library overlap
-  check against ENCSR054ZMK still pending.
-- Histone: ENCSR213YKJ (H3K4me3) — independent-accession candidate; donor/library
-  overlap check still pending.
-- ATAC: ENCSR639PPN — independent-accession candidate; species/donor and
-  library overlap check still pending.
-
-These are not acceptance data until the donor, biosample, library, and file
-hashes are checked against the discovery set.
-
-## GEO/SRA gap queries (2026-10-28)
-
-- NCBI GEO `CUT&Tag`: 19,003 GDS hits; no file-level candidate selected yet.
-  Raw responses: `metadata/geo_CUT_Tag.json`.
-- NCBI GEO `MNase-seq`: 3,885 GDS hits; no standard-FASTQ candidate selected yet.
-  Raw responses: `metadata/geo_MNase-seq.json`.
-- ENCODE CUT&Tag API search returned no experiment; ENCODE MNase experiments are
-  SOLiD-only. These remain gaps; do not fabricate file identities.
+[`resource-budget.md`](resource-budget.md) separates official input sizes from
+estimated storage, CPU/RAM and wall time, and defines the minimal trial and
+expansion order. Downloads and real-library execution require a later explicit
+execution step; this preparation commit is not scientific validation.
