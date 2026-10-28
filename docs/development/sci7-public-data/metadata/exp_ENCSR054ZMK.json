@@ -1,0 +1,1685 @@
+{
+  "@context": "/terms/",
+  "@id": "/experiments/ENCSR054ZMK/",
+  "@type": [
+    "Experiment",
+    "Dataset",
+    "Item"
+  ],
+  "accession": "ENCSR054ZMK",
+  "aliases": [
+    "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2"
+  ],
+  "alternate_accessions": [],
+  "assay_slims": [
+    "DNA binding"
+  ],
+  "assay_term_id": "OBI:0000716",
+  "assay_term_name": "ChIP-seq",
+  "assay_title": "TF ChIP-seq",
+  "assembly": [],
+  "audit": {
+    "INTERNAL_ACTION": [
+      {
+        "category": "inconsistent genetic modification targets",
+        "detail": "This experiment {ENCSR054ZMK|/experiments/ENCSR054ZMK/} targeting {NR2F2-human|/targets/NR2F2-human/} has a biosample {ENCBS825SFH|/biosamples/ENCBS825SFH/} with no genetic modification targeting {NR2F2-human|/targets/NR2F2-human/}.",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      },
+      {
+        "category": "experiment not submitted to GEO",
+        "detail": "Experiment {ENCSR054ZMK|/experiments/ENCSR054ZMK/} is released, but is not submitted to GEO.",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      },
+      {
+        "category": "inconsistent analysis status",
+        "detail": "Experiment {ENCSR054ZMK|/experiments/ENCSR054ZMK/} is released but lacks a released analysis.",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      }
+    ],
+    "NOT_COMPLIANT": [
+      {
+        "category": "unreplicated experiment",
+        "detail": "This experiment is expected to be replicated, but contains only one listed biological replicate.",
+        "level": 50,
+        "level_name": "NOT_COMPLIANT",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      }
+    ],
+    "WARNING": [
+      {
+        "category": "lacking processed data",
+        "detail": "Experiment {ENCSR054ZMK|/experiments/ENCSR054ZMK/} only has raw data and does not contain any processed data.",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      },
+      {
+        "category": "missing biosample characterization",
+        "detail": "Biosample {ENCBS825SFH|/biosamples/ENCBS825SFH/} which has been modified by genetic modification {ENCGM051MQI|/genetic-modifications/ENCGM051MQI/} is missing characterization validating the modification.",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      },
+      {
+        "category": "antibody characterized with exemption",
+        "detail": "Antibody {ENCAB000AJH|/antibodies/ENCAB000AJH/} has been characterized to the standard with exemption for HepG2 in human",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR054ZMK/"
+      },
+      {
+        "category": "missing controlled_by",
+        "detail": "controlled_by is a list of files that are used as controls for a given experimental file. Fastq files generated in a ChIP-seq assay require the specification of control fastq file(s) in the controlled_by list. Fastq file {ENCFF996ZFG|/files/ENCFF996ZFG/} is missing the requisite file specification in controlled_by list.",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_file",
+        "path": "/files/ENCFF996ZFG/"
+      },
+      {
+        "category": "missing controlled_by",
+        "detail": "controlled_by is a list of files that are used as controls for a given experimental file. Fastq files generated in a ChIP-seq assay require the specification of control fastq file(s) in the controlled_by list. Fastq file {ENCFF032VKB|/files/ENCFF032VKB/} is missing the requisite file specification in controlled_by list.",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_file",
+        "path": "/files/ENCFF032VKB/"
+      }
+    ]
+  },
+  "award": {
+    "@id": "/awards/UM1HG009442/",
+    "@type": [
+      "Award",
+      "Item"
+    ],
+    "component": "mapping",
+    "description": "Although our ability to determine the genome sequence of individuals is becoming facile, our understanding of the function of most of the human genome is limited. Mapping of regulatory information is particularly crucial since most (>85%) common variants associated with human disease lie outside of coding regions. Previous phases of ENCODE have made important contributions to the mapping of regulatory elements across the genome, but there is much more to be acheived, including the mapping of regulatory regions across many more tissues and at the resolution of individual cells as well as determining the exact regulators i.e. transcription factors that bind each region. In our Stanford ENCODE Production Center for Mapping of Regulatory Regions, we plan to use technologies that we have developed to map the binding sites for most transcription factors (TFs) in five major cell lines using chromatin immunoprecipitation of tagged TFs. We will further expand the catalog of regulatory elements by analyzing open chromatin regions in these cell lines and a wide variety of tissues and cell types from both normal and diseased human subjects consented for open access. Finally, we will map open chromatin regions in single cells from these types of biosamples. These studies will greatly expand the catalog of regulatory regions in the human genome. The rapid deposition of data into the ENCODE Data Coordinating Center (DCC) will ensure quick public release. We expect the data and cell lines that are generated by this Center will be a valuable resource for the broad scientific community.",
+    "end_date": "2021-01-31",
+    "name": "UM1HG009442",
+    "pi": {
+      "@id": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+      "@type": [
+        "User",
+        "Item"
+      ],
+      "lab": {
+        "@id": "/labs/michael-snyder/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Department of Genetics",
+        "address2": "300 Pasteur Drive; MC5120",
+        "awards": [
+          "/awards/RC2HG005602/",
+          "/awards/U54HG006996/",
+          "/awards/U54HG004558/",
+          "/awards/U01HG007919/",
+          "/awards/UM1HG009442/"
+        ],
+        "city": "Stanford",
+        "country": "USA",
+        "fax": "650-725-1534",
+        "institute_label": "Stanford",
+        "institute_name": "Stanford University",
+        "name": "michael-snyder",
+        "phone1": "650-723-4668",
+        "phone2": "650-736-8099",
+        "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+        "postal_code": "94305-5120",
+        "schema_version": "5",
+        "state": "CA",
+        "status": "current",
+        "title": "Michael Snyder, Stanford",
+        "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+      },
+      "submits_for": [
+        "/labs/michael-snyder/",
+        "/labs/kevin-white/",
+        "/labs/peggy-farnham/",
+        "/labs/sherman-weissman/"
+      ],
+      "title": "Michael Snyder",
+      "uuid": "27e105ca-c741-4459-bf17-90e003508639"
+    },
+    "project": "ENCODE",
+    "rfa": "ENCODE4",
+    "schema_version": "11",
+    "start_date": "2017-02-01",
+    "status": "current",
+    "title": "PRODUCTION CENTER FOR MAPPING REGULATORY REGIONS OF THE HUMAN GENOME",
+    "url": "https://projectreporter.nih.gov/project_info_description.cfm?aid=9247694&icde=32921696&ddparam=&ddvalue=&ddsub=&cr=1&csb=default&cs=ASC&pball=",
+    "uuid": "7a5e9183-b52f-4f75-9708-8e077b086b4e",
+    "viewing_group": "ENCODE4"
+  },
+  "bio_replicate_count": 1,
+  "biosample_ontology": {
+    "@id": "/biosample-types/cell_line_EFO_0001187/",
+    "@type": [
+      "BiosampleType",
+      "Item"
+    ],
+    "aliases": [
+      "encode:HepG2"
+    ],
+    "cell_slims": [
+      "epithelial cell",
+      "cancer cell"
+    ],
+    "classification": "cell line",
+    "dbxrefs": [
+      "Cellosaurus:CVCL_0027"
+    ],
+    "developmental_slims": [
+      "endoderm"
+    ],
+    "name": "cell_line_EFO_0001187",
+    "organ_slims": [
+      "exocrine gland",
+      "epithelium",
+      "liver",
+      "endocrine gland"
+    ],
+    "references": [],
+    "schema_version": "1",
+    "status": "released",
+    "synonyms": [
+      "Hep-G2",
+      "HepG2 cell"
+    ],
+    "system_slims": [
+      "digestive system",
+      "endocrine system",
+      "exocrine system"
+    ],
+    "term_id": "EFO:0001187",
+    "term_name": "HepG2",
+    "uuid": "ec2e6bce-118e-41e7-a1a3-f34f3278472c"
+  },
+  "biosample_summary": "Homo sapiens HepG2 expressing RNAi targeting H. sapiens FOXA3",
+  "category_slims": [],
+  "contributing_files": [],
+  "date_created": "2025-09-08T16:53:26.415877+00:00",
+  "date_released": "2025-09-27",
+  "dbxrefs": [],
+  "description": "NR2F2 ChIP-seq on HepG2 cells treated with shRNA targeting FOXA3",
+  "documents": [
+    "/documents/716003cd-3ce7-41ce-b1e3-6f203b6632a0/"
+  ],
+  "files": [
+    {
+      "@id": "/files/ENCFF032VKB/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF032VKB",
+      "aliases": [
+        "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2_rep1_R1_001.fastq.gz"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "TF ChIP-seq",
+      "award": "/awards/UM1HG009442/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2025/09/08/2bcbd7c9-c97a-4585-abc5-ade1ec2be2a7/ENCFF032VKB.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+      "cloud_metadata": {
+        "file_size": 2947099459,
+        "md5sum_base64": "NBjKZspYPkXZv/h86MaJPQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2025/09/08/2bcbd7c9-c97a-4585-abc5-ade1ec2be2a7/ENCFF032VKB.fastq.gz"
+      },
+      "content_md5sum": "ed0ef9d9cbd85202224090e067d6f9a7",
+      "dataset": "/experiments/ENCSR054ZMK/",
+      "date_created": "2025-09-08T23:11:32.941143+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/human-donors/ENCDO000AAC/"
+      ],
+      "fastq_signature": [
+        "HLVNVDRX5:2:1:AATTGA:",
+        "HLVNVDRX5:2:1:ACATGA:",
+        "HLVNVDRX5:2:1:ACCTGA:",
+        "HLVNVDRX5:2:1:ACGTGA:",
+        "HLVNVDRX5:2:1:ACTAGA:",
+        "HLVNVDRX5:2:1:ACTCGA:",
+        "HLVNVDRX5:2:1:ACTGGA:",
+        "HLVNVDRX5:2:1:ACTNGA:",
+        "HLVNVDRX5:2:1:ACTTAA:",
+        "HLVNVDRX5:2:1:ACTTCA:",
+        "HLVNVDRX5:2:1:ACTTGA:",
+        "HLVNVDRX5:2:1:ACTTGC:",
+        "HLVNVDRX5:2:1:ACTTGG:",
+        "HLVNVDRX5:2:1:ACTTGT:",
+        "HLVNVDRX5:2:1:ACTTNA:",
+        "HLVNVDRX5:2:1:ACTTTA:",
+        "HLVNVDRX5:2:1:AGTTGA:",
+        "HLVNVDRX5:2:1:ANTTGA:",
+        "HLVNVDRX5:2:1:ATTTGA:",
+        "HLVNVDRX5:2:1:CCTTGA:",
+        "HLVNVDRX5:2:1:GCTTGA:",
+        "HLVNVDRX5:2:1:NCTTGA:",
+        "HLVNVDRX5:2:1:TCTTGA:"
+      ],
+      "file_format": "fastq",
+      "file_size": 2947099459,
+      "file_type": "fastq",
+      "flowcell_details": [
+        {
+          "barcode": "ACTTGA",
+          "lane": "2"
+        }
+      ],
+      "href": "/files/ENCFF032VKB/@@download/ENCFF032VKB.fastq.gz",
+      "lab": {
+        "@id": "/labs/michael-snyder/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Department of Genetics",
+        "address2": "300 Pasteur Drive; MC5120",
+        "awards": [
+          "/awards/RC2HG005602/",
+          "/awards/U54HG006996/",
+          "/awards/U54HG004558/",
+          "/awards/U01HG007919/",
+          "/awards/UM1HG009442/"
+        ],
+        "city": "Stanford",
+        "country": "USA",
+        "fax": "650-725-1534",
+        "institute_label": "Stanford",
+        "institute_name": "Stanford University",
+        "name": "michael-snyder",
+        "phone1": "650-723-4668",
+        "phone2": "650-736-8099",
+        "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+        "postal_code": "94305-5120",
+        "schema_version": "5",
+        "state": "CA",
+        "status": "current",
+        "title": "Michael Snyder, Stanford",
+        "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+      },
+      "md5sum": "3418ca66ca583e45d9bff87ce8c6893d",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS825SFH/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "1",
+      "paired_with": "/files/ENCFF996ZFG/",
+      "platform": {
+        "@id": "/platforms/OBI:0002630/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NovaSeq6000"
+        ],
+        "date_created": "2018-07-20T19:38:44.944123+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/97d2dfcd-0919-4a27-9797-a6ef25f470a2/",
+        "term_id": "OBI:0002630",
+        "term_name": "Illumina NovaSeq 6000",
+        "title": "Illumina NovaSeq 6000",
+        "url": "http://www.illumina.com/content/dam/illumina-marketing/documents/products/datasheets/novaseq-6000-system-specification-sheet-770-2016-025.pdf",
+        "uuid": "27e58bd7-0943-4b5a-9473-30d571eb89ff"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 56978988,
+      "read_length": 100,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/0f6ec97e-16ea-45f1-b1f4-d9c2b506e075/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2_rep1"
+        ],
+        "antibody": "/antibodies/ENCAB000AJH/",
+        "biological_replicate_number": 1,
+        "date_created": "2025-09-08T16:55:27.950780+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR054ZMK/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR054ZMK",
+          "aliases": [
+            "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2"
+          ],
+          "alternate_accessions": [],
+          "assay_slims": [
+            "DNA binding"
+          ],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "assay_title": "TF ChIP-seq",
+          "assembly": [],
+          "award": "/awards/UM1HG009442/",
+          "bio_replicate_count": 1,
+          "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+          "biosample_summary": "Homo sapiens HepG2 expressing RNAi targeting H. sapiens FOXA3",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2025-09-08T16:53:26.415877+00:00",
+          "date_released": "2025-09-27",
+          "dbxrefs": [],
+          "description": "NR2F2 ChIP-seq on HepG2 cells treated with shRNA targeting FOXA3",
+          "documents": [
+            "/documents/716003cd-3ce7-41ce-b1e3-6f203b6632a0/"
+          ],
+          "files": [
+            "/files/ENCFF032VKB/",
+            "/files/ENCFF996ZFG/"
+          ],
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/michael-snyder/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "Department of Genetics",
+            "address2": "300 Pasteur Drive; MC5120",
+            "awards": [
+              "/awards/RC2HG005602/",
+              "/awards/U54HG006996/",
+              "/awards/U54HG004558/",
+              "/awards/U01HG007919/",
+              "/awards/UM1HG009442/"
+            ],
+            "city": "Stanford",
+            "country": "USA",
+            "fax": "650-725-1534",
+            "institute_label": "Stanford",
+            "institute_name": "Stanford University",
+            "name": "michael-snyder",
+            "phone1": "650-723-4668",
+            "phone2": "650-736-8099",
+            "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+            "postal_code": "94305-5120",
+            "schema_version": "5",
+            "state": "CA",
+            "status": "current",
+            "title": "Michael Snyder, Stanford",
+            "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+          },
+          "life_stage_age": "child 15 years",
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF032VKB/",
+            "/files/ENCFF996ZFG/"
+          ],
+          "perturbed": true,
+          "possible_controls": [
+            "/experiments/ENCSR142JFU/",
+            "/experiments/ENCSR441NSM/"
+          ],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/0f6ec97e-16ea-45f1-b1f4-d9c2b506e075/"
+          ],
+          "replication_type": "unreplicated",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+          "status": "released",
+          "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+          "superseded_by": [],
+          "supersedes": [],
+          "target": {
+            "@id": "/targets/NR2F2-human/",
+            "@type": [
+              "Target",
+              "Item"
+            ],
+            "aliases": [],
+            "dbxrefs": [
+              "FactorBook:NR2F2"
+            ],
+            "genes": [
+              {
+                "@id": "/genes/7026/",
+                "@type": [
+                  "Gene",
+                  "Item"
+                ],
+                "dbxrefs": [
+                  "GeneCards:NR2F2",
+                  "HGNC:7976",
+                  "MIM:107773",
+                  "UniProtKB:P24468",
+                  "Vega:OTTHUMG00000149848",
+                  "UniProtKB:F1D8R0",
+                  "ENSEMBL:ENSG00000185551"
+                ],
+                "geneid": "7026",
+                "locations": [
+                  {
+                    "assembly": "GRCh38",
+                    "chromosome": "chr15",
+                    "end": 96340263,
+                    "start": 96326046
+                  },
+                  {
+                    "assembly": "hg19",
+                    "chromosome": "chr15",
+                    "end": 96883492,
+                    "start": 96869275
+                  }
+                ],
+                "name": "nuclear receptor subfamily 2 group F member 2",
+                "ncbi_entrez_status": "live",
+                "organism": "/organisms/human/",
+                "schema_version": "3",
+                "status": "released",
+                "symbol": "NR2F2",
+                "synonyms": [
+                  "COUPTF2",
+                  "COUPTFB",
+                  "NF-E3",
+                  "SVP40",
+                  "TFCOUP2",
+                  "ARP1",
+                  "COUP-TFII",
+                  "COUPTFII",
+                  "CHTD4"
+                ],
+                "targets": [
+                  "/targets/eGFP-NR2F2-human/",
+                  "/targets/NR2F2-human/"
+                ],
+                "title": "NR2F2 (Homo sapiens)",
+                "uuid": "e7bef63f-b0c4-4e2f-8bb8-2a1732a8786e"
+              }
+            ],
+            "investigated_as": [
+              "transcription factor"
+            ],
+            "label": "NR2F2",
+            "name": "NR2F2-human",
+            "organism": "/organisms/human/",
+            "schema_version": "14",
+            "status": "released",
+            "title": "NR2F2 (Homo sapiens)",
+            "uuid": "526182cc-b614-437f-88cc-b1a985826ad4"
+          },
+          "tech_replicate_count": 1,
+          "type_slims": [],
+          "uuid": "f01ff9d2-6dd2-4d7c-9eb9-a61d7cf2b8dc"
+        },
+        "library": "/libraries/ENCLB047ULA/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+        "technical_replicate_number": 1,
+        "uuid": "0f6ec97e-16ea-45f1-b1f4-d9c2b506e075"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2025/09/08/2bcbd7c9-c97a-4585-abc5-ade1ec2be2a7/ENCFF032VKB.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/michael-snyder/",
+        "submits_for": [
+          "/labs/michael-snyder/"
+        ],
+        "title": "Shannon White",
+        "uuid": "4741fbf9-b936-475e-92a0-1ba8a917dff6"
+      },
+      "submitted_file_name": "/Users/shannonmorgan/Desktop/SREQ2_4_S17_L002_R1_001.fastq.gz",
+      "superseded_by": [],
+      "target": "/targets/NR2F2-human/",
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF032VKB",
+      "uuid": "2bcbd7c9-c97a-4585-abc5-ade1ec2be2a7"
+    },
+    {
+      "@id": "/files/ENCFF996ZFG/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF996ZFG",
+      "aliases": [
+        "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2_rep1_R2_001.fastq.gz"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "TF ChIP-seq",
+      "award": "/awards/UM1HG009442/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2025/09/08/1b07a53e-8810-4e48-9684-5a38f61a00b5/ENCFF996ZFG.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+      "cloud_metadata": {
+        "file_size": 3025085699,
+        "md5sum_base64": "vTZXjGmgB+/9jOyLHbdnPQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2025/09/08/1b07a53e-8810-4e48-9684-5a38f61a00b5/ENCFF996ZFG.fastq.gz"
+      },
+      "content_md5sum": "cd92ea242a9e06c80acf27caa748a91d",
+      "dataset": "/experiments/ENCSR054ZMK/",
+      "date_created": "2025-09-08T23:15:10.486496+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/human-donors/ENCDO000AAC/"
+      ],
+      "fastq_signature": [
+        "HLVNVDRX5:2:2:AATTGA:",
+        "HLVNVDRX5:2:2:ACATGA:",
+        "HLVNVDRX5:2:2:ACCTGA:",
+        "HLVNVDRX5:2:2:ACGTGA:",
+        "HLVNVDRX5:2:2:ACTAGA:",
+        "HLVNVDRX5:2:2:ACTCGA:",
+        "HLVNVDRX5:2:2:ACTGGA:",
+        "HLVNVDRX5:2:2:ACTNGA:",
+        "HLVNVDRX5:2:2:ACTTAA:",
+        "HLVNVDRX5:2:2:ACTTCA:",
+        "HLVNVDRX5:2:2:ACTTGA:",
+        "HLVNVDRX5:2:2:ACTTGC:",
+        "HLVNVDRX5:2:2:ACTTGG:",
+        "HLVNVDRX5:2:2:ACTTGT:",
+        "HLVNVDRX5:2:2:ACTTNA:",
+        "HLVNVDRX5:2:2:ACTTTA:",
+        "HLVNVDRX5:2:2:AGTTGA:",
+        "HLVNVDRX5:2:2:ANTTGA:",
+        "HLVNVDRX5:2:2:ATTTGA:",
+        "HLVNVDRX5:2:2:CCTTGA:",
+        "HLVNVDRX5:2:2:GCTTGA:",
+        "HLVNVDRX5:2:2:NCTTGA:",
+        "HLVNVDRX5:2:2:TCTTGA:"
+      ],
+      "file_format": "fastq",
+      "file_size": 3025085699,
+      "file_type": "fastq",
+      "flowcell_details": [
+        {
+          "barcode": "ACTTGA",
+          "lane": "2"
+        }
+      ],
+      "href": "/files/ENCFF996ZFG/@@download/ENCFF996ZFG.fastq.gz",
+      "lab": {
+        "@id": "/labs/michael-snyder/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Department of Genetics",
+        "address2": "300 Pasteur Drive; MC5120",
+        "awards": [
+          "/awards/RC2HG005602/",
+          "/awards/U54HG006996/",
+          "/awards/U54HG004558/",
+          "/awards/U01HG007919/",
+          "/awards/UM1HG009442/"
+        ],
+        "city": "Stanford",
+        "country": "USA",
+        "fax": "650-725-1534",
+        "institute_label": "Stanford",
+        "institute_name": "Stanford University",
+        "name": "michael-snyder",
+        "phone1": "650-723-4668",
+        "phone2": "650-736-8099",
+        "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+        "postal_code": "94305-5120",
+        "schema_version": "5",
+        "state": "CA",
+        "status": "current",
+        "title": "Michael Snyder, Stanford",
+        "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+      },
+      "md5sum": "bd36578c69a007effd8cec8b1db7673d",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS825SFH/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "2",
+      "paired_with": "/files/ENCFF032VKB/",
+      "platform": {
+        "@id": "/platforms/OBI:0002630/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NovaSeq6000"
+        ],
+        "date_created": "2018-07-20T19:38:44.944123+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/97d2dfcd-0919-4a27-9797-a6ef25f470a2/",
+        "term_id": "OBI:0002630",
+        "term_name": "Illumina NovaSeq 6000",
+        "title": "Illumina NovaSeq 6000",
+        "url": "http://www.illumina.com/content/dam/illumina-marketing/documents/products/datasheets/novaseq-6000-system-specification-sheet-770-2016-025.pdf",
+        "uuid": "27e58bd7-0943-4b5a-9473-30d571eb89ff"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 56978988,
+      "read_length": 100,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/0f6ec97e-16ea-45f1-b1f4-d9c2b506e075/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2_rep1"
+        ],
+        "antibody": "/antibodies/ENCAB000AJH/",
+        "biological_replicate_number": 1,
+        "date_created": "2025-09-08T16:55:27.950780+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR054ZMK/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR054ZMK",
+          "aliases": [
+            "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2"
+          ],
+          "alternate_accessions": [],
+          "assay_slims": [
+            "DNA binding"
+          ],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "assay_title": "TF ChIP-seq",
+          "assembly": [],
+          "award": "/awards/UM1HG009442/",
+          "bio_replicate_count": 1,
+          "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+          "biosample_summary": "Homo sapiens HepG2 expressing RNAi targeting H. sapiens FOXA3",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2025-09-08T16:53:26.415877+00:00",
+          "date_released": "2025-09-27",
+          "dbxrefs": [],
+          "description": "NR2F2 ChIP-seq on HepG2 cells treated with shRNA targeting FOXA3",
+          "documents": [
+            "/documents/716003cd-3ce7-41ce-b1e3-6f203b6632a0/"
+          ],
+          "files": [
+            "/files/ENCFF032VKB/",
+            "/files/ENCFF996ZFG/"
+          ],
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/michael-snyder/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "Department of Genetics",
+            "address2": "300 Pasteur Drive; MC5120",
+            "awards": [
+              "/awards/RC2HG005602/",
+              "/awards/U54HG006996/",
+              "/awards/U54HG004558/",
+              "/awards/U01HG007919/",
+              "/awards/UM1HG009442/"
+            ],
+            "city": "Stanford",
+            "country": "USA",
+            "fax": "650-725-1534",
+            "institute_label": "Stanford",
+            "institute_name": "Stanford University",
+            "name": "michael-snyder",
+            "phone1": "650-723-4668",
+            "phone2": "650-736-8099",
+            "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+            "postal_code": "94305-5120",
+            "schema_version": "5",
+            "state": "CA",
+            "status": "current",
+            "title": "Michael Snyder, Stanford",
+            "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+          },
+          "life_stage_age": "child 15 years",
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF032VKB/",
+            "/files/ENCFF996ZFG/"
+          ],
+          "perturbed": true,
+          "possible_controls": [
+            "/experiments/ENCSR142JFU/",
+            "/experiments/ENCSR441NSM/"
+          ],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/0f6ec97e-16ea-45f1-b1f4-d9c2b506e075/"
+          ],
+          "replication_type": "unreplicated",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+          "status": "released",
+          "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+          "superseded_by": [],
+          "supersedes": [],
+          "target": {
+            "@id": "/targets/NR2F2-human/",
+            "@type": [
+              "Target",
+              "Item"
+            ],
+            "aliases": [],
+            "dbxrefs": [
+              "FactorBook:NR2F2"
+            ],
+            "genes": [
+              {
+                "@id": "/genes/7026/",
+                "@type": [
+                  "Gene",
+                  "Item"
+                ],
+                "dbxrefs": [
+                  "GeneCards:NR2F2",
+                  "HGNC:7976",
+                  "MIM:107773",
+                  "UniProtKB:P24468",
+                  "Vega:OTTHUMG00000149848",
+                  "UniProtKB:F1D8R0",
+                  "ENSEMBL:ENSG00000185551"
+                ],
+                "geneid": "7026",
+                "locations": [
+                  {
+                    "assembly": "GRCh38",
+                    "chromosome": "chr15",
+                    "end": 96340263,
+                    "start": 96326046
+                  },
+                  {
+                    "assembly": "hg19",
+                    "chromosome": "chr15",
+                    "end": 96883492,
+                    "start": 96869275
+                  }
+                ],
+                "name": "nuclear receptor subfamily 2 group F member 2",
+                "ncbi_entrez_status": "live",
+                "organism": "/organisms/human/",
+                "schema_version": "3",
+                "status": "released",
+                "symbol": "NR2F2",
+                "synonyms": [
+                  "COUPTF2",
+                  "COUPTFB",
+                  "NF-E3",
+                  "SVP40",
+                  "TFCOUP2",
+                  "ARP1",
+                  "COUP-TFII",
+                  "COUPTFII",
+                  "CHTD4"
+                ],
+                "targets": [
+                  "/targets/eGFP-NR2F2-human/",
+                  "/targets/NR2F2-human/"
+                ],
+                "title": "NR2F2 (Homo sapiens)",
+                "uuid": "e7bef63f-b0c4-4e2f-8bb8-2a1732a8786e"
+              }
+            ],
+            "investigated_as": [
+              "transcription factor"
+            ],
+            "label": "NR2F2",
+            "name": "NR2F2-human",
+            "organism": "/organisms/human/",
+            "schema_version": "14",
+            "status": "released",
+            "title": "NR2F2 (Homo sapiens)",
+            "uuid": "526182cc-b614-437f-88cc-b1a985826ad4"
+          },
+          "tech_replicate_count": 1,
+          "type_slims": [],
+          "uuid": "f01ff9d2-6dd2-4d7c-9eb9-a61d7cf2b8dc"
+        },
+        "library": "/libraries/ENCLB047ULA/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+        "technical_replicate_number": 1,
+        "uuid": "0f6ec97e-16ea-45f1-b1f4-d9c2b506e075"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2025/09/08/1b07a53e-8810-4e48-9684-5a38f61a00b5/ENCFF996ZFG.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/michael-snyder/",
+        "submits_for": [
+          "/labs/michael-snyder/"
+        ],
+        "title": "Shannon White",
+        "uuid": "4741fbf9-b936-475e-92a0-1ba8a917dff6"
+      },
+      "submitted_file_name": "/Users/shannonmorgan/Desktop/SREQ2_4_S17_L002_R2_001.fastq.gz",
+      "superseded_by": [],
+      "target": "/targets/NR2F2-human/",
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF996ZFG",
+      "uuid": "1b07a53e-8810-4e48-9684-5a38f61a00b5"
+    }
+  ],
+  "internal_status": "unreviewed",
+  "internal_tags": [],
+  "lab": {
+    "@id": "/labs/michael-snyder/",
+    "@type": [
+      "Lab",
+      "Item"
+    ],
+    "address1": "Department of Genetics",
+    "address2": "300 Pasteur Drive; MC5120",
+    "awards": [
+      "/awards/RC2HG005602/",
+      "/awards/U54HG006996/",
+      "/awards/U54HG004558/",
+      "/awards/U01HG007919/",
+      "/awards/UM1HG009442/"
+    ],
+    "city": "Stanford",
+    "country": "USA",
+    "fax": "650-725-1534",
+    "institute_label": "Stanford",
+    "institute_name": "Stanford University",
+    "name": "michael-snyder",
+    "phone1": "650-723-4668",
+    "phone2": "650-736-8099",
+    "pi": "/users/27e105ca-c741-4459-bf17-90e003508639/",
+    "postal_code": "94305-5120",
+    "schema_version": "5",
+    "state": "CA",
+    "status": "current",
+    "title": "Michael Snyder, Stanford",
+    "uuid": "72a9c49a-4e17-4df1-96d1-fd19aa46b175"
+  },
+  "life_stage_age": "child 15 years",
+  "objective_slims": [],
+  "original_files": [
+    "/files/ENCFF032VKB/",
+    "/files/ENCFF996ZFG/"
+  ],
+  "perturbed": true,
+  "possible_controls": [
+    {
+      "@id": "/experiments/ENCSR142JFU/",
+      "@type": [
+        "Experiment",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR142JFU",
+      "aliases": [
+        "michael-snyder:HepG2_shFOXA3_input"
+      ],
+      "alternate_accessions": [],
+      "assay_slims": [
+        "DNA binding"
+      ],
+      "assay_term_id": "OBI:0000716",
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": [],
+      "award": "/awards/UM1HG009442/",
+      "bio_replicate_count": 1,
+      "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+      "biosample_summary": "Homo sapiens HepG2 expressing RNAi targeting H. sapiens FOXA3",
+      "category_slims": [],
+      "contributing_files": [],
+      "control_type": "input library",
+      "date_created": "2025-09-05T21:26:05.563433+00:00",
+      "date_released": "2025-09-27",
+      "dbxrefs": [],
+      "description": "Input for HepG2 cells treated with shRNA targeting FOXA3",
+      "documents": [
+        "/documents/716003cd-3ce7-41ce-b1e3-6f203b6632a0/"
+      ],
+      "files": [
+        "/files/ENCFF429FLQ/",
+        "/files/ENCFF225SRY/"
+      ],
+      "internal_status": "unreviewed",
+      "internal_tags": [],
+      "lab": "/labs/michael-snyder/",
+      "life_stage_age": "child 15 years",
+      "objective_slims": [],
+      "original_files": [
+        "/files/ENCFF429FLQ/",
+        "/files/ENCFF225SRY/"
+      ],
+      "perturbed": true,
+      "possible_controls": [],
+      "references": [],
+      "related_annotations": [],
+      "related_files": [],
+      "related_series": [],
+      "replicates": [
+        "/replicates/54788c93-b2eb-4398-a552-74ecd70e30e6/"
+      ],
+      "replication_type": "unreplicated",
+      "revoked_files": [],
+      "schema_version": "37",
+      "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+      "status": "released",
+      "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+      "superseded_by": [],
+      "supersedes": [],
+      "tech_replicate_count": 1,
+      "type_slims": [],
+      "uuid": "b27e41ff-2a7b-44c3-bc56-c34583d66d4f"
+    },
+    {
+      "@id": "/experiments/ENCSR441NSM/",
+      "@type": [
+        "Experiment",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR441NSM",
+      "aliases": [
+        "michael-snyder:HepG2_shControl_chip_for_NR2F2"
+      ],
+      "alternate_accessions": [],
+      "assay_slims": [
+        "DNA binding"
+      ],
+      "assay_term_id": "OBI:0000716",
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": [],
+      "award": "/awards/UM1HG009442/",
+      "bio_replicate_count": 2,
+      "biosample_ontology": "/biosample-types/cell_line_EFO_0001187/",
+      "biosample_summary": "Homo sapiens HepG2",
+      "category_slims": [],
+      "contributing_files": [],
+      "control_type": "input library",
+      "date_created": "2025-09-08T16:53:26.219824+00:00",
+      "date_released": "2025-09-27",
+      "dbxrefs": [],
+      "description": "NR2F2 ChIP-seq on HepG2 cells treated with vector control shRNA",
+      "documents": [
+        "/documents/716003cd-3ce7-41ce-b1e3-6f203b6632a0/"
+      ],
+      "files": [
+        "/files/ENCFF554OXP/",
+        "/files/ENCFF668JRZ/",
+        "/files/ENCFF598VCM/",
+        "/files/ENCFF504SIQ/"
+      ],
+      "internal_status": "unreviewed",
+      "internal_tags": [],
+      "lab": "/labs/michael-snyder/",
+      "life_stage_age": "child 15 years",
+      "objective_slims": [],
+      "original_files": [
+        "/files/ENCFF554OXP/",
+        "/files/ENCFF668JRZ/",
+        "/files/ENCFF598VCM/",
+        "/files/ENCFF504SIQ/"
+      ],
+      "perturbed": false,
+      "possible_controls": [
+        "/experiments/ENCSR482BUK/"
+      ],
+      "references": [],
+      "related_annotations": [],
+      "related_files": [],
+      "related_series": [],
+      "replicates": [
+        "/replicates/4b49c633-4743-48a1-9c89-ae7008c14802/",
+        "/replicates/5303823e-2af1-4246-af9b-7ebfd2756eee/"
+      ],
+      "replication_type": "isogenic",
+      "revoked_files": [],
+      "schema_version": "37",
+      "simple_biosample_summary": "",
+      "status": "released",
+      "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+      "superseded_by": [],
+      "supersedes": [],
+      "target": "/targets/NR2F2-human/",
+      "tech_replicate_count": 2,
+      "type_slims": [],
+      "uuid": "3a799a99-d00d-4600-a911-762ae2bb05ba"
+    }
+  ],
+  "references": [],
+  "related_annotations": [],
+  "related_files": [],
+  "related_series": [],
+  "replicates": [
+    {
+      "@id": "/replicates/0f6ec97e-16ea-45f1-b1f4-d9c2b506e075/",
+      "@type": [
+        "Replicate",
+        "Item"
+      ],
+      "aliases": [
+        "michael-snyder:HepG2_shFOXA3_chip_for_NR2F2_rep1"
+      ],
+      "antibody": {
+        "@id": "/antibodies/ENCAB000AJH/",
+        "@type": [
+          "AntibodyLot",
+          "Item"
+        ],
+        "accession": "ENCAB000AJH",
+        "aliases": [],
+        "alternate_accessions": [],
+        "antigen_description": "Epitope mapping between amino acids 13-44 at the N-terminus of NR2F2 of human origin.",
+        "award": "/awards/U54HG004576/",
+        "characterizations": [
+          "/antibody-characterizations/cff77c66-401a-4702-bba3-d161d4995b59/",
+          "/antibody-characterizations/65a33828-69ff-43e9-8eaa-d0ec74be73bf/",
+          "/antibody-characterizations/80c910bc-3db9-4b39-b0a1-7fa6be938e29/",
+          "/antibody-characterizations/86addb79-74b1-409d-b801-fd04b3a03697/"
+        ],
+        "clonality": "monoclonal",
+        "date_created": "2013-09-13T13:24:02.613703-08:00",
+        "dbxrefs": [
+          "AR:AB_10650103",
+          "UCSC-ENCODE-cv:NR2F2_(SC-271940)"
+        ],
+        "host_organism": "/organisms/mouse/",
+        "isotype": "IgG",
+        "lab": "/labs/richard-myers/",
+        "lot_id": "I1410",
+        "lot_id_alias": [],
+        "lot_reviews": [
+          {
+            "biosample_term_id": "EFO:0002067",
+            "biosample_term_name": "K562",
+            "detail": "Fully characterized with exemption.",
+            "organisms": [
+              "/organisms/human/"
+            ],
+            "status": "characterized to standards with exemption",
+            "targets": [
+              "/targets/NR2F2-human/"
+            ]
+          },
+          {
+            "biosample_term_id": "EFO:0001187",
+            "biosample_term_name": "HepG2",
+            "detail": "Fully characterized with exemption.",
+            "organisms": [
+              "/organisms/human/"
+            ],
+            "status": "characterized to standards with exemption",
+            "targets": [
+              "/targets/NR2F2-human/"
+            ]
+          },
+          {
+            "biosample_term_id": "UBERON:0002107",
+            "biosample_term_name": "liver",
+            "detail": "Fully characterized with exemption.",
+            "organisms": [
+              "/organisms/human/"
+            ],
+            "status": "characterized to standards with exemption",
+            "targets": [
+              "/targets/NR2F2-human/"
+            ]
+          },
+          {
+            "biosample_term_id": "EFO:0001203",
+            "biosample_term_name": "MCF-7",
+            "detail": "Fully characterized with exemption.",
+            "organisms": [
+              "/organisms/human/"
+            ],
+            "status": "characterized to standards with exemption",
+            "targets": [
+              "/targets/NR2F2-human/"
+            ]
+          }
+        ],
+        "product_id": "sc-271940",
+        "purifications": [
+          "affinity"
+        ],
+        "schema_version": "10",
+        "source": "/sources/santa-cruz-biotech/",
+        "status": "released",
+        "submitted_by": "/users/a62cfec5-57a0-45ab-b943-8ca0e0057bb6/",
+        "targets": [
+          "/targets/NR2F2-human/"
+        ],
+        "title": "ENCAB000AJH",
+        "url": "http://www.scbt.com/datasheet-271940-arp-1-e-11-antibody.html",
+        "used_by_biosample_characterizations": [],
+        "uuid": "731a23e8-a2a6-4fc8-9fa2-016fe46d017b"
+      },
+      "biological_replicate_number": 1,
+      "date_created": "2025-09-08T16:55:27.950780+00:00",
+      "experiment": "/experiments/ENCSR054ZMK/",
+      "library": {
+        "@id": "/libraries/ENCLB047ULA/",
+        "@type": [
+          "Library",
+          "Item"
+        ],
+        "accession": "ENCLB047ULA",
+        "aliases": [
+          "michael-snyder:Library_HepG2_shFOXA3_chip_for_NR2F2_rep1"
+        ],
+        "alternate_accessions": [],
+        "award": "/awards/UM1HG009442/",
+        "barcode_details": [],
+        "biosample": {
+          "@id": "/biosamples/ENCBS825SFH/",
+          "@type": [
+            "Biosample",
+            "Item"
+          ],
+          "accession": "ENCBS825SFH",
+          "age": "15",
+          "age_display": "15 years",
+          "age_units": "year",
+          "aliases": [
+            "michael-snyder:Biosample_HepG2_shFOXA3_chip_for_NR2F2_rep1"
+          ],
+          "alternate_accessions": [],
+          "applied_modifications": [
+            {
+              "@id": "/genetic-modifications/ENCGM051MQI/",
+              "@type": [
+                "GeneticModification",
+                "Item"
+              ],
+              "accession": "ENCGM051MQI",
+              "aliases": [
+                "michael-snyder:HepG2_shFOXA3"
+              ],
+              "alternate_accessions": [],
+              "award": "/awards/UM1HG009442/",
+              "biosamples_modified": [
+                "/biosamples/ENCBS781CUL/",
+                "/biosamples/ENCBS050FJI/",
+                "/biosamples/ENCBS657QMS/",
+                "/biosamples/ENCBS825SFH/"
+              ],
+              "category": "interference",
+              "characterizations": [],
+              "date_created": "2025-09-05T04:34:35.116272+00:00",
+              "donors_modified": [],
+              "lab": "/labs/michael-snyder/",
+              "method": "RNAi",
+              "modified_site_by_target_id": {
+                "@id": "/targets/FOXA3-human/",
+                "@type": [
+                  "Target",
+                  "Item"
+                ],
+                "aliases": [],
+                "genes": [
+                  "/genes/3171/"
+                ],
+                "investigated_as": [
+                  "transcription factor"
+                ],
+                "label": "FOXA3",
+                "name": "FOXA3-human",
+                "organism": {
+                  "@id": "/organisms/human/",
+                  "@type": [
+                    "Organism",
+                    "Item"
+                  ],
+                  "name": "human",
+                  "schema_version": "6",
+                  "scientific_name": "Homo sapiens",
+                  "status": "released",
+                  "taxon_id": "9606",
+                  "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+                },
+                "schema_version": "14",
+                "status": "released",
+                "title": "FOXA3 (Homo sapiens)",
+                "uuid": "419a2214-ad3f-42ce-a604-d65f49f860a6"
+              },
+              "perturbation": true,
+              "purpose": "repression",
+              "rnai_sequences": [
+                "TTCTCAAACATGTTCCCTG"
+              ],
+              "schema_version": "12",
+              "status": "released",
+              "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+              "uuid": "ef0f9687-d87e-4719-a25f-cce727203c32"
+            }
+          ],
+          "award": "/awards/UM1HG009442/",
+          "biosample_ontology": {
+            "@id": "/biosample-types/cell_line_EFO_0001187/",
+            "@type": [
+              "BiosampleType",
+              "Item"
+            ],
+            "aliases": [
+              "encode:HepG2"
+            ],
+            "cell_slims": [
+              "epithelial cell",
+              "cancer cell"
+            ],
+            "classification": "cell line",
+            "dbxrefs": [
+              "Cellosaurus:CVCL_0027"
+            ],
+            "developmental_slims": [
+              "endoderm"
+            ],
+            "name": "cell_line_EFO_0001187",
+            "organ_slims": [
+              "exocrine gland",
+              "epithelium",
+              "liver",
+              "endocrine gland"
+            ],
+            "references": [],
+            "schema_version": "1",
+            "status": "released",
+            "synonyms": [
+              "Hep-G2",
+              "HepG2 cell"
+            ],
+            "system_slims": [
+              "digestive system",
+              "endocrine system",
+              "exocrine system"
+            ],
+            "term_id": "EFO:0001187",
+            "term_name": "HepG2",
+            "uuid": "ec2e6bce-118e-41e7-a1a3-f34f3278472c"
+          },
+          "characterizations": [],
+          "date_created": "2025-09-08T16:50:40.899012+00:00",
+          "dbxrefs": [],
+          "description": "Homo sapiens HepG2 cell line transduced with doxycycline-inducible shRNA targeting non-targeting control. Cells were treated for 72 hours with 4ug/mL doxycycline prior to experiment harvest.",
+          "documents": [],
+          "donor": {
+            "@id": "/human-donors/ENCDO000AAC/",
+            "@type": [
+              "HumanDonor",
+              "Donor",
+              "Item"
+            ],
+            "accession": "ENCDO000AAC",
+            "age": "15",
+            "age_units": "year",
+            "aliases": [
+              "encode:donor of HepG2",
+              "bradley-bernstein:Donor of HepG2"
+            ],
+            "alternate_accessions": [
+              "ENCDO588EER"
+            ],
+            "award": "/awards/U41HG006992/",
+            "characterizations": [],
+            "children": [],
+            "date_created": "2013-10-04T09:10:06.578084-08:00",
+            "dbxrefs": [
+              "GEO:SAMN04284581"
+            ],
+            "documents": [],
+            "ethnicity": [
+              "European"
+            ],
+            "external_ids": [],
+            "health_status": "hepatocellular carcinoma",
+            "lab": "/labs/encode-consortium/",
+            "life_stage": "child",
+            "notes": "http://patft.uspto.gov/netacgi/nph-Parser?Sect1=PTO2&Sect2=HITOFF&p=1&u=%2Fnetahtml%2FPTO%2Fsearch-bool.html&r=1&f=G&l=50&co1=AND&d=PTXT&s1=4,393,133%20.PN.&OS=PN/4,393,133%20&RS=PN/4,393,133 The ethnicity of this donor has been updated to European as the term Caucasian is deprecated.",
+            "organism": {
+              "@id": "/organisms/human/",
+              "@type": [
+                "Organism",
+                "Item"
+              ],
+              "name": "human",
+              "schema_version": "6",
+              "scientific_name": "Homo sapiens",
+              "status": "released",
+              "taxon_id": "9606",
+              "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+            },
+            "parents": [],
+            "references": [
+              "/publications/1e96aef6-c69c-443f-9d54-3e6a1babfd42/"
+            ],
+            "schema_version": "13",
+            "sex": "male",
+            "siblings": [],
+            "status": "released",
+            "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+            "superseded_by": [],
+            "uuid": "c0fe6c95-552e-4a6e-aced-13b2261adb60"
+          },
+          "genetic_modifications": [
+            {
+              "@id": "/genetic-modifications/ENCGM051MQI/",
+              "@type": [
+                "GeneticModification",
+                "Item"
+              ],
+              "accession": "ENCGM051MQI",
+              "aliases": [
+                "michael-snyder:HepG2_shFOXA3"
+              ],
+              "alternate_accessions": [],
+              "award": "/awards/UM1HG009442/",
+              "biosamples_modified": [
+                "/biosamples/ENCBS781CUL/",
+                "/biosamples/ENCBS050FJI/",
+                "/biosamples/ENCBS657QMS/",
+                "/biosamples/ENCBS825SFH/"
+              ],
+              "category": "interference",
+              "characterizations": [],
+              "date_created": "2025-09-05T04:34:35.116272+00:00",
+              "donors_modified": [],
+              "lab": "/labs/michael-snyder/",
+              "method": "RNAi",
+              "modified_site_by_target_id": {
+                "@id": "/targets/FOXA3-human/",
+                "@type": [
+                  "Target",
+                  "Item"
+                ],
+                "aliases": [],
+                "genes": [
+                  "/genes/3171/"
+                ],
+                "investigated_as": [
+                  "transcription factor"
+                ],
+                "label": "FOXA3",
+                "name": "FOXA3-human",
+                "organism": "/organisms/human/",
+                "schema_version": "14",
+                "status": "released",
+                "title": "FOXA3 (Homo sapiens)",
+                "uuid": "419a2214-ad3f-42ce-a604-d65f49f860a6"
+              },
+              "perturbation": true,
+              "purpose": "repression",
+              "rnai_sequences": [
+                "TTCTCAAACATGTTCCCTG"
+              ],
+              "schema_version": "12",
+              "status": "released",
+              "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+              "uuid": "ef0f9687-d87e-4719-a25f-cce727203c32"
+            }
+          ],
+          "health_status": "hepatocellular carcinoma",
+          "internal_tags": [],
+          "lab": "/labs/michael-snyder/",
+          "life_stage": "child",
+          "nih_institutional_certification": "NIC00007",
+          "organism": {
+            "@id": "/organisms/human/",
+            "@type": [
+              "Organism",
+              "Item"
+            ],
+            "name": "human",
+            "schema_version": "6",
+            "scientific_name": "Homo sapiens",
+            "status": "released",
+            "taxon_id": "9606",
+            "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+          },
+          "origin_batch": "/biosamples/ENCBS825SFH/",
+          "parent_of": [],
+          "perturbed": true,
+          "references": [],
+          "schema_version": "26",
+          "sex": "male",
+          "simple_summary": "expressing RNAi targeting H. sapiens FOXA3",
+          "source": {
+            "@id": "/sources/atcc/",
+            "@type": [
+              "Source",
+              "Item"
+            ],
+            "aliases": [
+              "encode:ATCC"
+            ],
+            "description": "American Type Culture Collection (ATCC)",
+            "name": "atcc",
+            "schema_version": "6",
+            "status": "released",
+            "title": "ATCC",
+            "url": "http://www.atcc.org/",
+            "uuid": "eadabaf1-d5b6-4b48-8847-e86461f12101"
+          },
+          "status": "released",
+          "submitted_by": {
+            "@id": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+            "@type": [
+              "User",
+              "Item"
+            ],
+            "lab": "/labs/michael-snyder/",
+            "submits_for": [
+              "/labs/michael-snyder/"
+            ],
+            "title": "Shannon White",
+            "uuid": "4741fbf9-b936-475e-92a0-1ba8a917dff6"
+          },
+          "summary": "Homo sapiens HepG2 cell line expressing RNAi targeting H. sapiens FOXA3",
+          "treatments": [],
+          "uuid": "c57459d4-79e3-49e6-a7ea-388f4b262bbb"
+        },
+        "date_created": "2025-09-08T16:50:46.462332+00:00",
+        "dbxrefs": [],
+        "documents": [],
+        "fragmentation_methods": [
+          "sonication (Bioruptor Pico)"
+        ],
+        "lab": "/labs/michael-snyder/",
+        "nucleic_acid_term_id": "SO:0000352",
+        "nucleic_acid_term_name": "DNA",
+        "schema_version": "20",
+        "size_range": "250-450",
+        "source": "/sources/michael-snyder/",
+        "spikeins_used": [],
+        "status": "released",
+        "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+        "treatments": [],
+        "uuid": "ca312bc0-ef8c-4553-803b-4416e192e195"
+      },
+      "schema_version": "9",
+      "status": "released",
+      "submitted_by": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+      "technical_replicate_number": 1,
+      "uuid": "0f6ec97e-16ea-45f1-b1f4-d9c2b506e075"
+    }
+  ],
+  "replication_type": "unreplicated",
+  "revoked_files": [],
+  "schema_version": "37",
+  "simple_biosample_summary": "expressing RNAi targeting H. sapiens FOXA3",
+  "status": "released",
+  "submitted_by": {
+    "@id": "/users/4741fbf9-b936-475e-92a0-1ba8a917dff6/",
+    "@type": [
+      "User",
+      "Item"
+    ],
+    "lab": "/labs/michael-snyder/",
+    "submits_for": [
+      "/labs/michael-snyder/"
+    ],
+    "title": "Shannon White",
+    "uuid": "4741fbf9-b936-475e-92a0-1ba8a917dff6"
+  },
+  "superseded_by": [],
+  "supersedes": [],
+  "target": {
+    "@id": "/targets/NR2F2-human/",
+    "@type": [
+      "Target",
+      "Item"
+    ],
+    "aliases": [],
+    "dbxrefs": [
+      "FactorBook:NR2F2"
+    ],
+    "genes": [
+      {
+        "@id": "/genes/7026/",
+        "@type": [
+          "Gene",
+          "Item"
+        ],
+        "dbxrefs": [
+          "GeneCards:NR2F2",
+          "HGNC:7976",
+          "MIM:107773",
+          "UniProtKB:P24468",
+          "Vega:OTTHUMG00000149848",
+          "UniProtKB:F1D8R0",
+          "ENSEMBL:ENSG00000185551"
+        ],
+        "geneid": "7026",
+        "locations": [
+          {
+            "assembly": "GRCh38",
+            "chromosome": "chr15",
+            "end": 96340263,
+            "start": 96326046
+          },
+          {
+            "assembly": "hg19",
+            "chromosome": "chr15",
+            "end": 96883492,
+            "start": 96869275
+          }
+        ],
+        "name": "nuclear receptor subfamily 2 group F member 2",
+        "ncbi_entrez_status": "live",
+        "organism": "/organisms/human/",
+        "schema_version": "3",
+        "status": "released",
+        "symbol": "NR2F2",
+        "synonyms": [
+          "COUPTF2",
+          "COUPTFB",
+          "NF-E3",
+          "SVP40",
+          "TFCOUP2",
+          "ARP1",
+          "COUP-TFII",
+          "COUPTFII",
+          "CHTD4"
+        ],
+        "targets": [
+          "/targets/eGFP-NR2F2-human/",
+          "/targets/NR2F2-human/"
+        ],
+        "title": "NR2F2 (Homo sapiens)",
+        "uuid": "e7bef63f-b0c4-4e2f-8bb8-2a1732a8786e"
+      }
+    ],
+    "investigated_as": [
+      "transcription factor"
+    ],
+    "label": "NR2F2",
+    "name": "NR2F2-human",
+    "organism": {
+      "@id": "/organisms/human/",
+      "@type": [
+        "Organism",
+        "Item"
+      ],
+      "name": "human",
+      "schema_version": "6",
+      "scientific_name": "Homo sapiens",
+      "status": "released",
+      "taxon_id": "9606",
+      "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+    },
+    "schema_version": "14",
+    "status": "released",
+    "title": "NR2F2 (Homo sapiens)",
+    "uuid": "526182cc-b614-437f-88cc-b1a985826ad4"
+  },
+  "tech_replicate_count": 1,
+  "type_slims": [],
+  "uuid": "f01ff9d2-6dd2-4d7c-9eb9-a61d7cf2b8dc"
+}

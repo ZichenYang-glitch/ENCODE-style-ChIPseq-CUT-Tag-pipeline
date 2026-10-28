@@ -1,0 +1,70 @@
+<EXPERIMENT_SET>
+<EXPERIMENT accession="SRX19193324" alias="LP_pMSCs_FM_Mnaseseq_Rep_2" center_name="SUB12610203" broker_name="NCBI">
+  <IDENTIFIERS>
+    <PRIMARY_ID>SRX19193324</PRIMARY_ID>
+    <SUBMITTER_ID namespace="SUB12610203">LP_pMSCs_FM_Mnaseseq_Rep_2</SUBMITTER_ID>
+  </IDENTIFIERS>
+  <TITLE>LP_pMSCs_FM_Mnaseseq_Rep_2</TITLE>
+  <STUDY_REF accession="SRP419301">
+    <IDENTIFIERS>
+      <PRIMARY_ID>SRP419301</PRIMARY_ID>
+      <SUBMITTER_ID namespace="SUB12610203">bp0</SUBMITTER_ID>
+    </IDENTIFIERS>
+  </STUDY_REF>
+  <DESIGN>
+    <DESIGN_DESCRIPTION>Nucleosomes were cross-linked by formaldehyde and were then lysed. The DNA was then fragmented using MNase digestion and processed using Illumina NEBNext Ultra II Library prep kit for the preparation of the library. The DNA libraries were gel purified and sequenced using Illumina HiSeq-4K in paired-end mode at the University of Michigan Advanced Genomics Core Facility in Ann Arbor, MI, USA. The paired-end reads were mapped to the human genome assembly hg38 and analyzed using the Galaxy platform. MNase-Seq analyses were performed on three independent biological replicates.</DESIGN_DESCRIPTION>
+    <SAMPLE_DESCRIPTOR accession="SRS16603728">
+      <IDENTIFIERS>
+        <PRIMARY_ID>SRS16603728</PRIMARY_ID>
+        <SUBMITTER_ID namespace="pda|mmazzella@oakland.edu">LP pMSC cells_MNaseseq_FM2</SUBMITTER_ID>
+      </IDENTIFIERS>
+    </SAMPLE_DESCRIPTOR>
+    <LIBRARY_DESCRIPTOR>
+      <LIBRARY_NAME>LP_pMSCs_FM_Mnaseseq_Rep_2</LIBRARY_NAME>
+      <LIBRARY_STRATEGY>MNase-Seq</LIBRARY_STRATEGY>
+      <LIBRARY_SOURCE>GENOMIC</LIBRARY_SOURCE>
+      <LIBRARY_SELECTION>MNase</LIBRARY_SELECTION>
+      <LIBRARY_LAYOUT>
+        <PAIRED/>
+      </LIBRARY_LAYOUT>
+    </LIBRARY_DESCRIPTOR>
+  </DESIGN>
+  <PLATFORM>
+    <ILLUMINA>
+      <INSTRUMENT_MODEL>Illumina NovaSeq 6000</INSTRUMENT_MODEL>
+    </ILLUMINA>
+  </PLATFORM>
+  <EXPERIMENT_LINKS>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SAMPLE</DB>
+        <ID>SRS16603728</ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SUBMISSION</DB>
+        <ID>SRA1580627</ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-FASTQ-FILES</DB>
+        <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRX19193324&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes]]></ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SUBMITTED-FILES</DB>
+        <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRX19193324&result=read_run&fields=run_accession,submitted_ftp,submitted_md5,submitted_bytes,submitted_format]]></ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+  </EXPERIMENT_LINKS>
+  <EXPERIMENT_ATTRIBUTES>
+    <EXPERIMENT_ATTRIBUTE>
+      <TAG>ENA-STATUS</TAG>
+      <VALUE>PUBLIC</VALUE>
+    </EXPERIMENT_ATTRIBUTE>
+  </EXPERIMENT_ATTRIBUTES>
+</EXPERIMENT>
+</EXPERIMENT_SET>

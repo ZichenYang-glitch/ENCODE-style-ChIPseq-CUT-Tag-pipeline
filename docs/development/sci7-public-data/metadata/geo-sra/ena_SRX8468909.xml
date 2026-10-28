@@ -1,0 +1,74 @@
+<EXPERIMENT_SET>
+<EXPERIMENT accession="SRX8468909" alias="GSM4590949" center_name="GEO" broker_name="NCBI">
+  <IDENTIFIERS>
+    <PRIMARY_ID>SRX8468909</PRIMARY_ID>
+    <SUBMITTER_ID namespace="GEO">GSM4590949</SUBMITTER_ID>
+  </IDENTIFIERS>
+  <TITLE>GSM4590949: K562_IgG_Xlink_(20190927_SH_Hs_IgG_1x_0924); Homo sapiens; OTHER</TITLE>
+  <STUDY_REF accession="SRP248450">
+    <IDENTIFIERS>
+      <PRIMARY_ID>SRP248450</PRIMARY_ID>
+      <EXTERNAL_ID namespace="BioProject">PRJNA606273</EXTERNAL_ID>
+    </IDENTIFIERS>
+  </STUDY_REF>
+  <DESIGN>
+    <DESIGN_DESCRIPTION/>
+    <SAMPLE_DESCRIPTOR accession="SRS6769562">
+      <IDENTIFIERS>
+        <PRIMARY_ID>SRS6769562</PRIMARY_ID>
+        <EXTERNAL_ID namespace="GEO">GSM4590949</EXTERNAL_ID>
+      </IDENTIFIERS>
+    </SAMPLE_DESCRIPTOR>
+    <LIBRARY_DESCRIPTOR>
+      <LIBRARY_STRATEGY>OTHER</LIBRARY_STRATEGY>
+      <LIBRARY_SOURCE>GENOMIC</LIBRARY_SOURCE>
+      <LIBRARY_SELECTION>other</LIBRARY_SELECTION>
+      <LIBRARY_LAYOUT>
+        <PAIRED/>
+      </LIBRARY_LAYOUT>
+      <LIBRARY_CONSTRUCTION_PROTOCOL>CnT_Protocols_io_v2.pdf CUT&amp;Tag uses tagmentation in which the barcoded adapters are integrated on both sides of the insert, so that the DNA that is released is already a barcoded library. PMID:31036827</LIBRARY_CONSTRUCTION_PROTOCOL>
+    </LIBRARY_DESCRIPTOR>
+  </DESIGN>
+  <PLATFORM>
+    <ILLUMINA>
+      <INSTRUMENT_MODEL>Illumina HiSeq 2500</INSTRUMENT_MODEL>
+    </ILLUMINA>
+  </PLATFORM>
+  <EXPERIMENT_LINKS>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SAMPLE</DB>
+        <ID>SRS6769562</ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SUBMISSION</DB>
+        <ID>SRA1042094</ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-FASTQ-FILES</DB>
+        <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRX8468909&result=read_run&fields=run_accession,fastq_ftp,fastq_md5,fastq_bytes]]></ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+    <EXPERIMENT_LINK>
+      <XREF_LINK>
+        <DB>ENA-SUBMITTED-FILES</DB>
+        <ID><![CDATA[https://www.ebi.ac.uk/ena/portal/api/filereport?accession=SRX8468909&result=read_run&fields=run_accession,submitted_ftp,submitted_md5,submitted_bytes,submitted_format]]></ID>
+      </XREF_LINK>
+    </EXPERIMENT_LINK>
+  </EXPERIMENT_LINKS>
+  <EXPERIMENT_ATTRIBUTES>
+    <EXPERIMENT_ATTRIBUTE>
+      <TAG>GEO Accession</TAG>
+      <VALUE>GSM4590949</VALUE>
+    </EXPERIMENT_ATTRIBUTE>
+    <EXPERIMENT_ATTRIBUTE>
+      <TAG>ENA-STATUS</TAG>
+      <VALUE>PUBLIC</VALUE>
+    </EXPERIMENT_ATTRIBUTE>
+  </EXPERIMENT_ATTRIBUTES>
+</EXPERIMENT>
+</EXPERIMENT_SET>

@@ -1,0 +1,3540 @@
+{
+  "@context": "/terms/",
+  "@graph": [
+    {
+      "@id": "/experiments/ENCSR844TIU/",
+      "@type": [
+        "Experiment",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR844TIU",
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "audit": {
+        "INTERNAL_ACTION": [
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN091PLV|/analyses/ENCAN091PLV/} has deleted subobject file {ENCFF125ODP|/files/ENCFF125ODP/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN091PLV/"
+          },
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN091PLV|/analyses/ENCAN091PLV/} has deleted subobject file {ENCFF105IRG|/files/ENCFF105IRG/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN091PLV/"
+          }
+        ]
+      },
+      "award": {
+        "project": "ENCODE"
+      },
+      "biosample_ontology": {
+        "classification": "primary cell",
+        "term_name": "regulatory T cell"
+      },
+      "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+      "dbxrefs": [
+        "GEO:GSE321371"
+      ],
+      "files": [
+        {
+          "@id": "/files/ENCFF789PHQ/"
+        },
+        {
+          "@id": "/files/ENCFF574DTB/"
+        },
+        {
+          "@id": "/files/ENCFF488RVS/"
+        },
+        {
+          "@id": "/files/ENCFF575LXK/"
+        },
+        {
+          "@id": "/files/ENCFF705NGT/"
+        },
+        {
+          "@id": "/files/ENCFF047ISW/"
+        },
+        {
+          "@id": "/files/ENCFF696BKC/"
+        },
+        {
+          "@id": "/files/ENCFF613SZP/"
+        },
+        {
+          "@id": "/files/ENCFF040EQJ/"
+        },
+        {
+          "@id": "/files/ENCFF439XRZ/"
+        }
+      ],
+      "lab": {
+        "title": "Tim Reddy, Duke"
+      },
+      "related_series": [],
+      "replicates": [
+        {
+          "@id": "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+          "biological_replicate_number": 1,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS206FNH",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        },
+        {
+          "@id": "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/",
+          "biological_replicate_number": 2,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS159UJV",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        }
+      ],
+      "status": "released"
+    },
+    {
+      "@id": "/experiments/ENCSR639PPN/",
+      "@type": [
+        "Experiment",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR639PPN",
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "audit": {
+        "INTERNAL_ACTION": [
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN318LYX|/analyses/ENCAN318LYX/} has deleted subobject file {ENCFF259DUN|/files/ENCFF259DUN/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN318LYX/"
+          },
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN318LYX|/analyses/ENCAN318LYX/} has deleted subobject file {ENCFF240CRJ|/files/ENCFF240CRJ/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN318LYX/"
+          },
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN318LYX|/analyses/ENCAN318LYX/} has deleted subobject file {ENCFF227SLV|/files/ENCFF227SLV/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN318LYX/"
+          },
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN318LYX|/analyses/ENCAN318LYX/} has deleted subobject file {ENCFF034BIO|/files/ENCFF034BIO/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN318LYX/"
+          }
+        ]
+      },
+      "award": {
+        "project": "ENCODE"
+      },
+      "biosample_ontology": {
+        "classification": "primary cell",
+        "term_name": "T-helper 17 cell"
+      },
+      "biosample_summary": "Mus musculus strain C57BL/6NJ T-helper 17 cell",
+      "dbxrefs": [
+        "GEO:GSE320942"
+      ],
+      "files": [
+        {
+          "@id": "/files/ENCFF102LBT/"
+        },
+        {
+          "@id": "/files/ENCFF749IYR/"
+        },
+        {
+          "@id": "/files/ENCFF851ZRP/"
+        },
+        {
+          "@id": "/files/ENCFF919HCJ/"
+        },
+        {
+          "@id": "/files/ENCFF014SCS/"
+        },
+        {
+          "@id": "/files/ENCFF247FNL/"
+        },
+        {
+          "@id": "/files/ENCFF481IME/"
+        },
+        {
+          "@id": "/files/ENCFF073PNP/"
+        },
+        {
+          "@id": "/files/ENCFF652FOA/"
+        },
+        {
+          "@id": "/files/ENCFF545MME/"
+        },
+        {
+          "@id": "/files/ENCFF264YVZ/"
+        },
+        {
+          "@id": "/files/ENCFF448LYI/"
+        },
+        {
+          "@id": "/files/ENCFF672IPN/"
+        },
+        {
+          "@id": "/files/ENCFF726FHE/"
+        },
+        {
+          "@id": "/files/ENCFF295WBP/"
+        },
+        {
+          "@id": "/files/ENCFF231RGQ/"
+        },
+        {
+          "@id": "/files/ENCFF010FYR/"
+        },
+        {
+          "@id": "/files/ENCFF299KXL/"
+        },
+        {
+          "@id": "/files/ENCFF826EOM/"
+        },
+        {
+          "@id": "/files/ENCFF549JFT/"
+        }
+      ],
+      "lab": {
+        "title": "Tim Reddy, Duke"
+      },
+      "related_series": [],
+      "replicates": [
+        {
+          "@id": "/replicates/227612b2-ae05-4d06-ab50-eb2efe9eb0f5/",
+          "biological_replicate_number": 3,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS818MLG",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        },
+        {
+          "@id": "/replicates/ea7d61ed-6fd4-4b18-89ae-a05a31b2eddb/",
+          "biological_replicate_number": 4,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS959GLF",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        },
+        {
+          "@id": "/replicates/658007ee-557b-4ff9-aaef-6793c3c10987/",
+          "biological_replicate_number": 1,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS227YAI",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        },
+        {
+          "@id": "/replicates/0d89db0c-cbbe-4d88-9078-429e56984da0/",
+          "biological_replicate_number": 2,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS269BPO",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        }
+      ],
+      "status": "released"
+    },
+    {
+      "@id": "/experiments/ENCSR550NOH/",
+      "@type": [
+        "Experiment",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR550NOH",
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "audit": {
+        "INTERNAL_ACTION": [
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN126CSY|/analyses/ENCAN126CSY/} has deleted subobject file {ENCFF741LSK|/files/ENCFF741LSK/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN126CSY/"
+          },
+          {
+            "category": "mismatched status",
+            "detail": "Released analysis {ENCAN126CSY|/analyses/ENCAN126CSY/} has deleted subobject file {ENCFF521YSF|/files/ENCFF521YSF/}",
+            "level": 30,
+            "level_name": "INTERNAL_ACTION",
+            "name": "audit_item_status",
+            "path": "/analyses/ENCAN126CSY/"
+          }
+        ]
+      },
+      "award": {
+        "project": "ENCODE"
+      },
+      "biosample_ontology": {
+        "classification": "primary cell",
+        "term_name": "T-helper 2 cell"
+      },
+      "biosample_summary": "Mus musculus strain C57BL/6NJ T-helper 2 cell",
+      "dbxrefs": [
+        "GEO:GSE322257"
+      ],
+      "files": [
+        {
+          "@id": "/files/ENCFF552XKZ/"
+        },
+        {
+          "@id": "/files/ENCFF605JJO/"
+        },
+        {
+          "@id": "/files/ENCFF205BWR/"
+        },
+        {
+          "@id": "/files/ENCFF914OXD/"
+        },
+        {
+          "@id": "/files/ENCFF231FLX/"
+        },
+        {
+          "@id": "/files/ENCFF104TJA/"
+        },
+        {
+          "@id": "/files/ENCFF075CGM/"
+        },
+        {
+          "@id": "/files/ENCFF101ZKS/"
+        },
+        {
+          "@id": "/files/ENCFF793HKK/"
+        },
+        {
+          "@id": "/files/ENCFF317REV/"
+        }
+      ],
+      "lab": {
+        "title": "Tim Reddy, Duke"
+      },
+      "related_series": [],
+      "replicates": [
+        {
+          "@id": "/replicates/606d3e67-2165-4757-8908-e4446c858b63/",
+          "biological_replicate_number": 1,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS855UIP",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        },
+        {
+          "@id": "/replicates/f405c743-a674-466b-aab3-2faefbdd2cca/",
+          "biological_replicate_number": 2,
+          "library": {
+            "biosample": {
+              "accession": "ENCBS745ZIV",
+              "life_stage": "unknown",
+              "organism": {
+                "scientific_name": "Mus musculus"
+              }
+            }
+          },
+          "technical_replicate_number": 1
+        }
+      ],
+      "status": "released"
+    }
+  ],
+  "@id": "/search/?type=Experiment&assay_title=ATAC-seq&status=released&format=json&limit=3",
+  "@type": [
+    "Search"
+  ],
+  "all": "/search/?type=Experiment&assay_title=ATAC-seq&status=released&format=json&limit=all",
+  "clear_filters": "/search/?type=Experiment",
+  "columns": {
+    "@id": {
+      "title": "ID"
+    },
+    "accession": {
+      "title": "Accession"
+    },
+    "assay_term_name": {
+      "title": "Assay name"
+    },
+    "assay_title": {
+      "title": "Assay title"
+    },
+    "award.project": {
+      "title": "Project"
+    },
+    "biosample_ontology.classification": {
+      "title": "Biosample classification"
+    },
+    "biosample_ontology.term_name": {
+      "title": "Biosample term name"
+    },
+    "biosample_summary": {
+      "title": "Biosample summary"
+    },
+    "dbxrefs": {
+      "title": "Dbxrefs"
+    },
+    "description": {
+      "title": "Description"
+    },
+    "files.@id": {
+      "title": "Files"
+    },
+    "lab.title": {
+      "title": "Lab"
+    },
+    "related_series": {
+      "title": "Related series"
+    },
+    "replicates.@id": {
+      "title": "Replicates"
+    },
+    "replicates.antibody.accession": {
+      "title": "Linked antibody"
+    },
+    "replicates.biological_replicate_number": {
+      "title": "Biological replicate"
+    },
+    "replicates.library.biosample.accession": {
+      "title": "Biosample accession"
+    },
+    "replicates.library.biosample.age_display": {
+      "title": "Biosample age"
+    },
+    "replicates.library.biosample.applied_modifications.introduced_gene.organism": {
+      "title": "Biosample modification site introduced gene organism"
+    },
+    "replicates.library.biosample.applied_modifications.modified_site_by_target_id.organism": {
+      "title": "Biosample modification site target organism"
+    },
+    "replicates.library.biosample.life_stage": {
+      "title": "Life stage"
+    },
+    "replicates.library.biosample.organism.scientific_name": {
+      "title": "Organism"
+    },
+    "replicates.library.biosample.post_synchronization_time": {
+      "title": "Post-synchronization time"
+    },
+    "replicates.library.biosample.post_synchronization_time_units": {
+      "title": "Post-synchronization time units"
+    },
+    "replicates.library.biosample.subcellular_fraction_term_name": {
+      "title": "Cellular component"
+    },
+    "replicates.library.biosample.synchronization": {
+      "title": "Synchronization"
+    },
+    "replicates.library.biosample.treatments.amount": {
+      "title": "Biosample treatment amount"
+    },
+    "replicates.library.biosample.treatments.amount_units": {
+      "title": "Biosample treatment amount units"
+    },
+    "replicates.library.biosample.treatments.duration": {
+      "title": "Biosample treatment duration"
+    },
+    "replicates.library.biosample.treatments.duration_units": {
+      "title": "Biosample treatment duration units"
+    },
+    "replicates.library.biosample.treatments.treatment_term_id": {
+      "title": "Biosample treatment ontology ID"
+    },
+    "replicates.library.biosample.treatments.treatment_term_name": {
+      "title": "Biosample treatment"
+    },
+    "replicates.library.construction_method": {
+      "title": "Library construction method"
+    },
+    "replicates.library.construction_platform.term_name": {
+      "title": "Library construction platform"
+    },
+    "replicates.library.mixed_biosamples": {
+      "title": "Mixed biosamples"
+    },
+    "replicates.technical_replicate_number": {
+      "title": "Technical replicate"
+    },
+    "status": {
+      "title": "Status"
+    },
+    "target.@id": {
+      "title": "Target"
+    },
+    "target.genes.symbol": {
+      "title": "Target gene symbol"
+    },
+    "target.label": {
+      "title": "Target of assay"
+    }
+  },
+  "facet_groups": [
+    {
+      "facet_fields": [
+        "assay_slims",
+        "assay_title",
+        "target.investigated_as",
+        "target.label",
+        "control_type"
+      ],
+      "name": "Experiment",
+      "title": "Assay"
+    },
+    {
+      "facet_fields": [
+        "replicates.library.biosample.donor.organism.scientific_name",
+        "biosample_ontology.classification",
+        "biosample_ontology.term_name",
+        "biosample_ontology.organ_slims",
+        "biosample_ontology.cell_slims",
+        "biosample_ontology.system_slims",
+        "replicates.library.biosample.sex",
+        "replicates.library.biosample.life_stage",
+        "replicates.library.biosample.disease_term_name",
+        "replicates.library.biosample.treatments.treatment_term_name",
+        "replicates.library.biosample.subcellular_fraction_term_name",
+        "perturbed"
+      ],
+      "name": "Experiment",
+      "title": "Biosample"
+    },
+    {
+      "facet_fields": [
+        "files.platform.term_name",
+        "files.run_type",
+        "replicates.library.size_range",
+        "replicates.library.nucleic_acid_term_name",
+        "replicates.library.depleted_in_term_name",
+        "replicates.library.construction_platform.term_name",
+        "replicates.library.construction_method"
+      ],
+      "name": "Experiment",
+      "title": "Library"
+    },
+    {
+      "facet_fields": [
+        "assembly",
+        "files.file_type",
+        "files.read_length",
+        "files.mapped_read_length"
+      ],
+      "name": "Experiment",
+      "title": "Analysis"
+    },
+    {
+      "facet_fields": [
+        "lab.title",
+        "award.project",
+        "award.rfa",
+        "date_released",
+        "date_submitted"
+      ],
+      "name": "Experiment",
+      "title": "Provenance"
+    },
+    {
+      "facet_fields": [
+        "status",
+        "internal_status",
+        "replication_type",
+        "audit.ERROR.category",
+        "audit.NOT_COMPLIANT.category",
+        "audit.WARNING.category",
+        "audit.INTERNAL_ACTION.category"
+      ],
+      "name": "Experiment",
+      "title": "Quality"
+    }
+  ],
+  "facets": [
+    {
+      "appended": false,
+      "field": "type",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 559,
+          "key": "Dataset"
+        },
+        {
+          "doc_count": 559,
+          "key": "Experiment"
+        }
+      ],
+      "title": "Data Type",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "assay_slims",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 559,
+          "key": "DNA accessibility"
+        }
+      ],
+      "title": "Assay type",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "assay_title",
+      "open_on_load": true,
+      "terms": [
+        {
+          "doc_count": 5002,
+          "key": "TF ChIP-seq"
+        },
+        {
+          "doc_count": 3832,
+          "key": "Histone ChIP-seq"
+        },
+        {
+          "doc_count": 3490,
+          "key": "DNase-seq"
+        },
+        {
+          "doc_count": 3089,
+          "key": "Control ChIP-seq"
+        },
+        {
+          "doc_count": 2249,
+          "key": "total RNA-seq"
+        },
+        {
+          "doc_count": 987,
+          "key": "Mint-ChIP-seq"
+        },
+        {
+          "doc_count": 896,
+          "key": "polyA plus RNA-seq"
+        },
+        {
+          "doc_count": 627,
+          "key": "shRNA RNA-seq"
+        },
+        {
+          "doc_count": 559,
+          "key": "ATAC-seq"
+        },
+        {
+          "doc_count": 461,
+          "key": "CRISPR RNA-seq"
+        },
+        {
+          "doc_count": 441,
+          "key": "long read RNA-seq"
+        },
+        {
+          "doc_count": 413,
+          "key": "microRNA-seq"
+        },
+        {
+          "doc_count": 395,
+          "key": "snRNA-seq"
+        },
+        {
+          "doc_count": 370,
+          "key": "snATAC-seq"
+        },
+        {
+          "doc_count": 366,
+          "key": "intact Hi-C"
+        },
+        {
+          "doc_count": 261,
+          "key": "Control eCLIP"
+        },
+        {
+          "doc_count": 256,
+          "key": "DNAme array"
+        },
+        {
+          "doc_count": 252,
+          "key": "eCLIP"
+        },
+        {
+          "doc_count": 224,
+          "key": "PRO-cap"
+        },
+        {
+          "doc_count": 214,
+          "key": "small RNA-seq"
+        },
+        {
+          "doc_count": 213,
+          "key": "RNA Bind-n-Seq"
+        },
+        {
+          "doc_count": 212,
+          "key": "WGBS"
+        },
+        {
+          "doc_count": 200,
+          "key": "ChIA-PET"
+        },
+        {
+          "doc_count": 175,
+          "key": "Control Mint-ChIP-seq"
+        },
+        {
+          "doc_count": 168,
+          "key": "RAMPAGE"
+        },
+        {
+          "doc_count": 139,
+          "key": "RNA microarray"
+        },
+        {
+          "doc_count": 129,
+          "key": "in situ Hi-C"
+        },
+        {
+          "doc_count": 123,
+          "key": "genotyping array"
+        },
+        {
+          "doc_count": 120,
+          "key": "CAGE"
+        },
+        {
+          "doc_count": 115,
+          "key": "microRNA counts"
+        },
+        {
+          "doc_count": 113,
+          "key": "siRNA RNA-seq"
+        },
+        {
+          "doc_count": 104,
+          "key": "Repli-seq"
+        },
+        {
+          "doc_count": 103,
+          "key": "RRBS"
+        },
+        {
+          "doc_count": 77,
+          "key": "CRISPRi RNA-seq"
+        },
+        {
+          "doc_count": 64,
+          "key": "long read scRNA-seq"
+        },
+        {
+          "doc_count": 63,
+          "key": "Repli-chip"
+        },
+        {
+          "doc_count": 54,
+          "key": "PAS-seq"
+        },
+        {
+          "doc_count": 49,
+          "key": "Bru-seq"
+        },
+        {
+          "doc_count": 46,
+          "key": "GM DNase-seq"
+        },
+        {
+          "doc_count": 45,
+          "key": "RIP-seq"
+        },
+        {
+          "doc_count": 37,
+          "key": "FAIRE-seq"
+        },
+        {
+          "doc_count": 32,
+          "key": "BruChase-seq"
+        },
+        {
+          "doc_count": 32,
+          "key": "RIP-chip"
+        },
+        {
+          "doc_count": 32,
+          "key": "polyA minus RNA-seq"
+        },
+        {
+          "doc_count": 30,
+          "key": "RNA-PET"
+        },
+        {
+          "doc_count": 30,
+          "key": "WGS"
+        },
+        {
+          "doc_count": 30,
+          "key": "scRNA-seq"
+        },
+        {
+          "doc_count": 22,
+          "key": "PRO-seq"
+        },
+        {
+          "doc_count": 16,
+          "key": "BruUV-seq"
+        },
+        {
+          "doc_count": 14,
+          "key": "MS-MS"
+        },
+        {
+          "doc_count": 13,
+          "key": "5C"
+        },
+        {
+          "doc_count": 7,
+          "key": "dilution Hi-C"
+        },
+        {
+          "doc_count": 6,
+          "key": "DNA-PET"
+        },
+        {
+          "doc_count": 6,
+          "key": "Hi-C"
+        },
+        {
+          "doc_count": 6,
+          "key": "icSHAPE"
+        },
+        {
+          "doc_count": 5,
+          "key": "seqFISH"
+        },
+        {
+          "doc_count": 4,
+          "key": "GRO-cap"
+        },
+        {
+          "doc_count": 4,
+          "key": "MRE-seq"
+        },
+        {
+          "doc_count": 4,
+          "key": "MeDIP-seq"
+        },
+        {
+          "doc_count": 3,
+          "key": "SPRITE"
+        },
+        {
+          "doc_count": 3,
+          "key": "iCLIP"
+        },
+        {
+          "doc_count": 2,
+          "key": "5' RLM RACE"
+        },
+        {
+          "doc_count": 2,
+          "key": "MNase-seq"
+        },
+        {
+          "doc_count": 2,
+          "key": "Switchgear"
+        },
+        {
+          "doc_count": 2,
+          "key": "capture Hi-C"
+        },
+        {
+          "doc_count": 2,
+          "key": "icLASER"
+        },
+        {
+          "doc_count": 1,
+          "key": "Circulome-seq"
+        }
+      ],
+      "title": "Assay title",
+      "total": 27043,
+      "type": "typeahead"
+    },
+    {
+      "appended": false,
+      "field": "status",
+      "open_on_load": true,
+      "terms": [
+        {
+          "doc_count": 559,
+          "key": "released"
+        },
+        {
+          "doc_count": 1,
+          "key": "archived"
+        }
+      ],
+      "title": "Status",
+      "total": 560,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "perturbed",
+      "open_on_load": true,
+      "terms": [
+        {
+          "doc_count": 464,
+          "key": 0,
+          "key_as_string": "false"
+        },
+        {
+          "doc_count": 95,
+          "key": 1,
+          "key_as_string": "true"
+        }
+      ],
+      "title": "Perturbation",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.donor.organism.scientific_name",
+      "open_on_load": true,
+      "terms": [
+        {
+          "doc_count": 463,
+          "key": "Homo sapiens"
+        },
+        {
+          "doc_count": 96,
+          "key": "Mus musculus"
+        }
+      ],
+      "title": "Organism",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "biosample_ontology.classification",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 225,
+          "key": "tissue"
+        },
+        {
+          "doc_count": 205,
+          "key": "cell line"
+        },
+        {
+          "doc_count": 88,
+          "key": "primary cell"
+        },
+        {
+          "doc_count": 41,
+          "key": "in vitro differentiated cells"
+        }
+      ],
+      "title": "Biosample classification",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "biosample_ontology.term_name",
+      "open_on_load": true,
+      "terms": [
+        {
+          "doc_count": 64,
+          "key": "K562"
+        },
+        {
+          "doc_count": 30,
+          "key": "dendritic cell"
+        },
+        {
+          "doc_count": 17,
+          "key": "HCT116"
+        },
+        {
+          "doc_count": 15,
+          "key": "heart left ventricle"
+        },
+        {
+          "doc_count": 14,
+          "key": "heart right ventricle"
+        },
+        {
+          "doc_count": 13,
+          "key": "foreskin keratinocyte"
+        },
+        {
+          "doc_count": 10,
+          "key": "motor neuron"
+        },
+        {
+          "doc_count": 8,
+          "key": "adrenal gland"
+        },
+        {
+          "doc_count": 8,
+          "key": "liver"
+        },
+        {
+          "doc_count": 7,
+          "key": "T-cell"
+        },
+        {
+          "doc_count": 7,
+          "key": "forebrain"
+        },
+        {
+          "doc_count": 7,
+          "key": "heart"
+        },
+        {
+          "doc_count": 7,
+          "key": "hindbrain"
+        },
+        {
+          "doc_count": 7,
+          "key": "midbrain"
+        },
+        {
+          "doc_count": 7,
+          "key": "ovary"
+        },
+        {
+          "doc_count": 6,
+          "key": "A549"
+        },
+        {
+          "doc_count": 6,
+          "key": "activated T-cell"
+        },
+        {
+          "doc_count": 6,
+          "key": "right lobe of liver"
+        },
+        {
+          "doc_count": 6,
+          "key": "stomach"
+        },
+        {
+          "doc_count": 5,
+          "key": "embryonic facial prominence"
+        },
+        {
+          "doc_count": 5,
+          "key": "kidney"
+        },
+        {
+          "doc_count": 5,
+          "key": "left cardiac atrium"
+        },
+        {
+          "doc_count": 5,
+          "key": "limb"
+        },
+        {
+          "doc_count": 5,
+          "key": "lung"
+        },
+        {
+          "doc_count": 5,
+          "key": "natural killer cell"
+        },
+        {
+          "doc_count": 5,
+          "key": "neural tube"
+        },
+        {
+          "doc_count": 5,
+          "key": "pancreas"
+        },
+        {
+          "doc_count": 5,
+          "key": "psoas muscle"
+        },
+        {
+          "doc_count": 5,
+          "key": "spleen"
+        },
+        {
+          "doc_count": 4,
+          "key": "T-helper 17 cell"
+        },
+        {
+          "doc_count": 4,
+          "key": "body of pancreas"
+        },
+        {
+          "doc_count": 4,
+          "key": "gastrocnemius medialis"
+        },
+        {
+          "doc_count": 4,
+          "key": "intestine"
+        },
+        {
+          "doc_count": 4,
+          "key": "right cardiac atrium"
+        },
+        {
+          "doc_count": 4,
+          "key": "sciatic nerve"
+        },
+        {
+          "doc_count": 4,
+          "key": "sigmoid colon"
+        },
+        {
+          "doc_count": 4,
+          "key": "transverse colon"
+        },
+        {
+          "doc_count": 3,
+          "key": "CD4-positive, CD25-positive, alpha-beta regulatory T cell"
+        },
+        {
+          "doc_count": 3,
+          "key": "activated CD4-positive, CD25-positive, alpha-beta regulatory T cell"
+        },
+        {
+          "doc_count": 3,
+          "key": "bile duct"
+        },
+        {
+          "doc_count": 3,
+          "key": "breast epithelium"
+        },
+        {
+          "doc_count": 3,
+          "key": "fallopian tube"
+        },
+        {
+          "doc_count": 3,
+          "key": "naive thymus-derived CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 3,
+          "key": "posterior vena cava"
+        },
+        {
+          "doc_count": 3,
+          "key": "stimulated activated naive CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 3,
+          "key": "thyroid gland"
+        },
+        {
+          "doc_count": 2,
+          "key": "GM12878"
+        },
+        {
+          "doc_count": 2,
+          "key": "HepG2"
+        },
+        {
+          "doc_count": 2,
+          "key": "WTC11"
+        },
+        {
+          "doc_count": 2,
+          "key": "activated CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "activated naive CD4-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "activated naive CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "cerebellum"
+        },
+        {
+          "doc_count": 2,
+          "key": "effector memory CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "gastroesophageal sphincter"
+        },
+        {
+          "doc_count": 2,
+          "key": "hematopoietic stem cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "lower lobe of right lung"
+        },
+        {
+          "doc_count": 2,
+          "key": "mucosa of descending colon"
+        },
+        {
+          "doc_count": 2,
+          "key": "mucosa of urinary bladder"
+        },
+        {
+          "doc_count": 2,
+          "key": "naive B cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "naive thymus-derived CD4-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "stimulated activated effector memory CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "stimulated activated naive B cell"
+        },
+        {
+          "doc_count": 2,
+          "key": "upper lobe of left lung"
+        },
+        {
+          "doc_count": 2,
+          "key": "uterus"
+        },
+        {
+          "doc_count": 1,
+          "key": "B cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "CD4-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "DND-41"
+        },
+        {
+          "doc_count": 1,
+          "key": "G1E"
+        },
+        {
+          "doc_count": 1,
+          "key": "G1E-ER4"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18498"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18499"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18502"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18505"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18508"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18511"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18517"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18519"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18520"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18858"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18861"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18867"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18868"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18870"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18873"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18907"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM18909"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19023"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19025"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19035"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19043"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19324"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19328"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19351"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19372"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19395"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19397"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19438"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19452"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19455"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19463"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19467"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM19468"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21360"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21367"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21381"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21390"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21423"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21447"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21515"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21526"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21528"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21529"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21576"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21619"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21717"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21723"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21737"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21786"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM21825"
+        },
+        {
+          "doc_count": 1,
+          "key": "GM23338"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02571"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02588"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02610"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02623"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02642"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02678"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02759"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02763"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02798"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02840"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02852"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02870"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02884"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02885"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02938"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02943"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02970"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02973"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG02981"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03025"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03039"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03045"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03060"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03064"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03066"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03095"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03097"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03103"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03108"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03135"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03139"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03159"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03175"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03196"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03280"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03342"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03354"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03378"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03432"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03439"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03442"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03457"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03460"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03469"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03520"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03521"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03558"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03565"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03571"
+        },
+        {
+          "doc_count": 1,
+          "key": "HG03575"
+        },
+        {
+          "doc_count": 1,
+          "key": "IMR-90"
+        },
+        {
+          "doc_count": 1,
+          "key": "MCF-7"
+        },
+        {
+          "doc_count": 1,
+          "key": "NCI-H929"
+        },
+        {
+          "doc_count": 1,
+          "key": "PC-3"
+        },
+        {
+          "doc_count": 1,
+          "key": "Panc1"
+        },
+        {
+          "doc_count": 1,
+          "key": "Patski"
+        },
+        {
+          "doc_count": 1,
+          "key": "Peyer's patch"
+        },
+        {
+          "doc_count": 1,
+          "key": "RWPE2"
+        },
+        {
+          "doc_count": 1,
+          "key": "Right ventricle myocardium inferior"
+        },
+        {
+          "doc_count": 1,
+          "key": "Right ventricle myocardium superior"
+        },
+        {
+          "doc_count": 1,
+          "key": "SK-N-SH"
+        },
+        {
+          "doc_count": 1,
+          "key": "T-helper 1 cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "T-helper 2 cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "activated B cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "activated CD4-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "activated CD8-positive, alpha-beta memory T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "activated T-helper 17 cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "aorta"
+        },
+        {
+          "doc_count": 1,
+          "key": "cardiac septum"
+        },
+        {
+          "doc_count": 1,
+          "key": "central memory CD8-positive, alpha-beta T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "colonic mucosa"
+        },
+        {
+          "doc_count": 1,
+          "key": "common myeloid progenitor"
+        },
+        {
+          "doc_count": 1,
+          "key": "coronary artery"
+        },
+        {
+          "doc_count": 1,
+          "key": "erythroblast"
+        },
+        {
+          "doc_count": 1,
+          "key": "erythroid progenitor cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "esophagus mucosa"
+        },
+        {
+          "doc_count": 1,
+          "key": "esophagus muscularis mucosa"
+        },
+        {
+          "doc_count": 1,
+          "key": "esophagus squamous epithelium"
+        },
+        {
+          "doc_count": 1,
+          "key": "frontal cortex"
+        },
+        {
+          "doc_count": 1,
+          "key": "glutamatergic neuron"
+        },
+        {
+          "doc_count": 1,
+          "key": "granulocyte monocyte progenitor cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "inflammation-experienced regulatory T-cells"
+        },
+        {
+          "doc_count": 1,
+          "key": "jejunum"
+        },
+        {
+          "doc_count": 1,
+          "key": "left colon"
+        },
+        {
+          "doc_count": 1,
+          "key": "left lobe of liver"
+        },
+        {
+          "doc_count": 1,
+          "key": "left lung"
+        },
+        {
+          "doc_count": 1,
+          "key": "left ventricle myocardium inferior"
+        },
+        {
+          "doc_count": 1,
+          "key": "left ventricle myocardium superior"
+        },
+        {
+          "doc_count": 1,
+          "key": "lower lobe of left lung"
+        },
+        {
+          "doc_count": 1,
+          "key": "megakaryocyte"
+        },
+        {
+          "doc_count": 1,
+          "key": "megakaryocyte progenitor cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "megakaryocyte-erythroid progenitor cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "memory B cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "mesenteric fat pad"
+        },
+        {
+          "doc_count": 1,
+          "key": "monocyte"
+        },
+        {
+          "doc_count": 1,
+          "key": "mucosa of gallbladder"
+        },
+        {
+          "doc_count": 1,
+          "key": "neutrophil"
+        },
+        {
+          "doc_count": 1,
+          "key": "omental fat pad"
+        },
+        {
+          "doc_count": 1,
+          "key": "posterior cingulate cortex"
+        },
+        {
+          "doc_count": 1,
+          "key": "prostate gland"
+        },
+        {
+          "doc_count": 1,
+          "key": "regulatory T cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "right atrium auricular region"
+        },
+        {
+          "doc_count": 1,
+          "key": "stimulated activated memory B cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "subcutaneous adipose tissue"
+        },
+        {
+          "doc_count": 1,
+          "key": "testis"
+        },
+        {
+          "doc_count": 1,
+          "key": "thoracic aorta"
+        },
+        {
+          "doc_count": 1,
+          "key": "tibial artery"
+        },
+        {
+          "doc_count": 1,
+          "key": "tibial nerve"
+        },
+        {
+          "doc_count": 1,
+          "key": "upper lobe of right lung"
+        },
+        {
+          "doc_count": 1,
+          "key": "ureter"
+        }
+      ],
+      "title": "Biosample",
+      "total": 559,
+      "type": "typeahead"
+    },
+    {
+      "appended": false,
+      "field": "biosample_ontology.organ_slims",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 189,
+          "key": "blood"
+        },
+        {
+          "doc_count": 189,
+          "key": "bodily fluid"
+        },
+        {
+          "doc_count": 52,
+          "key": "heart"
+        },
+        {
+          "doc_count": 44,
+          "key": "epithelium"
+        },
+        {
+          "doc_count": 36,
+          "key": "brain"
+        },
+        {
+          "doc_count": 35,
+          "key": "intestine"
+        },
+        {
+          "doc_count": 29,
+          "key": "colon"
+        },
+        {
+          "doc_count": 29,
+          "key": "large intestine"
+        },
+        {
+          "doc_count": 28,
+          "key": "endocrine gland"
+        },
+        {
+          "doc_count": 19,
+          "key": "lung"
+        },
+        {
+          "doc_count": 18,
+          "key": "exocrine gland"
+        },
+        {
+          "doc_count": 17,
+          "key": "liver"
+        },
+        {
+          "doc_count": 16,
+          "key": "skin of body"
+        },
+        {
+          "doc_count": 13,
+          "key": "penis"
+        },
+        {
+          "doc_count": 12,
+          "key": "embryo"
+        },
+        {
+          "doc_count": 12,
+          "key": "musculature of body"
+        },
+        {
+          "doc_count": 11,
+          "key": "limb"
+        },
+        {
+          "doc_count": 10,
+          "key": "pancreas"
+        },
+        {
+          "doc_count": 10,
+          "key": "spinal cord"
+        },
+        {
+          "doc_count": 8,
+          "key": "adrenal gland"
+        },
+        {
+          "doc_count": 8,
+          "key": "bone element"
+        },
+        {
+          "doc_count": 8,
+          "key": "bone marrow"
+        },
+        {
+          "doc_count": 8,
+          "key": "gonad"
+        },
+        {
+          "doc_count": 8,
+          "key": "stomach"
+        },
+        {
+          "doc_count": 7,
+          "key": "blood vessel"
+        },
+        {
+          "doc_count": 7,
+          "key": "connective tissue"
+        },
+        {
+          "doc_count": 7,
+          "key": "kidney"
+        },
+        {
+          "doc_count": 7,
+          "key": "ovary"
+        },
+        {
+          "doc_count": 7,
+          "key": "vasculature"
+        },
+        {
+          "doc_count": 5,
+          "key": "immune organ"
+        },
+        {
+          "doc_count": 5,
+          "key": "nerve"
+        },
+        {
+          "doc_count": 5,
+          "key": "spleen"
+        },
+        {
+          "doc_count": 4,
+          "key": "arterial blood vessel"
+        },
+        {
+          "doc_count": 3,
+          "key": "adipose tissue"
+        },
+        {
+          "doc_count": 3,
+          "key": "breast"
+        },
+        {
+          "doc_count": 3,
+          "key": "esophagus"
+        },
+        {
+          "doc_count": 3,
+          "key": "prostate gland"
+        },
+        {
+          "doc_count": 3,
+          "key": "thyroid gland"
+        },
+        {
+          "doc_count": 3,
+          "key": "vein"
+        },
+        {
+          "doc_count": 2,
+          "key": "urinary bladder"
+        },
+        {
+          "doc_count": 2,
+          "key": "uterus"
+        },
+        {
+          "doc_count": 1,
+          "key": "gallbladder"
+        },
+        {
+          "doc_count": 1,
+          "key": "lymphoid tissue"
+        },
+        {
+          "doc_count": 1,
+          "key": "mammary gland"
+        },
+        {
+          "doc_count": 1,
+          "key": "small intestine"
+        },
+        {
+          "doc_count": 1,
+          "key": "testis"
+        },
+        {
+          "doc_count": 1,
+          "key": "ureter"
+        }
+      ],
+      "title": "Organ",
+      "total": 559,
+      "type": "typeahead"
+    },
+    {
+      "appended": false,
+      "field": "biosample_ontology.cell_slims",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 174,
+          "key": "hematopoietic cell"
+        },
+        {
+          "doc_count": 165,
+          "key": "leukocyte"
+        },
+        {
+          "doc_count": 94,
+          "key": "cancer cell"
+        },
+        {
+          "doc_count": 56,
+          "key": "lymphoblast"
+        },
+        {
+          "doc_count": 52,
+          "key": "T cell"
+        },
+        {
+          "doc_count": 35,
+          "key": "epithelial cell"
+        },
+        {
+          "doc_count": 20,
+          "key": "CD4+ T cell"
+        },
+        {
+          "doc_count": 14,
+          "key": "CD8+ T cell"
+        },
+        {
+          "doc_count": 13,
+          "key": "keratinocyte"
+        },
+        {
+          "doc_count": 12,
+          "key": "B cell"
+        },
+        {
+          "doc_count": 11,
+          "key": "neural cell"
+        },
+        {
+          "doc_count": 8,
+          "key": "myeloid cell"
+        },
+        {
+          "doc_count": 7,
+          "key": "stem cell"
+        },
+        {
+          "doc_count": 5,
+          "key": "NK cell"
+        },
+        {
+          "doc_count": 5,
+          "key": "progenitor cell"
+        },
+        {
+          "doc_count": 4,
+          "key": "connective tissue cell"
+        },
+        {
+          "doc_count": 4,
+          "key": "fibroblast"
+        },
+        {
+          "doc_count": 3,
+          "key": "induced pluripotent stem cell"
+        },
+        {
+          "doc_count": 1,
+          "key": "monocyte"
+        },
+        {
+          "doc_count": 1,
+          "key": "neuroblastoma cell"
+        }
+      ],
+      "title": "Cell",
+      "total": 559,
+      "type": "typeahead"
+    },
+    {
+      "appended": false,
+      "field": "biosample_ontology.system_slims",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 173,
+          "key": "immune system"
+        },
+        {
+          "doc_count": 72,
+          "key": "digestive system"
+        },
+        {
+          "doc_count": 59,
+          "key": "circulatory system"
+        },
+        {
+          "doc_count": 36,
+          "key": "central nervous system"
+        },
+        {
+          "doc_count": 29,
+          "key": "endocrine system"
+        },
+        {
+          "doc_count": 29,
+          "key": "reproductive system"
+        },
+        {
+          "doc_count": 19,
+          "key": "respiratory system"
+        },
+        {
+          "doc_count": 18,
+          "key": "exocrine system"
+        },
+        {
+          "doc_count": 18,
+          "key": "integumental system"
+        },
+        {
+          "doc_count": 17,
+          "key": "musculature"
+        },
+        {
+          "doc_count": 9,
+          "key": "excretory system"
+        },
+        {
+          "doc_count": 8,
+          "key": "skeletal system"
+        },
+        {
+          "doc_count": 5,
+          "key": "peripheral nervous system"
+        }
+      ],
+      "title": "Systems",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.life_stage",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 423,
+          "key": "adult"
+        },
+        {
+          "doc_count": 58,
+          "key": "embryonic"
+        },
+        {
+          "doc_count": 37,
+          "key": "unknown"
+        },
+        {
+          "doc_count": 17,
+          "key": "child"
+        },
+        {
+          "doc_count": 13,
+          "key": "newborn"
+        },
+        {
+          "doc_count": 11,
+          "key": "postnatal"
+        }
+      ],
+      "title": "Life stage",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.sex",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 231,
+          "key": "female"
+        },
+        {
+          "doc_count": 221,
+          "key": "male"
+        },
+        {
+          "doc_count": 66,
+          "key": "mixed"
+        },
+        {
+          "doc_count": 41,
+          "key": "unknown"
+        }
+      ],
+      "title": "Sex",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "control_type",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 553,
+          "key": "no"
+        },
+        {
+          "doc_count": 6,
+          "key": "yes"
+        }
+      ],
+      "title": "Hide control experiments",
+      "total": 559,
+      "type": "exists"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.disease_term_name",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 10,
+          "key": "amyotrophic lateral sclerosis"
+        }
+      ],
+      "title": "Disease",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.treatments.treatment_term_name",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 30,
+          "key": "lipopolysaccharide"
+        },
+        {
+          "doc_count": 22,
+          "key": "anti-CD3 and anti-CD28 coated beads"
+        },
+        {
+          "doc_count": 16,
+          "key": "Interleukin-2"
+        },
+        {
+          "doc_count": 12,
+          "key": "calcium"
+        },
+        {
+          "doc_count": 8,
+          "key": "5-Phenyl-1H-indole-3-acetic acid"
+        },
+        {
+          "doc_count": 6,
+          "key": "DMSO"
+        },
+        {
+          "doc_count": 5,
+          "key": "Interleukin-15"
+        },
+        {
+          "doc_count": 4,
+          "key": "AR-42"
+        },
+        {
+          "doc_count": 4,
+          "key": "Bortezomib"
+        },
+        {
+          "doc_count": 4,
+          "key": "C646"
+        },
+        {
+          "doc_count": 4,
+          "key": "Chaetocin"
+        },
+        {
+          "doc_count": 4,
+          "key": "Crizotinib"
+        },
+        {
+          "doc_count": 4,
+          "key": "GSK J4"
+        },
+        {
+          "doc_count": 4,
+          "key": "Galeterone"
+        },
+        {
+          "doc_count": 4,
+          "key": "Interleukin-12 subunit alpha"
+        },
+        {
+          "doc_count": 4,
+          "key": "Interleukin-12 subunit beta"
+        },
+        {
+          "doc_count": 4,
+          "key": "JQ1"
+        },
+        {
+          "doc_count": 4,
+          "key": "MB-3"
+        },
+        {
+          "doc_count": 4,
+          "key": "Panobinostat"
+        },
+        {
+          "doc_count": 4,
+          "key": "Vorinostat"
+        },
+        {
+          "doc_count": 4,
+          "key": "dexamethasone"
+        },
+        {
+          "doc_count": 3,
+          "key": "Interleukin-4"
+        },
+        {
+          "doc_count": 3,
+          "key": "anti-CD40"
+        },
+        {
+          "doc_count": 3,
+          "key": "anti-IgM"
+        },
+        {
+          "doc_count": 2,
+          "key": "ARS-853"
+        },
+        {
+          "doc_count": 2,
+          "key": "EED226"
+        },
+        {
+          "doc_count": 2,
+          "key": "Interleukin-18"
+        },
+        {
+          "doc_count": 2,
+          "key": "Methotrexate"
+        },
+        {
+          "doc_count": 2,
+          "key": "NCT-503"
+        },
+        {
+          "doc_count": 2,
+          "key": "SGC-CBP30"
+        },
+        {
+          "doc_count": 1,
+          "key": "17\u03b2-estradiol"
+        },
+        {
+          "doc_count": 1,
+          "key": "CpG ODN"
+        },
+        {
+          "doc_count": 1,
+          "key": "all-trans-retinoic acid"
+        }
+      ],
+      "title": "Biosample treatment",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "award.project",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 507,
+          "key": "ENCODE"
+        },
+        {
+          "doc_count": 51,
+          "key": "GGR"
+        },
+        {
+          "doc_count": 1,
+          "key": "community"
+        }
+      ],
+      "title": "Project",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "award.rfa",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 378,
+          "key": "ENCODE4"
+        },
+        {
+          "doc_count": 129,
+          "key": "ENCODE3"
+        },
+        {
+          "doc_count": 51,
+          "key": "GGR"
+        },
+        {
+          "doc_count": 1,
+          "key": "community"
+        }
+      ],
+      "title": "RFA",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "assembly",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 463,
+          "key": "GRCh38"
+        },
+        {
+          "doc_count": 96,
+          "key": "mm10"
+        }
+      ],
+      "title": "Genome assembly",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "files.file_type",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 559,
+          "key": "bam"
+        },
+        {
+          "doc_count": 559,
+          "key": "bed narrowPeak"
+        },
+        {
+          "doc_count": 559,
+          "key": "bigWig"
+        },
+        {
+          "doc_count": 559,
+          "key": "fastq"
+        },
+        {
+          "doc_count": 554,
+          "key": "bed idr_ranked_peak"
+        },
+        {
+          "doc_count": 554,
+          "key": "bigBed narrowPeak"
+        },
+        {
+          "doc_count": 13,
+          "key": "bigBed bed3+"
+        }
+      ],
+      "title": "Available file types",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "files.platform.term_name",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 244,
+          "key": "Illumina NovaSeq 6000"
+        },
+        {
+          "doc_count": 146,
+          "key": "Illumina HiSeq 4000"
+        },
+        {
+          "doc_count": 131,
+          "key": "Illumina NextSeq 500"
+        },
+        {
+          "doc_count": 46,
+          "key": "Illumina HiSeq 2000"
+        },
+        {
+          "doc_count": 4,
+          "key": "Illumina HiSeq 2500"
+        }
+      ],
+      "title": "Platform",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "files.run_type",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 536,
+          "key": "paired-ended"
+        },
+        {
+          "doc_count": 23,
+          "key": "single-ended"
+        }
+      ],
+      "title": "Run type",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "files.read_length",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 257,
+          "key": 100
+        },
+        {
+          "doc_count": 79,
+          "key": 50
+        },
+        {
+          "doc_count": 76,
+          "key": 80
+        },
+        {
+          "doc_count": 62,
+          "key": 36
+        },
+        {
+          "doc_count": 24,
+          "key": 79
+        },
+        {
+          "doc_count": 14,
+          "key": 42
+        },
+        {
+          "doc_count": 13,
+          "key": 76
+        },
+        {
+          "doc_count": 11,
+          "key": 48
+        },
+        {
+          "doc_count": 9,
+          "key": 40
+        },
+        {
+          "doc_count": 6,
+          "key": 51
+        },
+        {
+          "doc_count": 5,
+          "key": 26
+        },
+        {
+          "doc_count": 5,
+          "key": 75
+        },
+        {
+          "doc_count": 2,
+          "key": 33
+        },
+        {
+          "doc_count": 1,
+          "key": 150
+        },
+        {
+          "doc_count": 1,
+          "key": 151
+        }
+      ],
+      "title": "Read length (nt)",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "files.mapped_read_length",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 245,
+          "key": 101
+        },
+        {
+          "doc_count": 76,
+          "key": 80
+        },
+        {
+          "doc_count": 72,
+          "key": 51
+        },
+        {
+          "doc_count": 62,
+          "key": 36
+        },
+        {
+          "doc_count": 24,
+          "key": 79
+        },
+        {
+          "doc_count": 18,
+          "key": 42
+        },
+        {
+          "doc_count": 13,
+          "key": 30
+        },
+        {
+          "doc_count": 13,
+          "key": 76
+        },
+        {
+          "doc_count": 12,
+          "key": 50
+        },
+        {
+          "doc_count": 11,
+          "key": 48
+        },
+        {
+          "doc_count": 11,
+          "key": 99
+        },
+        {
+          "doc_count": 5,
+          "key": 26
+        },
+        {
+          "doc_count": 5,
+          "key": 40
+        },
+        {
+          "doc_count": 5,
+          "key": 75
+        },
+        {
+          "doc_count": 2,
+          "key": 33
+        },
+        {
+          "doc_count": 1,
+          "key": 100
+        },
+        {
+          "doc_count": 1,
+          "key": 151
+        }
+      ],
+      "title": "Mapped read length (nt)",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.size_range",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 212,
+          "key": "200-7000"
+        },
+        {
+          "doc_count": 66,
+          "key": "200-750"
+        },
+        {
+          "doc_count": 57,
+          "key": "150-1000"
+        },
+        {
+          "doc_count": 46,
+          "key": "150-250"
+        },
+        {
+          "doc_count": 30,
+          "key": "175-500"
+        },
+        {
+          "doc_count": 5,
+          "key": ">200"
+        },
+        {
+          "doc_count": 2,
+          "key": "180-1000"
+        },
+        {
+          "doc_count": 1,
+          "key": "100-300"
+        },
+        {
+          "doc_count": 1,
+          "key": "125-278"
+        },
+        {
+          "doc_count": 1,
+          "key": "151-347"
+        },
+        {
+          "doc_count": 1,
+          "key": "151-379"
+        },
+        {
+          "doc_count": 1,
+          "key": "153-309"
+        },
+        {
+          "doc_count": 1,
+          "key": "156-312"
+        },
+        {
+          "doc_count": 1,
+          "key": "250-450"
+        }
+      ],
+      "title": "Library fragment size (nt)",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.nucleic_acid_term_name",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 559,
+          "key": "DNA"
+        }
+      ],
+      "title": "Library material",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "date_released",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 90,
+          "key": "2021-02-11"
+        },
+        {
+          "doc_count": 52,
+          "key": "2017-10-10"
+        },
+        {
+          "doc_count": 46,
+          "key": "2021-03-15"
+        },
+        {
+          "doc_count": 36,
+          "key": "2020-08-17"
+        },
+        {
+          "doc_count": 34,
+          "key": "2022-06-16"
+        },
+        {
+          "doc_count": 30,
+          "key": "2017-01-19"
+        },
+        {
+          "doc_count": 27,
+          "key": "2017-05-10"
+        },
+        {
+          "doc_count": 21,
+          "key": "2020-08-05"
+        },
+        {
+          "doc_count": 19,
+          "key": "2016-06-15"
+        },
+        {
+          "doc_count": 17,
+          "key": "2021-09-20"
+        },
+        {
+          "doc_count": 15,
+          "key": "2021-06-24"
+        },
+        {
+          "doc_count": 14,
+          "key": "2021-03-16"
+        },
+        {
+          "doc_count": 14,
+          "key": "2021-09-09"
+        },
+        {
+          "doc_count": 13,
+          "key": "2016-10-31"
+        },
+        {
+          "doc_count": 13,
+          "key": "2017-06-21"
+        },
+        {
+          "doc_count": 13,
+          "key": "2021-10-13"
+        },
+        {
+          "doc_count": 11,
+          "key": "2022-06-08"
+        },
+        {
+          "doc_count": 10,
+          "key": "2016-03-30"
+        },
+        {
+          "doc_count": 10,
+          "key": "2020-10-08"
+        },
+        {
+          "doc_count": 10,
+          "key": "2021-02-10"
+        },
+        {
+          "doc_count": 10,
+          "key": "2021-08-24"
+        },
+        {
+          "doc_count": 7,
+          "key": "2020-08-20"
+        },
+        {
+          "doc_count": 5,
+          "key": "2018-04-23"
+        },
+        {
+          "doc_count": 5,
+          "key": "2025-09-30"
+        },
+        {
+          "doc_count": 4,
+          "key": "2021-08-05"
+        },
+        {
+          "doc_count": 4,
+          "key": "2021-11-16"
+        },
+        {
+          "doc_count": 4,
+          "key": "2022-02-09"
+        },
+        {
+          "doc_count": 3,
+          "key": "2017-03-07"
+        },
+        {
+          "doc_count": 3,
+          "key": "2017-10-09"
+        },
+        {
+          "doc_count": 3,
+          "key": "2017-11-15"
+        },
+        {
+          "doc_count": 3,
+          "key": "2020-07-21"
+        },
+        {
+          "doc_count": 3,
+          "key": "2021-04-06"
+        },
+        {
+          "doc_count": 2,
+          "key": "2020-09-03"
+        },
+        {
+          "doc_count": 2,
+          "key": "2022-04-26"
+        },
+        {
+          "doc_count": 1,
+          "key": "2017-01-30"
+        },
+        {
+          "doc_count": 1,
+          "key": "2017-03-09"
+        },
+        {
+          "doc_count": 1,
+          "key": "2020-07-30"
+        },
+        {
+          "doc_count": 1,
+          "key": "2021-02-03"
+        },
+        {
+          "doc_count": 1,
+          "key": "2021-07-01"
+        },
+        {
+          "doc_count": 1,
+          "key": "2022-01-25"
+        }
+      ],
+      "title": "Date released",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "date_submitted",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 100,
+          "key": "2020-01-05"
+        },
+        {
+          "doc_count": 65,
+          "key": "2017-03-14"
+        },
+        {
+          "doc_count": 59,
+          "key": "2020-05-13"
+        },
+        {
+          "doc_count": 32,
+          "key": "2019-06-02"
+        },
+        {
+          "doc_count": 21,
+          "key": "2019-08-01"
+        },
+        {
+          "doc_count": 18,
+          "key": "2016-04-26"
+        },
+        {
+          "doc_count": 18,
+          "key": "2019-07-31"
+        },
+        {
+          "doc_count": 17,
+          "key": "2017-01-27"
+        },
+        {
+          "doc_count": 17,
+          "key": "2019-05-25"
+        },
+        {
+          "doc_count": 17,
+          "key": "2021-08-26"
+        },
+        {
+          "doc_count": 15,
+          "key": "2019-05-29"
+        },
+        {
+          "doc_count": 12,
+          "key": "2016-10-12"
+        },
+        {
+          "doc_count": 12,
+          "key": "2016-10-31"
+        },
+        {
+          "doc_count": 12,
+          "key": "2017-01-18"
+        },
+        {
+          "doc_count": 10,
+          "key": "2020-08-26"
+        },
+        {
+          "doc_count": 8,
+          "key": "2020-10-30"
+        },
+        {
+          "doc_count": 8,
+          "key": "2021-01-22"
+        },
+        {
+          "doc_count": 8,
+          "key": "2021-07-14"
+        },
+        {
+          "doc_count": 8,
+          "key": "2021-08-25"
+        },
+        {
+          "doc_count": 7,
+          "key": "2015-07-31"
+        },
+        {
+          "doc_count": 6,
+          "key": "2016-10-11"
+        },
+        {
+          "doc_count": 6,
+          "key": "2017-02-07"
+        },
+        {
+          "doc_count": 5,
+          "key": "2018-03-28"
+        },
+        {
+          "doc_count": 4,
+          "key": "2020-05-18"
+        },
+        {
+          "doc_count": 4,
+          "key": "2021-06-16"
+        },
+        {
+          "doc_count": 3,
+          "key": "2016-08-05"
+        },
+        {
+          "doc_count": 3,
+          "key": "2017-10-06"
+        },
+        {
+          "doc_count": 2,
+          "key": "2015-11-30"
+        },
+        {
+          "doc_count": 2,
+          "key": "2017-01-30"
+        },
+        {
+          "doc_count": 2,
+          "key": "2019-08-02"
+        },
+        {
+          "doc_count": 2,
+          "key": "2019-08-08"
+        },
+        {
+          "doc_count": 2,
+          "key": "2020-07-08"
+        },
+        {
+          "doc_count": 2,
+          "key": "2020-07-10"
+        },
+        {
+          "doc_count": 1,
+          "key": "2015-09-09"
+        },
+        {
+          "doc_count": 1,
+          "key": "2015-10-09"
+        },
+        {
+          "doc_count": 1,
+          "key": "2015-12-14"
+        },
+        {
+          "doc_count": 1,
+          "key": "2015-12-16"
+        },
+        {
+          "doc_count": 1,
+          "key": "2016-03-31"
+        },
+        {
+          "doc_count": 1,
+          "key": "2016-10-14"
+        },
+        {
+          "doc_count": 1,
+          "key": "2016-11-02"
+        },
+        {
+          "doc_count": 1,
+          "key": "2017-02-02"
+        },
+        {
+          "doc_count": 1,
+          "key": "2017-02-22"
+        },
+        {
+          "doc_count": 1,
+          "key": "2017-04-15"
+        },
+        {
+          "doc_count": 1,
+          "key": "2019-05-24"
+        },
+        {
+          "doc_count": 1,
+          "key": "2019-06-12"
+        },
+        {
+          "doc_count": 1,
+          "key": "2019-06-26"
+        },
+        {
+          "doc_count": 1,
+          "key": "2019-08-04"
+        },
+        {
+          "doc_count": 1,
+          "key": "2020-05-28"
+        },
+        {
+          "doc_count": 1,
+          "key": "2020-07-09"
+        }
+      ],
+      "title": "Date submitted",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "lab.title",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 255,
+          "key": "Michael Snyder, Stanford"
+        },
+        {
+          "doc_count": 100,
+          "key": "Stephen Montgomery, Stanford"
+        },
+        {
+          "doc_count": 75,
+          "key": "Will Greenleaf, Stanford"
+        },
+        {
+          "doc_count": 66,
+          "key": "Bing Ren, UCSD"
+        },
+        {
+          "doc_count": 30,
+          "key": "Manuel Garber, UMass"
+        },
+        {
+          "doc_count": 13,
+          "key": "Ross Hardison, PennState"
+        },
+        {
+          "doc_count": 10,
+          "key": "Tim Reddy, Duke"
+        },
+        {
+          "doc_count": 4,
+          "key": "Barbara Wold, Caltech"
+        },
+        {
+          "doc_count": 3,
+          "key": "Christina Leslie, MSKCC"
+        },
+        {
+          "doc_count": 2,
+          "key": "Yin Shen, UCSF"
+        },
+        {
+          "doc_count": 1,
+          "key": "Christine Disteche, UW"
+        }
+      ],
+      "title": "Lab",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "internal_status",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 554,
+          "key": "release ready"
+        },
+        {
+          "doc_count": 5,
+          "key": "unreviewed"
+        }
+      ],
+      "title": "Internal status",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replication_type",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 311,
+          "key": "unreplicated"
+        },
+        {
+          "doc_count": 235,
+          "key": "isogenic"
+        },
+        {
+          "doc_count": 13,
+          "key": "anisogenic"
+        }
+      ],
+      "title": "Replication type",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "replicates.library.biosample.subcellular_fraction_term_name",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 5,
+          "key": "nucleus"
+        }
+      ],
+      "title": "Cellular component",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "audit.ERROR.category",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 78,
+          "key": "extremely low read depth"
+        }
+      ],
+      "title": "Audit category: ERROR",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "audit.NOT_COMPLIANT.category",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 142,
+          "key": "low FRiP score"
+        },
+        {
+          "doc_count": 124,
+          "key": "unreplicated experiment"
+        },
+        {
+          "doc_count": 63,
+          "key": "insufficient number of reproducible peaks"
+        },
+        {
+          "doc_count": 34,
+          "key": "poor library complexity"
+        },
+        {
+          "doc_count": 26,
+          "key": "insufficient read depth"
+        },
+        {
+          "doc_count": 22,
+          "key": "low TSS enrichment"
+        },
+        {
+          "doc_count": 21,
+          "key": "severe bottlenecking"
+        },
+        {
+          "doc_count": 1,
+          "key": "insufficient replicate concordance"
+        }
+      ],
+      "title": "Audit category: NOT COMPLIANT",
+      "total": 559,
+      "type": "terms"
+    },
+    {
+      "appended": false,
+      "field": "audit.WARNING.category",
+      "open_on_load": false,
+      "terms": [
+        {
+          "doc_count": 342,
+          "key": "moderate library complexity"
+        },
+        {
+          "doc_count": 257,
+          "key": "mild to moderate bottlenecking"
+        },
+        {
+          "doc_count": 104,
+          "key": "moderate number of reproducible peaks"
+        },
+        {
+          "doc_count": 65,
+          "key": "low read depth"
+        },
+        {
+          "doc_count": 59,
+          "key": "moderate TSS enrichment"
+        },
+        {
+          "doc_count": 18,
+          "key": "missing biosample characterization"
+        },
+        {
+          "doc_count": 18,
+          "key": "missing genetic modification reagents"
+        },
+        {
+          "doc_count": 10,
+          "key": "inconsistent platforms"
+        },
+        {
+          "doc_count": 8,
+          "key": "borderline replicate concordance"
+        },
+        {
+          "doc_count": 5,
+          "key": "mixed read lengths"
+        },
+        {
+          "doc_count": 3,
+          "key": "inconsistent assembly"
+        },
+        {
+          "doc_count": 2,
+          "key": "moderate FRiP score"
+        }
+      ],
+      "title": "Audit category: WARNING",
+      "total": 559,
+      "type": "terms"
+    }
+  ],
+  "filters": [
+    {
+      "field": "assay_title",
+      "remove": "/search/?type=Experiment&status=released&format=json&limit=3",
+      "term": "ATAC-seq"
+    },
+    {
+      "field": "status",
+      "remove": "/search/?type=Experiment&assay_title=ATAC-seq&format=json&limit=3",
+      "term": "released"
+    },
+    {
+      "field": "type",
+      "remove": "/search/?assay_title=ATAC-seq&status=released&format=json&limit=3",
+      "term": "Experiment"
+    }
+  ],
+  "notification": "Success",
+  "sort": {
+    "date_created": {
+      "order": "desc",
+      "unmapped_type": "keyword"
+    },
+    "label": {
+      "order": "desc",
+      "unmapped_type": "keyword"
+    },
+    "uuid": {
+      "order": "desc",
+      "unmapped_type": "keyword"
+    }
+  },
+  "title": "Search",
+  "total": 559
+}
