@@ -16,6 +16,10 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from encode_pipeline.adapters.bulk_rnaseq import BulkRnaSeqResultsWorkflowAdapter
+from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+    CONTAINER_GID_ENV,
+    CONTAINER_UID_ENV,
+)
 from encode_pipeline.adapters.bulk_rnaseq.reference_closure import (
     REFERENCE_INDEX_MANIFEST,
     verify_reference_index,
@@ -687,7 +691,38 @@ def test_gate_environment_is_explicit_and_missing_values_fail_without_skip(
     assert settings.fixture_manifest == tmp_path / "fixture.json"
     assert settings.docker_executable.name == "docker"
     assert settings.docker_socket == tmp_path / "docker.sock"
+    assert settings.container_uid == os.getuid()
+    assert settings.container_gid == os.getgid()
     assert "redis" not in repr(settings).lower()
+
+
+@pytest.mark.parametrize(("uid", "gid"), (("0", "0"), ("1234", "5678")))
+def test_gate_container_identity_coordinates_bind_explicit_values(
+    tmp_path: Path,
+    uid: str,
+    gid: str,
+) -> None:
+    environment = _gate_environment(tmp_path)
+    environment[CONTAINER_UID_ENV] = uid
+    environment[CONTAINER_GID_ENV] = gid
+
+    settings = require_gate_settings(environment, _socket_probe=lambda _path: True)
+
+    assert (settings.container_uid, settings.container_gid) == (int(uid), int(gid))
+
+
+@pytest.mark.parametrize("coordinate", (CONTAINER_UID_ENV, CONTAINER_GID_ENV))
+@pytest.mark.parametrize("value", ("", "-1", "+1", " 0", "1.0", "١"))
+def test_gate_rejects_malformed_container_identity(
+    tmp_path: Path,
+    coordinate: str,
+    value: str,
+) -> None:
+    environment = _gate_environment(tmp_path)
+    environment[coordinate] = value
+
+    with pytest.raises(AssertionError, match=coordinate):
+        require_gate_settings(environment, _socket_probe=lambda _path: True)
 
 
 def test_gate_requires_every_private_runtime_coordinate(tmp_path: Path) -> None:
@@ -882,16 +917,16 @@ def test_fixture_manifest_rejects_a_resealed_false_index_closure(
         load_acceptance_fixture(manifest)
 
 
+@pytest.mark.parametrize("container_ids", (None, (0, 0), (1234, 5678)))
 def test_results_registry_is_explicit_and_default_remains_authoring_only_without_env(
     tmp_path: Path,
+    container_ids: tuple[int, int] | None,
 ) -> None:
-    settings = GateSettings(
-        runtime_root=(tmp_path / "runtime").resolve(),
-        fixture_manifest=(tmp_path / "fixture.json").resolve(),
-        redis_url="redis://127.0.0.1:6379/15",
-        docker_executable=Path("/usr/bin/docker"),
-        docker_socket=Path("/var/run/docker.sock"),
-    )
+    environment = _gate_environment(tmp_path)
+    if container_ids is not None:
+        environment[CONTAINER_UID_ENV] = str(container_ids[0])
+        environment[CONTAINER_GID_ENV] = str(container_ids[1])
+    settings = require_gate_settings(environment, _socket_probe=lambda _path: True)
     settings.fixture_manifest.write_text(
         json.dumps(_fixture_document(tmp_path)),
         encoding="utf-8",
@@ -908,6 +943,11 @@ def test_results_registry_is_explicit_and_default_remains_authoring_only_without
     assert composition.binding.assets.root == settings.runtime_root
     assert composition.binding.assets.docker_executable == settings.docker_executable
     assert composition.binding.assets.docker_socket == settings.docker_socket
+    expected_ids = container_ids or (os.getuid(), os.getgid())
+    assert (
+        composition.binding.container_uid,
+        composition.binding.container_gid,
+    ) == expected_ids
 
 
 def test_platform_harness_rejects_an_unbounded_worker_timeout(

@@ -196,6 +196,8 @@ def test_controlled_tiny_rapid_quant_nextflow_container_gate(
         ),
         transcriptome=fixture.transcriptome,
         implementation_qualification=qualification.value.implementation,
+        container_uid=settings.container_uid,
+        container_gid=settings.container_gid,
     )
     adapter = BulkRnaSeqRapidQuantQualificationAdapter(execution=binding)
 
@@ -321,6 +323,10 @@ def _execute_rapid_quant(
     assert command_result.is_success
     command = command_result.value
     _assert_rapid_command_contract(command, workspace)
+    binding = adapter.execution_binding
+    assert binding is not None
+    config = _read_bounded(workspace / "config/platform.nextflow.config")
+    assert f"--user={binding.container_uid}:{binding.container_gid} " in config
 
     cleaner = ManagedContainerCleaner(
         executable=settings.docker_executable,
