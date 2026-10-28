@@ -914,6 +914,33 @@ jobs:
           python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
           python3 -m pip check
 
+      - name: Bind optional Bulk container identity
+        shell: micromamba-shell {0}
+        env:
+          CONFIGURED_BULK_CONTAINER_UID: ${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_UID }}
+          CONFIGURED_BULK_CONTAINER_GID: ${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_GID }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from encode_pipeline.adapters.bulk_rnaseq.deployment import _container_identity
+
+          bindings = {}
+          for kind in ("UID", "GID"):
+              coordinate = f"ENCODE_PIPELINE_BULK_CONTAINER_{kind}"
+              value = os.environ[f"CONFIGURED_BULK_CONTAINER_{kind}"]
+              # Unconfigured GitHub variables resolve to an empty string.
+              # Leave runner-provided coordinates and rootful defaults intact.
+              if not value:
+                  continue
+              try:
+                  bindings[coordinate] = _container_identity(value)
+              except ValueError:
+                  raise SystemExit(f"{coordinate} must be a non-negative ASCII decimal integer") from None
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              for coordinate, value in bindings.items():
+                  handle.write(f"{coordinate}={value}\n")
+          PY
+
       - name: Require runner-owned runtime coordinates
         shell: micromamba-shell {0}
         env:

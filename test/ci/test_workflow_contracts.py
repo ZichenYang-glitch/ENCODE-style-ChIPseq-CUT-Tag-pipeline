@@ -3,8 +3,11 @@
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 from coverage import Coverage
+import pytest
 import yaml
 
 
@@ -28,6 +31,69 @@ def _checkout_steps(workflow: dict):
         for step in job["steps"]:
             if str(step.get("uses", "")).startswith("actions/checkout@"):
                 yield step
+
+
+@pytest.mark.parametrize(
+    ("uid", "gid", "expected", "succeeds"),
+    (
+        ("", "", "", True),
+        (
+            "0",
+            "0",
+            "ENCODE_PIPELINE_BULK_CONTAINER_UID=0\nENCODE_PIPELINE_BULK_CONTAINER_GID=0\n",
+            True,
+        ),
+        (
+            "1234",
+            "5678",
+            "ENCODE_PIPELINE_BULK_CONTAINER_UID=1234\nENCODE_PIPELINE_BULK_CONTAINER_GID=5678\n",
+            True,
+        ),
+        ("0", "", "ENCODE_PIPELINE_BULK_CONTAINER_UID=0\n", True),
+        ("0", "1\nINJECTED=1", "", False),
+    ),
+)
+def test_protected_bulk_step_exports_validated_optional_container_identity(
+    tmp_path: Path, uid: str, gid: str, expected: str, succeeds: bool
+):
+    steps = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]["steps"]
+    step = next(
+        s for s in steps if s.get("name") == "Bind optional Bulk container identity"
+    )
+    assert step["env"] == {
+        "CONFIGURED_BULK_CONTAINER_UID": "${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_UID }}",
+        "CONFIGURED_BULK_CONTAINER_GID": "${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_GID }}",
+    }
+    names = [s.get("name") for s in steps]
+    assert names.index("Install platform package") < names.index(step["name"])
+    assert names.index(step["name"]) < names.index(
+        "Run rapid, STAR Salmon, and lifecycle acceptance"
+    )
+    github_env = tmp_path / "github-env"
+    github_env.write_text("", encoding="utf-8")
+    environment = {
+        **os.environ,
+        "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.defpath}",
+        "PYTHONPATH": str(REPO_ROOT / "src"),
+        "GITHUB_ENV": str(github_env),
+        "CONFIGURED_BULK_CONTAINER_UID": uid,
+        "CONFIGURED_BULK_CONTAINER_GID": gid,
+        "ENCODE_PIPELINE_BULK_CONTAINER_UID": "42",
+        "ENCODE_PIPELINE_BULK_CONTAINER_GID": "43",
+    }
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is succeeds, result.stderr
+    assert github_env.read_text(encoding="utf-8") == expected
+    if not succeeds:
+        assert "ENCODE_PIPELINE_BULK_CONTAINER_GID" in result.stderr
+        assert "INJECTED" not in result.stderr
 
 
 def _checkout_jobs(workflow: dict):
