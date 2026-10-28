@@ -1,0 +1,4264 @@
+{
+  "@context": "/terms/",
+  "@id": "/experiments/ENCSR603VTC/",
+  "@type": [
+    "Experiment",
+    "Dataset",
+    "Item"
+  ],
+  "accession": "ENCSR603VTC",
+  "aliases": [
+    "roadmap-epigenomics:ChIP-Seq analysis of WCE in human fetal brain cells_Mar-31-2011_83932"
+  ],
+  "alternate_accessions": [],
+  "analyses": [
+    {
+      "@id": "/analyses/ENCAN942JEJ/",
+      "@type": [
+        "Analysis",
+        "Item"
+      ],
+      "accession": "ENCAN942JEJ",
+      "aliases": [
+        "encode:ENCSR603VTC_hg19_encode-processing-pipeline"
+      ],
+      "assembly": "hg19",
+      "datasets": [
+        "/experiments/ENCSR603VTC/"
+      ],
+      "date_created": "2020-10-22T06:51:06.602094+00:00",
+      "documents": [],
+      "files": [
+        "/files/ENCFF393EMH/",
+        "/files/ENCFF946LBA/"
+      ],
+      "pipeline_award_rfas": [
+        "ENCODE3"
+      ],
+      "pipeline_labs": [
+        "/labs/encode-processing-pipeline/"
+      ],
+      "pipelines": [
+        "/pipelines/ENCPL220NBH/"
+      ],
+      "quality_metrics": [
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF393EMH/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/51a4b056-6d71-4bf9-b129-347ebdf847e4/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "md5sum": "b5ba3de226fa61387b89b4fe2d8ebb72",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2016-12-19T07:30:05.578211+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 17185601,
+            "mapped_pct": "96.43%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "unfiltered",
+            "quality_metric_of": [
+              "/files/ENCFF393EMH/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/7464cc5c-d3f8-468b-bfb9-0c26d8802810/",
+            "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+            "total": 17822310,
+            "total_qc_failed": 0,
+            "uuid": "51a4b056-6d71-4bf9-b129-347ebdf847e4"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF946LBA/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/dae2898c-0fdb-4129-bf87-e33f8cc0a04e/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+              "md5sum": "512d16f1d29b0b9447adab3cb221a733",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2017-10-25T00:08:58.406026+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 13282554,
+            "mapped_pct": "100.00%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "filtered",
+            "quality_metric_of": [
+              "/files/ENCFF946LBA/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "total": 13282554,
+            "total_qc_failed": 0,
+            "usable_fragments": 13282554,
+            "uuid": "dae2898c-0fdb-4129-bf87-e33f8cc0a04e"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF946LBA/"
+          ],
+          "quality_metric": {
+            "@id": "/chipseq-filter-quality-metrics/f58985fa-5ce0-4972-968e-d6c2b3a3c436/",
+            "@type": [
+              "ChipSeqFilterQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "NRF": 0.985803,
+            "NSC": 1.014777,
+            "PBC1": 0.986564,
+            "PBC2": 75.600709,
+            "RSC": 0.8225339,
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+              "md5sum": "0cde230a6dd1e94664dd742e1b80cfec",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "cross_correlation_plot": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+              "href": "@@download/cross_correlation_plot/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+              "md5sum": "93e4b56af539316abee556695c8bcd57",
+              "type": "application/pdf"
+            },
+            "date_created": "2017-10-25T00:08:55.704850+00:00",
+            "fragment length": 205,
+            "lab": "/labs/encode-processing-pipeline/",
+            "quality_metric_of": [
+              "/files/ENCFF946LBA/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "uuid": "f58985fa-5ce0-4972-968e-d6c2b3a3c436"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF946LBA/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/aa8d6469-9098-4c4a-be19-4e81bc57ac6b/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "md5sum": "b5ba3de226fa61387b89b4fe2d8ebb72",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2017-10-25T00:08:57.569611+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 17185601,
+            "mapped_pct": "96.43%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "unfiltered",
+            "quality_metric_of": [
+              "/files/ENCFF946LBA/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "total": 17822310,
+            "total_qc_failed": 0,
+            "uuid": "aa8d6469-9098-4c4a-be19-4e81bc57ac6b"
+          }
+        }
+      ],
+      "schema_version": "1",
+      "status": "archived",
+      "submitted_by": "/users/6667a92a-d202-493a-8c7d-7a56d1380356/",
+      "superseded_by": [],
+      "title": "ENCODE3 hg19",
+      "uuid": "c8c73449-1035-42f6-b8ec-a79759656e2e"
+    },
+    {
+      "@id": "/analyses/ENCAN211BAA/",
+      "@type": [
+        "Analysis",
+        "Item"
+      ],
+      "accession": "ENCAN211BAA",
+      "aliases": [
+        "encode-processing-pipeline:a5d43e42-d3bb-450f-997a-871f239375e5"
+      ],
+      "assembly": "GRCh38",
+      "datasets": [
+        "/experiments/ENCSR603VTC/"
+      ],
+      "date_created": "2020-10-08T20:07:43.436600+00:00",
+      "documents": [
+        "/documents/e2b31655-3489-4bd5-87b1-9c5a51285d01/"
+      ],
+      "files": [
+        "/files/ENCFF706QQX/",
+        "/files/ENCFF144TSQ/"
+      ],
+      "pipeline_award_rfas": [
+        "ENCODE4"
+      ],
+      "pipeline_labs": [
+        "/labs/encode-processing-pipeline/"
+      ],
+      "pipeline_version": "1.5.1",
+      "pipelines": [
+        "/pipelines/ENCPL367MAS/",
+        "/pipelines/ENCPL481MLO/",
+        "/pipelines/ENCPL612HIG/",
+        "/pipelines/ENCPL809GEM/"
+      ],
+      "quality_metrics": [
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF706QQX/"
+          ],
+          "quality_metric": {
+            "@id": "/chip-alignment-quality-metrics/f31caa38-77d8-4d0c-b200-1e1f883d5a23/",
+            "@type": [
+              "ChipAlignmentQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "award": "/awards/U24HG009397/",
+            "date_created": "2020-10-08T20:07:42.854744+00:00",
+            "diff_chroms": 0,
+            "diff_chroms_qc_failed": 0,
+            "duplicate_reads": 0,
+            "duplicate_reads_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped_reads": 17641350,
+            "mapped_reads_qc_failed": 0,
+            "paired_reads": 0,
+            "paired_reads_qc_failed": 0,
+            "pct_mapped_reads": 99.0,
+            "pct_properly_paired_reads": 0.0,
+            "pct_singletons": 0.0,
+            "processing_stage": "unfiltered",
+            "properly_paired_reads": 0,
+            "properly_paired_reads_qc_failed": 0,
+            "quality_metric_of": [
+              "/files/ENCFF706QQX/"
+            ],
+            "read1": 0,
+            "read1_qc_failed": 0,
+            "read2": 0,
+            "read2_qc_failed": 0,
+            "schema_version": "1",
+            "singletons": 0,
+            "singletons_qc_failed": 0,
+            "status": "released",
+            "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+            "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+            "total_reads": 17822310,
+            "total_reads_qc_failed": 0,
+            "uuid": "f31caa38-77d8-4d0c-b200-1e1f883d5a23",
+            "with_itself": 0,
+            "with_itself_qc_failed": 0
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF144TSQ/"
+          ],
+          "quality_metric": {
+            "@id": "/chip-alignment-quality-metrics/d31e462e-af7d-4b33-b38e-59259489edcb/",
+            "@type": [
+              "ChipAlignmentQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "award": "/awards/U24HG009397/",
+            "date_created": "2020-10-08T20:07:42.933122+00:00",
+            "diff_chroms": 0,
+            "diff_chroms_qc_failed": 0,
+            "duplicate_reads": 0,
+            "duplicate_reads_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped_reads": 14291637,
+            "mapped_reads_qc_failed": 0,
+            "paired_reads": 0,
+            "paired_reads_qc_failed": 0,
+            "pct_mapped_reads": 100.0,
+            "pct_properly_paired_reads": 0.0,
+            "pct_singletons": 0.0,
+            "processing_stage": "filtered",
+            "properly_paired_reads": 0,
+            "properly_paired_reads_qc_failed": 0,
+            "quality_metric_of": [
+              "/files/ENCFF144TSQ/"
+            ],
+            "read1": 0,
+            "read1_qc_failed": 0,
+            "read2": 0,
+            "read2_qc_failed": 0,
+            "schema_version": "1",
+            "singletons": 0,
+            "singletons_qc_failed": 0,
+            "status": "released",
+            "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+            "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+            "total_reads": 14291637,
+            "total_reads_qc_failed": 0,
+            "usable_fragments": 14291637,
+            "uuid": "d31e462e-af7d-4b33-b38e-59259489edcb",
+            "with_itself": 0,
+            "with_itself_qc_failed": 0
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF144TSQ/"
+          ],
+          "quality_metric": {
+            "@id": "/chip-library-quality-metrics/ea59fbba-4d2d-4108-bbb3-12d4e3617b57/",
+            "@type": [
+              "ChipLibraryQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "NRF": 0.984207,
+            "PBC1": 0.985145,
+            "PBC2": 68.597891,
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "award": "/awards/U24HG009397/",
+            "date_created": "2020-10-08T20:07:43.010836+00:00",
+            "distinct_fragments": 14284783,
+            "lab": "/labs/encode-processing-pipeline/",
+            "paired_duplicate_reads": 0,
+            "paired_optical_duplicate_reads": 0,
+            "paired_reads": 0,
+            "pct_duplicate_reads": 1.5923,
+            "positions_with_one_read": 205146,
+            "quality_metric_of": [
+              "/files/ENCFF144TSQ/"
+            ],
+            "schema_version": "1",
+            "status": "released",
+            "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+            "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+            "total_fragments": 14514010,
+            "unmapped_reads": 0,
+            "unpaired_duplicate_reads": 231248,
+            "unpaired_reads": 14522885,
+            "uuid": "ea59fbba-4d2d-4108-bbb3-12d4e3617b57"
+          }
+        }
+      ],
+      "schema_version": "1",
+      "status": "released",
+      "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+      "superseded_by": [],
+      "title": "ENCODE4 v1.5.1 GRCh38",
+      "uuid": "ec71579d-a6ae-4a3e-a574-cf41b959289a"
+    },
+    {
+      "@id": "/analyses/ENCAN882RNZ/",
+      "@type": [
+        "Analysis",
+        "Item"
+      ],
+      "accession": "ENCAN882RNZ",
+      "aliases": [
+        "encode:ENCSR603VTC_GRCh38_encode-processing-pipeline"
+      ],
+      "assembly": "GRCh38",
+      "datasets": [
+        "/experiments/ENCSR603VTC/"
+      ],
+      "date_created": "2020-10-22T06:56:48.158969+00:00",
+      "documents": [],
+      "files": [
+        "/files/ENCFF818YVY/",
+        "/files/ENCFF067UIL/"
+      ],
+      "pipeline_award_rfas": [
+        "ENCODE3"
+      ],
+      "pipeline_labs": [
+        "/labs/encode-processing-pipeline/"
+      ],
+      "pipelines": [
+        "/pipelines/ENCPL220NBH/"
+      ],
+      "quality_metrics": [
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF818YVY/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/2b613b40-a3a3-4c29-9207-3a2d18f61a03/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "md5sum": "7826fe7b4d40363c0d1f429f9fd5ce2a",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2017-10-25T00:15:53.489521+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 17401348,
+            "mapped_pct": "97.64%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "unfiltered",
+            "quality_metric_of": [
+              "/files/ENCFF818YVY/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "total": 17822310,
+            "total_qc_failed": 0,
+            "uuid": "2b613b40-a3a3-4c29-9207-3a2d18f61a03"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF818YVY/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/6627b6f2-1f76-4a61-8779-9ef19f1cda72/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+              "md5sum": "54831b491c5e69450552cd01a7730c39",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2017-10-25T00:15:54.381228+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 13279738,
+            "mapped_pct": "100.00%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "filtered",
+            "quality_metric_of": [
+              "/files/ENCFF818YVY/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "total": 13279738,
+            "total_qc_failed": 0,
+            "usable_fragments": 13279738,
+            "uuid": "6627b6f2-1f76-4a61-8779-9ef19f1cda72"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF818YVY/"
+          ],
+          "quality_metric": {
+            "@id": "/chipseq-filter-quality-metrics/b12d3e2c-8b23-47db-b977-aae15d60cd7f/",
+            "@type": [
+              "ChipSeqFilterQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "NRF": 0.986395,
+            "NSC": 1.013573,
+            "PBC1": 0.986712,
+            "PBC2": 75.876078,
+            "RSC": 1.017822,
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+              "md5sum": "b2364abe2fc1f0bc96c02f9ab76d529c",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "cross_correlation_plot": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+              "href": "@@download/cross_correlation_plot/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+              "md5sum": "2d3d935f797d43880ba9a6e0b577ba08",
+              "type": "application/pdf"
+            },
+            "date_created": "2017-10-25T00:15:51.501708+00:00",
+            "fragment length": 235,
+            "lab": "/labs/encode-processing-pipeline/",
+            "quality_metric_of": [
+              "/files/ENCFF818YVY/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+            "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+            "uuid": "b12d3e2c-8b23-47db-b977-aae15d60cd7f"
+          }
+        },
+        {
+          "biological_replicates": [
+            1
+          ],
+          "files": [
+            "/files/ENCFF067UIL/"
+          ],
+          "quality_metric": {
+            "@id": "/samtools-flagstats-quality-metrics/453461d8-50a2-438a-9892-95592d1573ae/",
+            "@type": [
+              "SamtoolsFlagstatsQualityMetric",
+              "QualityMetric",
+              "Item"
+            ],
+            "aliases": [],
+            "assay_term_id": "OBI:0000716",
+            "assay_term_name": "ChIP-seq",
+            "attachment": {
+              "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+              "md5sum": "7826fe7b4d40363c0d1f429f9fd5ce2a",
+              "type": "text/plain"
+            },
+            "award": "/awards/U41HG006992/",
+            "date_created": "2016-12-19T07:29:45.880612+00:00",
+            "duplicates": 0,
+            "duplicates_qc_failed": 0,
+            "lab": "/labs/encode-processing-pipeline/",
+            "mapped": 17401348,
+            "mapped_pct": "97.64%",
+            "mapped_qc_failed": 0,
+            "processing_stage": "unfiltered",
+            "quality_metric_of": [
+              "/files/ENCFF067UIL/"
+            ],
+            "schema_version": "8",
+            "status": "released",
+            "step_run": "/analysis-step-runs/e95fc278-aef0-41d6-b933-0e96c584658e/",
+            "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+            "total": 17822310,
+            "total_qc_failed": 0,
+            "uuid": "453461d8-50a2-438a-9892-95592d1573ae"
+          }
+        }
+      ],
+      "schema_version": "1",
+      "status": "archived",
+      "submitted_by": "/users/6667a92a-d202-493a-8c7d-7a56d1380356/",
+      "superseded_by": [],
+      "title": "ENCODE3 GRCh38",
+      "uuid": "ab254121-c755-4a31-b6a8-9e7ed75cf191"
+    },
+    {
+      "@id": "/analyses/ENCAN854UNW/",
+      "@type": [
+        "Analysis",
+        "Item"
+      ],
+      "accession": "ENCAN854UNW",
+      "aliases": [
+        "encode:ENCSR603VTC_GRCh38_lab-processed"
+      ],
+      "assembly": "hg19",
+      "datasets": [
+        "/experiments/ENCSR603VTC/"
+      ],
+      "date_created": "2020-10-22T07:02:25.373808+00:00",
+      "documents": [],
+      "files": [
+        "/files/ENCFF603OAT/"
+      ],
+      "pipeline_award_rfas": [],
+      "pipeline_labs": [],
+      "pipelines": [],
+      "schema_version": "1",
+      "status": "archived",
+      "submitted_by": "/users/6667a92a-d202-493a-8c7d-7a56d1380356/",
+      "superseded_by": [],
+      "title": "Lab custom hg19",
+      "uuid": "f260a05e-d948-437c-b598-2ee9c2339d48"
+    }
+  ],
+  "assay_slims": [
+    "DNA binding"
+  ],
+  "assay_term_id": "OBI:0000716",
+  "assay_term_name": "ChIP-seq",
+  "assay_title": "Control ChIP-seq",
+  "assembly": [
+    "hg19",
+    "GRCh38"
+  ],
+  "audit": {
+    "INTERNAL_ACTION": [
+      {
+        "category": "mismatched status",
+        "detail": "Released experiment {ENCSR603VTC|/experiments/ENCSR603VTC/} has archived subobject analysis {ENCAN942JEJ|/analyses/ENCAN942JEJ/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/experiments/ENCSR603VTC/"
+      },
+      {
+        "category": "mismatched status",
+        "detail": "Released experiment {ENCSR603VTC|/experiments/ENCSR603VTC/} has archived subobject analysis {ENCAN854UNW|/analyses/ENCAN854UNW/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/experiments/ENCSR603VTC/"
+      },
+      {
+        "category": "mismatched status",
+        "detail": "Released experiment {ENCSR603VTC|/experiments/ENCSR603VTC/} has archived subobject analysis {ENCAN882RNZ|/analyses/ENCAN882RNZ/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/experiments/ENCSR603VTC/"
+      },
+      {
+        "category": "mismatched status",
+        "detail": "Released analysis {ENCAN211BAA|/analyses/ENCAN211BAA/} has in progress subobject document {e2b31655-3489-4bd5-87b1-9c5a51285d01|/documents/e2b31655-3489-4bd5-87b1-9c5a51285d01/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/analyses/ENCAN211BAA/"
+      }
+    ],
+    "WARNING": [
+      {
+        "category": "low read length",
+        "detail": "Fastq file {ENCFF515OUC|/files/ENCFF515OUC/} has read length of 36bp. For mapping accuracy ENCODE standards recommend that sequencing reads should be at least 50bp long. (See {ENCODE ChIP-seq data standards|/data-standards/chip-seq/} )",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR603VTC/"
+      },
+      {
+        "category": "low read length",
+        "detail": "Fastq file {ENCFF582CRV|/files/ENCFF582CRV/} has read length of 36bp. For mapping accuracy ENCODE standards recommend that sequencing reads should be at least 50bp long. (See {ENCODE ChIP-seq data standards|/data-standards/chip-seq/} )",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_experiment",
+        "path": "/experiments/ENCSR603VTC/"
+      },
+      {
+        "category": "low read depth",
+        "detail": "Control alignments file {ENCFF144TSQ|/files/ENCFF144TSQ/} processed by ChIP-seq ENCODE4 v1.5.1 GRCh38 pipeline mapped using GRCh38 assembly has 14291637 usable fragments. The minimum ENCODE standard for a control of ChIP-seq assays targeting broad histone marks is 20 million usable fragments, the recommended number of usable fragments is > 45 million. The minimum for a control of ChIP-seq assays targeting narrow histone marks or transcription factors is 10 million usable fragments, the recommended number of usable fragments is > 20 million. (See {ENCODE ChIP-seq data standards|/data-standards/chip-seq/})",
+        "level": 40,
+        "level_name": "WARNING",
+        "name": "audit_analysis",
+        "path": "/analyses/ENCAN211BAA/"
+      }
+    ]
+  },
+  "award": {
+    "@id": "/awards/U01ES017155/",
+    "@type": [
+      "Award",
+      "Item"
+    ],
+    "description": "The Reference Epigenome Mapping Centers (REMC) will aim to transform our understanding of human epigenetics through production and integrative analysis of comprehensive reference epigenomes for ES cells, differentiated cells and tissues. In pursuit of this goal, we have assembled a unique scientific team and infrastructure with broad expertise and capabilities in stem cell biology, epigenomics, technology, production research and computation. We recently demonstrated two complementary methods that leverage ultra high-throughput sequencing for epigenomic analysis. In the first method, genome-wide chromatin maps are acquired by deep sequencing chromatin IP DNA (ChlP-Seq). In the second, nucleotide-resolution DNA methylation maps are generated by high-throughput bisulfite-sequencing (HTBS). These methods represent major improvements over prior tools as they yield precise digital information, have high genome coverage, require fewer cells and are cost-effective. Multiple epigenomic maps have already been produced for stem cells and primary tissues, and pipelines have been assembled for efficient data collection, processing and analysis. For the REMC project, we propose to apply ChlP-Seq and HTBS pipelines to generate comprehensive high-resolution maps of chromatin state and DNA methylation for 100 diverse cell types. Cell types were selected for their biological and medical importance, and for their potential to maximize the comprehensiveness of acquired epigenomic data. They include human ES cells, ES-derived cells, mesenchymal stem cells, reprogrammed stem cells and primary tissues. ChlP-Seq will be used to map highly informative chromatin modifications and related chromatin proteins in each cell type. HTBS will be used to generate nucleotide-resolution DNA methylation maps. Reference epigenomes will reveal the locations and activation states of diverse functional genomic elements, inform on the developmental state and potential of studied cell populations, and provide a framework for understanding complex epigenetic regulatory mechanisms. All data will be made available to the scientific community upon verification. PUBLIC HEALTH RELEVANCE: Comprehensive characterization of epigenetic marks ('the epigenome') is a critical step towards a global understanding of the human genome in health and disease. The proposed mapping studies will provide unprecedented views of the human epigenetic landscape and its variation across cell states, offer fundamental insight into the functions and interrelationships of epigenetic marks, and provide a framework for future studies of normal and diseased epigenomes.",
+    "end_date": "2013-06-30",
+    "name": "U01ES017155",
+    "pi": {
+      "@id": "/users/aa57ecb5-3d0e-4b1f-9608-665785270ad7/",
+      "@type": [
+        "User",
+        "Item"
+      ],
+      "lab": {
+        "@id": "/labs/bradley-bernstein/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Massachusetts General Hospital Simches Research Building, CPZN 8234",
+        "address2": "185 Cambridge St.",
+        "awards": [
+          "/awards/U01ES017155/",
+          "/awards/U54HG004570/",
+          "/awards/U54HG006991/",
+          "/awards/UM1HG009390/"
+        ],
+        "city": "Boston",
+        "country": "USA",
+        "fax": "617-643-3566",
+        "institute_label": "Broad",
+        "institute_name": "Broad Institute",
+        "name": "bradley-bernstein",
+        "phone1": "617-726-6906",
+        "phone2": "",
+        "pi": "/users/aa57ecb5-3d0e-4b1f-9608-665785270ad7/",
+        "postal_code": "2114",
+        "schema_version": "5",
+        "state": "MA",
+        "status": "current",
+        "title": "Bradley Bernstein, Broad",
+        "uuid": "b83215c3-3960-4085-b220-614a122eea01"
+      },
+      "submits_for": [
+        "/labs/bradley-bernstein/",
+        "/labs/john-rinn/"
+      ],
+      "title": "Bradley Bernstein",
+      "uuid": "aa57ecb5-3d0e-4b1f-9608-665785270ad7"
+    },
+    "project": "Roadmap",
+    "rfa": "Roadmap",
+    "schema_version": "11",
+    "start_date": "2009-09-29",
+    "status": "current",
+    "title": "PRODUCTION SEQUENCING OF REFERENCE HUMAN EPIGENOMES",
+    "url": "http://projectreporter.nih.gov/project_info_details.cfm?aid=7879018",
+    "uuid": "831ca610-0f7d-4688-b54c-1ef382502e12",
+    "viewing_group": "REMC"
+  },
+  "bio_replicate_count": 1,
+  "biosample_ontology": {
+    "@id": "/biosample-types/tissue_UBERON_0000955/",
+    "@type": [
+      "BiosampleType",
+      "Item"
+    ],
+    "aliases": [],
+    "cell_slims": [],
+    "classification": "tissue",
+    "dbxrefs": [],
+    "developmental_slims": [
+      "ectoderm"
+    ],
+    "name": "tissue_UBERON_0000955",
+    "organ_slims": [
+      "brain"
+    ],
+    "references": [],
+    "schema_version": "1",
+    "status": "released",
+    "synonyms": [],
+    "system_slims": [
+      "central nervous system"
+    ],
+    "term_id": "UBERON:0000955",
+    "term_name": "brain",
+    "uuid": "1a70b14a-679c-4b29-88bf-2fa08c05fed1"
+  },
+  "biosample_summary": "Homo sapiens brain tissue female embryo (120 days)",
+  "category_slims": [],
+  "contributing_files": [
+    "/files/ENCFF807MUK/",
+    "/files/ENCFF110MCL/",
+    "/files/ENCFF643CGH/"
+  ],
+  "control_type": "input library",
+  "date_created": "2015-09-15T19:51:53.490197+00:00",
+  "date_released": "2013-07-31",
+  "date_submitted": "2013-07-31",
+  "dbxrefs": [
+    "GEO:GSM706851",
+    "GEO:GSE258106"
+  ],
+  "default_analysis": "/analyses/ENCAN211BAA/",
+  "description": "",
+  "documents": [],
+  "doi": "10.17989/ENCSR603VTC",
+  "files": [
+    {
+      "@id": "/files/ENCFF515OUC/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF515OUC",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "award": "/awards/ROADMAP/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/10/22/db7519ff-db34-42d3-a5da-00f849c192e6/ENCFF515OUC.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 392387737,
+        "md5sum_base64": "6NjHDriJyLaV5S+cWSzEtA==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/10/22/db7519ff-db34-42d3-a5da-00f849c192e6/ENCFF515OUC.fastq.gz"
+      },
+      "content_md5sum": "82553b6bceb694e1749cfa4599e05652",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-10-22T01:28:10.546454+00:00",
+      "dbxrefs": [
+        "SRA:SRR1067410",
+        "SRA:SRR28102796"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [
+        "B091JABXX110402:2:1::@B091JABXX110402:2:1108:4945:76359"
+      ],
+      "file_format": "fastq",
+      "file_size": 392387737,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF515OUC/@@download/ENCFF515OUC.fastq.gz",
+      "lab": {
+        "@id": "/labs/zhiping-weng/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Department of Biochemistry and Molecular Pharmacology",
+        "address2": "364 Plantation St, LRB",
+        "awards": [
+          "/awards/R01HG003110/",
+          "/awards/U01HG004561/",
+          "/awards/U41HG007000/",
+          "/awards/U24HG009446/"
+        ],
+        "city": "Worcester",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "UMass",
+        "institute_name": "University of Massachusets Medical School",
+        "name": "zhiping-weng",
+        "phone1": "508-856-8866",
+        "phone2": "",
+        "pi": "/users/50a19cb0-542f-473e-9f59-2b8fac97b253/",
+        "postal_code": "01605",
+        "schema_version": "5",
+        "state": "MA",
+        "status": "current",
+        "title": "Zhiping Weng, UMass",
+        "uuid": "92303532-6f4b-4e15-ac0c-0dc7e916d485"
+      },
+      "md5sum": "e8d8c70eb889c8b695e52f9c592cc4b4",
+      "no_file_available": false,
+      "output_category": "raw data",
+      "output_type": "reads",
+      "platform": {
+        "@id": "/platforms/OBI:0002001/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:Illumina_HiSeq_2000",
+          "encode:HiSeq2000"
+        ],
+        "date_created": "2013-11-14T22:17:00.135861+00:00",
+        "dbxrefs": [
+          "UCSC-ENCODE-cv:Illumina_HiSeq_2000"
+        ],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/ff7b77e7-bb55-4307-b665-814c9f1e65fb/",
+        "term_id": "OBI:0002001",
+        "term_name": "Illumina HiSeq 2000",
+        "title": "Illumina HiSeq 2000",
+        "url": "http://www.illumina.com/documents/products/datasheets/datasheet_hiseq2000.pdf",
+        "uuid": "03a96eaf-75da-44e2-b4f6-e349e8c3655e"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 8786425,
+      "read_length": 36,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/7921224c-8da5-4985-9d71-9c2a7a82632d/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "roadmap-epigenomics:Lane Subset 210_Mar-31-2011_11694_run"
+        ],
+        "biological_replicate_number": 1,
+        "date_created": "2015-09-30T01:35:51.366582+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR603VTC/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR603VTC",
+          "aliases": [
+            "roadmap-epigenomics:ChIP-Seq analysis of WCE in human fetal brain cells_Mar-31-2011_83932"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN942JEJ/",
+            "/analyses/ENCAN211BAA/",
+            "/analyses/ENCAN882RNZ/",
+            "/analyses/ENCAN854UNW/"
+          ],
+          "assay_slims": [
+            "DNA binding"
+          ],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "assay_title": "Control ChIP-seq",
+          "assembly": [
+            "hg19",
+            "GRCh38"
+          ],
+          "award": "/awards/U01ES017155/",
+          "bio_replicate_count": 1,
+          "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+          "biosample_summary": "Homo sapiens brain tissue female embryo (120 days)",
+          "category_slims": [],
+          "contributing_files": [
+            "/files/ENCFF807MUK/",
+            "/files/ENCFF110MCL/",
+            "/files/ENCFF643CGH/"
+          ],
+          "control_type": "input library",
+          "date_created": "2015-09-15T19:51:53.490197+00:00",
+          "date_released": "2013-07-31",
+          "date_submitted": "2013-07-31",
+          "dbxrefs": [
+            "GEO:GSM706851",
+            "GEO:GSE258106"
+          ],
+          "default_analysis": "/analyses/ENCAN211BAA/",
+          "description": "",
+          "documents": [],
+          "doi": "10.17989/ENCSR603VTC",
+          "files": [
+            "/files/ENCFF515OUC/",
+            "/files/ENCFF582CRV/",
+            "/files/ENCFF818YVY/",
+            "/files/ENCFF067UIL/",
+            "/files/ENCFF393EMH/",
+            "/files/ENCFF946LBA/",
+            "/files/ENCFF603OAT/",
+            "/files/ENCFF706QQX/",
+            "/files/ENCFF144TSQ/"
+          ],
+          "hub": "/experiments/ENCSR603VTC/@@hub/hub.txt",
+          "internal_status": "release ready",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/bradley-bernstein/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "Massachusetts General Hospital Simches Research Building, CPZN 8234",
+            "address2": "185 Cambridge St.",
+            "awards": [
+              "/awards/U01ES017155/",
+              "/awards/U54HG004570/",
+              "/awards/U54HG006991/",
+              "/awards/UM1HG009390/"
+            ],
+            "city": "Boston",
+            "country": "USA",
+            "fax": "617-643-3566",
+            "institute_label": "Broad",
+            "institute_name": "Broad Institute",
+            "name": "bradley-bernstein",
+            "phone1": "617-726-6906",
+            "phone2": "",
+            "pi": "/users/aa57ecb5-3d0e-4b1f-9608-665785270ad7/",
+            "postal_code": "2114",
+            "schema_version": "5",
+            "state": "MA",
+            "status": "current",
+            "title": "Bradley Bernstein, Broad",
+            "uuid": "b83215c3-3960-4085-b220-614a122eea01"
+          },
+          "life_stage_age": "embryonic 120 days",
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF515OUC/",
+            "/files/ENCFF582CRV/",
+            "/files/ENCFF818YVY/",
+            "/files/ENCFF067UIL/",
+            "/files/ENCFF393EMH/",
+            "/files/ENCFF946LBA/",
+            "/files/ENCFF603OAT/",
+            "/files/ENCFF706QQX/",
+            "/files/ENCFF144TSQ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [
+            "/reference-epigenomes/ENCSR926DHA/"
+          ],
+          "replicates": [
+            "/replicates/7921224c-8da5-4985-9d71-9c2a7a82632d/"
+          ],
+          "replication_type": "unreplicated",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "female embryo (120 days)",
+          "status": "released",
+          "submitted_by": "/users/9851ccbc-2df9-4529-a4f3-90edee981fc0/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 1,
+          "type_slims": [],
+          "uuid": "f83f0ce7-7d70-4c00-8763-acd3630267f8"
+        },
+        "library": "/libraries/ENCLB060FFB/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/20ce8cd4-c407-453c-b0f3-7e45e5b7e493/",
+        "technical_replicate_number": 4,
+        "uuid": "7921224c-8da5-4985-9d71-9c2a7a82632d"
+      },
+      "run_type": "single-ended",
+      "s3_uri": "s3://encode-public/2016/10/22/db7519ff-db34-42d3-a5da-00f849c192e6/ENCFF515OUC.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/5a1c0169-f9d0-4598-8f92-3eb84b122c1e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/zhiping-weng/",
+        "submits_for": [
+          "/labs/zhiping-weng/",
+          "/labs/anshul-kundaje/",
+          "/labs/job-dekker/"
+        ],
+        "title": "Henry Pratt",
+        "uuid": "5a1c0169-f9d0-4598-8f92-3eb84b122c1e"
+      },
+      "submitted_file_name": "SRR1067410.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF515OUC",
+      "uuid": "db7519ff-db34-42d3-a5da-00f849c192e6"
+    },
+    {
+      "@id": "/files/ENCFF582CRV/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF582CRV",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "award": "/awards/ROADMAP/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/10/22/817955d7-e40c-4a8c-9f30-8fa320c1b19e/ENCFF582CRV.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 402198308,
+        "md5sum_base64": "3ZofMp19V6mjL2Vd6uVeyw==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/10/22/817955d7-e40c-4a8c-9f30-8fa320c1b19e/ENCFF582CRV.fastq.gz"
+      },
+      "content_md5sum": "cf5b9e482954e50289de1839c679f3fe",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-10-22T03:40:36.601620+00:00",
+      "dbxrefs": [
+        "SRA:SRR28102797",
+        "SRA:SRR1067425"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [
+        "B091JABXX110402:3:1::@B091JABXX110402:3:1205:15607:162331"
+      ],
+      "file_format": "fastq",
+      "file_size": 402198308,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF582CRV/@@download/ENCFF582CRV.fastq.gz",
+      "lab": {
+        "@id": "/labs/zhiping-weng/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "Department of Biochemistry and Molecular Pharmacology",
+        "address2": "364 Plantation St, LRB",
+        "awards": [
+          "/awards/R01HG003110/",
+          "/awards/U01HG004561/",
+          "/awards/U41HG007000/",
+          "/awards/U24HG009446/"
+        ],
+        "city": "Worcester",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "UMass",
+        "institute_name": "University of Massachusets Medical School",
+        "name": "zhiping-weng",
+        "phone1": "508-856-8866",
+        "phone2": "",
+        "pi": "/users/50a19cb0-542f-473e-9f59-2b8fac97b253/",
+        "postal_code": "01605",
+        "schema_version": "5",
+        "state": "MA",
+        "status": "current",
+        "title": "Zhiping Weng, UMass",
+        "uuid": "92303532-6f4b-4e15-ac0c-0dc7e916d485"
+      },
+      "md5sum": "dd9a1f329d7d57a9a32f655deae55ecb",
+      "no_file_available": false,
+      "output_category": "raw data",
+      "output_type": "reads",
+      "platform": {
+        "@id": "/platforms/OBI:0002001/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:Illumina_HiSeq_2000",
+          "encode:HiSeq2000"
+        ],
+        "date_created": "2013-11-14T22:17:00.135861+00:00",
+        "dbxrefs": [
+          "UCSC-ENCODE-cv:Illumina_HiSeq_2000"
+        ],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/ff7b77e7-bb55-4307-b665-814c9f1e65fb/",
+        "term_id": "OBI:0002001",
+        "term_name": "Illumina HiSeq 2000",
+        "title": "Illumina HiSeq 2000",
+        "url": "http://www.illumina.com/documents/products/datasheets/datasheet_hiseq2000.pdf",
+        "uuid": "03a96eaf-75da-44e2-b4f6-e349e8c3655e"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 9035885,
+      "read_length": 36,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/7921224c-8da5-4985-9d71-9c2a7a82632d/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "roadmap-epigenomics:Lane Subset 210_Mar-31-2011_11694_run"
+        ],
+        "biological_replicate_number": 1,
+        "date_created": "2015-09-30T01:35:51.366582+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR603VTC/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR603VTC",
+          "aliases": [
+            "roadmap-epigenomics:ChIP-Seq analysis of WCE in human fetal brain cells_Mar-31-2011_83932"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN942JEJ/",
+            "/analyses/ENCAN211BAA/",
+            "/analyses/ENCAN882RNZ/",
+            "/analyses/ENCAN854UNW/"
+          ],
+          "assay_slims": [
+            "DNA binding"
+          ],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "assay_title": "Control ChIP-seq",
+          "assembly": [
+            "hg19",
+            "GRCh38"
+          ],
+          "award": "/awards/U01ES017155/",
+          "bio_replicate_count": 1,
+          "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+          "biosample_summary": "Homo sapiens brain tissue female embryo (120 days)",
+          "category_slims": [],
+          "contributing_files": [
+            "/files/ENCFF807MUK/",
+            "/files/ENCFF110MCL/",
+            "/files/ENCFF643CGH/"
+          ],
+          "control_type": "input library",
+          "date_created": "2015-09-15T19:51:53.490197+00:00",
+          "date_released": "2013-07-31",
+          "date_submitted": "2013-07-31",
+          "dbxrefs": [
+            "GEO:GSM706851",
+            "GEO:GSE258106"
+          ],
+          "default_analysis": "/analyses/ENCAN211BAA/",
+          "description": "",
+          "documents": [],
+          "doi": "10.17989/ENCSR603VTC",
+          "files": [
+            "/files/ENCFF515OUC/",
+            "/files/ENCFF582CRV/",
+            "/files/ENCFF818YVY/",
+            "/files/ENCFF067UIL/",
+            "/files/ENCFF393EMH/",
+            "/files/ENCFF946LBA/",
+            "/files/ENCFF603OAT/",
+            "/files/ENCFF706QQX/",
+            "/files/ENCFF144TSQ/"
+          ],
+          "hub": "/experiments/ENCSR603VTC/@@hub/hub.txt",
+          "internal_status": "release ready",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/bradley-bernstein/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "Massachusetts General Hospital Simches Research Building, CPZN 8234",
+            "address2": "185 Cambridge St.",
+            "awards": [
+              "/awards/U01ES017155/",
+              "/awards/U54HG004570/",
+              "/awards/U54HG006991/",
+              "/awards/UM1HG009390/"
+            ],
+            "city": "Boston",
+            "country": "USA",
+            "fax": "617-643-3566",
+            "institute_label": "Broad",
+            "institute_name": "Broad Institute",
+            "name": "bradley-bernstein",
+            "phone1": "617-726-6906",
+            "phone2": "",
+            "pi": "/users/aa57ecb5-3d0e-4b1f-9608-665785270ad7/",
+            "postal_code": "2114",
+            "schema_version": "5",
+            "state": "MA",
+            "status": "current",
+            "title": "Bradley Bernstein, Broad",
+            "uuid": "b83215c3-3960-4085-b220-614a122eea01"
+          },
+          "life_stage_age": "embryonic 120 days",
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF515OUC/",
+            "/files/ENCFF582CRV/",
+            "/files/ENCFF818YVY/",
+            "/files/ENCFF067UIL/",
+            "/files/ENCFF393EMH/",
+            "/files/ENCFF946LBA/",
+            "/files/ENCFF603OAT/",
+            "/files/ENCFF706QQX/",
+            "/files/ENCFF144TSQ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [
+            "/reference-epigenomes/ENCSR926DHA/"
+          ],
+          "replicates": [
+            "/replicates/7921224c-8da5-4985-9d71-9c2a7a82632d/"
+          ],
+          "replication_type": "unreplicated",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "female embryo (120 days)",
+          "status": "released",
+          "submitted_by": "/users/9851ccbc-2df9-4529-a4f3-90edee981fc0/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 1,
+          "type_slims": [],
+          "uuid": "f83f0ce7-7d70-4c00-8763-acd3630267f8"
+        },
+        "library": "/libraries/ENCLB060FFB/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/20ce8cd4-c407-453c-b0f3-7e45e5b7e493/",
+        "technical_replicate_number": 4,
+        "uuid": "7921224c-8da5-4985-9d71-9c2a7a82632d"
+      },
+      "run_type": "single-ended",
+      "s3_uri": "s3://encode-public/2016/10/22/817955d7-e40c-4a8c-9f30-8fa320c1b19e/ENCFF582CRV.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/5a1c0169-f9d0-4598-8f92-3eb84b122c1e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/zhiping-weng/",
+        "submits_for": [
+          "/labs/zhiping-weng/",
+          "/labs/anshul-kundaje/",
+          "/labs/job-dekker/"
+        ],
+        "title": "Henry Pratt",
+        "uuid": "5a1c0169-f9d0-4598-8f92-3eb84b122c1e"
+      },
+      "submitted_file_name": "SRR1067425.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF582CRV",
+      "uuid": "817955d7-e40c-4a8c-9f30-8fa320c1b19e"
+    },
+    {
+      "@id": "/files/ENCFF818YVY/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF818YVY",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN882RNZ/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE3"
+          ],
+          "status": "archived",
+          "title": "ENCODE3 GRCh38",
+          "uuid": "ab254121-c755-4a31-b6a8-9e7ed75cf191"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/bwa-alignment-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:bwa-alignment-step-v-1"
+          ],
+          "analysis_step_types": [
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/bwa-alignment-step-v-1-1/",
+          "date_created": "2015-06-24T04:10:17.022631+00:00",
+          "documents": [],
+          "input_file_types": [
+            "genome index",
+            "reads"
+          ],
+          "major_version": 1,
+          "name": "bwa-alignment-step-v-1",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "parents": [
+            "/analysis-steps/bwa-indexing-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL220NBH/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL220NBH",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/bwa-indexing-step-v-1/",
+                "/analysis-steps/bwa-alignment-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U41HG006992/",
+              "date_created": "2017-03-09T18:29:33.666735+00:00",
+              "description": "ENCODE defined analysis pipeline for ChIP-seq read mapping",
+              "documents": [
+                "/documents/6f6351d4-9310-4a3b-a3c2-70ecac47b28b/"
+              ],
+              "lab": "/labs/encode-processing-pipeline/",
+              "references": [],
+              "schema_version": "14",
+              "standards_page": "/chip-seq/",
+              "status": "released",
+              "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+              "title": "ChIP-seq read mapping",
+              "uuid": "4168b003-a56e-452c-b550-1c9eaa9a1895"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "bwa-alignment-step",
+          "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+          "title": "BWA alignment and filtration step",
+          "uuid": "d72eced7-ad33-4cdc-8767-5a5ccaeb674c",
+          "versions": [
+            "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+            "/analysis-step-versions/bwa-alignment-step-v-1-1/"
+          ]
+        },
+        "date_created": "2015-06-24T04:10:17.022631+00:00",
+        "minor_version": 0,
+        "name": "bwa-alignment-step-v-1-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/de3c16f7-be94-4b2f-a7b4-c44ba67735d7/",
+          "/software-versions/2f4d48db-d4ec-4e9e-8c22-9fc5ee6c49ac/",
+          "/software-versions/37969002-2985-4d2c-9d1d-2f7160d80019/",
+          "/software-versions/2cc07124-16be-4333-8943-4bce96059af3/",
+          "/software-versions/88756cca-1e79-4086-92ad-5f15ebb1fd5a/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+        "uuid": "ced7264f-9206-4838-99ea-3badb3fb124c"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "GRCh38",
+      "award": "/awards/U41HG006992/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/12/19/5e7d7072-790c-479f-8e75-17be981a5693/ENCFF818YVY.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 687306585,
+        "md5sum_base64": "dFmcHnxJOD9RJyxcT/QOOQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/12/19/5e7d7072-790c-479f-8e75-17be981a5693/ENCFF818YVY.bam"
+      },
+      "content_md5sum": "2307d351d196607ae4d06d3e5c7680cf",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-12-19T07:29:23.139280+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF643CGH/",
+        "/files/ENCFF515OUC/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 687306585,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF818YVY/@@download/ENCFF818YVY.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "74599c1e7c49383f51272c5c4ff40e39",
+      "no_file_available": false,
+      "notes": "{\"dx-createdBy\": {\"job\": \"job-F1FBkX00pj5f3XBzBPYqqFKG\", \"executable\": \"applet-F1BBQg80pj5xqZP0B1P9VVKB\", \"user\": \"user-cricketsloan\"}, \"qc\": {\"xcor_qc\": {\"QualityTag\": \"1\", \"min_corr\": \"0.1542368\", \"phantomPeakCoef\": \"1.013573\", \"estFragLen\": \"235\", \"PhantomPeak\": \"35\", \"corr_estFragLen\": \"0.156330244123469\", \"relPhantomPeakCoef\": \"1.017822\", \"numReads\": \"13275512\", \"corr_phantomPeak\": \"0.1562936\", \"argmin_corr\": \"1500\"}, \"qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [17822310, 0], \"mapped\": [17401348, 0]}, \"dup_qc\": {\"unmapped_reads\": \"0\", \"estimated_library_size\": \"\", \"read_pair_optical_duplicates\": \"0\", \"read_pairs_examined\": \"0\", \"unpaired_reads_examined\": \"13479409\", \"percent_duplication\": \"0.014813\", \"read_pair_duplicates\": \"0\", \"unpaired_read_duplicates\": \"199671\"}, \"pbc_qc\": {\"PBC2\": \"75.876078\", \"PBC1\": \"0.986712\", \"NRF\": \"0.986395\", \"OneReadPair\": \"13114042\", \"DistinctReadPairs\": \"13290651\", \"TotalReadPairs\": \"13473958\", \"TwoReadPairs\": \"172835\"}, \"filtered_qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [13279738, 0], \"mapped\": [13279738, 0]}}, \"dx-parentAnalysis\": \"analysis-F1FBkX00pj5f3XBzBPYqqFK7\", \"dx-id\": \"file-F1FG36Q0X6y2YYb17XZB97G5\"}",
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/samtools-flagstats-quality-metrics/2b613b40-a3a3-4c29-9207-3a2d18f61a03/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "md5sum": "7826fe7b4d40363c0d1f429f9fd5ce2a",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2017-10-25T00:15:53.489521+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 17401348,
+          "mapped_pct": "97.64%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "unfiltered",
+          "quality_metric_of": [
+            "/files/ENCFF818YVY/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "total": 17822310,
+          "total_qc_failed": 0,
+          "uuid": "2b613b40-a3a3-4c29-9207-3a2d18f61a03"
+        },
+        {
+          "@id": "/samtools-flagstats-quality-metrics/6627b6f2-1f76-4a61-8779-9ef19f1cda72/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+            "md5sum": "54831b491c5e69450552cd01a7730c39",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2017-10-25T00:15:54.381228+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 13279738,
+          "mapped_pct": "100.00%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "filtered",
+          "quality_metric_of": [
+            "/files/ENCFF818YVY/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "total": 13279738,
+          "total_qc_failed": 0,
+          "usable_fragments": 13279738,
+          "uuid": "6627b6f2-1f76-4a61-8779-9ef19f1cda72"
+        },
+        {
+          "@id": "/chipseq-filter-quality-metrics/b12d3e2c-8b23-47db-b977-aae15d60cd7f/",
+          "@type": [
+            "ChipSeqFilterQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "NRF": 0.986395,
+          "NSC": 1.013573,
+          "PBC1": 0.986712,
+          "PBC2": 75.876078,
+          "RSC": 1.017822,
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+            "md5sum": "b2364abe2fc1f0bc96c02f9ab76d529c",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "cross_correlation_plot": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+            "href": "@@download/cross_correlation_plot/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+            "md5sum": "2d3d935f797d43880ba9a6e0b577ba08",
+            "type": "application/pdf"
+          },
+          "date_created": "2017-10-25T00:15:51.501708+00:00",
+          "fragment length": 235,
+          "lab": "/labs/encode-processing-pipeline/",
+          "quality_metric_of": [
+            "/files/ENCFF818YVY/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "uuid": "b12d3e2c-8b23-47db-b977-aae15d60cd7f"
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2016/12/19/5e7d7072-790c-479f-8e75-17be981a5693/ENCFF818YVY.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/5fce198f-81f4-41b2-946a-b4a224a8661a/",
+      "submitted_by": {
+        "@id": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Cricket Sloan",
+        "uuid": "81a6cc12-2847-4e2e-8f2c-f566699eb29e"
+      },
+      "submitted_file_name": "project-F143YP80pj5jBFYG9FvyzQGf:/mapping_GRCh38/bams/ENCSR603VTC/rep1/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF818YVY",
+      "uuid": "5e7d7072-790c-479f-8e75-17be981a5693"
+    },
+    {
+      "@id": "/files/ENCFF067UIL/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF067UIL",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN882RNZ/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE3"
+          ],
+          "status": "archived",
+          "title": "ENCODE3 GRCh38",
+          "uuid": "ab254121-c755-4a31-b6a8-9e7ed75cf191"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/bwa-alignment-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:bwa-alignment-step-v-1"
+          ],
+          "analysis_step_types": [
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/bwa-alignment-step-v-1-1/",
+          "date_created": "2015-06-24T04:10:17.022631+00:00",
+          "documents": [],
+          "input_file_types": [
+            "genome index",
+            "reads"
+          ],
+          "major_version": 1,
+          "name": "bwa-alignment-step-v-1",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "parents": [
+            "/analysis-steps/bwa-indexing-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL220NBH/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL220NBH",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/bwa-indexing-step-v-1/",
+                "/analysis-steps/bwa-alignment-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U41HG006992/",
+              "date_created": "2017-03-09T18:29:33.666735+00:00",
+              "description": "ENCODE defined analysis pipeline for ChIP-seq read mapping",
+              "documents": [
+                "/documents/6f6351d4-9310-4a3b-a3c2-70ecac47b28b/"
+              ],
+              "lab": "/labs/encode-processing-pipeline/",
+              "references": [],
+              "schema_version": "14",
+              "standards_page": "/chip-seq/",
+              "status": "released",
+              "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+              "title": "ChIP-seq read mapping",
+              "uuid": "4168b003-a56e-452c-b550-1c9eaa9a1895"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "bwa-alignment-step",
+          "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+          "title": "BWA alignment and filtration step",
+          "uuid": "d72eced7-ad33-4cdc-8767-5a5ccaeb674c",
+          "versions": [
+            "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+            "/analysis-step-versions/bwa-alignment-step-v-1-1/"
+          ]
+        },
+        "date_created": "2015-06-24T04:10:17.022631+00:00",
+        "minor_version": 0,
+        "name": "bwa-alignment-step-v-1-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/de3c16f7-be94-4b2f-a7b4-c44ba67735d7/",
+          "/software-versions/2f4d48db-d4ec-4e9e-8c22-9fc5ee6c49ac/",
+          "/software-versions/37969002-2985-4d2c-9d1d-2f7160d80019/",
+          "/software-versions/2cc07124-16be-4333-8943-4bce96059af3/",
+          "/software-versions/88756cca-1e79-4086-92ad-5f15ebb1fd5a/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+        "uuid": "ced7264f-9206-4838-99ea-3badb3fb124c"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "GRCh38",
+      "award": "/awards/U41HG006992/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/12/19/bdd5d580-9fb0-4c22-b94d-394728ed35e6/ENCFF067UIL.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 930893948,
+        "md5sum_base64": "HKVbtXc6AD1zHcplMr7QRg==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/12/19/bdd5d580-9fb0-4c22-b94d-394728ed35e6/ENCFF067UIL.bam"
+      },
+      "content_md5sum": "e3006abd4f350abea883f1b6a9c88cce",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-12-19T07:28:43.040474+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF643CGH/",
+        "/files/ENCFF515OUC/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 930893948,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF067UIL/@@download/ENCFF067UIL.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "1ca55bb5773a003d731dca6532bed046",
+      "no_file_available": false,
+      "notes": "{\"dx-createdBy\": {\"job\": \"job-F1FF4X00pj5Qj5VJ22b16YGp\", \"executable\": \"applet-F1BBQZ00pj5QKBjKB0kx3Zy4\", \"user\": \"user-cricketsloan\"}, \"qc\": {\"qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [17822310, 0], \"mapped\": [17401348, 0]}}, \"dx-parentAnalysis\": \"analysis-F1FBkX00pj5f3XBzBPYqqFK7\", \"dx-id\": \"file-F1FFv7Q01Y95vzVG231QyZy9\"}",
+      "output_category": "alignment",
+      "output_type": "unfiltered alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/samtools-flagstats-quality-metrics/453461d8-50a2-438a-9892-95592d1573ae/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "md5sum": "7826fe7b4d40363c0d1f429f9fd5ce2a",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2016-12-19T07:29:45.880612+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 17401348,
+          "mapped_pct": "97.64%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "unfiltered",
+          "quality_metric_of": [
+            "/files/ENCFF067UIL/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/e95fc278-aef0-41d6-b933-0e96c584658e/",
+          "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+          "total": 17822310,
+          "total_qc_failed": 0,
+          "uuid": "453461d8-50a2-438a-9892-95592d1573ae"
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2016/12/19/bdd5d580-9fb0-4c22-b94d-394728ed35e6/ENCFF067UIL.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/e95fc278-aef0-41d6-b933-0e96c584658e/",
+      "submitted_by": {
+        "@id": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Cricket Sloan",
+        "uuid": "81a6cc12-2847-4e2e-8f2c-f566699eb29e"
+      },
+      "submitted_file_name": "project-F143YP80pj5jBFYG9FvyzQGf:/mapping_GRCh38/raw_bams/ENCSR603VTC/rep1/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF067UIL",
+      "uuid": "bdd5d580-9fb0-4c22-b94d-394728ed35e6"
+    },
+    {
+      "@id": "/files/ENCFF393EMH/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF393EMH",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN942JEJ/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE3"
+          ],
+          "status": "archived",
+          "title": "ENCODE3 hg19",
+          "uuid": "c8c73449-1035-42f6-b8ec-a79759656e2e"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/bwa-alignment-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:bwa-alignment-step-v-1"
+          ],
+          "analysis_step_types": [
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/bwa-alignment-step-v-1-1/",
+          "date_created": "2015-06-24T04:10:17.022631+00:00",
+          "documents": [],
+          "input_file_types": [
+            "genome index",
+            "reads"
+          ],
+          "major_version": 1,
+          "name": "bwa-alignment-step-v-1",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "parents": [
+            "/analysis-steps/bwa-indexing-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL220NBH/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL220NBH",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/bwa-indexing-step-v-1/",
+                "/analysis-steps/bwa-alignment-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U41HG006992/",
+              "date_created": "2017-03-09T18:29:33.666735+00:00",
+              "description": "ENCODE defined analysis pipeline for ChIP-seq read mapping",
+              "documents": [
+                "/documents/6f6351d4-9310-4a3b-a3c2-70ecac47b28b/"
+              ],
+              "lab": "/labs/encode-processing-pipeline/",
+              "references": [],
+              "schema_version": "14",
+              "standards_page": "/chip-seq/",
+              "status": "released",
+              "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+              "title": "ChIP-seq read mapping",
+              "uuid": "4168b003-a56e-452c-b550-1c9eaa9a1895"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "bwa-alignment-step",
+          "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+          "title": "BWA alignment and filtration step",
+          "uuid": "d72eced7-ad33-4cdc-8767-5a5ccaeb674c",
+          "versions": [
+            "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+            "/analysis-step-versions/bwa-alignment-step-v-1-1/"
+          ]
+        },
+        "date_created": "2015-06-24T04:10:17.022631+00:00",
+        "minor_version": 0,
+        "name": "bwa-alignment-step-v-1-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/de3c16f7-be94-4b2f-a7b4-c44ba67735d7/",
+          "/software-versions/2f4d48db-d4ec-4e9e-8c22-9fc5ee6c49ac/",
+          "/software-versions/37969002-2985-4d2c-9d1d-2f7160d80019/",
+          "/software-versions/2cc07124-16be-4333-8943-4bce96059af3/",
+          "/software-versions/88756cca-1e79-4086-92ad-5f15ebb1fd5a/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+        "uuid": "ced7264f-9206-4838-99ea-3badb3fb124c"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "hg19",
+      "award": "/awards/U41HG006992/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/12/19/69a72fee-1982-4879-ba84-9de1188be2d5/ENCFF393EMH.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 925420696,
+        "md5sum_base64": "46rvRICUkEM/cd6i/5HUBw==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/12/19/69a72fee-1982-4879-ba84-9de1188be2d5/ENCFF393EMH.bam"
+      },
+      "content_md5sum": "e970c37c9832f127b60517e90a390689",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-12-19T07:29:05.535264+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF807MUK/",
+        "/files/ENCFF515OUC/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 925420696,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF393EMH/@@download/ENCFF393EMH.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "e3aaef44809490433f71dea2ff91d407",
+      "no_file_available": false,
+      "notes": "{\"dx-createdBy\": {\"job\": \"job-F1FF52Q0pj5xQFvxPBzvj29f\", \"executable\": \"applet-F1BBQZ00pj5QKBjKB0kx3Zy4\", \"user\": \"user-cricketsloan\"}, \"qc\": {\"qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [17822310, 0], \"mapped\": [17185601, 0]}}, \"dx-parentAnalysis\": \"analysis-F1FBp2Q0pj5ffX8KBPKFF3qy\", \"dx-id\": \"file-F1FFfVQ0866bXyzGPF2XKZj9\"}",
+      "output_category": "alignment",
+      "output_type": "unfiltered alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/samtools-flagstats-quality-metrics/51a4b056-6d71-4bf9-b129-347ebdf847e4/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "md5sum": "b5ba3de226fa61387b89b4fe2d8ebb72",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2016-12-19T07:30:05.578211+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 17185601,
+          "mapped_pct": "96.43%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "unfiltered",
+          "quality_metric_of": [
+            "/files/ENCFF393EMH/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/7464cc5c-d3f8-468b-bfb9-0c26d8802810/",
+          "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+          "total": 17822310,
+          "total_qc_failed": 0,
+          "uuid": "51a4b056-6d71-4bf9-b129-347ebdf847e4"
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2016/12/19/69a72fee-1982-4879-ba84-9de1188be2d5/ENCFF393EMH.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/7464cc5c-d3f8-468b-bfb9-0c26d8802810/",
+      "submitted_by": {
+        "@id": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Cricket Sloan",
+        "uuid": "81a6cc12-2847-4e2e-8f2c-f566699eb29e"
+      },
+      "submitted_file_name": "project-F143YP80pj5jBFYG9FvyzQGf:/mapping_hg19/raw_bams/ENCSR603VTC/rep1/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF393EMH",
+      "uuid": "69a72fee-1982-4879-ba84-9de1188be2d5"
+    },
+    {
+      "@id": "/files/ENCFF946LBA/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF946LBA",
+      "aliases": [],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN942JEJ/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE3"
+          ],
+          "status": "archived",
+          "title": "ENCODE3 hg19",
+          "uuid": "c8c73449-1035-42f6-b8ec-a79759656e2e"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/bwa-alignment-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:bwa-alignment-step-v-1"
+          ],
+          "analysis_step_types": [
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/bwa-alignment-step-v-1-1/",
+          "date_created": "2015-06-24T04:10:17.022631+00:00",
+          "documents": [],
+          "input_file_types": [
+            "genome index",
+            "reads"
+          ],
+          "major_version": 1,
+          "name": "bwa-alignment-step-v-1",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "parents": [
+            "/analysis-steps/bwa-indexing-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL220NBH/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL220NBH",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/bwa-indexing-step-v-1/",
+                "/analysis-steps/bwa-alignment-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U41HG006992/",
+              "date_created": "2017-03-09T18:29:33.666735+00:00",
+              "description": "ENCODE defined analysis pipeline for ChIP-seq read mapping",
+              "documents": [
+                "/documents/6f6351d4-9310-4a3b-a3c2-70ecac47b28b/"
+              ],
+              "lab": "/labs/encode-processing-pipeline/",
+              "references": [],
+              "schema_version": "14",
+              "standards_page": "/chip-seq/",
+              "status": "released",
+              "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+              "title": "ChIP-seq read mapping",
+              "uuid": "4168b003-a56e-452c-b550-1c9eaa9a1895"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "bwa-alignment-step",
+          "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+          "title": "BWA alignment and filtration step",
+          "uuid": "d72eced7-ad33-4cdc-8767-5a5ccaeb674c",
+          "versions": [
+            "/analysis-step-versions/bwa-alignment-step-v-1-0/",
+            "/analysis-step-versions/bwa-alignment-step-v-1-1/"
+          ]
+        },
+        "date_created": "2015-06-24T04:10:17.022631+00:00",
+        "minor_version": 0,
+        "name": "bwa-alignment-step-v-1-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/de3c16f7-be94-4b2f-a7b4-c44ba67735d7/",
+          "/software-versions/2f4d48db-d4ec-4e9e-8c22-9fc5ee6c49ac/",
+          "/software-versions/37969002-2985-4d2c-9d1d-2f7160d80019/",
+          "/software-versions/2cc07124-16be-4333-8943-4bce96059af3/",
+          "/software-versions/88756cca-1e79-4086-92ad-5f15ebb1fd5a/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/6800d05f-7213-48b1-9ad8-254c73c5b83f/",
+        "uuid": "ced7264f-9206-4838-99ea-3badb3fb124c"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "hg19",
+      "award": "/awards/U41HG006992/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/12/19/8142454a-d78f-4b16-8ed4-ddaac0b8a6fa/ENCFF946LBA.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 687479066,
+        "md5sum_base64": "vvaDwOkCwOZRFKhUajOMWw==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/12/19/8142454a-d78f-4b16-8ed4-ddaac0b8a6fa/ENCFF946LBA.bam"
+      },
+      "content_md5sum": "e151873676339171b10632e33e481e34",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-12-19T07:29:42.984365+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF807MUK/",
+        "/files/ENCFF515OUC/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 687479066,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF946LBA/@@download/ENCFF946LBA.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "bef683c0e902c0e65114a8546a338c5b",
+      "no_file_available": false,
+      "notes": "{\"dx-createdBy\": {\"job\": \"job-F1FBp2j0pj5ffX8KBPKFF3v3\", \"executable\": \"applet-F1BBQg80pj5xqZP0B1P9VVKB\", \"user\": \"user-cricketsloan\"}, \"qc\": {\"xcor_qc\": {\"QualityTag\": \"0\", \"min_corr\": \"0.1547016\", \"phantomPeakCoef\": \"1.014777\", \"estFragLen\": \"205\", \"PhantomPeak\": \"35\", \"corr_estFragLen\": \"0.156987621695245\", \"relPhantomPeakCoef\": \"0.8225339\", \"numReads\": \"13278375\", \"corr_phantomPeak\": \"0.1574808\", \"argmin_corr\": \"1500\"}, \"qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [17822310, 0], \"mapped\": [17185601, 0]}, \"dup_qc\": {\"unmapped_reads\": \"0\", \"estimated_library_size\": \"\", \"read_pair_optical_duplicates\": \"0\", \"read_pairs_examined\": \"0\", \"unpaired_reads_examined\": \"13490665\", \"percent_duplication\": \"0.015426\", \"read_pair_duplicates\": \"0\", \"unpaired_read_duplicates\": \"208111\"}, \"pbc_qc\": {\"PBC2\": \"75.600709\", \"PBC1\": \"0.986564\", \"NRF\": \"0.985803\", \"OneReadPair\": \"13115211\", \"DistinctReadPairs\": \"13293826\", \"TotalReadPairs\": \"13485270\", \"TwoReadPairs\": \"173480\"}, \"filtered_qc\": {\"duplicates\": [0, 0], \"mate_mapped_different_chr_hiQ\": [0, 0], \"read1\": [0, 0], \"singletons\": [0, 0], \"read2\": [0, 0], \"properly_paired\": [0, 0], \"paired_in_sequencing\": [0, 0], \"with_self_mate_mapped\": [0, 0], \"mate_mapped_different_chr\": [0, 0], \"in_total\": [13282554, 0], \"mapped\": [13282554, 0]}}, \"dx-parentAnalysis\": \"analysis-F1FBp2Q0pj5ffX8KBPKFF3qy\", \"dx-id\": \"file-F1FFx1Q0BXBBKjYF235yQxJG\"}",
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/samtools-flagstats-quality-metrics/dae2898c-0fdb-4129-bf87-e33f8cc0a04e/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.flagstat.qc.txt",
+            "md5sum": "512d16f1d29b0b9447adab3cb221a733",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2017-10-25T00:08:58.406026+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 13282554,
+          "mapped_pct": "100.00%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "filtered",
+          "quality_metric_of": [
+            "/files/ENCFF946LBA/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "total": 13282554,
+          "total_qc_failed": 0,
+          "usable_fragments": 13282554,
+          "uuid": "dae2898c-0fdb-4129-bf87-e33f8cc0a04e"
+        },
+        {
+          "@id": "/chipseq-filter-quality-metrics/f58985fa-5ce0-4972-968e-d6c2b3a3c436/",
+          "@type": [
+            "ChipSeqFilterQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "NRF": 0.985803,
+          "NSC": 1.014777,
+          "PBC1": 0.986564,
+          "PBC2": 75.600709,
+          "RSC": 0.8225339,
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.qc.txt",
+            "md5sum": "0cde230a6dd1e94664dd742e1b80cfec",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "cross_correlation_plot": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+            "href": "@@download/cross_correlation_plot/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.filt.nodup.sample.15.SE.tagAlign.gz.cc.plot.pdf",
+            "md5sum": "93e4b56af539316abee556695c8bcd57",
+            "type": "application/pdf"
+          },
+          "date_created": "2017-10-25T00:08:55.704850+00:00",
+          "fragment length": 205,
+          "lab": "/labs/encode-processing-pipeline/",
+          "quality_metric_of": [
+            "/files/ENCFF946LBA/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "uuid": "f58985fa-5ce0-4972-968e-d6c2b3a3c436"
+        },
+        {
+          "@id": "/samtools-flagstats-quality-metrics/aa8d6469-9098-4c4a-be19-4e81bc57ac6b/",
+          "@type": [
+            "SamtoolsFlagstatsQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "attachment": {
+            "download": "ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "href": "@@download/attachment/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.bam.flagstat.qc.txt",
+            "md5sum": "b5ba3de226fa61387b89b4fe2d8ebb72",
+            "type": "text/plain"
+          },
+          "award": "/awards/U41HG006992/",
+          "date_created": "2017-10-25T00:08:57.569611+00:00",
+          "duplicates": 0,
+          "duplicates_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped": 17185601,
+          "mapped_pct": "96.43%",
+          "mapped_qc_failed": 0,
+          "processing_stage": "unfiltered",
+          "quality_metric_of": [
+            "/files/ENCFF946LBA/"
+          ],
+          "schema_version": "8",
+          "status": "released",
+          "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+          "submitted_by": "/users/85978cd9-131e-48e2-a389-f752ab05b0a6/",
+          "total": 17822310,
+          "total_qc_failed": 0,
+          "uuid": "aa8d6469-9098-4c4a-be19-4e81bc57ac6b"
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2016/12/19/8142454a-d78f-4b16-8ed4-ddaac0b8a6fa/ENCFF946LBA.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/d7afbd68-dcf1-4a57-a5d9-7c2f81888dea/",
+      "submitted_by": {
+        "@id": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Cricket Sloan",
+        "uuid": "81a6cc12-2847-4e2e-8f2c-f566699eb29e"
+      },
+      "submitted_file_name": "project-F143YP80pj5jBFYG9FvyzQGf:/mapping_hg19/bams/ENCSR603VTC/rep1/ENCFF582CRV-ENCFF515OUC_pooled.raw.srt.filt.nodup.srt.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF946LBA",
+      "uuid": "8142454a-d78f-4b16-8ed4-ddaac0b8a6fa"
+    },
+    {
+      "@id": "/files/ENCFF603OAT/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF603OAT",
+      "aliases": [
+        "roadmap-epigenomics:E081-Input.tagAlign.gz"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN854UNW/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [],
+          "status": "archived",
+          "title": "Lab custom hg19",
+          "uuid": "f260a05e-d948-437c-b598-2ee9c2339d48"
+        }
+      ],
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "hg19",
+      "award": "/awards/ROADMAP/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2016/02/11/2a2a6edf-319f-4d8b-a67e-dea9044058b4/ENCFF603OAT.tagAlign.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 112340041,
+        "md5sum_base64": "oD44U1pkkqHxNAY1ts2AgA==",
+        "url": "https://encode-public.s3.amazonaws.com/2016/02/11/2a2a6edf-319f-4d8b-a67e-dea9044058b4/ENCFF603OAT.tagAlign.gz"
+      },
+      "content_md5sum": "56a9807f70e6af99d0712c6fb0395651",
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2016-02-11T12:05:26.745274+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF515OUC/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "tagAlign",
+      "file_size": 112340041,
+      "file_type": "tagAlign",
+      "flowcell_details": [],
+      "href": "/files/ENCFF603OAT/@@download/ENCFF603OAT.tagAlign.gz",
+      "lab": {
+        "@id": "/labs/anshul-kundaje/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "300 Pasteur Dr., Lane Building, L301",
+        "awards": [],
+        "city": "Stanford",
+        "country": "USA",
+        "fax": "(650)-725-1534",
+        "institute_label": "Stanford",
+        "institute_name": "Stanford University",
+        "name": "anshul-kundaje",
+        "phone1": "(650)-723-2353",
+        "phone2": "",
+        "pi": "/users/5ee9af15-8447-47d5-9ef1-06d425b828eb/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "CA",
+        "status": "current",
+        "title": "Anshul Kundaje, Stanford",
+        "uuid": "c7833572-0bba-4835-9d22-a45f39250d8d"
+      },
+      "md5sum": "a03e38535a6492a1f1340635b6cd8080",
+      "no_file_available": false,
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [],
+      "s3_uri": "s3://encode-public/2016/02/11/2a2a6edf-319f-4d8b-a67e-dea9044058b4/ENCFF603OAT.tagAlign.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "archived",
+      "submitted_by": {
+        "@id": "/users/5a1c0169-f9d0-4598-8f92-3eb84b122c1e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/zhiping-weng/",
+        "submits_for": [
+          "/labs/zhiping-weng/",
+          "/labs/anshul-kundaje/",
+          "/labs/job-dekker/"
+        ],
+        "title": "Henry Pratt",
+        "uuid": "5a1c0169-f9d0-4598-8f92-3eb84b122c1e"
+      },
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF603OAT",
+      "uuid": "2a2a6edf-319f-4d8b-a67e-dea9044058b4"
+    },
+    {
+      "@id": "/files/ENCFF706QQX/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF706QQX",
+      "aliases": [
+        "encode-processing-pipeline:a5d43e42-d3bb-450f-997a-871f239375e5-encode-processing-caper_out_v8_20-chip-a5d43e42-d3bb-450f-997a-871f239375e5-call-align-shard-0-glob-3bcbe4e7489c90f75e0523ac6f3a9385-ENCFF515OUC.merged.crop_36-2bp.bam"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN211BAA/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE4"
+          ],
+          "pipeline_version": "1.5.1",
+          "status": "released",
+          "title": "ENCODE4 v1.5.1 GRCh38",
+          "uuid": "ec71579d-a6ae-4a3e-a574-cf41b959289a"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/chip-seq-alignment-step-v-2-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [
+          "encode:chip-seq-alignment-step-v-2-0"
+        ],
+        "analysis_step": {
+          "@id": "/analysis-steps/chip-seq-alignment-step-v-2/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:chip-seq-alignment-step-v2"
+          ],
+          "analysis_step_types": [
+            "read trimming",
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/chip-seq-alignment-step-v-2-2/",
+          "date_created": "2019-11-15T05:48:05.864615+00:00",
+          "documents": [],
+          "input_file_types": [
+            "reads",
+            "genome index"
+          ],
+          "major_version": 2,
+          "name": "chip-seq-alignment-step-v-2",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL367MAS/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL367MAS",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/tf-chip-signal-generation-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-seq-replicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-replicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pooled-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pooled-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-pooled-signal-generation-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:56:02.884967+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Transcription factor ChIP-seq 2",
+              "uuid": "7160c087-629e-40fc-bcda-c43104fa34d8"
+            },
+            {
+              "@id": "/pipelines/ENCPL809GEM/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL809GEM",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/histone-chip-signal-generation-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq",
+                "Mint-ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T06:00:09.014370+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Histone ChIP-seq 2 (unreplicated)",
+              "uuid": "6f145ae9-e452-4301-9f4d-4db3cb736d00"
+            },
+            {
+              "@id": "/pipelines/ENCPL612HIG/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL612HIG",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/histone-chip-signal-generation-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-replicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-replicated-overlap-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-signal-generation-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq",
+                "Mint-ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:59:19.099757+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Histone ChIP-seq 2",
+              "uuid": "01634d2e-6e8c-40ac-bb92-75bdef070b0b"
+            },
+            {
+              "@id": "/pipelines/ENCPL481MLO/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL481MLO",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/tf-chip-signal-generation-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:53:48.357267+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Transcription factor ChIP-seq 2 (unreplicated)",
+              "uuid": "460c58d6-2da3-4570-b38d-a9d905150b05"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "chip-seq-alignment-step",
+          "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+          "title": "ChIP seq alignment step",
+          "uuid": "a1566d04-868e-4149-b1d9-5164999d563b",
+          "versions": [
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-0/",
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-1/",
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-2/"
+          ]
+        },
+        "date_created": "2019-11-15T05:51:06.302710+00:00",
+        "minor_version": 0,
+        "name": "chip-seq-alignment-step-v-2-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/681b30ef-91b7-463f-919d-e7718c8efaf5/",
+          "/software-versions/ef27c5aa-7ffc-4ba2-836f-6b857918f72d/",
+          "/software-versions/bf964430-60ec-4703-92b7-e51eed8e4029/",
+          "/software-versions/f16e96b6-7903-46f3-b6c7-d888278e43a3/",
+          "/software-versions/b0dd1949-b903-4439-a707-1013e445825e/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+        "uuid": "b7563f06-06bc-4fb5-8f2f-9c49cc7abba9"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "GRCh38",
+      "award": "/awards/U24HG009397/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2020/10/08/2d2d5af1-62fe-4148-9e60-39e04e6d4e3b/ENCFF706QQX.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 913433156,
+        "md5sum_base64": "rOZVRbX9QPiqMZ6IfyaGGQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2020/10/08/2d2d5af1-62fe-4148-9e60-39e04e6d4e3b/ENCFF706QQX.bam"
+      },
+      "content_md5sum": "7ef65f52261b62bf758c07c4b82c136e",
+      "cropped_read_length": 36,
+      "cropped_read_length_tolerance": 2,
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2020-10-08T20:07:39.826445+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF515OUC/",
+        "/files/ENCFF110MCL/",
+        "/files/ENCFF582CRV/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 913433156,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF706QQX/@@download/ENCFF706QQX.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "ace65545b5fd40f8aa319e887f268619",
+      "no_file_available": false,
+      "output_category": "alignment",
+      "output_type": "unfiltered alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/chip-alignment-quality-metrics/f31caa38-77d8-4d0c-b200-1e1f883d5a23/",
+          "@type": [
+            "ChipAlignmentQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "award": "/awards/U24HG009397/",
+          "date_created": "2020-10-08T20:07:42.854744+00:00",
+          "diff_chroms": 0,
+          "diff_chroms_qc_failed": 0,
+          "duplicate_reads": 0,
+          "duplicate_reads_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped_reads": 17641350,
+          "mapped_reads_qc_failed": 0,
+          "paired_reads": 0,
+          "paired_reads_qc_failed": 0,
+          "pct_mapped_reads": 99.0,
+          "pct_properly_paired_reads": 0.0,
+          "pct_singletons": 0.0,
+          "processing_stage": "unfiltered",
+          "properly_paired_reads": 0,
+          "properly_paired_reads_qc_failed": 0,
+          "quality_metric_of": [
+            "/files/ENCFF706QQX/"
+          ],
+          "read1": 0,
+          "read1_qc_failed": 0,
+          "read2": 0,
+          "read2_qc_failed": 0,
+          "schema_version": "1",
+          "singletons": 0,
+          "singletons_qc_failed": 0,
+          "status": "released",
+          "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+          "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+          "total_reads": 17822310,
+          "total_reads_qc_failed": 0,
+          "uuid": "f31caa38-77d8-4d0c-b200-1e1f883d5a23",
+          "with_itself": 0,
+          "with_itself_qc_failed": 0
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2020/10/08/2d2d5af1-62fe-4148-9e60-39e04e6d4e3b/ENCFF706QQX.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+      "submitted_by": {
+        "@id": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Meenakshi Kagda",
+        "uuid": "6bae687f-b77a-46b9-af0e-a02c135cf42e"
+      },
+      "submitted_file_name": "gs://encode-processing/caper_out_v8_20/chip/a5d43e42-d3bb-450f-997a-871f239375e5/call-align/shard-0/glob-3bcbe4e7489c90f75e0523ac6f3a9385/ENCFF515OUC.merged.crop_36-2bp.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF706QQX",
+      "uuid": "2d2d5af1-62fe-4148-9e60-39e04e6d4e3b"
+    },
+    {
+      "@id": "/files/ENCFF144TSQ/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF144TSQ",
+      "aliases": [
+        "encode-processing-pipeline:a5d43e42-d3bb-450f-997a-871f239375e5-encode-processing-caper_out_v8_20-chip-a5d43e42-d3bb-450f-997a-871f239375e5-call-filter-shard-0-glob-3bcbe4e7489c90f75e0523ac6f3a9385-ENCFF515OUC.merged.crop_36-2bp.nodup.bam"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN211BAA/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "ENCODE4"
+          ],
+          "pipeline_version": "1.5.1",
+          "status": "released",
+          "title": "ENCODE4 v1.5.1 GRCh38",
+          "uuid": "ec71579d-a6ae-4a3e-a574-cf41b959289a"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/chip-seq-alignment-step-v-2-0/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [
+          "encode:chip-seq-alignment-step-v-2-0"
+        ],
+        "analysis_step": {
+          "@id": "/analysis-steps/chip-seq-alignment-step-v-2/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "encode:chip-seq-alignment-step-v2"
+          ],
+          "analysis_step_types": [
+            "read trimming",
+            "fastq concatenation",
+            "alignment",
+            "filtering"
+          ],
+          "current_version": "/analysis-step-versions/chip-seq-alignment-step-v-2-2/",
+          "date_created": "2019-11-15T05:48:05.864615+00:00",
+          "documents": [],
+          "input_file_types": [
+            "reads",
+            "genome index"
+          ],
+          "major_version": 2,
+          "name": "chip-seq-alignment-step-v-2",
+          "output_file_types": [
+            "alignments",
+            "unfiltered alignments"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL367MAS/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL367MAS",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/tf-chip-signal-generation-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-seq-replicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-replicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pooled-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pooled-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/tf-chip-pooled-signal-generation-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:56:02.884967+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Transcription factor ChIP-seq 2",
+              "uuid": "7160c087-629e-40fc-bcda-c43104fa34d8"
+            },
+            {
+              "@id": "/pipelines/ENCPL809GEM/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL809GEM",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/histone-chip-signal-generation-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq",
+                "Mint-ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T06:00:09.014370+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Histone ChIP-seq 2 (unreplicated)",
+              "uuid": "6f145ae9-e452-4301-9f4d-4db3cb736d00"
+            },
+            {
+              "@id": "/pipelines/ENCPL612HIG/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL612HIG",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/histone-chip-signal-generation-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-replicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-replicated-overlap-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-pseudoreplicated-overlap-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-pseudoreplicated-overlap-stable-peaks-file-format-conversion-step-v-1/",
+                "/analysis-steps/histone-chip-seq-pooled-signal-generation-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq",
+                "Mint-ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:59:19.099757+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Histone ChIP-seq 2",
+              "uuid": "01634d2e-6e8c-40ac-bb92-75bdef070b0b"
+            },
+            {
+              "@id": "/pipelines/ENCPL481MLO/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL481MLO",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/chip-seq-alignment-step-v-2/",
+                "/analysis-steps/tf-chip-signal-generation-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-step-v-1/",
+                "/analysis-steps/tf-chip-seq-pseudoreplicated-idr-thresholded-peaks-file-format-conversion-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ChIP-seq"
+              ],
+              "award": "/awards/U24HG009397/",
+              "date_created": "2019-11-15T05:53:48.357267+00:00",
+              "documents": [],
+              "lab": "/labs/encode-processing-pipeline/",
+              "reference_filesets": [
+                "/references/ENCSR174MOP/",
+                "/references/ENCSR487FYI/",
+                "/references/ENCSR928IAF/",
+                "/references/ENCSR879BNV/"
+              ],
+              "references": [],
+              "schema_version": "14",
+              "source_url": "https://github.com/ENCODE-DCC/chip-seq-pipeline2/releases/tag/v1.3.5.1",
+              "status": "released",
+              "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+              "title": "Transcription factor ChIP-seq 2 (unreplicated)",
+              "uuid": "460c58d6-2da3-4570-b38d-a9d905150b05"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "chip-seq-alignment-step",
+          "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+          "title": "ChIP seq alignment step",
+          "uuid": "a1566d04-868e-4149-b1d9-5164999d563b",
+          "versions": [
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-0/",
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-1/",
+            "/analysis-step-versions/chip-seq-alignment-step-v-2-2/"
+          ]
+        },
+        "date_created": "2019-11-15T05:51:06.302710+00:00",
+        "minor_version": 0,
+        "name": "chip-seq-alignment-step-v-2-0",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/681b30ef-91b7-463f-919d-e7718c8efaf5/",
+          "/software-versions/ef27c5aa-7ffc-4ba2-836f-6b857918f72d/",
+          "/software-versions/bf964430-60ec-4703-92b7-e51eed8e4029/",
+          "/software-versions/f16e96b6-7903-46f3-b6c7-d888278e43a3/",
+          "/software-versions/b0dd1949-b903-4439-a707-1013e445825e/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/98fb23d3-0d79-4c3d-981d-01539e6589f1/",
+        "uuid": "b7563f06-06bc-4fb5-8f2f-9c49cc7abba9"
+      },
+      "assay_term_name": "ChIP-seq",
+      "assay_title": "Control ChIP-seq",
+      "assembly": "GRCh38",
+      "award": "/awards/U24HG009397/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2020/10/08/9330a994-2207-4d12-b043-d0dd885d6bc5/ENCFF144TSQ.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/tissue_UBERON_0000955/",
+      "cloud_metadata": {
+        "file_size": 748943182,
+        "md5sum_base64": "Yz3/GDANa0WcOoJy+uhZ1w==",
+        "url": "https://encode-public.s3.amazonaws.com/2020/10/08/9330a994-2207-4d12-b043-d0dd885d6bc5/ENCFF144TSQ.bam"
+      },
+      "content_md5sum": "185fe55e0f6189dff8b8326e4edb59f6",
+      "cropped_read_length": 36,
+      "cropped_read_length_tolerance": 2,
+      "dataset": "/experiments/ENCSR603VTC/",
+      "date_created": "2020-10-08T20:07:41.755748+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF515OUC/",
+        "/files/ENCFF110MCL/",
+        "/files/ENCFF582CRV/"
+      ],
+      "donors": [
+        "/human-donors/ENCDO670CKN/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 748943182,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF144TSQ/@@download/ENCFF144TSQ.bam",
+      "lab": {
+        "@id": "/labs/encode-processing-pipeline/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "",
+        "awards": [
+          "/awards/U41HG007000/",
+          "/awards/U41HG006992/"
+        ],
+        "city": "",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "",
+        "institute_name": "",
+        "name": "encode-processing-pipeline",
+        "phone1": "",
+        "phone2": "",
+        "pi": "/users/8b1f8780-b5d6-4fb7-a5a2-ddcec9054288/",
+        "postal_code": "",
+        "schema_version": "5",
+        "state": "",
+        "status": "current",
+        "title": "ENCODE Processing Pipeline",
+        "uuid": "a558111b-4c50-4b2e-9de8-73fd8fd3a67d"
+      },
+      "mapped_read_length": 36,
+      "mapped_run_type": "single-ended",
+      "md5sum": "633dff18300d6b459c3a8272fae859d7",
+      "no_file_available": false,
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [
+        {
+          "@id": "/chip-alignment-quality-metrics/d31e462e-af7d-4b33-b38e-59259489edcb/",
+          "@type": [
+            "ChipAlignmentQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "award": "/awards/U24HG009397/",
+          "date_created": "2020-10-08T20:07:42.933122+00:00",
+          "diff_chroms": 0,
+          "diff_chroms_qc_failed": 0,
+          "duplicate_reads": 0,
+          "duplicate_reads_qc_failed": 0,
+          "lab": "/labs/encode-processing-pipeline/",
+          "mapped_reads": 14291637,
+          "mapped_reads_qc_failed": 0,
+          "paired_reads": 0,
+          "paired_reads_qc_failed": 0,
+          "pct_mapped_reads": 100.0,
+          "pct_properly_paired_reads": 0.0,
+          "pct_singletons": 0.0,
+          "processing_stage": "filtered",
+          "properly_paired_reads": 0,
+          "properly_paired_reads_qc_failed": 0,
+          "quality_metric_of": [
+            "/files/ENCFF144TSQ/"
+          ],
+          "read1": 0,
+          "read1_qc_failed": 0,
+          "read2": 0,
+          "read2_qc_failed": 0,
+          "schema_version": "1",
+          "singletons": 0,
+          "singletons_qc_failed": 0,
+          "status": "released",
+          "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+          "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+          "total_reads": 14291637,
+          "total_reads_qc_failed": 0,
+          "usable_fragments": 14291637,
+          "uuid": "d31e462e-af7d-4b33-b38e-59259489edcb",
+          "with_itself": 0,
+          "with_itself_qc_failed": 0
+        },
+        {
+          "@id": "/chip-library-quality-metrics/ea59fbba-4d2d-4108-bbb3-12d4e3617b57/",
+          "@type": [
+            "ChipLibraryQualityMetric",
+            "QualityMetric",
+            "Item"
+          ],
+          "NRF": 0.984207,
+          "PBC1": 0.985145,
+          "PBC2": 68.597891,
+          "aliases": [],
+          "assay_term_id": "OBI:0000716",
+          "assay_term_name": "ChIP-seq",
+          "award": "/awards/U24HG009397/",
+          "date_created": "2020-10-08T20:07:43.010836+00:00",
+          "distinct_fragments": 14284783,
+          "lab": "/labs/encode-processing-pipeline/",
+          "paired_duplicate_reads": 0,
+          "paired_optical_duplicate_reads": 0,
+          "paired_reads": 0,
+          "pct_duplicate_reads": 1.5923,
+          "positions_with_one_read": 205146,
+          "quality_metric_of": [
+            "/files/ENCFF144TSQ/"
+          ],
+          "schema_version": "1",
+          "status": "released",
+          "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+          "submitted_by": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+          "total_fragments": 14514010,
+          "unmapped_reads": 0,
+          "unpaired_duplicate_reads": 231248,
+          "unpaired_reads": 14522885,
+          "uuid": "ea59fbba-4d2d-4108-bbb3-12d4e3617b57"
+        }
+      ],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2020/10/08/9330a994-2207-4d12-b043-d0dd885d6bc5/ENCFF144TSQ.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "female embryo (120 days)",
+      "status": "released",
+      "step_run": "/analysis-step-runs/4ae668fb-0f2f-404e-ae3e-9169726d5d8e/",
+      "submitted_by": {
+        "@id": "/users/6bae687f-b77a-46b9-af0e-a02c135cf42e/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/j-michael-cherry/",
+        "submits_for": [
+          "/labs/j-michael-cherry/"
+        ],
+        "title": "Meenakshi Kagda",
+        "uuid": "6bae687f-b77a-46b9-af0e-a02c135cf42e"
+      },
+      "submitted_file_name": "gs://encode-processing/caper_out_v8_20/chip/a5d43e42-d3bb-450f-997a-871f239375e5/call-filter/shard-0/glob-3bcbe4e7489c90f75e0523ac6f3a9385/ENCFF515OUC.merged.crop_36-2bp.nodup.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_4"
+      ],
+      "title": "ENCFF144TSQ",
+      "uuid": "9330a994-2207-4d12-b043-d0dd885d6bc5"
+    }
+  ],
+  "hub": "/experiments/ENCSR603VTC/@@hub/hub.txt",
+  "internal_status": "release ready",
+  "internal_tags": [],
+  "lab": {
+    "@id": "/labs/bradley-bernstein/",
+    "@type": [
+      "Lab",
+      "Item"
+    ],
+    "address1": "Massachusetts General Hospital Simches Research Building, CPZN 8234",
+    "address2": "185 Cambridge St.",
+    "awards": [
+      "/awards/U01ES017155/",
+      "/awards/U54HG004570/",
+      "/awards/U54HG006991/",
+      "/awards/UM1HG009390/"
+    ],
+    "city": "Boston",
+    "country": "USA",
+    "fax": "617-643-3566",
+    "institute_label": "Broad",
+    "institute_name": "Broad Institute",
+    "name": "bradley-bernstein",
+    "phone1": "617-726-6906",
+    "phone2": "",
+    "pi": "/users/aa57ecb5-3d0e-4b1f-9608-665785270ad7/",
+    "postal_code": "2114",
+    "schema_version": "5",
+    "state": "MA",
+    "status": "current",
+    "title": "Bradley Bernstein, Broad",
+    "uuid": "b83215c3-3960-4085-b220-614a122eea01"
+  },
+  "life_stage_age": "embryonic 120 days",
+  "objective_slims": [],
+  "original_files": [
+    "/files/ENCFF515OUC/",
+    "/files/ENCFF582CRV/",
+    "/files/ENCFF818YVY/",
+    "/files/ENCFF067UIL/",
+    "/files/ENCFF393EMH/",
+    "/files/ENCFF946LBA/",
+    "/files/ENCFF603OAT/",
+    "/files/ENCFF706QQX/",
+    "/files/ENCFF144TSQ/"
+  ],
+  "perturbed": false,
+  "possible_controls": [],
+  "references": [],
+  "related_annotations": [],
+  "related_files": [],
+  "related_series": [
+    {
+      "@id": "/reference-epigenomes/ENCSR926DHA/",
+      "@type": [
+        "ReferenceEpigenome",
+        "Series",
+        "Dataset",
+        "Item"
+      ],
+      "accession": "ENCSR926DHA",
+      "aliases": [
+        "roadmap-epigenomics:E081"
+      ],
+      "alternate_accessions": [],
+      "assay_slims": [
+        "DNA binding",
+        "DNA methylation",
+        "Transcription",
+        "DNA accessibility"
+      ],
+      "assay_synonyms": [
+        "DNase I hypersensitive sites sequencing assay",
+        "Methylated DNA immunoprecipitation sequencing assay",
+        "MRE-seq",
+        "reduced representation bisulfite-seq",
+        "MRE-seq assay",
+        "MeDIP-seq assay",
+        "methylation-sensitive restriction enzyme sequencing assay",
+        "ChIP-seq assay",
+        "RRBS assay",
+        "RRBS",
+        "RNA profiling by array assay",
+        "reduced representation bisulfite sequencing assay",
+        "transcription profiling by array assay",
+        "chromatin immunoprecipitation sequencing assay"
+      ],
+      "assay_term_id": [
+        "OBI:0000693",
+        "OBI:0001862",
+        "OBI:0001861",
+        "OBI:0001463",
+        "OBI:0000716",
+        "OBI:0001853"
+      ],
+      "assay_term_name": [
+        "ChIP-seq",
+        "MeDIP-seq",
+        "MRE-seq",
+        "transcription profiling by array assay",
+        "RRBS",
+        "DNase-seq"
+      ],
+      "assembly": [
+        "hg19",
+        "GRCh38"
+      ],
+      "award": "/awards/U01DA025956/",
+      "biosample_ontology": [
+        "/biosample-types/tissue_UBERON_0000955/"
+      ],
+      "biosample_summary": "brain tissue",
+      "contributing_files": [],
+      "date_created": "2016-01-06T19:37:27.954964+00:00",
+      "date_released": "2013-07-31",
+      "dbxrefs": [
+        "IHEC:IHECRE00001053"
+      ],
+      "description": "REMC Epigenome (Class 3) for Fetal Brain Male using donors/samples:H-22510;UW_H22676",
+      "documents": [],
+      "doi": "10.17989/ENCSR926DHA",
+      "files": [
+        "/files/ENCFF593YAF/",
+        "/files/ENCFF837NJL/",
+        "/files/ENCFF714SAW/",
+        "/files/ENCFF380CHY/",
+        "/files/ENCFF832RUG/",
+        "/files/ENCFF422VRL/",
+        "/files/ENCFF885CMI/",
+        "/files/ENCFF656WXK/",
+        "/files/ENCFF710ZYS/",
+        "/files/ENCFF450JXA/",
+        "/files/ENCFF026LCU/",
+        "/files/ENCFF027LCA/",
+        "/files/ENCFF938SJE/",
+        "/files/ENCFF047TBP/",
+        "/files/ENCFF808MNA/",
+        "/files/ENCFF410UGY/",
+        "/files/ENCFF057VNJ/",
+        "/files/ENCFF665NBJ/",
+        "/files/ENCFF310NRL/"
+      ],
+      "hub": "/reference-epigenomes/ENCSR926DHA/@@hub/hub.txt",
+      "internal_tags": [],
+      "lab": "/labs/anshul-kundaje/",
+      "notes": "both donors missing RNAseq, bisulfite seq...  H-22510= ENCBS377MBP, missing Chipseq (3)...  H-22676= ENCBS604GZI, missing ChIPs (3).  ENCBS640AFZ used for DNAseSeq",
+      "organism": [
+        "/organisms/human/"
+      ],
+      "original_files": [
+        "/files/ENCFF593YAF/",
+        "/files/ENCFF837NJL/",
+        "/files/ENCFF714SAW/",
+        "/files/ENCFF380CHY/",
+        "/files/ENCFF832RUG/",
+        "/files/ENCFF422VRL/",
+        "/files/ENCFF885CMI/",
+        "/files/ENCFF656WXK/",
+        "/files/ENCFF710ZYS/",
+        "/files/ENCFF450JXA/",
+        "/files/ENCFF026LCU/",
+        "/files/ENCFF027LCA/",
+        "/files/ENCFF938SJE/",
+        "/files/ENCFF047TBP/",
+        "/files/ENCFF808MNA/",
+        "/files/ENCFF410UGY/",
+        "/files/ENCFF057VNJ/",
+        "/files/ENCFF665NBJ/",
+        "/files/ENCFF310NRL/"
+      ],
+      "references": [],
+      "related_datasets": [
+        "/experiments/ENCSR446IQC/",
+        "/experiments/ENCSR698YCY/",
+        "/experiments/ENCSR570GUP/",
+        "/experiments/ENCSR231TOY/",
+        "/experiments/ENCSR094NYB/",
+        "/experiments/ENCSR479BPF/",
+        "/experiments/ENCSR603VTC/",
+        "/experiments/ENCSR018OGF/",
+        "/experiments/ENCSR143MZL/",
+        "/experiments/ENCSR627STE/",
+        "/experiments/ENCSR829NJE/",
+        "/experiments/ENCSR888JWS/",
+        "/experiments/ENCSR649KBB/"
+      ],
+      "revoked_datasets": [
+        "/experiments/ENCSR094NYB/"
+      ],
+      "revoked_files": [],
+      "schema_version": "18",
+      "series_files": [
+        "/files/ENCFF593YAF/",
+        "/files/ENCFF837NJL/",
+        "/files/ENCFF714SAW/",
+        "/files/ENCFF380CHY/",
+        "/files/ENCFF832RUG/",
+        "/files/ENCFF422VRL/",
+        "/files/ENCFF885CMI/",
+        "/files/ENCFF656WXK/",
+        "/files/ENCFF710ZYS/",
+        "/files/ENCFF450JXA/",
+        "/files/ENCFF026LCU/",
+        "/files/ENCFF027LCA/",
+        "/files/ENCFF938SJE/",
+        "/files/ENCFF047TBP/",
+        "/files/ENCFF808MNA/",
+        "/files/ENCFF410UGY/",
+        "/files/ENCFF057VNJ/",
+        "/files/ENCFF665NBJ/",
+        "/files/ENCFF310NRL/",
+        "/files/SRR2173119/",
+        "/files/SRR2172904/",
+        "/files/SRR2172905/",
+        "/files/ENCFF323ODR/",
+        "/files/ENCFF077JVB/",
+        "/files/ENCFF326MOF/",
+        "/files/ENCFF422ZNA/",
+        "/files/ENCFF937DZF/",
+        "/files/ENCFF902ZPR/",
+        "/files/ENCFF731RBF/",
+        "/files/ENCFF346OJM/",
+        "/files/ENCFF684CAP/",
+        "/files/ENCFF846ZFN/",
+        "/files/ENCFF993TKA/",
+        "/files/ENCFF773SXM/",
+        "/files/ENCFF138QBJ/",
+        "/files/ENCFF199CMM/",
+        "/files/ENCFF019FWQ/",
+        "/files/ENCFF707DEY/",
+        "/files/ENCFF898ENP/",
+        "/files/ENCFF139FPN/",
+        "/files/ENCFF850UWF/",
+        "/files/ENCFF591RMN/",
+        "/files/ENCFF799AEV/",
+        "/files/ENCFF273DKS/",
+        "/files/ENCFF628MOD/",
+        "/files/ENCFF471APZ/",
+        "/files/ENCFF406IUC/",
+        "/files/ENCFF499HWN/",
+        "/files/ENCFF889LOA/",
+        "/files/ENCFF515OUC/",
+        "/files/ENCFF582CRV/",
+        "/files/ENCFF818YVY/",
+        "/files/ENCFF067UIL/",
+        "/files/ENCFF393EMH/",
+        "/files/ENCFF946LBA/",
+        "/files/ENCFF603OAT/",
+        "/files/ENCFF706QQX/",
+        "/files/ENCFF144TSQ/",
+        "/files/ENCFF260VEB/",
+        "/files/ENCFF453EUS/",
+        "/files/ENCFF381LTD/",
+        "/files/ENCFF794SOI/",
+        "/files/ENCFF517WZO/",
+        "/files/ENCFF742FRS/",
+        "/files/ENCFF397MXO/",
+        "/files/ENCFF347SHC/",
+        "/files/ENCFF197XTF/",
+        "/files/ENCFF866WDV/",
+        "/files/ENCFF707FCC/",
+        "/files/ENCFF464OUS/",
+        "/files/ENCFF237HCN/",
+        "/files/ENCFF265PQT/",
+        "/files/ENCFF276ZLV/",
+        "/files/ENCFF135WPW/",
+        "/files/ENCFF338OPC/",
+        "/files/ENCFF375XWJ/",
+        "/files/ENCFF336VOX/",
+        "/files/ENCFF879IVZ/",
+        "/files/ENCFF034ODI/",
+        "/files/ENCFF342VMP/",
+        "/files/ENCFF048RRE/",
+        "/files/ENCFF373MHI/",
+        "/files/ENCFF922LJN/",
+        "/files/ENCFF588ILB/",
+        "/files/ENCFF731SSW/",
+        "/files/ENCFF532WPS/",
+        "/files/ENCFF189WFM/",
+        "/files/ENCFF309IEH/",
+        "/files/ENCFF066DCX/",
+        "/files/ENCFF152APN/",
+        "/files/ENCFF176DNE/",
+        "/files/ENCFF872HBL/",
+        "/files/ENCFF480DXG/",
+        "/files/ENCFF403DLM/",
+        "/files/ENCFF265ILW/",
+        "/files/ENCFF368TAO/",
+        "/files/ENCFF823APS/",
+        "/files/ENCFF857FWO/",
+        "/files/ENCFF415WPZ/",
+        "/files/ENCFF493QUS/",
+        "/files/ENCFF412ZGA/",
+        "/files/ENCFF487KNS/",
+        "/files/ENCFF717CEO/",
+        "/files/ENCFF878PKX/",
+        "/files/ENCFF552ZBZ/",
+        "/files/ENCFF610CZO/",
+        "/files/ENCFF066JJA/",
+        "/files/ENCFF597YZE/",
+        "/files/ENCFF942CMQ/",
+        "/files/ENCFF450ISR/",
+        "/files/ENCFF409WRK/",
+        "/files/ENCFF884KHZ/",
+        "/files/ENCFF682BLT/",
+        "/files/ENCFF203RWT/",
+        "/files/ENCFF232NFF/",
+        "/files/ENCFF553ECF/",
+        "/files/ENCFF452PIO/",
+        "/files/ENCFF611ZQB/",
+        "/files/ENCFF407ZCT/",
+        "/files/ENCFF040RJY/",
+        "/files/ENCFF970XVC/",
+        "/files/ENCFF710JSJ/",
+        "/files/ENCFF726JHY/",
+        "/files/ENCFF613CQF/",
+        "/files/ENCFF921OAD/",
+        "/files/ENCFF319SIY/",
+        "/files/ENCFF862QXZ/",
+        "/files/ENCFF908KQH/",
+        "/files/ENCFF628RWE/",
+        "/files/ENCFF765YZY/",
+        "/files/ENCFF826SJK/",
+        "/files/ENCFF550MOB/",
+        "/files/ENCFF290BLP/",
+        "/files/ENCFF637FNU/",
+        "/files/ENCFF429IHI/",
+        "/files/ENCFF526CNC/",
+        "/files/ENCFF059ZTD/",
+        "/files/ENCFF779FGK/",
+        "/files/ENCFF598YPZ/",
+        "/files/ENCFF267RST/",
+        "/files/ENCFF488QAJ/",
+        "/files/ENCFF274UGH/",
+        "/files/ENCFF723RFY/",
+        "/files/ENCFF796ALC/",
+        "/files/ENCFF422HJW/",
+        "/files/ENCFF495TLF/",
+        "/files/ENCFF648IVB/",
+        "/files/ENCFF582ZTI/",
+        "/files/ENCFF601CKG/",
+        "/files/ENCFF320JIB/",
+        "/files/ENCFF737AGB/",
+        "/files/ENCFF229WDT/",
+        "/files/ENCFF634IKM/",
+        "/files/ENCFF647IXQ/",
+        "/files/ENCFF485CBV/",
+        "/files/ENCFF160KGF/",
+        "/files/ENCFF375CAR/",
+        "/files/ENCFF116YGO/",
+        "/files/ENCFF872VOX/",
+        "/files/ENCFF487SNV/",
+        "/files/ENCFF115GYJ/",
+        "/files/ENCFF763AAH/",
+        "/files/ENCFF103KMI/",
+        "/files/ENCFF672RGN/",
+        "/files/ENCFF175JOO/",
+        "/files/ENCFF656MSG/",
+        "/files/ENCFF420PYZ/",
+        "/files/ENCFF018CEV/",
+        "/files/ENCFF848ZXD/",
+        "/files/ENCFF459QLE/",
+        "/files/ENCFF265KAK/",
+        "/files/ENCFF134POH/",
+        "/files/ENCFF222STA/",
+        "/files/ENCFF652GNJ/",
+        "/files/ENCFF087VGC/",
+        "/files/ENCFF648EXZ/",
+        "/files/ENCFF553YAI/",
+        "/files/ENCFF988QYQ/",
+        "/files/ENCFF423PNC/",
+        "/files/ENCFF757GHZ/",
+        "/files/ENCFF105ZSY/",
+        "/files/ENCFF414RDI/",
+        "/files/ENCFF409DIM/",
+        "/files/ENCFF795VHY/",
+        "/files/ENCFF209LNR/",
+        "/files/ENCFF061SBX/",
+        "/files/ENCFF139QZN/",
+        "/files/ENCFF771OCT/",
+        "/files/ENCFF035CSJ/",
+        "/files/ENCFF187AUJ/",
+        "/files/ENCFF351HRE/",
+        "/files/ENCFF286XIL/",
+        "/files/ENCFF635JKO/",
+        "/files/ENCFF593VPL/",
+        "/files/ENCFF823SZS/",
+        "/files/ENCFF985NYC/",
+        "/files/ENCFF528GDM/",
+        "/files/ENCFF601UZE/",
+        "/files/ENCFF989IWB/",
+        "/files/ENCFF456IBX/",
+        "/files/ENCFF971QTK/",
+        "/files/ENCFF941LIC/",
+        "/files/ENCFF694ONM/",
+        "/files/ENCFF510VCD/",
+        "/files/ENCFF872SIK/",
+        "/files/ENCFF476FKP/",
+        "/files/ENCFF969IVZ/",
+        "/files/ENCFF689VMQ/",
+        "/files/ENCFF722ANN/",
+        "/files/ENCFF418LUV/",
+        "/files/ENCFF193NEG/",
+        "/files/ENCFF838KBU/",
+        "/files/ENCFF838NRA/",
+        "/files/ENCFF691TKZ/",
+        "/files/ENCFF702RMM/",
+        "/files/ENCFF508DUL/",
+        "/files/ENCFF743ZXS/",
+        "/files/ENCFF726XJN/",
+        "/files/ENCFF742WFW/",
+        "/files/ENCFF437AEG/",
+        "/files/ENCFF433BGB/",
+        "/files/ENCFF939NTR/",
+        "/files/ENCFF213EFL/",
+        "/files/ENCFF964QDB/",
+        "/files/ENCFF162ZTK/",
+        "/files/ENCFF418IIT/",
+        "/files/ENCFF135UVJ/",
+        "/files/ENCFF436EWU/",
+        "/files/ENCFF008BVZ/",
+        "/files/ENCFF770SAC/",
+        "/files/ENCFF404MQY/",
+        "/files/ENCFF720LDZ/",
+        "/files/ENCFF265HNJ/",
+        "/files/ENCFF241APM/",
+        "/files/ENCFF175HVJ/",
+        "/files/ENCFF619LRN/",
+        "/files/ENCFF426CQN/",
+        "/files/ENCFF002QDM/",
+        "/files/ENCFF361UTR/",
+        "/files/ENCFF188QDZ/",
+        "/files/ENCFF947CJQ/",
+        "/files/ENCFF205SID/",
+        "/files/ENCFF258KAT/",
+        "/files/ENCFF104CXA/",
+        "/files/ENCFF537DKA/",
+        "/files/ENCFF816MWA/",
+        "/files/ENCFF783LRB/",
+        "/files/ENCFF783XSR/",
+        "/files/ENCFF617PGN/",
+        "/files/ENCFF082PWS/",
+        "/files/ENCFF682VEO/",
+        "/files/ENCFF969LZW/",
+        "/files/ENCFF863INA/",
+        "/files/ENCFF774WTD/",
+        "/files/ENCFF653IFY/",
+        "/files/ENCFF278GZN/",
+        "/files/ENCFF559BKM/",
+        "/files/ENCFF675XNL/",
+        "/files/ENCFF733BAS/",
+        "/files/ENCFF909IHM/",
+        "/files/ENCFF379XHC/",
+        "/files/ENCFF593ZPC/",
+        "/files/ENCFF060IIB/",
+        "/files/ENCFF564XCM/",
+        "/files/ENCFF695GQN/",
+        "/files/ENCFF234ZGH/",
+        "/files/ENCFF479DAS/",
+        "/files/ENCFF529YAK/",
+        "/files/ENCFF108WLP/",
+        "/files/ENCFF391EUP/",
+        "/files/ENCFF712EFU/",
+        "/files/ENCFF033TSH/",
+        "/files/ENCFF850GCX/",
+        "/files/ENCFF494NVE/",
+        "/files/ENCFF115TCZ/",
+        "/files/ENCFF557DGN/",
+        "/files/ENCFF650PSD/",
+        "/files/ENCFF371YAJ/",
+        "/files/ENCFF407AGJ/",
+        "/files/ENCFF470XQC/",
+        "/files/ENCFF576PRE/",
+        "/files/ENCFF603UQO/",
+        "/files/ENCFF780XUL/",
+        "/files/ENCFF817GAW/",
+        "/files/ENCFF610KME/",
+        "/files/ENCFF723RBF/",
+        "/files/ENCFF955AQD/",
+        "/files/ENCFF640VOL/",
+        "/files/ENCFF792LQM/",
+        "/files/ENCFF548FDT/",
+        "/files/ENCFF100FFQ/",
+        "/files/ENCFF102FLW/"
+      ],
+      "status": "released",
+      "submitted_by": "/users/81a6cc12-2847-4e2e-8f2c-f566699eb29e/",
+      "superseded_by": [],
+      "supersedes": [],
+      "target": [
+        "/targets/H3K9me3-human/",
+        "/targets/H3K4me1-human/",
+        "/targets/H3K36me3-human/",
+        "/targets/Methylcytidine-human/",
+        "/targets/H3K27me3-human/",
+        "/targets/H3K4me3-human/"
+      ],
+      "treatment_term_name": [],
+      "uuid": "df599b0b-e252-4712-8343-7410c01e49bb"
+    }
+  ],
+  "replicates": [
+    {
+      "@id": "/replicates/7921224c-8da5-4985-9d71-9c2a7a82632d/",
+      "@type": [
+        "Replicate",
+        "Item"
+      ],
+      "aliases": [
+        "roadmap-epigenomics:Lane Subset 210_Mar-31-2011_11694_run"
+      ],
+      "biological_replicate_number": 1,
+      "date_created": "2015-09-30T01:35:51.366582+00:00",
+      "experiment": "/experiments/ENCSR603VTC/",
+      "library": {
+        "@id": "/libraries/ENCLB060FFB/",
+        "@type": [
+          "Library",
+          "Item"
+        ],
+        "accession": "ENCLB060FFB",
+        "aliases": [
+          "roadmap-epigenomics:DNA_Lib 390",
+          "roadmap-epigenomics:ChIP-Seq analysis of WCE in human fetal brain cells_Mar-31-2011_83932_library"
+        ],
+        "alternate_accessions": [],
+        "award": "/awards/U01ES017155/",
+        "barcode_details": [],
+        "biosample": {
+          "@id": "/biosamples/ENCBS604GZI/",
+          "@type": [
+            "Biosample",
+            "Item"
+          ],
+          "accession": "ENCBS604GZI",
+          "age": "120",
+          "age_display": "120 days",
+          "age_units": "day",
+          "aliases": [
+            "roadmap-epigenomics:BioSAli_186",
+            "roadmap-epigenomics:Fetal Brain_Mar-31-2011_83261",
+            "roadmap-epigenomics:BioSAli 186",
+            "roadmap-epigenomics:UW_H22676"
+          ],
+          "alternate_accessions": [],
+          "applied_modifications": [],
+          "award": "/awards/U01ES017155/",
+          "biosample_ontology": {
+            "@id": "/biosample-types/tissue_UBERON_0000955/",
+            "@type": [
+              "BiosampleType",
+              "Item"
+            ],
+            "aliases": [],
+            "cell_slims": [],
+            "classification": "tissue",
+            "dbxrefs": [],
+            "developmental_slims": [
+              "ectoderm"
+            ],
+            "name": "tissue_UBERON_0000955",
+            "organ_slims": [
+              "brain"
+            ],
+            "references": [],
+            "schema_version": "1",
+            "status": "released",
+            "synonyms": [],
+            "system_slims": [
+              "central nervous system"
+            ],
+            "term_id": "UBERON:0000955",
+            "term_name": "brain",
+            "uuid": "1a70b14a-679c-4b29-88bf-2fa08c05fed1"
+          },
+          "characterizations": [],
+          "date_created": "2015-07-31T22:32:14.773644+00:00",
+          "dbxrefs": [
+            "GEO:SAMN40088298"
+          ],
+          "description": "Brain tissue from a healthy 120 day old female human fetus. Tissue provided by Ian Glass of University of Washington, Congenital Defects Lab.",
+          "documents": [],
+          "donor": {
+            "@id": "/human-donors/ENCDO670CKN/",
+            "@type": [
+              "HumanDonor",
+              "Donor",
+              "Item"
+            ],
+            "accession": "ENCDO670CKN",
+            "age": "120",
+            "age_units": "day",
+            "aliases": [
+              "john-stamatoyannopoulos:H22676",
+              "roadmap-epigenomics:H-22676",
+              "john-stamatoyannopoulos:DI_H22676",
+              "roadmap-epigenomics:UW_H-22676"
+            ],
+            "alternate_accessions": [
+              "ENCDO150LEW",
+              "ENCDO013LWQ"
+            ],
+            "award": "/awards/U01ES017156/",
+            "characterizations": [],
+            "children": [],
+            "date_created": "2015-07-30T23:21:20.136277+00:00",
+            "dbxrefs": [
+              "GEO:SAMN10096963"
+            ],
+            "documents": [],
+            "lab": "/labs/john-stamatoyannopoulos/",
+            "life_stage": "embryonic",
+            "organism": {
+              "@id": "/organisms/human/",
+              "@type": [
+                "Organism",
+                "Item"
+              ],
+              "name": "human",
+              "schema_version": "6",
+              "scientific_name": "Homo sapiens",
+              "status": "released",
+              "taxon_id": "9606",
+              "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+            },
+            "parents": [],
+            "references": [],
+            "schema_version": "13",
+            "sex": "female",
+            "siblings": [],
+            "status": "released",
+            "submitted_by": "/users/eb26c7d8-cdb4-4370-8c6b-204b441ef987/",
+            "superseded_by": [],
+            "uuid": "c32d5004-83f7-4b0d-b082-7fce02c1f2e4"
+          },
+          "genetic_modifications": [],
+          "internal_tags": [],
+          "lab": "/labs/bradley-bernstein/",
+          "life_stage": "embryonic",
+          "organism": {
+            "@id": "/organisms/human/",
+            "@type": [
+              "Organism",
+              "Item"
+            ],
+            "name": "human",
+            "schema_version": "6",
+            "scientific_name": "Homo sapiens",
+            "status": "released",
+            "taxon_id": "9606",
+            "uuid": "7745b647-ff15-4ff3-9ced-b897d4e2983c"
+          },
+          "parent_of": [],
+          "perturbed": false,
+          "references": [],
+          "schema_version": "26",
+          "sex": "female",
+          "simple_summary": "female embryo (120 days)",
+          "source": {
+            "@id": "/sources/unknown/",
+            "@type": [
+              "Source",
+              "Item"
+            ],
+            "aliases": [],
+            "description": "Unknown Source",
+            "name": "unknown",
+            "notes": "formerly encode",
+            "schema_version": "6",
+            "status": "released",
+            "title": "Unknown Source",
+            "uuid": "be960dc7-1912-4ff5-8b1a-a7e2e1b2533e"
+          },
+          "status": "released",
+          "submitted_by": {
+            "@id": "/users/eb26c7d8-cdb4-4370-8c6b-204b441ef987/",
+            "@type": [
+              "User",
+              "Item"
+            ],
+            "lab": "/labs/j-michael-cherry/",
+            "submits_for": [
+              "/labs/j-michael-cherry/"
+            ],
+            "title": "Marcus Ho",
+            "uuid": "eb26c7d8-cdb4-4370-8c6b-204b441ef987"
+          },
+          "summary": "Homo sapiens female embryo (120 days) brain tissue",
+          "treatments": [],
+          "url": "http://genboree.org/java-bin/project.jsp?projectName=XML%20Submissions%2FBroad%2FSAMPLE%2FEDACC.7163",
+          "uuid": "d8c7efcd-c809-41f0-9397-8cedf1563e6d"
+        },
+        "date_created": "2015-09-09T05:28:53.331367+00:00",
+        "dbxrefs": [
+          "GEO:GSM706851",
+          "GEO:GSM8109187"
+        ],
+        "documents": [
+          "/documents/696bb0e3-d174-48a0-afaf-24414b50e34b/"
+        ],
+        "lab": "/labs/bradley-bernstein/",
+        "notes": "GSM706851",
+        "nucleic_acid_term_id": "SO:0000352",
+        "nucleic_acid_term_name": "DNA",
+        "schema_version": "20",
+        "spikeins_used": [],
+        "status": "released",
+        "submitted_by": "/users/9851ccbc-2df9-4529-a4f3-90edee981fc0/",
+        "treatments": [],
+        "uuid": "05eda355-b536-4577-9c0b-106a75247350"
+      },
+      "schema_version": "9",
+      "status": "released",
+      "submitted_by": "/users/20ce8cd4-c407-453c-b0f3-7e45e5b7e493/",
+      "technical_replicate_number": 4,
+      "uuid": "7921224c-8da5-4985-9d71-9c2a7a82632d"
+    }
+  ],
+  "replication_type": "unreplicated",
+  "revoked_files": [],
+  "schema_version": "37",
+  "simple_biosample_summary": "female embryo (120 days)",
+  "status": "released",
+  "submitted_by": {
+    "@id": "/users/9851ccbc-2df9-4529-a4f3-90edee981fc0/",
+    "@type": [
+      "User",
+      "Item"
+    ],
+    "lab": "/labs/j-michael-cherry/",
+    "submits_for": [
+      "/labs/j-michael-cherry/"
+    ],
+    "title": "Aditi Narayanan",
+    "uuid": "9851ccbc-2df9-4529-a4f3-90edee981fc0"
+  },
+  "superseded_by": [],
+  "supersedes": [],
+  "tech_replicate_count": 1,
+  "type_slims": [],
+  "uuid": "f83f0ce7-7d70-4c00-8763-acd3630267f8"
+}
