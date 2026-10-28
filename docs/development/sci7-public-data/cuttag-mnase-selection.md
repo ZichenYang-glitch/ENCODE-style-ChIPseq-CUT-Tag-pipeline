@@ -111,7 +111,7 @@ search was never generalized into a claim that ENCODE/GEO/SRA lacks an assay.
 
 ## Queries and link verification
 
-[`metadata/geo-sra/queries.tsv`](metadata/geo-sra/queries.tsv) records all 46
+[`metadata/geo-sra/queries.tsv.gz`](metadata/geo-sra/queries.tsv.gz) records all 46
 official queries and their saved responses. Sources include GEO SOFT and GDS
 ESearch/ESummary, ENA `read_run` searches, project filereports for
 PRJNA669859/PRJNA606273/PRJNA928451, ENA experiment/sample XML, and ENCODE
@@ -124,7 +124,7 @@ converted to equivalent HTTPS URLs only.
 All **24/24** listed discovery and optional-confirmation FASTQ HTTPS URLs
 returned HTTP 200 to HEAD, and every Content-Length exactly matched the official
 ENA byte count. See
-[`metadata/geo-sra/url_head_checks.tsv`](metadata/geo-sra/url_head_checks.tsv)
+[`metadata/geo-sra/url_head_checks.tsv.gz`](metadata/geo-sra/url_head_checks.tsv.gz)
 and [`metadata/geo-sra/selection_summary.json`](metadata/geo-sra/selection_summary.json).
 HEAD validation does not verify content MD5, gzip integrity, read-name
 synchrony, actual read length, quality encoding or biological QC; those remain

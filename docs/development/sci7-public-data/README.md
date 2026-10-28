@@ -78,3 +78,10 @@ remain explicitly unbuilt and unverified.
 estimated storage, CPU/RAM and wall time, and defines the minimal trial and
 expansion order. Downloads and real-library execution require a later explicit
 execution step; this preparation commit is not scientific validation.
+
+## Evidence storage
+
+[`evidence-storage.md`](evidence-storage.md) and
+[`evidence-integrity.tsv`](evidence-integrity.tsv) describe the deterministic,
+lossless gzip representation used for 17 evidence files, their original-byte
+SHA256 values, source queries and decompression verification procedure.

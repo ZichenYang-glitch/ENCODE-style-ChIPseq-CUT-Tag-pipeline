@@ -107,8 +107,8 @@ ENCODE blacklist file JSON	https://www.encodeproject.org/files/ENCFF547MET/?form
 ENCODE blacklist payload	https://www.encodeproject.org/files/ENCFF547MET/@@download/ENCFF547MET.bed.gz	metadata/confirmation/ENCFF547MET.bed.gz	success	1263
 ENCODE annotation JSON	https://www.encodeproject.org/annotations/ENCSR636HFF/?format=json	metadata/confirmation/annotation_ENCSR636HFF.json	success	41316
 GENCODE MD5SUMS	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/MD5SUMS	metadata/confirmation/gencode_human_release_44_MD5SUMS.txt	success	3045
-GENCODE README	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/_README.TXT	metadata/confirmation/gencode_human_release_44_README.txt	success	69086
-GENCODE release page	https://www.gencodegenes.org/human/release_44.html	metadata/confirmation/gencode_human_release_44.html	success	24558
+GENCODE README	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/_README.TXT	metadata/confirmation/gencode_human_release_44_README.txt.gz	success	69086
+GENCODE release page	https://www.gencodegenes.org/human/release_44.html	metadata/confirmation/gencode_human_release_44.html.gz	success	24558
 GENCODE MD5SUMS	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/MD5SUMS	metadata/confirmation/gencode_mouse_release_M25_MD5SUMS.txt	success	2743
-GENCODE README	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/_README.TXT	metadata/confirmation/gencode_mouse_release_M25_README.txt	success	49416
-GENCODE release page	https://www.gencodegenes.org/mouse/release_M25.html	metadata/confirmation/gencode_mouse_release_M25.html	success	23766
+GENCODE README	https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/_README.TXT	metadata/confirmation/gencode_mouse_release_M25_README.txt.gz	success	49416
+GENCODE release page	https://www.gencodegenes.org/mouse/release_M25.html	metadata/confirmation/gencode_mouse_release_M25.html.gz	success	23766

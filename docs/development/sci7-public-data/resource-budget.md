@@ -1,152 +1,204 @@
 # SCI-7 resource budget
 
-Status: planning values for the final registered candidates on 2026-10-28. No
-FASTQ/BAM, large FASTA/GTF or index was downloaded. “Official” values come from
-portal metadata or HTTPS HEAD; all storage multipliers, CPU/RAM and wall times
-are estimates to be measured, not official figures.
+Status: execution planning on 2026-10-28. No large FASTQ/BAM, FASTA or index
+has been downloaded. Official byte counts are known from portal metadata/HEAD.
+BAM sizes, sort temporary space, index size and downstream output sizes are
+**unmeasured**; no multiplier in this document is an admission requirement.
 
-## 1. Official input download volume
+The previous approximately 1.2 TiB figure was only an all-input/all-branch
+retention scenario using an unmeasured BAM-to-FASTQ multiplier and treating all
+28 configurations as independent full chains. It is **not** a minimum execution
+requirement and must not be used to request expansion or stop the minimal
+trial.
 
-### Discovery
+## 1. Reuse and recomputation from the actual workflow
 
-| Group | FASTQ | Official bytes | GiB |
+The run matrix still has 28 logical configurations, but it does not require 28
+independent alignments.
+
+| Stage/comparison | Reuse decision | What must run again |
+| --- | --- | --- |
+| Reference FASTA/FAI/chrom_sizes/blacklist/Bowtie2 index | Reuse read-only across every arm and cohort after identity/admission checks | Rebuild only when the reference identity changes |
+| Baseline alignment used by duplicate and max_insert comparisons | Reuse the baseline run's artifacts; do not align once per comparison | Downstream products are produced under each isolated run identity |
+| Duplicate policy in **updated** profile | `duplicate_handling` always uses Picard `REMOVE_DUPLICATES=false` (`mark`), so for fixed MAPQ input its `final.bam` and duplicate metrics do not depend on retain/exclude | `prepare_analysis_bam` must run again because `--exclude-dup` changes; all downstream analysis/coverage/peaks/QC must be regenerated |
+| Duplicate policy in **legacy** profile | Reuse only the upstream MAPQ BAM/BAI. The legacy `remove_dup=yes` branch physically removes duplicates while retain symlinks the input, so `final.bam` is not equivalent | `duplicate_handling` and every downstream stage must run again |
+| PE `max_insert` | No aligned BAM is reusable when `-X` changes | Bowtie2 alignment, MAPQ/final/analysis BAMs and all downstream products must run again |
+| MACS3 keep-dup | Reuse exactly the same frozen production analysis BAM and matched control; no new alignment or BAM | Only the isolated direct-MACS3 calls, peaks and logs in a separate evidence directory |
+| `auto` resolution | No additional scientific arm when auto resolves to an existing explicit value | Only configuration/dry-run/effective-policy checks and artifact comparisons |
+
+A reusable artifact does **not** permit sharing an outdir or bypassing the
+identity guard. Every scientific configuration gets a new outdir and its own
+`analysis_identity.json`/`effective_config.json`. For updated duplicate-policy
+reuse, first create the new run marker through the production entry, then stage
+the verified MAPQ/final BAM under a written handoff manifest containing source
+SHA, destination SHA, file SHA256 and the scientific equivalence argument
+(fixed MAPQ and unchanged Picard `mark`). Never reuse the other run's marker or
+write into an unmarked nonempty outdir. Legacy reuse follows the same procedure
+for the MAPQ BAM only.
+
+Thus one PE dataset needs one baseline alignment and one alternative-max_insert
+alignment; it does not need a third alignment merely to compare duplicate
+policy. Histone SE needs no alternative-max_insert alignment. Across all 28
+logical configurations there are at most 18 core alignments (9 discovery and 9
+confirmation), plus legacy duplicate-handling/downstream reruns.
+
+## 2. Known input and reference downloads
+
+Do not download all registered inputs at once. The totals below describe the
+registered manifest, not a required initial download.
+
+| Scope | FASTQ | Official compressed bytes | GiB |
 | --- | ---: | ---: | ---: |
-| TF ENCSR054ZMK treatment + ENCSR142JFU control | 4 | 11,396,944,028 | 10.613 |
-| Histone ENCSR817LUF + ENCSR603VTC | 7 | 2,510,695,554 | 2.338 |
-| ATAC ENCSR844TIU | 4 | 3,952,560,652 | 3.681 |
-| CUT&Tag GSE159608 / PRJNA669859 treatment + IgG | 8 | 443,578,936 | 0.413 |
-| MNase PRJNA928451 LP_pMSCs_FM | 6 | 4,402,061,533 | 4.100 |
-| **Total** | **29** | **22,705,840,703** | **21.146** |
+| Minimal smoke: CUT&Tag Rep2 treatment + IgG Rep2 | 4 | 383,633,518 | 0.357 |
+| CUT&Tag discovery, whole group | 8 | 443,578,936 | 0.413 |
+| Histone discovery, whole group | 7 | 2,510,695,554 | 2.338 |
+| ATAC discovery, whole group | 4 | 3,952,560,652 | 3.681 |
+| MNase discovery, whole group | 6 | 4,402,061,533 | 4.100 |
+| TF discovery treatment + control | 4 | 11,396,944,028 | 10.613 |
+| **All discovery, only after sequential expansion** | **29** | **22,705,840,703** | **21.146** |
+| Optional CUT&Tag confirmation | 6 | 232,017,631 | 0.216 |
+| Optional MNase confirmation | 4 | 3,139,436,756 | 2.924 |
+| Histone confirmation rep1 + control | 16 | 7,462,062,697 | 6.949 |
+| ATAC confirmation | 8 | 11,262,765,629 | 10.489 |
+| **TF confirmation treatment + control** | **4** | **74,110,406,175** | **69.021** |
+| All confirmation candidates, not an initial download | 38 | 96,206,688,888 | 89.599 |
 
-### Confirmation candidates
+For human smoke, the GRCh38 primary FASTA is 844,691,642 bytes and the already
+verified ENCFF356LFX blacklist is 8,211 bytes. GTF is not needed. If the FASTA
+is not already available, the smoke's newly authorized download would be
+**1,228,325,160 bytes (1.144 GiB)** for four FASTQ plus FASTA; the local
+blacklist need not be fetched again. The Bowtie2 index is built locally, not
+downloaded.
 
-| Group | FASTQ | Official bytes | GiB |
-| --- | ---: | ---: | ---: |
-| TF ENCSR785RQR + ENCSR194GTV | 4 | 74,110,406,175 | 69.021 |
-| Histone ENCSR213YKJ rep1 + ENCSR148TRG rep1 | 16 | 7,462,062,697 | 6.949 |
-| ATAC ENCSR639PPN | 8 | 11,262,765,629 | 10.489 |
-| Optional CUT&Tag GSE145187 / PRJNA606273 | 6 | 232,017,631 | 0.216 |
-| Optional MNase PRJNA928451 HP_pMSCs_FM | 4 | 3,139,436,756 | 2.924 |
-| **Total planned, not downloaded** | **38** | **96,206,688,888** | **89.599** |
+Both species' compressed FASTAs total 1.507 GiB. Decompressed FASTA and index
+sizes are unmeasured. Keep the shared reference working set separate from
+per-run scratch and reuse it across groups.
 
-The discovery plus all registered confirmation inputs total **67 FASTQ,
-118,912,529,591 bytes (110.746 GiB)**. Optional candidates are included so the
-budget is not understated; their execution still depends on the independence
-and depth limitations in `confirmation-review.md`.
+## 3. Scenario budgets: known and unmeasured components
 
-## 2. Reference and index
+For every scenario:
 
-Official HTTPS HEAD sizes for compressed primary-assembly FASTA are 844,691,642
-bytes (GRCh38) and 773,507,376 bytes (mm10), totalling **1,618,199,018 bytes
-(1.507 GiB)**. Optional GTF HEAD sizes total 78,287,254 bytes (0.073 GiB), but
-GTF is not required by the default comparison. See
-`metadata/confirmation/reference-head-checks.json`.
+`peak = raw inputs currently retained + shared reference working set + long-term products + current-group scratch + parallel-extra`
 
-Estimated reference-side working storage is **15–20 GiB for both species**:
-compressed plus decompressed FASTA, FAI/chrom_sizes, small blacklists and two
-Bowtie2 2.5.5 indexes. This is an estimate because decompressed FASTA and index
-sizes have not been measured. The two ENCODE blacklist payloads (9,474 bytes)
-are already verified. Reuse the same validated references/indexes across arms;
-do not rebuild them per run.
+Only raw input and compressed reference sizes are currently known. The other
+terms remain explicitly unmeasured until the smoke and first group report them.
 
-## 3. Unique scientific configurations and intermediate volume
+### 3.1 Minimal smoke
 
-`auto` resolution checks add no duplicate scientific arm. A baseline default
-configuration is shared by the duplicate and max_insert comparisons. Thus each
-PE dataset needs three core full-chain configurations (default, alternative
-duplicate policy, alternative max_insert); histone SE needs two (max_insert not
-applicable). MNase 200 is included as a sensitivity diagnostic, not a proposed
-default.
+- Known new download: 1.144 GiB including GRCh38 FASTA, or 0.357 GiB if the
+  reference already exists locally.
+- Computation: one default CUT&Tag Rep2 + IgG Rep2 run (auto resolves to
+  retain, max_insert 700), then the two isolated MACS3 keep-dup calls on the
+  same frozen analysis BAM. No alternative-max_insert alignment and no full
+  biological comparison.
+- Long-term products: effective config/identity, final and analysis BAMs
+  selected for the smoke evidence, duplicate/stage metrics, peaks, QC, logs,
+  commands and checksums. Sizes unmeasured.
+- Current scratch: one alignment and its sort/index temporary files, one
+  analysis-BAM derivation and small MACS3 outputs. Sizes unmeasured.
+- Parallel-extra: none; the smoke is serial.
 
-| Cohort | PE datasets x 3 | SE datasets x 2 | Core configurations |
-| --- | ---: | ---: | ---: |
-| Discovery | TF, ATAC, CUT&Tag, MNase | Histone | 14 |
-| Confirmation | TF, ATAC, CUT&Tag, MNase | Histone | 14 |
-| **Total** |  |  | **28** |
+### 3.2 One discovery group
 
-The isolated MACS3 keep-dup experiment reuses frozen BAMs and adds no alignment
-BAM. One optional combined regression per dataset would add up to 10 further
-configurations and is not included in the core total below.
+Run one group at a time. Raw input is the corresponding table value; the
+largest discovery group is TF at 10.613 GiB. For a PE group, scratch covers at
+most the baseline and alternative-max_insert alignments plus the alternative
+duplicate analysis/downstream products, not three complete alignments. Histone
+SE has only the baseline alignment. Long-term products accumulate only after
+that group's evidence is accepted.
 
-For rough capacity planning, each full-chain configuration's BAM/index/sort
-intermediates are estimated at **1.5–3x its compressed FASTQ input**. The
-28-configuration weighted input is 65.607 GB for discovery and 281.155 GB for
-confirmation. Therefore:
+### 3.3 All discovery, sequentially
 
-- discovery intermediates: about 98–197 GB (91–183 GiB);
-- confirmation intermediates: about 422–843 GB (393–785 GiB);
-- **all core intermediates if everything is retained: 520–1,040 GB
-  (484–969 GiB)**.
+The eventual raw total is 21.146 GiB, but downloads occur per group. At any
+time, scratch is only the active group's scratch; it is not the sum of all 14
+logical configurations. Long-term products from completed groups accumulate
+and must be measured. After each group, recompute the next group's projection
+using observed sizes instead of assuming a BAM/FASTQ ratio.
 
-Final peaks/QC/logs/bigWigs across the matrix are separately estimated at
-**20–80 GiB**. Retaining all raw inputs, all branch intermediates, references
-and final reports therefore requires roughly **1.2 TiB free**, with additional
-headroom for the optional combined regression. This is a conservative planning
-figure, not a measured requirement.
+### 3.4 Confirmation by group, with TF separate
 
-## 4. Retention policy and peak-storage control
+Confirmation starts only after discovery decision rules are fixed. The same
+reuse rules apply. The largest single group is TF confirmation at 69.021 GiB;
+its raw download, two PE alignments and duplicate-analysis/downstream scratch
+must be budgeted as one active group. It is not added to a simultaneously
+retained 89.599 GiB of other confirmation scratch. Download TF separately and
+pause after download, baseline alignment and alternative-max_insert alignment
+to remeasure free space.
 
-Do not retain every alternative-arm intermediate by default.
+### 3.5 Optional all-intermediates-retained scenario
 
-1. Retain raw FASTQ and official/local checksum evidence: 110.746 GiB for all
-   registered candidates.
-2. Retain shared validated references/indexes: estimated 15–20 GiB.
-3. Retain only the selected candidate arm's BAM/index for each dataset:
-   estimated 167–334 GiB across all datasets; retain alternative-arm BAMs only
-   while their metrics and attribution checks are being computed.
-4. Retain final peaks, QC, manifests, commands, logs and effect-size tables for
-   every arm: estimated 20–80 GiB.
-5. Process one data group at a time, largest TF confirmation last. After the
-   comparison evidence is complete and its checksums verified, future
-   execution may clean only its own explicitly listed alternative-arm scratch
-   outputs; no cleanup is authorized or performed by this preparation step.
+The former approximately 1.2 TiB scenario is retained only as an **unmeasured,
+non-required upper-retention illustration** based on the old 1.5–3x multiplier.
+It is not reliable enough to be a new estimate and is not a prerequisite for
+any stage. If a future reviewer explicitly requires all branch intermediates to
+remain, calculate a fresh requirement from measured per-stage sizes.
 
-The resulting long-term retention estimate is about **313–545 GiB**, plus one
-active group's alternative-arm scratch. Processing TF confirmation alone can
-temporarily add about **207–414 GiB** for its two non-retained core arms. Keep
-at least 1 TiB free for a conservative full plan, or reduce peak usage by
-running one group at a time and applying the retention policy. Available space
-must be rechecked before each download; this document does not authorize a
-download.
+## 4. Long-term retention and task-owned scratch
 
-## 5. CPU, RAM and wall-time estimates
+Long-term retention includes original FASTQ and reference inputs, official and
+local checksums, source manifests/query evidence, effective configs and run
+identities, selected final/analysis BAMs, duplicate/stage metrics, final peaks,
+QC, coverage, logs, commands, effect-size tables and the frozen BAM identity
+used for MACS3 keep-dup. These are not cleanup candidates.
 
-The previous planning assumption was 20–60 CPU-hours per 17.86 GB of compressed
-input for one alignment/QC/peak arm. Scaling that rough assumption by the
-28-configuration weighted input gives:
+Alternative-arm scratch is limited to task-created MAPQ/final/analysis BAMs,
+sort temporary files and redundant intermediate coverage whose final metrics
+and checksums have already been preserved. Any future cleanup requires the
+existing execution authorization, an explicit file list, verification that the
+outputs are task-owned and confirmation that long-term evidence is intact.
+No raw file, user result, source evidence or traceability record is deleted to
+make the budget fit.
 
-- discovery core matrix: approximately **70–220 CPU-hours**;
-- confirmation core matrix: approximately **310–950 CPU-hours**.
+Each additional concurrent alignment adds its own MAPQ/final/sort temporary
+space and any simultaneous download. Shared reference/index files are not
+duplicated, but concurrent downstream scratch and retained outputs still add
+space. Parallel-extra is unmeasured and must use the largest observed active
+per-alignment scratch, not zero and not a fixed multiplier.
 
-These estimates are highly uncertain because read length, PE/SE mix, duplicate
-rate and reference differ. The optional combined regressions and repeated
-failures are extra. On 16 dedicated cores, the core matrices correspond to a
-rough sequential wall-time range of **6–20 hours for discovery** and **20–60
-hours for confirmation**, plus reference setup and download time. Do not treat
-larger `-X` cost as linear; measure it in the max_insert arms.
+## 5. Measurement and stop rules
 
-Plan **16 GiB RAM per ordinary sample and 32 GiB for sort/index peaks**. For
-concurrent samples or reference construction, plan 32–64 GiB total RAM and keep
-the Bowtie2 index resident. Record CPU time, wall time and maximum RSS for every
-arm and replace these estimates with measurements after the minimal trial.
+At reference decompression/index build, Bowtie2/MAPQ, duplicate handling,
+analysis-BAM derivation, peaks/QC and each alternative arm, record:
 
-## 6. Minimal trial and expansion order
+- `df --output=avail` before and after the stage;
+- allocated bytes (`du -s --block-size=1`) for reference and each outdir;
+- individual BAM/index/output sizes and the largest temporary files;
+- a high-water scratch observation during alignment/sort, since final `du`
+  can miss removed temporary files;
+- compressed-input to measured-stage-space ratios, retained by assay/layout.
 
-1. **Minimal execution smoke test:** CUT&Tag Rep2 treatment + IgG Rep2
-   (SRR12842272/SRR12842282), 383,633,518 compressed bytes. It exercises PE,
-   matched-control, duplicate and max_insert paths at low cost. It is not
-   sufficient for a biological default decision.
-2. **Reference/QC expansion:** full CUT&Tag discovery (0.413 GiB), then MNase
-   Rep1 (about 1.43 GiB) to check mono/di windows and PE accounting. Resolve
-   shallow CUT&Tag Rep1 separately; do not silently drop it from a biological
-   comparison.
-3. **Remaining discovery:** histone treatment/control (2.338 GiB), ATAC (3.681
-   GiB), then TF treatment/control (10.613 GiB). Run all single-variable arms
-   before the combined regression.
-4. **Confirmation only after discovery rules are fixed:** optional
-   CUT&Tag/MNase first, then histone, ATAC, and the 69.021 GiB TF confirmation
-   last. Do not tune on confirmation data.
+After the smoke, use the largest observed ratio to project the next group.
+After every group, replace the projection with the new maximum observed value.
 
-Each expansion requires verified FASTQ bytes/MD5, reference admission, adequate
-free storage and review of the preceding stage. Failure or inconclusive depth
-stops biological claims for that group, not the documentation of the failure.
+Stop and reassess rather than silently continuing when:
+
+1. available space is below the known next download plus measured retained and
+   active working sets plus a **20 GiB operational safety margin**;
+2. before any measurement exists, the smoke cannot start with at least 20 GiB
+   free, its scratch reaches 10 GiB, or free space falls below 5 GiB. These
+   are initial guardrails, not claims about actual usage;
+3. the TF confirmation projection using measured alignment and downstream
+   ratios does not fit after the 20 GiB margin; pause before its download or
+   current alignment stage instead of invoking the obsolete 1.2 TiB figure;
+4. checksum/reference admission fails, or a stage's actual scratch exceeds the
+   current approved projection without an explained difference.
+
+These rules neither declare the currently available space insufficient nor
+promise that the complete matrix will fit. They make the decision after each
+measurement.
+
+## 6. Execution order
+
+1. Run the minimal smoke and measure every stage.
+2. For CUT&Tag Rep2, add duplicate exclude using the updated-profile final-BAM
+   handoff (no new alignment), then max_insert 500 (one new alignment). Expand
+   to the full CUT&Tag group and explicitly assess shallow Rep1.
+3. Add MNase Rep1, then histone, ATAC and the remaining discovery groups,
+   measuring and recomputing storage before each expansion.
+4. Run optional CUT&Tag/MNase confirmation, histone and ATAC confirmation.
+   Evaluate the 69.021 GiB TF confirmation last as its own storage gate.
+5. Keep all outputs and evidence from completed groups; apply only the
+   task-owned scratch policy above under the applicable authorization.
+
+No stage in this preparation document is itself authorization for a large
+download or a real-library matrix run.
