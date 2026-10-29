@@ -279,4 +279,3 @@ Machine-readable tables, without local paths:
 - [`cuttag-max-insert-t2-templates.json`](cuttag-max-insert-t2-templates.json)
 - [`cuttag-max-insert-igg2-templates.json`](cuttag-max-insert-igg2-templates.json)
 - [`cuttag-max-insert-signal.json`](cuttag-max-insert-signal.json)
-
