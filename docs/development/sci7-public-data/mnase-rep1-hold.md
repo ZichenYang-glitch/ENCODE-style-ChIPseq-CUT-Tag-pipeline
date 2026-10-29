@@ -53,7 +53,10 @@ code does resolve them that way: `get_duplicate_policy_for_assay` returns
 
 The sample sheet cannot copy the CUT&Tag sheet. `assay=mnase` requires
 `layout=PE` and `peak_mode=nucleosome`. `use_control` stays false and
-`control_sample` stays empty. There is no IgG.
+`control_sample` stays empty. There is no IgG. `organelle_mode` stays
+`auto`. For MNase that resolves to `report`, not the CUT&Tag/ATAC value
+`exclude` (`assay_organelle_mode` in `reference_policy.py`). Setting
+`exclude` here would add a second variable.
 
 No executed BAM handoff exists. The retain arm is a full workflow, not a
 copy of the exclude BAM.
