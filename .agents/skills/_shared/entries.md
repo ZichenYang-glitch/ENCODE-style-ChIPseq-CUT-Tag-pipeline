@@ -79,8 +79,10 @@ only when they asked for that scheduler profile. That profile is not
 `scripts/validate_samples.py` is a provenance-checked wrapper around
 `encode_pipeline.cli.validate`. It validates one config file. It does not see
 later `snakemake --config KEY=VALUE` overrides. Those overrides are merged
-and validated when the workflow loads. A dry-run performs the identity check
-and writes neither `analysis_identity.json` nor `effective_config.json`.
+and validated when the workflow loads. A dry-run performs the identity check.
+It does not execute scientific rules and does not create
+`analysis_identity.json`, `effective_config.json`, or scientific outputs.
+Snakemake may still create `.snakemake` scheduler metadata.
 
 The small runner environment is `workflow/envs/runner.lock` (Python, PyYAML,
 Snakemake). Rule tools come from `workflow/envs/` via `--use-conda`. That
@@ -181,7 +183,10 @@ Input paths are canonical absolute locations.
 | Symlink or non-regular metadata | Refused. Do not repair or replace it |
 | Marker valid but effective-config record missing, unreadable, or inconsistent | Refused. Do not reconstruct it from the current config |
 
-Dry-run reports the same refusals and writes nothing.
+A dry-run reports the same refusals. It does not execute scientific rules
+and does not create `analysis_identity.json`, `effective_config.json`, or
+scientific outputs. Snakemake may still create `.snakemake` scheduler
+metadata.
 
 `analysis_profile` is `legacy` or `updated`. Omitted configs resolve
 `config_schema_version` to `1.0.0`, whose profile default is `legacy`.

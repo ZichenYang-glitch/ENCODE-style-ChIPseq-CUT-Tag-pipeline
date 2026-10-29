@@ -114,7 +114,9 @@ The same helpers refuse a non-regular metadata file, a profile mismatch
 `Use a fresh outdir` means a new directory. Keep the existing directory,
 `.snakemake`, `.helixweave/analysis_identity.json`, and
 `.helixweave/effective_config.json`. The confirming check for a direct
-ENCODE Snakemake invocation is a dry-run, which writes neither record.
+ENCODE Snakemake invocation is a dry-run. It does not execute scientific
+rules and creates neither run record nor scientific outputs. Snakemake may
+still create `.snakemake` scheduler metadata.
 For a platform run, read the run events. A successful preflight includes
 that dry-run.
 

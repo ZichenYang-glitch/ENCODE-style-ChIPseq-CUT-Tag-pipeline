@@ -99,8 +99,10 @@ Stop on `WorkflowError` from
 [../../../../workflow/Snakefile](../../../../workflow/Snakefile)
 (`_check_analysis_outdir_identity` and its helpers), including unmarked
 outdir, different identity, outdated marker, symlink, or missing effective
-config. The dry-run writes neither `analysis_identity.json` nor
-`effective_config.json`. The existing directory and both records stay.
+config. The dry-run does not execute scientific rules and writes neither
+`analysis_identity.json` nor `effective_config.json`. Snakemake may still
+create `.snakemake` scheduler metadata. The existing directory and both
+records stay.
 `Use a fresh outdir` is a new directory. Human table:
 [../../../../docs/configuration.md](../../../../docs/configuration.md)
 ("Run identity and effective configuration").

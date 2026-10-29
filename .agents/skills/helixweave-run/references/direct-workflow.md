@@ -23,10 +23,22 @@ Paired-end and single-end checks:
 - `layout: SE` requires empty `fastq_2`. A filled R2 is rejected.
 - `assay: mnase` is PE-only and uses `peak_mode: nucleosome`. Other assays
   reject `nucleosome`. ATAC-seq in this release is narrow-peak only.
-- `control_sample` is another row's `sample` id with `role: control`. The
-  pipeline uses that row's `final.bam` as the MACS3 control.
-- `control_bam` is an external BAM path. The pipeline uses the file directly
-  and does not process it as a sample row.
+- `control_sample` is another row's `sample` id with `role: control`.
+  MACS3 consumes that control's canonical analysis BAM:
+  `analysis_bam(control_sample)` in `workflow/rules/metadata.smk`.
+  That path follows the active analysis namespace (`OUTDIR`, which is
+  `<outdir>/analysis_filtered` when blacklist analysis filtering is on).
+  It is not the control row's raw `final.bam`.
+- `control_bam` is an external path, not a sample row.
+  `analysis_profile=updated` rejects it and tells you to use a FASTQ-based
+  `control_sample` (`validate_reference_control_admission` in
+  `src/encode_pipeline/samples/admission.py`, and `_macs3_inputs`).
+  `analysis_profile=legacy` may pass that path to MACS3 only when existing
+  admission allows it. With `use_control: true` the file must exist, the
+  experiment cannot mix control types, and
+  `external_control_policy=validate` also requires a coordinate-sorted
+  header whose contigs match `chrom_sizes`. Platform admission forces
+  that validate policy. An arbitrary BAM is not accepted.
 - `use_control: false` ignores both control fields. Control rows are not
   scheduled as active outputs. See `docs/configuration.md`, section
   `use_control`.
@@ -107,7 +119,9 @@ snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
 The dry-run loads the Snakefile, prints the effective summary to stderr, and
 runs `_check_analysis_outdir_identity`. The marker rule
 `analysis_identity_marker` in `workflow/rules/analysis.smk` is a real-run
-output. A dry-run does not execute it and writes neither run record.
+output. A dry-run does not execute it and does not create either run
+record or other scientific outputs. Snakemake may still create `.snakemake`
+scheduler metadata.
 Snakemake `-n` still resolves sample-sheet input paths. Absent FASTQ paths
 raise `MissingInputException` even when the validator was run without
 `--strict-inputs`. Empty placeholder files are enough for that dry-run.
@@ -199,7 +213,9 @@ identity that differs from the marker, another profile, a schema version that
 disagrees with the recorded config, another policy revision, or a config
 block whose recomputed identity differs from the recorded identity.
 
-A dry-run reports the same refusals and writes neither run record. Messages come from
+A dry-run reports the same refusals, does not execute scientific rules, and
+does not create either run record or other scientific outputs. Snakemake may
+still create `.snakemake` scheduler metadata. Messages come from
 `_check_analysis_outdir_identity`, `_read_analysis_identity_marker`, and
 `_check_effective_config_record` in `workflow/Snakefile`. The human table is
 `docs/configuration.md`, section "Run identity and effective configuration".

@@ -53,8 +53,11 @@ the docs.
 
 - `layout: PE` needs a non-empty `fastq_2` that is a different file from
   `fastq_1`. `layout: SE` needs an empty `fastq_2`. MNase-seq is PE-only.
-- `control_sample` names a `role: control` row. `control_bam` is an external
-  BAM. Both apply when `use_control` is true.
+- `control_sample` names a `role: control` row. MACS3 uses that row's
+  canonical analysis BAM, not its raw `final.bam`. `control_bam` is an
+  external path: `updated` rejects it; `legacy` still has to pass admission.
+  Both fields apply only when `use_control` is true. Details are in
+  [references/direct-workflow.md](references/direct-workflow.md).
 - `bowtie2_index` is an index prefix.
 - `genome` matches a key under `genome_resources`.
 
@@ -93,8 +96,10 @@ mismatches, or when the effective-config record is broken. Choose a fresh
 outdir. Leave the old directory in place: do not delete, move, or rewrite it,
 and do not forge or repair a marker.
 
-A dry-run performs the same check and writes neither
-`.helixweave/analysis_identity.json` nor `.helixweave/effective_config.json`.
+A dry-run performs the same check. It does not execute scientific rules
+and does not create `.helixweave/analysis_identity.json`,
+`.helixweave/effective_config.json`, or scientific outputs. Snakemake may
+still create `.snakemake` scheduler metadata.
 Resume only when the marker matches. The refusal table and the resume flag
 are in [references/direct-workflow.md](references/direct-workflow.md).
 Implementation: `workflow/Snakefile` (`_check_analysis_outdir_identity`,
