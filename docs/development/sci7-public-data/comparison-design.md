@@ -1,7 +1,10 @@
 # SCI-7 single-variable comparison design
 
-Status: execution preparation only. No FASTQ/BAM comparison has been run and no
-scientific default is frozen by this document.
+Status: execution preparation, plus the CUT&Tag measurements recorded in
+[`cuttag-duplicate-retain-exclude.md`](cuttag-duplicate-retain-exclude.md)
+and [`cuttag-replicate-insert.md`](cuttag-replicate-insert.md). Those
+measurements do not freeze a default. The decision rules below are
+unchanged.
 
 ## 1. Frozen inputs and evidence identity
 

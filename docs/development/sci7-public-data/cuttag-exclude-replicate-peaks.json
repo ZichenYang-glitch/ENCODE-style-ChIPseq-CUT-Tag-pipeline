@@ -1,0 +1,18 @@
+{
+  "biological_independence": "not_established_by_this_script",
+  "left_label": "submitter_rep1",
+  "peak_count": {
+    "left": 0,
+    "right": 2881
+  },
+  "peak_jaccard": {
+    "intersection_bp": 0,
+    "jaccard": 0.0,
+    "left_merged_bp": 0,
+    "left_peaks_touched": null,
+    "right_merged_bp": 1897161,
+    "right_peaks_touched": 0.0,
+    "union_bp": 1897161
+  },
+  "right_label": "submitter_rep2"
+}
