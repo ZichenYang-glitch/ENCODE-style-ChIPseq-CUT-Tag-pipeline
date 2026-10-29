@@ -115,6 +115,22 @@ def test_configuration_guard_rejects_a_drifting_fixed_field():
         cmp.assert_fixed_configuration(_qc("retain"), exclude)
 
 
+def test_configuration_guard_rejects_a_missing_fixed_field():
+    retain = _qc("retain")
+    exclude = _qc("exclude")
+    del retain["blacklist_mode"]
+    del exclude["blacklist_mode"]
+    with pytest.raises(
+        ValueError, match="blacklist_mode is missing from retain, exclude"
+    ):
+        cmp.assert_fixed_configuration(retain, exclude)
+    retain = _qc("retain")
+    exclude = _qc("exclude")
+    del exclude["layout"]
+    with pytest.raises(ValueError, match="layout is missing from exclude"):
+        cmp.assert_fixed_configuration(retain, exclude)
+
+
 def test_record_marks_own_peak_frip_as_not_cross_arm_comparable():
     record = cmp.comparison_record(
         _qc("retain"),
@@ -156,7 +172,8 @@ def test_cli_writes_common_universe_effects(tmp_path: Path, monkeypatch):
         return cmp.load_qc_summary(output, sample)
 
     monkeypatch.setattr(cmp, "count_common_frip", fake_frip)
-    output = tmp_path / "comparison.json"
+    output = tmp_path / "new-results" / "comparison.json"
+    assert not output.parent.exists()
     assert (
         cmp.main(
             [

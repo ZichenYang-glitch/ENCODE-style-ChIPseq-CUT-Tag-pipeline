@@ -219,9 +219,18 @@ def assert_fixed_configuration(retain: dict[str, str], exclude: dict[str, str]) 
     if exclude.get("duplicate_analysis") != EXCLUDE:
         raise ValueError("exclude arm duplicate_analysis is not exclude")
     for field in FIXED_QC_FIELDS:
-        if retain.get(field) != exclude.get(field):
+        missing = [
+            arm
+            for arm, row in (("retain", retain), ("exclude", exclude))
+            if field not in row
+        ]
+        if missing:
             raise ValueError(
-                f"fixed field {field} differs: {retain.get(field)} vs {exclude.get(field)}"
+                f"fixed field {field} is missing from {', '.join(missing)}"
+            )
+        if retain[field] != exclude[field]:
+            raise ValueError(
+                f"fixed field {field} differs: {retain[field]} vs {exclude[field]}"
             )
 
 
@@ -401,6 +410,7 @@ def main(argv: list[str] | None = None) -> int:
     exclude_qc = load_qc_summary(args.exclude_qc, args.sample)
     retain_peaks = parse_narrow_peaks(args.retain_peaks)
     exclude_peaks = parse_narrow_peaks(args.exclude_peaks)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     common_frip = None
     if args.retain_bam or args.exclude_bam:
         if not (args.retain_bam and args.exclude_bam):
@@ -432,7 +442,6 @@ def main(argv: list[str] | None = None) -> int:
         common_frip,
         genome_bp,
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
