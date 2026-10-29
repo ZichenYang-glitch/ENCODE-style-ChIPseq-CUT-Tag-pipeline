@@ -1,0 +1,131 @@
+{
+  "analysis_templates": {
+    "exclude": {
+      "analysis_valid_fragments": "4108514",
+      "duplicate_fraction_picard": "0.008728",
+      "duplicate_metric_stage": "pre_duplicate_markdup_bam",
+      "stage": "analysis_bam"
+    },
+    "retain": {
+      "analysis_valid_fragments": "4144663",
+      "duplicate_fraction_picard": "0.008728",
+      "duplicate_metric_stage": "pre_duplicate_markdup_bam",
+      "stage": "analysis_bam"
+    }
+  },
+  "candidate_arm": "exclude",
+  "common_universe_bp": 8985542,
+  "common_universe_frip": {
+    "effects_exclude_minus_retain": {
+      "absolute_difference_percentage_points": -0.022500000000000298,
+      "log2_ratio": -0.0074769284631295944,
+      "relative_change": -0.005169324082157859
+    },
+    "epsilon": 1e-06,
+    "exclude": {
+      "bam": "task-local analysis BAM",
+      "frip": "0.043301",
+      "peaks": "merged common universe",
+      "reads_in_peaks": "355806",
+      "sample": "T2",
+      "total_reads": "8217028"
+    },
+    "normalization": "analysis BAM read records / common merged narrowPeak universe",
+    "offpeak_background_ratio_exclude_over_retain": 1.0002352390132925,
+    "offpeak_fraction": {
+      "exclude": 0.956699,
+      "retain": 0.956474
+    },
+    "retain": {
+      "bam": "task-local analysis BAM",
+      "frip": "0.043526",
+      "peaks": "merged common universe",
+      "reads_in_peaks": "360804",
+      "sample": "T2",
+      "total_reads": "8289326"
+    },
+    "status": "measured"
+  },
+  "library_complexity": {
+    "exclude": {
+      "denominator": "MAPQ-filtered fragments before duplicate removal",
+      "nrf": "0.991272",
+      "pbc1": "0.991264",
+      "pbc2": "114.365519",
+      "stage": "pre_duplicate_mapq_bam"
+    },
+    "retain": {
+      "denominator": "MAPQ-filtered fragments before duplicate removal",
+      "nrf": "0.991272",
+      "pbc1": "0.991264",
+      "pbc2": "114.365519",
+      "stage": "pre_duplicate_mapq_bam"
+    }
+  },
+  "merged_bp_jaccard": {
+    "exclude_merged_bp": 1897161,
+    "intersection_bp": 1893095,
+    "jaccard": 0.2106823383608913,
+    "retain_merged_bp": 8981476,
+    "union_bp": 8985542
+  },
+  "overlap_fraction_at_least_one_bp": {
+    "exclude_peaks_hit_by_retain": 0.998958694897605,
+    "retain_peaks_hit_by_exclude": 0.21929683737357522
+  },
+  "own_peak_frip": {
+    "exclude": {
+      "comparable_across_arms": false,
+      "denominator": "analysis BAM read records from calc_frip.py",
+      "frip": "0.012022",
+      "peaks": "arm-specific blacklist-filtered narrowPeak",
+      "reads_in_peaks": "98783",
+      "total_reads": "8217028"
+    },
+    "retain": {
+      "comparable_across_arms": false,
+      "denominator": "analysis BAM read records from calc_frip.py",
+      "frip": "0.043496",
+      "peaks": "arm-specific blacklist-filtered narrowPeak",
+      "reads_in_peaks": "360552",
+      "total_reads": "8289326"
+    }
+  },
+  "peak_count": {
+    "exclude": 2881,
+    "retain": 12458,
+    "role": "descriptive_only"
+  },
+  "peak_width_bp": {
+    "exclude": {
+      "mean_bp": 658.507809788268,
+      "median_bp": 535,
+      "n": 2881
+    },
+    "retain": {
+      "mean_bp": 720.94043987799,
+      "median_bp": 560.0,
+      "n": 12458
+    }
+  },
+  "reference_arm": "retain",
+  "replicate_consistency": "not_applicable_single_pair",
+  "scope": "single treatment/control pair; not biological acceptance",
+  "signal_background": {
+    "exclude": {
+      "enrichment": 15.568434303583338,
+      "offpeak_bp": 3090765176,
+      "reads_per_offpeak_base": 0.002543454954469825,
+      "reads_per_peak_base": 0.03959761136278702
+    },
+    "genome_bp": 3099750718,
+    "normalization": "analysis-BAM read records per reference base",
+    "retain": {
+      "enrichment": 15.653117305643395,
+      "offpeak_bp": 3090765176,
+      "reads_per_offpeak_base": 0.0025652294977196936,
+      "reads_per_peak_base": 0.04015383824370305
+    },
+    "status": "measured"
+  }
+}

@@ -1,8 +1,10 @@
 # SCI-7 public-data validation preparation
 
-Status: **execution preparation only**. No real-library comparison has run, no
-scientific acceptance has completed, and no default is frozen by these files.
-No large FASTQ, BAM, reference FASTA or index download has started.
+Status: one CUT&Tag Rep2 retain-versus-exclude comparison is recorded in
+[`cuttag-duplicate-retain-exclude.md`](cuttag-duplicate-retain-exclude.md).
+It is a single treatment/control effect-size check. No scientific acceptance
+has completed, and no default is frozen. The other planned assay comparisons
+have not run. That comparison did not download another FASTQ or reference.
 
 ## Scope
 
