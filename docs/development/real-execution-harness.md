@@ -84,6 +84,16 @@ suite instead of relying on the runner PATH. It also sets
 instead of becoming an all-skipped success. Its JUnit report must also contain
 zero skips and zero xfails.
 
+The scientific CI tier also stages the explicit `ci-conda.lock` environment.
+Snakemake 8.30 can query `conda info` for a rule's environment metadata even
+when environment deployment is disabled. This is a real locked CLI dependency,
+not a fabricated info response. The harness invokes the real locked Snakemake
+through a task-owned wrapper that disables both profile scopes; tools are
+already supplied by the explicit toolchain locks, and scheduling fixtures must
+not start unrelated environment solves. On a test failure, pytest stops with
+the first traceback and JUnit failure instead of concealing it behind a later
+job timeout. Success still requires the complete selected suite and zero skips.
+
 ## Bulk RNA-seq real execution
 
 The `bulk_rnaseq_real_execution` marker is selected only when the manual

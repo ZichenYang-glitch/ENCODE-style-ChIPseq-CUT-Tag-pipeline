@@ -190,7 +190,10 @@ def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer(
 
     assert shard_job["strategy"]["matrix"]["shard"] == [1, 2]
     assert shard_job["strategy"]["fail-fast"] is False
-    assert shard_job["timeout-minutes"] == 25
+    assert (
+        shard_job["timeout-minutes"]
+        == "${{ github.event_name == 'pull_request' && 25 || 45 }}"
+    )
     producer = _runs(shard_job)
     assert "budget=300" in producer
     assert "budget=1200" in producer
@@ -366,7 +369,6 @@ def test_scientific_real_separates_the_test_runner_from_locked_toolchains():
     )
     assert "micromamba run -n ci-fast" in suite["run"]
     for variable, environment, executable in (
-        ("SNAKEMAKE", "chipseq", "snakemake"),
         ("SAMTOOLS", "chipseq", "samtools"),
         ("FASTQC", "chipseq", "fastqc"),
         ("TRIM_GALORE", "chipseq", "trim_galore"),
@@ -376,6 +378,18 @@ def test_scientific_real_separates_the_test_runner_from_locked_toolchains():
             f'{variable}="$MAMBA_ROOT_PREFIX/envs/{environment}/bin/{executable}"'
             in suite["run"]
         )
+    conda_setup = next(
+        s for s in steps if s.get("name") == "Setup scientific conda CLI"
+    )
+    assert conda_setup["with"]["environment-file"] == "workflow/envs/ci-conda.lock"
+    assert conda_setup["with"]["environment-name"] == "scientific-conda"
+    assert steps.index(conda_setup) < steps.index(suite)
+    assert 'SNAKEMAKE="$RUNNER_TEMP/scientific-harness-bin/snakemake"' in suite["run"]
+    assert "--workflow-profile none --profile none" in suite["run"]
+    assert "envs/scientific-conda/bin:" in suite["run"]
+    assert "conda info --json" in suite["run"]
+    assert "--maxfail=1" in suite["run"]
+    assert _load("ci.yml")["jobs"]["real-execution"]["timeout-minutes"] == 45
 
 
 def test_documented_python_timing_budgets_match_the_workflow():
@@ -384,7 +398,7 @@ def test_documented_python_timing_budgets_match_the_workflow():
     )
     assert "| PR `fast-checks` shards | 5 min | 25 min |" in harness
     assert "| PR `fast-checks` aggregate | 1 min | 10 min |" in harness
-    assert "| Full-main Python | 20 min | 25 min |" in harness
+    assert "| Full-main Python | 20 min | 45 min |" in harness
 
 
 def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():

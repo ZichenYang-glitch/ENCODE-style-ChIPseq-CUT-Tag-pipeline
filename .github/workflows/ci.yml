@@ -32,7 +32,7 @@ concurrency:
 jobs:
   fast-checks-shard:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -705,8 +705,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       github.event_name == 'release'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Record job start
         run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
@@ -759,6 +759,16 @@ jobs:
           cache-environment: true
           cache-environment-key: chipseq-${{ runner.os }}-${{ hashFiles('workflow/envs/chipseq.lock') }}
 
+      - name: Setup scientific conda CLI
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: workflow/envs/ci-conda.lock
+          environment-name: scientific-conda
+          init-shell: none
+          generate-run-shell: false
+          cache-environment: true
+          cache-environment-key: scientific-conda-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-conda.lock') }}
+
       - name: Setup duplicate toolchain
         uses: mamba-org/setup-micromamba@v3
         with:
@@ -804,8 +814,24 @@ jobs:
         env:
           HELIXWEAVE_REQUIRE_REAL_EXECUTION: "1"
         run: |
-          export PATH="$MAMBA_ROOT_PREFIX/envs/chipseq/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-duplicate/bin:$PATH"
-          export SNAKEMAKE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/snakemake"
+          python3 - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+
+          bindir = Path(os.environ["RUNNER_TEMP"]) / "scientific-harness-bin"
+          bindir.mkdir()
+          executable = Path(os.environ["MAMBA_ROOT_PREFIX"]) / "envs/chipseq/bin/snakemake"
+          wrapper = bindir / "snakemake"
+          wrapper.write_text(
+              "#!/bin/sh\nexec " + shlex.quote(str(executable))
+              + ' --workflow-profile none --profile none "$@"\n',
+              encoding="utf-8",
+          )
+          wrapper.chmod(0o755)
+          PY
+          export PATH="$RUNNER_TEMP/scientific-harness-bin:$MAMBA_ROOT_PREFIX/envs/chipseq/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-duplicate/bin:$MAMBA_ROOT_PREFIX/envs/scientific-conda/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-multiqc/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-preseq/bin:$MAMBA_ROOT_PREFIX/envs/chipseq-phantompeakqualtools/bin:$PATH"
+          export SNAKEMAKE="$RUNNER_TEMP/scientific-harness-bin/snakemake"
           export SAMTOOLS="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/samtools"
           export PICARD="$MAMBA_ROOT_PREFIX/envs/chipseq-duplicate/bin/picard"
           export BAMCOVERAGE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/bamCoverage"
@@ -815,9 +841,12 @@ jobs:
           export FASTQC="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/fastqc"
           export TRIM_GALORE="$MAMBA_ROOT_PREFIX/envs/chipseq/bin/trim_galore"
           export MULTIQC="$MAMBA_ROOT_PREFIX/envs/chipseq-multiqc/bin/multiqc"
+          conda --version
+          conda info --json > "$RUNNER_TEMP/scientific-conda-info.json"
           micromamba run -n ci-fast \
             python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
             -m real_execution test/real_execution test/workflow/test_consensus_execution.py -ra \
+            --maxfail=1 \
             --durations=25 --durations-min=1.0 \
             --junitxml=scientific-real-report.xml
 
