@@ -1,0 +1,76 @@
+{
+  "incomplete_500": 0,
+  "incomplete_700": 0,
+  "insert_contrast": {
+    "candidate_arm": "max_insert_700",
+    "length_bins": [
+      "<=150",
+      "151-300",
+      "301-500",
+      "501-700",
+      ">700"
+    ],
+    "length_definition": "absolute template length",
+    "mapq_bins": [
+      "<30",
+      ">=30"
+    ],
+    "mapq_definition": "minimum of the two mates",
+    "newly_admitted_templates": {
+      "by_length_and_mapq": {
+        "151-300": {
+          "<30": 102,
+          ">=30": 39
+        },
+        "301-500": {
+          "<30": 214,
+          ">=30": 88
+        },
+        "501-700": {
+          "<30": 42903,
+          ">=30": 859421
+        },
+        "<=150": {
+          "<30": 29,
+          ">=30": 4
+        },
+        ">700": {
+          "<30": 0,
+          ">=30": 0
+        }
+      },
+      "by_length_bin": {
+        "151-300": 141,
+        "301-500": 302,
+        "501-700": 902324,
+        "<=150": 33,
+        ">700": 0
+      },
+      "by_mapq_bin": {
+        "<30": 43248,
+        ">=30": 859552
+      },
+      "total": 902800
+    },
+    "reference_arm": "max_insert_500",
+    "scope": "single max_insert contrast; not a default decision",
+    "short_template_stability": {
+      "changed": 4019,
+      "denominator": 3284411,
+      "fraction": 0.0012236592801570813
+    },
+    "template_identity": "qname"
+  },
+  "metric_source": "compare_cuttag_insert_stability.comparison_record",
+  "not_a_bam_filter": true,
+  "qnames_only_in_500": 50,
+  "short_template_trigger": {
+    "definition": "changed high-confidence short templates divided by all such templates in the 500 arm; absence is not a coordinate change",
+    "limit_exclusive": 0.01,
+    "status": "measured",
+    "triggered": false
+  },
+  "stage": "primary proper pairs from the aligner BAM or SAM",
+  "templates_500": 3518396,
+  "templates_700": 4421146
+}

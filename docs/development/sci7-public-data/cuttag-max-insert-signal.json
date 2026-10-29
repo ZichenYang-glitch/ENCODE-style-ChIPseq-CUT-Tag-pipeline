@@ -1,0 +1,67 @@
+{
+  "candidate_arm": "max_insert_700",
+  "candidate_regression": {
+    "candidate_frip": 0.050295,
+    "other_frip": 0.051157,
+    "relative_frip_change": -0.01685008894188482,
+    "relative_offpeak_change": 0.0009084748477883374,
+    "status": "measured",
+    "triggered": false
+  },
+  "common_universe_frip": {
+    "effects_500_versus_700": {
+      "absolute_difference_percentage_points": 0.08620000000000017,
+      "log2_ratio": 0.024516195551084558,
+      "relative_change": 0.017138880604433873
+    },
+    "epsilon": 1e-06,
+    "max_insert_500": {
+      "bam": "/tmp/sci7-cuttag-ext/rep2-x500/results/analysis_filtered/T2/02_align/T2.analysis.bam",
+      "frip": "0.051157",
+      "peaks": "/tmp/sci7-cuttag-ext/evidence/comparisons/t2-max-insert-signal.common.bed",
+      "reads_in_peaks": "335770",
+      "sample": "T2",
+      "total_reads": "6563490"
+    },
+    "max_insert_700": {
+      "bam": "/tmp/sci7-cuttag-dup-validation/retain/results/analysis_filtered/T2/02_align/T2.analysis.bam",
+      "frip": "0.050295",
+      "peaks": "/tmp/sci7-cuttag-ext/evidence/comparisons/t2-max-insert-signal.common.bed",
+      "reads_in_peaks": "416915",
+      "sample": "T2",
+      "total_reads": "8289326"
+    },
+    "offpeak_background_ratio_500_over_700": 0.9990923497296529
+  },
+  "duplicate_analysis": "retain",
+  "other_arm": "max_insert_500",
+  "peak_count": {
+    "max_insert_500": 10177,
+    "max_insert_700": 12458
+  },
+  "peak_jaccard": {
+    "intersection_bp": 4019353,
+    "jaccard": 0.3823186813855785,
+    "left_merged_bp": 5550973,
+    "left_peaks_touched": 0.68959418296158,
+    "right_merged_bp": 8981476,
+    "right_peaks_touched": 0.5333119280783433,
+    "union_bp": 10513096
+  },
+  "sample": "T2",
+  "signal_background": {
+    "genome_bp": 3099750718,
+    "max_insert_500": {
+      "enrichment": 15.842856823531442,
+      "offpeak_bp": 3089237622,
+      "reads_per_offpeak_base": 0.00201594074720873,
+      "reads_per_peak_base": 0.0319382606227509
+    },
+    "max_insert_700": {
+      "enrichment": 15.56182209990704,
+      "offpeak_bp": 3089237622,
+      "reads_per_offpeak_base": 0.002548334561231755,
+      "reads_per_peak_base": 0.03965672909293323
+    }
+  }
+}
