@@ -4,9 +4,11 @@ Status: CUT&Tag Rep2 retain versus exclude is in
 [`cuttag-duplicate-retain-exclude.md`](cuttag-duplicate-retain-exclude.md).
 The shallow Rep1 pair and the Rep2 `max_insert` 500 realignment are in
 [`cuttag-replicate-insert.md`](cuttag-replicate-insert.md). Both are
-inconclusive for a default. No scientific acceptance has completed, and no
-default is frozen. TF ChIP, histone ChIP, ATAC-seq, and MNase-seq discovery
-have not run. Confirmation FASTQ has not been downloaded.
+inconclusive for a default. Histone H3K36me3 retain versus exclude is in
+[`histone-duplicate.md`](histone-duplicate.md). It is one biological
+replicate and does not freeze a default. No scientific acceptance has
+completed. TF ChIP, ATAC-seq, and MNase-seq discovery have not run.
+Confirmation FASTQ has not been downloaded.
 
 ## Scope
 
