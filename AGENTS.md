@@ -158,3 +158,22 @@ and contract checks pass, `git diff --check` is clean, and any services started
 for verification are stopped. Report tests that were not run and remaining
 risks plainly. Do not claim scientific or end-to-end validation beyond the
 evidence actually executed.
+
+## Cursor Cloud specific instructions
+
+The Cloud Agent image provides Micromamba, Redis 7, and Node.js 22 on `PATH`
+via `/usr/local/bin`. The locked platform environment is `.local/envs/ci-fast`,
+created from `workflow/envs/ci-fast.lock`. Put that environment's `bin`
+directory on `PATH` before `helixweave`, `ruff`, or `snakemake`. Source-checkout
+checks still go through `python3 -I -S scripts/checkout_bootstrap.py`.
+
+`helixweave` supervises Redis, the API on port 8000, one RQ worker, and Vite
+on port 5173. On a new runtime database, migrate before the worker starts: the
+worker admits only an existing current schema and exits if it wins that race.
+The environment start script migrates `.local/platform-demo/platform.db` for
+that reason. There is no default administrator; create one with
+`helixweave admin account bootstrap` against that absolute SQLite URL. A
+missing Bulk RNA-seq runtime is expected
+(`WORKFLOW_EXECUTION_NOT_CONFIGURED`). Do not download reference genomes or
+create the scientific conda environments for ordinary platform work. Shell
+scripts matching `*.sh` are gitignored.
