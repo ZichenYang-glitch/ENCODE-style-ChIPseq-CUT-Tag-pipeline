@@ -65,10 +65,17 @@ copy of the exclude BAM.
 | exclude, max_insert 200 | `max_insert` | new Bowtie2 alignment |
 
 200 versus 500 is a sensitivity check. 500 stays the candidate. 200 is
-not a proposed default. The supported default mono window in
-`workflow/rules/mnase.smk` is 140–200 bp. Di-nucleosome splitting is not
-in the executable rules yet. One Rep1 library cannot supply
-between-replicate Jaccard. Missing mono coverage limits scope.
+not a proposed default. A dry-run of `duplicate_analysis: auto` and
+`max_insert: auto` on one nucleosome sample printed
+`duplicate_analysis=auto(mnase:exclude)` and `max_insert=auto(mnase:500)`,
+scheduled `mnase_split_sub`, `mnase_split_mono`, and `mnase_split_di`, and
+did not schedule MACS3. The default fragment windows are sub 1–139 bp,
+mono 140–200 bp, and di 300–400 bp. `alignmentSieve` 3.5.6 is already on
+the chipseq tool path. Because the di window starts at 300 bp, a
+`max_insert` of 200 cannot admit those di-length proper pairs; that is
+why 200 is not a superset filter of the 500 alignment. The dry-run used a
+one-read fixture and wrote no result directory. It is not the Rep1
+measurement. One Rep1 library cannot supply between-replicate Jaccard.
 Confirmation samples are not used, and this discovery RUN is not the
 optional HP confirmation RUNs SRR23247650 and SRR23247648.
 
