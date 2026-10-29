@@ -94,22 +94,30 @@ configuration record".
 
 ## Dry-run and real run
 
-Dry-run, from the same directory:
+Dry-run, from the same directory. `--workflow-profile none` stops Snakemake
+8.30 from loading `profiles/default` out of the current directory or the
+Snakefile directory. That profile selects `config/config.yaml`, `use-conda`,
+`rerun-incomplete`, and `keep-going`, and it is not `analysis_profile`.
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --configfile CONFIG -n --use-conda
+snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
+  --configfile CONFIG -n --use-conda
 ```
 
 The dry-run loads the Snakefile, prints the effective summary to stderr, and
 runs `_check_analysis_outdir_identity`. The marker rule
 `analysis_identity_marker` in `workflow/rules/analysis.smk` is a real-run
 output. A dry-run does not execute it and writes neither run record.
+Snakemake `-n` still resolves sample-sheet input paths. Absent FASTQ paths
+raise `MissingInputException` even when the validator was run without
+`--strict-inputs`. Empty placeholder files are enough for that dry-run.
 
 Real run, only after the user authorizes execution and the outdir check
 below allows it:
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --configfile CONFIG --cores N --use-conda
+snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
+  --configfile CONFIG --cores N --use-conda
 ```
 
 `N` is the core count the user chose. `--use-conda` selects rule environments
@@ -136,8 +144,8 @@ Resume an interrupted run only when the marker matches this profile, this
 recomputes to that identity. The user must authorize the resume.
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --configfile CONFIG --cores N --use-conda \
-  --rerun-incomplete
+snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
+  --configfile CONFIG --cores N --use-conda --rerun-incomplete
 ```
 
 `--rerun-incomplete` reruns jobs that left incomplete outputs. It does not

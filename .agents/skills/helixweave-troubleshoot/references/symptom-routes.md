@@ -91,7 +91,8 @@ Direct ENCODE Snakemake only. Use the directory where `CONFIG`'s relative
 paths resolve, and the Snakefile from the checkout:
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --configfile CONFIG -n --use-conda
+snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
+  --configfile CONFIG -n --use-conda
 ```
 
 Stop on `WorkflowError` from

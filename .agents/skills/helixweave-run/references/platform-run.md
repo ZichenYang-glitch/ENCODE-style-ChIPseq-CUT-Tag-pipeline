@@ -161,9 +161,10 @@ GET /api/v1/runs/{run_id}/logs
 ```
 
 Query `stream_name` (`stdout` by default; `stderr` is the other process
-stream), `after`, and `limit`. Follow `next_cursor`. When you summarize logs
-for the user, quote status and public issue codes. Leave workspace paths and
-private payloads out of the summary.
+stream), `after`, and `limit`. Follow `next_cursor`. An operator trace of
+the run may keep the source SHA and the tool path that was used. The
+summary returned through this API quotes status and public issue codes
+only. Leave workspace paths and private payloads out of that summary.
 
 The inventory's artifact download route stays unused unless the user
 explicitly authorizes a download.

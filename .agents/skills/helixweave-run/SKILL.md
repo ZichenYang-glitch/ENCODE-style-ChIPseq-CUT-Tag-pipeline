@@ -133,9 +133,14 @@ version and is a different value from `config_schema_version`.
 
 Read `scientific_policy_revision` from
 `src/encode_pipeline/config/scientific_policy.py` or from that summary line.
-Users cannot set it. Quote the interpreter and tool identity printed by the
-command that actually ran. Leave hardcoded SHAs and absolute tool paths out
-of the record.
+Users cannot set it.
+
+The skill text does not embed a historical commit or a personal absolute
+tool path as a constant. A record of a run that actually happened keeps
+the source SHA, whether the worktree was clean, and the interpreter and
+tool paths and versions used by that command. Do not copy those paths
+into a public API response. Platform responses omit workspace paths,
+environment values, exception text, and private payloads.
 
 For a platform run also record `workflow_id`, `snapshot_id`, `run_id`, and
 any artifact or QC generation returned by the inventory's read routes.

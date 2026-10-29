@@ -6,8 +6,9 @@ copy it into a skill. If this file and the checkout disagree, follow the
 checkout and update the skill only when the user asked to maintain skills.
 
 These skills operate the checkout that contains them. Read versions from
-that tree. Do not record a commit, a personal directory, a historical result
-path, or an absolute tool path as if it were universal.
+that tree. The skill text does not embed one historical commit, one
+personal directory, one past result path, or one absolute tool path as a
+universal constant.
 
 ## What is universal and what is ENCODE-only
 
@@ -60,13 +61,20 @@ Maintained path: `docs/quickstart.md`.
 ```bash
 python3 scripts/validate_samples.py --config CONFIG
 python3 scripts/validate_samples.py --config CONFIG --strict-inputs
-snakemake -s workflow/Snakefile --configfile CONFIG -n --use-conda
-snakemake -s workflow/Snakefile --configfile CONFIG --cores N --use-conda
+snakemake -s workflow/Snakefile --workflow-profile none \
+  --configfile CONFIG -n --use-conda
+snakemake -s workflow/Snakefile --workflow-profile none \
+  --configfile CONFIG --cores N --use-conda
 ```
 
-Resume an interrupted matching run with `--rerun-incomplete`. The optional
-Snakemake profile `profiles/default` sets `configfile`, `cores`, `use-conda`,
-`rerun-incomplete`, and `keep-going`. That profile is not `analysis_profile`.
+Resume an interrupted matching run with `--rerun-incomplete`. Snakemake
+8.30 loads `profiles/default` from the current directory, then from the
+Snakefile directory, unless `--workflow-profile none` is given. This
+checkout's `profiles/default` sets another `configfile`, `use-conda`,
+`rerun-incomplete`, and `keep-going`. Pass `--workflow-profile none` when
+the user chose a config file. Use `snakemake --profile profiles/default`
+only when they asked for that scheduler profile. That profile is not
+`analysis_profile`.
 
 `scripts/validate_samples.py` is a provenance-checked wrapper around
 `encode_pipeline.cli.validate`. It validates one config file. It does not see
@@ -230,9 +238,13 @@ that type.
 
 ## Evidence to keep
 
-Record the config path, validated `analysis_profile` and
-`config_schema_version`, checkout `scientific_policy_revision`, outdir, and
-whether both run records exist. For a platform run also record
+For a run that actually happens, record the source SHA and whether the
+worktree was clean, the config path, validated `analysis_profile` and
+`config_schema_version`, checkout `scientific_policy_revision`, outdir,
+and whether both run records exist. Also record the interpreter and tool
+paths and versions used by that command. For a platform run also record
 `workflow_id`, `snapshot_id`, `run_id`, and the artifact or QC generation.
-Quote the tool or interpreter identity from the command that was actually
-run.
+
+Do not copy those absolute paths into skill instructions or into a public
+API response. Platform responses omit workspace paths, environment
+values, exception text, and private payloads.
