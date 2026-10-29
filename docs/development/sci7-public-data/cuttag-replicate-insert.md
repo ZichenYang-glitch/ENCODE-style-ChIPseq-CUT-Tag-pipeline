@@ -269,3 +269,14 @@ authorization. ATAC also still needs an unverified GRCm38 reference.
 Confirmation FASTQ, 38 files and 96,206,688,888 official bytes, was not
 downloaded.
 
+Machine-readable tables, without local paths:
+
+- [`cuttag-rep1-duplicate.json`](cuttag-rep1-duplicate.json)
+- [`cuttag-replicate-agreement.json`](cuttag-replicate-agreement.json)
+- [`cuttag-retain-replicate-peaks.json`](cuttag-retain-replicate-peaks.json)
+- [`cuttag-exclude-replicate-peaks.json`](cuttag-exclude-replicate-peaks.json)
+- [`cuttag-max-insert-500-700.json`](cuttag-max-insert-500-700.json)
+- [`cuttag-max-insert-t2-templates.json`](cuttag-max-insert-t2-templates.json)
+- [`cuttag-max-insert-igg2-templates.json`](cuttag-max-insert-igg2-templates.json)
+- [`cuttag-max-insert-signal.json`](cuttag-max-insert-signal.json)
+
