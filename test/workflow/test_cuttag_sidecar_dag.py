@@ -284,7 +284,13 @@ def test_seacr_enabled_cuttag_pe_wires_bedgraph_and_caller_command(
     analysis_bam = tmp_path / "results/CUTTAG/02_align/CUTTAG.analysis.bam"
     peak = tmp_path / "results/CUTTAG/04_peaks_seacr/CUTTAG/CUTTAG.seacr.relaxed.bed"
     assert SEACR_RULES <= rules
-    assert f"bedtools genomecov -ibam {analysis_bam} -bg -pc > {bedgraph}" in shell
+    assert re.search(
+        re.escape(f"bedtools genomecov -ibam {analysis_bam} -bg -pc")
+        + r"\s*>\s*"
+        + re.escape(str(bedgraph))
+        + r"(?=\s|$)",
+        shell,
+    )
     assert "SEACR_SCRIPT=$(command -v SEACR_1.3.sh)" in shell
     assert f'bash "$SEACR_SCRIPT" {bedgraph} 0.05 non relaxed' in shell
     assert str(peak) in shell
