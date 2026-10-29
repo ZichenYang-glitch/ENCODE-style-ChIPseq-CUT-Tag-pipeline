@@ -46,7 +46,14 @@ later download and keep the 20 GiB margin in `resource-budget.md`.
 
 Candidate: `duplicate_analysis=exclude`, `max_insert=500`. One variable per
 arm. New outdir and identity each time. `auto` is a dry-run and must
-resolve to those two values. It is not an alignment.
+resolve to those two values. It is not an alignment. On this branch the
+code does resolve them that way: `get_duplicate_policy_for_assay` returns
+`exclude` for every assay except CUT&Tag, and
+`BOWTIE2_MAX_INSERT_BY_ASSAY["mnase"]` is 500.
+
+The sample sheet cannot copy the CUT&Tag sheet. `assay=mnase` requires
+`layout=PE` and `peak_mode=nucleosome`. `use_control` stays false and
+`control_sample` stays empty. There is no IgG.
 
 No executed BAM handoff exists. The retain arm is a full workflow, not a
 copy of the exclude BAM.
@@ -57,15 +64,19 @@ copy of the exclude BAM.
 | retain, max_insert 500 | `duplicate_analysis` | new full workflow |
 | exclude, max_insert 200 | `max_insert` | new Bowtie2 alignment |
 
-200 versus 500 is a sensitivity check on the supported mono/di windows.
-500 stays the candidate. 200 is not a proposed default. One Rep1 library
-cannot supply between-replicate Jaccard. Missing mono/di coverage limits
-scope. Confirmation samples are not used, and this discovery RUN is not
-the optional HP confirmation RUNs SRR23247650 and SRR23247648.
+200 versus 500 is a sensitivity check. 500 stays the candidate. 200 is
+not a proposed default. The supported default mono window in
+`workflow/rules/mnase.smk` is 140–200 bp. Di-nucleosome splitting is not
+in the executable rules yet. One Rep1 library cannot supply
+between-replicate Jaccard. Missing mono coverage limits scope.
+Confirmation samples are not used, and this discovery RUN is not the
+optional HP confirmation RUNs SRR23247650 and SRR23247648.
 
-Isolated MACS3 `--keep-dup all` versus `1` waits until the exclude/500
-analysis BAM exists. It is not a production switch and is not a reason to
-download anything else.
+MNase does not call peaks. `get_macs3_args_mnase` raises if a MNase
+sample reaches MACS3, and the peak path is not scheduled. The
+comparison-design MACS3 `--keep-dup` experiment is not an arm of this
+slice. Compare stage counts and the mono-nucleosome fragment window, not
+narrowPeak FRiP or peak Jaccard.
 
 ## What this authorization would not include
 
