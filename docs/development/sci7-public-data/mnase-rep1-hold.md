@@ -6,8 +6,9 @@ pre-registered arms each finished with exit status 0. No default is frozen.
 The pre-registered decision rules in
 [`comparison-design.md`](comparison-design.md) are unchanged. One library
 cannot freeze a default, confirmation was not evaluated, and no MNase
-fragment-regression threshold was pre-registered. The short-template
-coordinate-change fraction is below its 1% trigger.
+fragment-regression threshold was pre-registered. The registered
+short-template check was not evaluated on its registered denominator. Exit
+status 0 is not scientific acceptance.
 
 CUT&Tag Rep1 retain, Rep1 exclude, and Rep2 `max_insert` 500 are already
 recorded on draft PR #197 (`57d8097eb96f431a543ac4d2fba94c513244fa7e`). That
@@ -15,6 +16,9 @@ result is inconclusive. This file does not rerun those arms and does not
 treat their CI skips as a reason to repeat them.
 
 ## Why this is the next slice
+
+This section is the selection note from before the run. The current state
+is the completed three-arm measurement in the status above.
 
 [`resource-budget.md`](resource-budget.md) section 6 places MNase Rep1 after
 the CUT&Tag expansion, before histone, ATAC, and the remaining discovery
@@ -34,8 +38,8 @@ Read length was inferred before download: ENA `base_count / read_count = 102`,
 consistent with 2x51 bp if the mates are equal. After download, every FASTQ
 record was scanned. Both mates are intact, fixed length 51, and the mate
 lengths match. Structured metadata says NovaSeq
-6000. The source analysis used hg38; this slice would realign to the fixed
-GRCh38 primary index, not download that FASTA again.
+6000. The source analysis used hg38. This slice realigned to the fixed
+GRCh38 primary index and did not download that FASTA again.
 
 | Mate | URL | Official bytes | Official MD5 |
 | --- | --- | ---: | --- |
@@ -93,7 +97,12 @@ comparison-design MACS3 `--keep-dup` experiment is not an arm of this
 slice. Compare stage counts and the mono-nucleosome fragment window, not
 narrowPeak FRiP or peak Jaccard.
 
-## What this authorization would not include
+## Downloads outside this Rep1 measurement
+
+The list below is unchanged from the pre-run authorization boundary. Rep1
+itself was later explicitly authorized and has been run. These other
+downloads were not part of that authorization and are not part of this
+measurement.
 
 | Blocked item | Official bytes |
 | --- | ---: |
@@ -104,8 +113,9 @@ narrowPeak FRiP or peak Jaccard.
 | TF discovery ENCSR054ZMK + ENCSR142JFU | 11,396,944,028 |
 | Confirmation, all registered candidates | 96,206,688,888 |
 
-The completed CUT&Tag download, about 60 MB, does not authorize any row
-above or the 1,536,213,955-byte Rep1 pair.
+The completed CUT&Tag download, about 60 MB, did not itself authorize any
+row above. It also did not authorize the Rep1 pair; that pair had a later,
+separate authorization.
 
 ## Measured effect sizes
 
@@ -131,13 +141,28 @@ by −0.1257.
 
 `max_insert` 200 admits no di-length pairs and no unclassified templates.
 On exclude/500 the valid-template fractions are sub 0.2800, mono 0.4137,
-and di 0.0280; the remainder is unclassified. Templates present only in the
-500 arm are newly admitted, not coordinate changes. Among MAPQ at least 30
-and length at most 200 on the 200 arm, 6,883 of 4,083,944 templates
-(0.001685) are absent or moved on the 500 arm. That is below the strict 1%
-trigger.
+and di 0.0280; the remainder is unclassified. Absence of di-length pairs
+on the 200 arm is an observation under that truncation. It does not
+recommend a default.
+
+The registered short-template metric was not evaluated in this round. The
+registered denominator is MAPQ >= 30 templates with length <= 500 bp in
+the 500 arm. The registered numerator is the fraction whose R1/R2
+coordinates or mate assignment change in the comparison arm. More than 1%
+is the pre-registered trigger in
+[`comparison-design.md`](comparison-design.md). This round does not report
+that fraction, so it neither passes nor fails the registered 1% check.
+The pre-registered definition is not changed to fit the number below.
+
+An additional diagnostic uses a different reference arm, length bound, and
+event. Among MAPQ >= 30 and length <= 200 bp on the 200 arm, 6,883 of
+4,083,944 templates (0.001685) are absent or moved on the 500 arm.
+Templates present only in the 500 arm are counted there as newly admitted,
+not as coordinate changes. That diagnostic is not the registered check.
 
 ## Verdict
 
 No conclusion, and no default is frozen. Rep2, Rep3, and confirmation stay
 outside this measurement. Confirmation is not used to tune the candidate.
+Finishing with exit status 0, and a later ordinary CI success, do not
+accept the candidate.
