@@ -1,8 +1,14 @@
 # SCI-7 public-data validation preparation
 
-Status: **execution preparation only**. No real-library comparison has run, no
-scientific acceptance has completed, and no default is frozen by these files.
-No large FASTQ, BAM, reference FASTA or index download has started.
+Status: the other discovery-group notes in this package remain preparation
+text. The MNase Rep1 measurement in
+[`mnase-rep1-hold.md`](mnase-rep1-hold.md) has been executed and is **no
+conclusion**. It freezes no default. This paragraph describes this branch's
+notes only; it does not state the status of other branches or other assay
+batches. Arm exit status and ordinary CI are not scientific acceptance. The
+MNase Rep1 pair, 1,536,213,955 bytes, was downloaded under an explicit
+authorization and matched the official MD5 values. No other large FASTQ,
+BAM, reference FASTA, or index download has started from this package.
 
 ## Scope
 
@@ -76,8 +82,10 @@ remain explicitly unbuilt and unverified.
 
 [`resource-budget.md`](resource-budget.md) separates official input sizes from
 estimated storage, CPU/RAM and wall time, and defines the minimal trial and
-expansion order. Downloads and real-library execution require a later explicit
-execution step; this preparation commit is not scientific validation.
+expansion order. Downloads and real-library execution for the remaining
+groups on this branch still require a later explicit execution step. The
+MNase Rep1 measurement is recorded separately and is not scientific
+acceptance.
 
 ## Evidence storage
 
