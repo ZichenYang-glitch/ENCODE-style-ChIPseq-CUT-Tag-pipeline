@@ -9,10 +9,14 @@ inconclusive for a default. Histone H3K36me3 retain versus exclude is in
 replicate and does not freeze a default. TF ChIP NR2F2 retain versus
 exclude, and max_insert 500 versus 2000, are in
 [`tf-nr2f2-discovery.md`](tf-nr2f2-discovery.md). That result is one
-biological replicate and does not freeze a default. No scientific
-acceptance has completed. The MNase Rep1 no-conclusion record stays on
-its own branch and is not repeated here. ATAC-seq discovery has not run.
-Confirmation FASTQ has not been downloaded.
+biological replicate and does not freeze a default. ATAC-seq ENCSR844TIU
+exclude versus retain, and max_insert 500 versus 2000, are in
+[`atac-treg-discovery.md`](atac-treg-discovery.md). Two biological
+replicates from one donor do not freeze a default. The cross-batch
+summary is in [`sci7-batch-summary.md`](sci7-batch-summary.md). No
+scientific acceptance has completed. The MNase Rep1 no-conclusion record
+stays on its own branch and is not repeated here. Confirmation FASTQ has
+not been downloaded.
 
 ## Scope
 
