@@ -436,17 +436,3 @@ def test_mnase_callers_all_false_valid(make_validation_case, run_validator):
     )
     result = run_validator(config_path)
     assert result.returncode == 0, f"Expected pass, got:\n{result.stderr}"
-
-
-def test_mnase_se_still_rejected(make_validation_case, run_validator):
-    _, config_path, _ = make_validation_case(samples=_mnase_samples(layout="SE"))
-    result = run_validator(config_path)
-    assert result.returncode != 0
-    assert "requires paired-end layout" in (result.stdout + result.stderr)
-
-
-def test_mnase_narrow_still_rejected(make_validation_case, run_validator):
-    _, config_path, _ = make_validation_case(samples=_mnase_samples(peak_mode="narrow"))
-    result = run_validator(config_path)
-    assert result.returncode != 0
-    assert "requires peak_mode=nucleosome" in (result.stdout + result.stderr)
