@@ -1796,3 +1796,41 @@ def test_guard_cli_dispatch_and_public_failure_are_stable(
     with pytest.raises(SystemExit, match="2"):
         PROVENANCE.require_checkout(tmp_path)
     assert capsys.readouterr().err == f"{failure}\n"
+
+
+def test_require_loaded_checkout_accepts_this_tree_and_rejects_another(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import encode_pipeline
+
+    PROVENANCE.require_loaded_checkout(REPOSITORY_ROOT, encode_pipeline)
+    assert capsys.readouterr().err == ""
+
+    foreign_dir = tmp_path / "foreign" / "encode_pipeline"
+    foreign_dir.mkdir(parents=True)
+    foreign_init = foreign_dir / "__init__.py"
+    foreign_init.write_text("FOREIGN = True\n", encoding="utf-8")
+    foreign = PROVENANCE.ModuleType(PROVENANCE.IMPORT_NAMESPACE)
+    foreign.__file__ = str(foreign_init)
+    with pytest.raises(SystemExit) as caught:
+        PROVENANCE.require_loaded_checkout(REPOSITORY_ROOT, foreign)
+    assert caught.value.code == 2
+    message = capsys.readouterr().err
+    assert message == (
+        "source provenance check failed [module_origin_mismatch]: "
+        "run this workflow under the interpreter that loads this checkout\n"
+    )
+    assert str(tmp_path) not in message
+    assert str(REPOSITORY_ROOT) not in message
+
+    wrong_name = PROVENANCE.ModuleType("other")
+    wrong_name.__file__ = encode_pipeline.__file__
+    with pytest.raises(SystemExit) as caught:
+        PROVENANCE.require_loaded_checkout(REPOSITORY_ROOT, wrong_name)
+    assert caught.value.code == 2
+
+    missing_file = PROVENANCE.ModuleType(PROVENANCE.IMPORT_NAMESPACE)
+    with pytest.raises(SystemExit) as caught:
+        PROVENANCE.require_loaded_checkout(REPOSITORY_ROOT, missing_file)
+    assert caught.value.code == 2

@@ -80,9 +80,13 @@ this repository's bootstrap with both `-I` and `-S`. It trusts the OS loader,
 that interpreter and its standard library, and the reviewed bootstrap and
 guard files. Environment provisioning and interpreter selection happen before
 this boundary. This mechanism does not qualify a compromised interpreter,
-standard library, or native loader injection; it also cannot govern callers
-that deliberately bypass the documented source-checkout commands. Direct
-installed-user CLI entry points remain outside checkout governance by design.
+standard library, or native loader injection. Direct installed-user CLI entry
+points stay outside this bootstrap. The scientific Snakefile is a separate
+in-process check: it calls `require_loaded_checkout` before configuration and
+exits 2 when the loaded `encode_pipeline` initializer belongs to another tree.
+That check is file identity for the process that is already running the
+Snakefile. `verify-checkout` remains the identity check for the interpreter
+that invoked the bootstrap.
 
 Failures exit with status 2 and one public-safe line:
 

@@ -29,12 +29,12 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @pytest.fixture(scope="session", autouse=True)
 def _checkout_src_on_subprocess_pythonpath():
-    """Make spawned tools (e.g. snakemake) import this checkout's package.
+    """Put this checkout's src first for tools spawned by tests.
 
-    Snakemake runs the Snakefile under its own interpreter; without this,
-    an editable install in a shared environment (e.g. the main checkout's
-    ci-fast env) can silently satisfy the Snakefile's import from a
-    different checkout. Mirrors the PYTHONPATH precedent in
+    Snakemake executes workflow/Snakefile in its own interpreter and rejects
+    a foreign encode_pipeline before configuration. Prepending this checkout
+    keeps those runs on the code under test when the environment also has
+    another editable install. Mirrors the PYTHONPATH precedent in
     test/bulk_rnaseq_real_execution/platform_harness.py.
     """
     src = str(_REPOSITORY_ROOT / "src")

@@ -24,6 +24,7 @@ import re
 import stat
 import sys
 import sysconfig
+from types import ModuleType
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -1519,6 +1520,41 @@ def require_checkout(repository_root: Path) -> None:
     except SourceProvenanceError as error:
         print(error, file=sys.stderr)
         raise SystemExit(2) from None
+
+
+_LOADED_CHECKOUT_GUIDANCE = (
+    "run this workflow under the interpreter that loads this checkout"
+)
+
+
+def require_loaded_checkout(repository_root: Path, module: ModuleType) -> None:
+    """Exit when the loaded package is not the workflow checkout.
+
+    The Snakefile calls this in the Snakemake process after import and before
+    configuration. The check leaves ``sys.path`` and the environment unchanged.
+    """
+
+    try:
+        _require_loaded_checkout(repository_root, module)
+    except SourceProvenanceError as error:
+        print(error, file=sys.stderr)
+        raise SystemExit(2) from None
+
+
+def _require_loaded_checkout(repository_root: Path, module: ModuleType) -> None:
+    layout = _checkout_layout(repository_root)
+    if getattr(module, "__name__", None) != IMPORT_NAMESPACE:
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
+    raw_origin = getattr(module, "__file__", None)
+    if not isinstance(raw_origin, str):
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
+    origin = _resolved_existing_file(
+        Path(raw_origin),
+        reason_code="module_origin_mismatch",
+        guidance=_LOADED_CHECKOUT_GUIDANCE,
+    )
+    if origin != layout.initializer:
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
 
 
 def build_parser() -> argparse.ArgumentParser:
