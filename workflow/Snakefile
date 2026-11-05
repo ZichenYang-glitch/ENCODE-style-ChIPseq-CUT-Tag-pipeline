@@ -14,21 +14,14 @@ import re
 import runpy
 import sys
 
-# Import encode_pipeline from this checkout before configuration or rules run.
-# An environment with no installed package falls back to this checkout's src/.
-# A package that imports from any other tree stops startup. The fallback must
-# not replace that package: a successful import from another checkout is the
-# failure mode, and retargeting sys.path would hide it.
+# Load encode_pipeline for this Snakemake process before configuration.
+# This checkout's src/ is added only when the top-level package cannot be
+# located. A located package that fails during initialization stops startup.
 _REPOSITORY_ROOT = Path(workflow.basedir).resolve().parent
-_require_loaded_checkout = runpy.run_path(str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py"))[
-    "require_loaded_checkout"
+_import_checkout_package = runpy.run_path(str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py"))[
+    "import_checkout_package"
 ]
-try:
-    import encode_pipeline
-except ImportError:
-    sys.path.insert(0, str(_REPOSITORY_ROOT / "src"))
-    import encode_pipeline
-_require_loaded_checkout(_REPOSITORY_ROOT, encode_pipeline)
+encode_pipeline = _import_checkout_package(_REPOSITORY_ROOT)
 
 from encode_pipeline.config.validate import (
     validate_config,

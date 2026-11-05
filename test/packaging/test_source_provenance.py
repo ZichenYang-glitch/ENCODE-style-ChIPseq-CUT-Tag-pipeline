@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -1834,3 +1835,86 @@ def test_require_loaded_checkout_accepts_this_tree_and_rejects_another(
     with pytest.raises(SystemExit) as caught:
         PROVENANCE.require_loaded_checkout(REPOSITORY_ROOT, missing_file)
     assert caught.value.code == 2
+
+
+def test_located_package_is_not_treated_as_absent(tmp_path: Path) -> None:
+    missing_name = "encode_pipeline_absence_probe_not_installed"
+    assert missing_name not in sys.modules
+    assert PROVENANCE._top_level_is_located(missing_name) is False
+
+    parent = tmp_path / "src"
+    package = parent / "encode_pipeline_located_probe"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "import encode_pipeline_located_probe_missing_dependency\n",
+        encoding="utf-8",
+    )
+    sys.path.insert(0, str(parent))
+    try:
+        assert PROVENANCE._top_level_is_located(package.name) is True
+        with pytest.raises(ModuleNotFoundError) as caught:
+            importlib.import_module(package.name)
+        assert caught.value.name == "encode_pipeline_located_probe_missing_dependency"
+    finally:
+        sys.path.remove(str(parent))
+        sys.modules.pop(package.name, None)
+
+
+def test_finder_error_is_not_treated_as_absence(monkeypatch) -> None:
+    name = "encode_pipeline_finder_error_probe"
+
+    def fail_find(module_name: str):
+        assert module_name == name
+        raise ModuleNotFoundError("finder failed while searching")
+
+    monkeypatch.setattr(PROVENANCE.util, "find_spec", fail_find)
+    assert PROVENANCE._top_level_is_located(name) is True
+
+
+def test_initialization_failure_is_reported_without_switching_source(
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import encode_pipeline
+
+    monkeypatch.setattr(PROVENANCE, "_top_level_is_located", lambda _name: True)
+
+    def fail_import(_name: str):
+        raise ImportError("hidden raw initialization failure")
+
+    monkeypatch.setattr(PROVENANCE.importlib, "import_module", fail_import)
+    with pytest.raises(SystemExit) as caught:
+        PROVENANCE.import_checkout_package(REPOSITORY_ROOT)
+    assert caught.value.code == 2
+    message = capsys.readouterr().err
+    assert message == (
+        "source provenance check failed [module_initialization_failed]: "
+        "this Snakemake process located encode_pipeline "
+        "but could not finish loading it\n"
+    )
+    assert "hidden raw initialization failure" not in message
+    assert str(REPOSITORY_ROOT) not in message
+    assert encode_pipeline.__file__
+
+
+def test_absent_package_adds_checkout_src_once(monkeypatch) -> None:
+    import encode_pipeline
+
+    source = str(REPOSITORY_ROOT / "src")
+    original_path = list(sys.path)
+    calls: list[str] = []
+    monkeypatch.setattr(PROVENANCE, "_top_level_is_located", lambda _name: False)
+
+    def fake_import(name: str):
+        calls.append(sys.path[0])
+        assert name == "encode_pipeline"
+        return encode_pipeline
+
+    monkeypatch.setattr(PROVENANCE.importlib, "import_module", fake_import)
+    sys.path[:] = [entry for entry in sys.path if entry != source]
+    try:
+        loaded = PROVENANCE.import_checkout_package(REPOSITORY_ROOT)
+    finally:
+        sys.path[:] = original_path
+    assert loaded is encode_pipeline
+    assert calls == [source]

@@ -25,6 +25,10 @@ PROVENANCE_LINE = (
     "source provenance check failed [module_origin_mismatch]: "
     "run this workflow under the interpreter that loads this checkout"
 )
+INIT_FAILURE_LINE = (
+    "source provenance check failed [module_initialization_failed]: "
+    "this Snakemake process located encode_pipeline but could not finish loading it"
+)
 
 
 def _env(**overrides: str) -> dict[str, str]:
@@ -75,6 +79,8 @@ def _assert_no_scientific_output(workdir: Path) -> None:
     assert not (workdir / "results").exists()
     assert list(workdir.glob("**/*.bam")) == []
     assert list(workdir.glob("**/*.bai")) == []
+    assert list(workdir.glob("**/*identity*")) == []
+    assert list(workdir.glob("**/*effective*")) == []
 
 
 def _profile_workdir() -> tuple[Path, Path]:
@@ -282,6 +288,73 @@ def test_shebang_editable_mapping_fails_before_scientific_output() -> None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def _reject_broken_located_package(
+    tmp_path: Path,
+    init_source: str,
+    *,
+    hidden_text: str | None = None,
+) -> None:
+    foreign_root = tmp_path / "old-checkout" / "src"
+    package = foreign_root / "encode_pipeline"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(init_source, encoding="utf-8")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    config = workdir / "config.yaml"
+    config.write_text("threads: 1\n", encoding="utf-8")
+    env = _env(PYTHONPATH=str(foreign_root))
+    env["XDG_CACHE_HOME"] = str(workdir / ".cache")
+    result = _run(
+        [
+            sys.executable,
+            "-v",
+            "-m",
+            "snakemake",
+            "-s",
+            str(SNAKEFILE),
+            "--configfile",
+            str(config),
+            "--directory",
+            str(workdir),
+            "--cores",
+            "1",
+            "--dry-run",
+            *PROFILE,
+        ],
+        cwd=workdir,
+        env=env,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 2, output
+    assert INIT_FAILURE_LINE in result.stderr
+    assert PROVENANCE_LINE not in output
+    if hidden_text is not None:
+        assert hidden_text not in output
+    assert str(CHECKOUT_INIT) not in _loaded_inits(result.stderr)
+    assert "Building DAG of jobs" not in output
+    _assert_no_scientific_output(workdir)
+
+
+def test_foreign_missing_dependency_is_not_replaced_by_this_checkout(
+    tmp_path: Path,
+) -> None:
+    _reject_broken_located_package(
+        tmp_path,
+        "import encode_pipeline_missing_dependency\n",
+        hidden_text="No module named 'encode_pipeline_missing_dependency'",
+    )
+
+
+def test_foreign_explicit_importerror_is_not_replaced_by_this_checkout(
+    tmp_path: Path,
+) -> None:
+    _reject_broken_located_package(
+        tmp_path,
+        "raise ImportError('forced initialization failure')\n",
+        hidden_text="forced initialization failure",
+    )
+
+
 def test_missing_package_falls_back_to_this_checkout(tmp_path: Path) -> None:
     blocker = tmp_path / "sitecustomize.py"
     blocker.write_text(
@@ -328,8 +401,8 @@ def test_missing_package_falls_back_to_this_checkout(tmp_path: Path) -> None:
         env=env,
     )
     output = result.stdout + result.stderr
-    assert PROVENANCE_LINE not in output
+    assert "source provenance check failed" not in output
     assert result.returncode != 0
-    assert str(CHECKOUT_INIT) in output
+    assert _loaded_inits(result.stderr)[:1] == [str(CHECKOUT_INIT)]
     assert "Building DAG of jobs" not in output
     _assert_no_scientific_output(workdir)

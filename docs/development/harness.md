@@ -174,13 +174,15 @@ the recipe in
 [local platform runtime](local-platform-runtime.md) and the rules in
 [Python source provenance](source-provenance.md).
 
-`workflow/Snakefile` calls `require_loaded_checkout` in the Snakemake process
-before configuration and rules. The loaded `encode_pipeline` initializer must
-be this checkout's `src/encode_pipeline/__init__.py`. A foreign editable
-install, `PYTHONPATH` entry, or console-script interpreter exits 2 with the
-path-free provenance line and does not build the DAG. The `ImportError`
-fallback adds this checkout's `src/` only when that interpreter has no
-importable package.
+`workflow/Snakefile` calls `import_checkout_package` in the Snakemake process
+before configuration and rules. That call checks the package loaded by this
+process. It does not certify child-rule interpreters or the rest of the tool
+chain. The loaded initializer must be this checkout's
+`src/encode_pipeline/__init__.py`. A foreign editable install, `PYTHONPATH`
+entry, or console-script interpreter exits 2 with a path-free provenance line
+and does not build the DAG. This checkout's `src/` is added only when no
+top-level `encode_pipeline` can be located. A located package that fails while
+initializing exits 2 as `module_initialization_failed` and is left in place.
 
 `verify-checkout` covers the interpreter that runs the bootstrap under
 `-I -S`. It ignores `PYTHONPATH` and does not read a `snakemake` script's

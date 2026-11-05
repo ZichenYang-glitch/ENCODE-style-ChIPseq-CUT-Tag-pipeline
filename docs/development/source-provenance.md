@@ -81,12 +81,16 @@ that interpreter and its standard library, and the reviewed bootstrap and
 guard files. Environment provisioning and interpreter selection happen before
 this boundary. This mechanism does not qualify a compromised interpreter,
 standard library, or native loader injection. Direct installed-user CLI entry
-points stay outside this bootstrap. The scientific Snakefile is a separate
-in-process check: it calls `require_loaded_checkout` before configuration and
-exits 2 when the loaded `encode_pipeline` initializer belongs to another tree.
-That check is file identity for the process that is already running the
-Snakefile. `verify-checkout` remains the identity check for the interpreter
-that invoked the bootstrap.
+points stay outside this bootstrap. The scientific Snakefile checks the
+package inside the Snakemake process that is loading the workflow. Before
+configuration it calls `import_checkout_package`. The checkout `src/`
+directory is added only when the top-level `encode_pipeline` cannot be
+located. A located package that fails during initialization exits 2 with
+`module_initialization_failed` and is not replaced. A package that finishes
+loading must be that checkout's `src/encode_pipeline/__init__.py`. This is
+the identity of that Snakemake process, not of later rule interpreters or
+the surrounding toolchain. `verify-checkout` remains the identity check for
+the interpreter that invoked the bootstrap.
 
 Failures exit with status 2 and one public-safe line:
 
@@ -97,6 +101,7 @@ source provenance check failed [reason_code]: actionable guidance
 Stable reason codes include `bootstrap_startup_unsafe`,
 `bootstrap_source_invalid`, `repository_root_invalid`,
 `repository_metadata_invalid`, `source_root_invalid`, `module_not_found`,
+`module_initialization_failed`,
 `module_origin_mismatch`, `module_search_location_mismatch`,
 `distribution_missing`, `distribution_metadata_invalid`,
 `distribution_claimant_conflict`,
