@@ -10,17 +10,21 @@ replicate and does not freeze a default. TF ChIP NR2F2 retain versus
 exclude, and max_insert 500 versus 2000, are in
 [`tf-nr2f2-discovery.md`](tf-nr2f2-discovery.md). That result is one
 biological replicate and does not freeze a default. The JUND confirmation
-pair is in [`tf-jund-confirmation.md`](tf-jund-confirmation.md). It is a
-different target and cell context, one biological replicate, and does not
-freeze a default. ATAC-seq ENCSR844TIU
+pair is in [`tf-jund-confirmation.md`](tf-jund-confirmation.md). JUND is a
+different target and cell context from NR2F2, one biological replicate,
+and does not freeze a default. ATAC-seq ENCSR844TIU
 exclude versus retain, and max_insert 500 versus 2000, are in
 [`atac-treg-discovery.md`](atac-treg-discovery.md). Two biological
-replicates from one donor do not freeze a default. The cross-batch
+replicates from one donor do not freeze a default. MNase Rep1 exclude
+versus retain is in [`mnase-rep1-hold.md`](mnase-rep1-hold.md). Both mates,
+1,536,213,955 bytes, matched the official MD5 values. The result is no
+conclusion and does not freeze a default. The registered 500-arm
+short-template metric was not evaluated. The cross-batch
 summary is in [`sci7-batch-summary.md`](sci7-batch-summary.md). No
-scientific acceptance has completed. The MNase Rep1 no-conclusion record
-stays on its own branch and is not repeated here. The TF confirmation FASTQ
-pair has been measured. The other confirmation FASTQ files have not been
-downloaded.
+scientific acceptance has completed. Arm exit status and ordinary CI are
+not scientific acceptance. The TF confirmation FASTQ pair has been
+measured. Confirmation for CUT&Tag, histone, MNase, and ATAC has not been
+downloaded or evaluated.
 
 ## Scope
 
@@ -96,8 +100,10 @@ remain explicitly unbuilt and unverified.
 
 [`resource-budget.md`](resource-budget.md) separates official input sizes from
 estimated storage, CPU/RAM and wall time, and defines the minimal trial and
-expansion order. Downloads and real-library execution require a later explicit
-execution step; this preparation commit is not scientific validation.
+expansion order. Downloads and real-library execution for the remaining
+groups on this branch still require a later explicit execution step. The
+MNase Rep1 measurement is recorded separately and is not scientific
+acceptance.
 
 ## Evidence storage
 
