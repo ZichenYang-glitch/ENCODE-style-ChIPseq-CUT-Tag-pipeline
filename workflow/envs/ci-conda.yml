@@ -1,0 +1,7 @@
+name: scientific-conda
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python >=3.10,<3.13
+  - conda ==26.1.1

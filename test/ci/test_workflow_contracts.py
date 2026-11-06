@@ -3,8 +3,11 @@
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 from coverage import Coverage
+import pytest
 import yaml
 
 
@@ -28,6 +31,69 @@ def _checkout_steps(workflow: dict):
         for step in job["steps"]:
             if str(step.get("uses", "")).startswith("actions/checkout@"):
                 yield step
+
+
+@pytest.mark.parametrize(
+    ("uid", "gid", "expected", "succeeds"),
+    (
+        ("", "", "", True),
+        (
+            "0",
+            "0",
+            "ENCODE_PIPELINE_BULK_CONTAINER_UID=0\nENCODE_PIPELINE_BULK_CONTAINER_GID=0\n",
+            True,
+        ),
+        (
+            "1234",
+            "5678",
+            "ENCODE_PIPELINE_BULK_CONTAINER_UID=1234\nENCODE_PIPELINE_BULK_CONTAINER_GID=5678\n",
+            True,
+        ),
+        ("0", "", "ENCODE_PIPELINE_BULK_CONTAINER_UID=0\n", True),
+        ("0", "1\nINJECTED=1", "", False),
+    ),
+)
+def test_protected_bulk_step_exports_validated_optional_container_identity(
+    tmp_path: Path, uid: str, gid: str, expected: str, succeeds: bool
+):
+    steps = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]["steps"]
+    step = next(
+        s for s in steps if s.get("name") == "Bind optional Bulk container identity"
+    )
+    assert step["env"] == {
+        "CONFIGURED_BULK_CONTAINER_UID": "${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_UID }}",
+        "CONFIGURED_BULK_CONTAINER_GID": "${{ vars.ENCODE_PIPELINE_BULK_CONTAINER_GID }}",
+    }
+    names = [s.get("name") for s in steps]
+    assert names.index("Install platform package") < names.index(step["name"])
+    assert names.index(step["name"]) < names.index(
+        "Run rapid, STAR Salmon, and lifecycle acceptance"
+    )
+    github_env = tmp_path / "github-env"
+    github_env.write_text("", encoding="utf-8")
+    environment = {
+        **os.environ,
+        "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.defpath}",
+        "PYTHONPATH": str(REPO_ROOT / "src"),
+        "GITHUB_ENV": str(github_env),
+        "CONFIGURED_BULK_CONTAINER_UID": uid,
+        "CONFIGURED_BULK_CONTAINER_GID": gid,
+        "ENCODE_PIPELINE_BULK_CONTAINER_UID": "42",
+        "ENCODE_PIPELINE_BULK_CONTAINER_GID": "43",
+    }
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is succeeds, result.stderr
+    assert github_env.read_text(encoding="utf-8") == expected
+    if not succeeds:
+        assert "ENCODE_PIPELINE_BULK_CONTAINER_GID" in result.stderr
+        assert "INJECTED" not in result.stderr
 
 
 def _checkout_jobs(workflow: dict):
@@ -124,7 +190,10 @@ def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer(
 
     assert shard_job["strategy"]["matrix"]["shard"] == [1, 2]
     assert shard_job["strategy"]["fail-fast"] is False
-    assert shard_job["timeout-minutes"] == 25
+    assert (
+        shard_job["timeout-minutes"]
+        == "${{ github.event_name == 'pull_request' && 25 || 45 }}"
+    )
     producer = _runs(shard_job)
     assert "budget=300" in producer
     assert "budget=1200" in producer
@@ -300,7 +369,6 @@ def test_scientific_real_separates_the_test_runner_from_locked_toolchains():
     )
     assert "micromamba run -n ci-fast" in suite["run"]
     for variable, environment, executable in (
-        ("SNAKEMAKE", "chipseq", "snakemake"),
         ("SAMTOOLS", "chipseq", "samtools"),
         ("FASTQC", "chipseq", "fastqc"),
         ("TRIM_GALORE", "chipseq", "trim_galore"),
@@ -310,6 +378,18 @@ def test_scientific_real_separates_the_test_runner_from_locked_toolchains():
             f'{variable}="$MAMBA_ROOT_PREFIX/envs/{environment}/bin/{executable}"'
             in suite["run"]
         )
+    conda_setup = next(
+        s for s in steps if s.get("name") == "Setup scientific conda CLI"
+    )
+    assert conda_setup["with"]["environment-file"] == "workflow/envs/ci-conda.lock"
+    assert conda_setup["with"]["environment-name"] == "scientific-conda"
+    assert steps.index(conda_setup) < steps.index(suite)
+    assert 'SNAKEMAKE="$RUNNER_TEMP/scientific-harness-bin/snakemake"' in suite["run"]
+    assert "--workflow-profile none --profile none" in suite["run"]
+    assert "envs/scientific-conda/bin:" in suite["run"]
+    assert "conda info --json" in suite["run"]
+    assert "--maxfail=1" in suite["run"]
+    assert _load("ci.yml")["jobs"]["real-execution"]["timeout-minutes"] == 45
 
 
 def test_documented_python_timing_budgets_match_the_workflow():
@@ -318,7 +398,7 @@ def test_documented_python_timing_budgets_match_the_workflow():
     )
     assert "| PR `fast-checks` shards | 5 min | 25 min |" in harness
     assert "| PR `fast-checks` aggregate | 1 min | 10 min |" in harness
-    assert "| Full-main Python | 20 min | 25 min |" in harness
+    assert "| Full-main Python | 20 min | 45 min |" in harness
 
 
 def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():

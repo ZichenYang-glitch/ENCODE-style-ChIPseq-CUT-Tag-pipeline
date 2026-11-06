@@ -92,13 +92,13 @@ Hard timeouts only stop hangs.
 | PR `fast-checks` shards | 5 min | 25 min |
 | PR `fast-checks` aggregate | 1 min | 10 min |
 | Coverage artifact gate | 1 min | 5 min |
-| Full-main Python | 20 min | 25 min |
+| Full-main Python | 20 min | 45 min |
 | Frontend | 2 min | 8 min |
 | Browser E2E | 4 min | 10 min |
 | Lint | 1 min | 5 min |
 | Lock check | 1 min | 3 min |
 | Platform real execution | 6 min | 12 min |
-| Scientific real execution | 20 min | 30 min |
+| Scientific real execution | 20 min | 45 min |
 | Container smoke | 20 min | 30 min |
 
 ## Lint
