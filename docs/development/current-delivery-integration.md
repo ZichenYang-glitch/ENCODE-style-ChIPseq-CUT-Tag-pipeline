@@ -8,8 +8,9 @@ main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本候选没有合入 m
 
 来源合并树是 `526e26d1ff8dc6e39807fae9c9406f9bd0a19e7e`。
 技能启动说明对齐是 `b436087176f2c82d7c01f30dca1434eaecab3349`。
-包含本节的提交是评审候选；完整 SHA 以 Draft PR head 为准，不把任一来源
-PR head 写成候选身份。候选 CI 是该 head 上新跑的普通 CI、Lint 和 Lock Check，
+本节首次写入于 `954014fd01e8ed840c0279ffec279718ea42831b`。
+评审身份是 Draft PR head 的完整 SHA，不把任一来源 PR head 写成候选身份。
+候选 CI 是该 head 上新跑的普通 CI、Lint 和 Lock Check，
 不沿用下表里来源 head 的结果。
 
 ### 纳入
