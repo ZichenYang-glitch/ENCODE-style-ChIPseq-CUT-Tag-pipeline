@@ -409,6 +409,10 @@ def _create_controlled_project(project_root: Path) -> None:
     workflow.mkdir()
     profile.mkdir(parents=True)
     scripts.mkdir()
+    shutil.copy2(
+        REPOSITORY_ROOT / "scripts" / "source_provenance.py",
+        scripts / "source_provenance.py",
+    )
     (profile / "config.yaml").write_text("printshellcmds: true\n", encoding="utf-8")
     (workflow / "Snakefile").write_text(
         """
