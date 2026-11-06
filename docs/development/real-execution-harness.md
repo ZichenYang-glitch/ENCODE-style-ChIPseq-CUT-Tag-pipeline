@@ -36,8 +36,9 @@ The nightly cron is `17 19 * * *` UTC (03:17 the next day in Asia/Shanghai).
   scientific end-to-end run.
 - `test/real_execution/test_staged_fastqc_multiqc.py` verifies staged FastQC
   outputs and the native MultiQC 1.35 report contract.
-- `test/real_execution/test_pseudoreplicate_splitting.py` and
-  `test/real_execution/test_cuttag_fragment_size.py` are focused real-tool
+- `test/real_execution/test_pseudoreplicate_splitting.py`,
+  `test/real_execution/test_cuttag_fragment_size.py`, and
+  `test/real_execution/test_mnase_qc_summary_v2.py` are focused real-tool
   contracts that require `samtools`.
 - `test/bulk_rnaseq_real_execution` contains the private, explicit
   nf-core/rnaseq 3.26.0 real-execution gates.
@@ -83,6 +84,16 @@ suite instead of relying on the runner PATH. It also sets
 instead of becoming an all-skipped success. Its JUnit report must also contain
 zero skips and zero xfails.
 
+The scientific CI tier also stages the explicit `ci-conda.lock` environment.
+Snakemake 8.30 can query `conda info` for a rule's environment metadata even
+when environment deployment is disabled. This is a real locked CLI dependency,
+not a fabricated info response. The harness invokes the real locked Snakemake
+through a task-owned wrapper that disables both profile scopes; tools are
+already supplied by the explicit toolchain locks, and scheduling fixtures must
+not start unrelated environment solves. On a test failure, pytest stops with
+the first traceback and JUnit failure instead of concealing it behind a later
+job timeout. Success still requires the complete selected suite and zero skips.
+
 ## Bulk RNA-seq real execution
 
 The `bulk_rnaseq_real_execution` marker is selected only when the manual
@@ -103,6 +114,17 @@ timeout gates. Missing assets, a stale closure, unavailable namespace
 isolation, a non-local Docker endpoint, any skip/xfail, or an unclean exact
 checkout fails the job. OCI archives, JDKs, references, indexes, and biological
 data remain outside Git.
+
+For a rootless daemon whose container UID/GID 0 maps to the deployment owner,
+set the protected environment variables `ENCODE_PIPELINE_BULK_CONTAINER_UID`
+and `ENCODE_PIPELINE_BULK_CONTAINER_GID` to `0`. The workflow validates these
+optional values with the deployment parser and exports them to subsequent
+Python and browser Gate steps. Unconfigured GitHub variables do not overwrite
+runner-provided values or the host UID/GID defaults used by rootful deployments.
+Non-empty malformed values fail before any execution. Container root in this
+configuration maps to the unprivileged deployment owner, not host root; do not
+change directory permissions or daemon security to compensate for a wrong
+container identity.
 
 The operator-owned Docker 29/containerd image-store daemon startup must use
 `umask 0022` for **both containerd and dockerd**, even when the surrounding

@@ -32,15 +32,15 @@ def _fastqc_reports_for_samples(sample_ids):
 
 
 def _analysis_targets():
-    """Updated-profile derived analysis BAMs (legacy uses final.bam directly)."""
-    if not is_updated_profile():
-        return []
+    """Canonical analysis BAMs, markers, and QC views across both profiles."""
     targets = [f"{RAW_OUTDIR}/.helixweave/analysis_identity.json"]
     for sample_id in ACTIVE_SAMPLE_IDS:
         targets.append(analysis_bam(sample_id))
         targets.append(analysis_bai(sample_id))
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.mito_fraction.tsv")
         targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.tsv")
+        targets.append(f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.blacklist_dropped.stage_metrics.json")
+    targets += [f"{OUTDIR}/{sample_id}/05_qc/{sample_id}.analysis_policy.json" for sample_id in TREATMENT_SAMPLE_IDS]
     return targets
 
 
@@ -121,6 +121,13 @@ def _blacklist_targets():
                 outdir=OUTDIR,
                 sample=broad_bl,
             )
+        if REPLICATE_ANALYSIS and PEAK_MULTI_BIOREP_EXPERIMENTS:
+            for exp in PEAK_MULTI_BIOREP_EXPERIMENTS:
+                suf = _pooled_peak_suffix(exp)
+                targets.append(
+                    f"{OUTDIR}/experiments/{exp}/04_peaks/pooled/"
+                    f"{exp}_pooled_peaks_blacklist_filtered/{exp}_pooled_peaks.blacklist_filtered.{suf}"
+                )
         return targets
     if QC_CONFIG.get("blacklist_filter", True) and BLACKLIST_SAMPLES:
         targets += expand(
@@ -292,12 +299,7 @@ def _advanced_qc_targets():
     targets = []
     if QC_CONFIG.get("cross_correlation", False) and TREATMENT_SAMPLE_IDS:
         targets += expand(
-            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.qc",
-            outdir=OUTDIR,
-            sample=TREATMENT_SAMPLE_IDS,
-        )
-        targets += expand(
-            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cc.plot.pdf",
+            "{outdir}/{sample}/05_qc/cross_correlation/{sample}.cross_correlation_qc.tsv",
             outdir=OUTDIR,
             sample=TREATMENT_SAMPLE_IDS,
         )

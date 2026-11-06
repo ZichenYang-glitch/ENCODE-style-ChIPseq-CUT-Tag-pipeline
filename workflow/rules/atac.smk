@@ -30,18 +30,6 @@ def get_macs3_args_atac(wildcards):
     return args
 
 
-def get_remove_dup_atac(wildcards):
-    """ATAC-seq duplicate removal policy.
-
-    config remove_dup=auto  → yes
-    config remove_dup=yes/no → returned directly.
-    """
-    policy = config.get("remove_dup", "auto")
-    if policy == "auto":
-        return "yes"
-    return policy
-
-
 def get_extend_reads_atac(wildcards):
     """ATAC-seq read extension policy for bamCoverage.
 

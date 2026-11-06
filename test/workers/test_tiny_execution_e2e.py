@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 from uuid import uuid4
 
@@ -124,8 +126,25 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     redis_url = os.getenv(TEST_REDIS_URL_ENV)
     if redis_url is None:
         pytest.skip(f"{TEST_REDIS_URL_ENV} is not configured")
-    if shutil.which("snakemake") is None:
+    snakemake = shutil.which("snakemake")
+    if snakemake is None:
         pytest.skip("snakemake is not available on PATH")
+
+    # This fixture executes only identity/all, with no scientific tool jobs.
+    # Isolate profiles at the real CLI boundary in the independent worker;
+    # parent-only monkeypatches cannot change its command builder.
+    executable_dir = tmp_path / "execution-bin"
+    executable_dir.mkdir()
+    isolated_snakemake = executable_dir / "snakemake"
+    isolated_snakemake.write_text(
+        "#!/bin/sh\nexec "
+        + shlex.quote(snakemake)
+        + ' --workflow-profile none --profile none "$@"\n',
+        encoding="utf-8",
+    )
+    isolated_snakemake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{executable_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
 
     queue_name = f"encode-pipeline-e2e-{uuid4().hex}"
     configured = replace(
@@ -266,7 +285,13 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
     finally:
         persistence.close()
 
-    assert record.status is RunStatus.SUCCEEDED
+    persisted_output = "\n".join(
+        line for chunk in (*stdout, *stderr) for line in chunk.lines
+    )
+    assert record.status is RunStatus.SUCCEEDED, (
+        record.error,
+        persisted_output[-4000:],
+    )
     assert record.started_at is not None
     assert record.ended_at is not None
     assert assignment is not None
@@ -279,11 +304,17 @@ def test_api_to_worker_executes_tiny_snakemake_and_persists_lifecycle(
         RunStatus.RUNNING,
         RunStatus.SUCCEEDED,
     ]
-    persisted_output = "\n".join(
-        line for chunk in (*stdout, *stderr) for line in chunk.lines
-    )
+    assert "localrule analysis_identity_marker:" in persisted_output
     assert "localrule all:" in persisted_output
-    assert "1 of 1 steps (100%) done" in persisted_output
+    assert "2 of 2 steps (100%) done" in persisted_output
+    identity_markers = list(
+        workspace_root.glob("**/.helixweave/analysis_identity.json")
+    )
+    assert len(identity_markers) == 1
+    identity = json.loads(identity_markers[0].read_text(encoding="utf-8"))
+    assert identity["marker_schema_version"]
+    assert isinstance(identity["scientific_policy_revision"], int)
+    assert len(identity["identity"]) == 64
     assert qc_metrics == ()
     assert result_state.artifact_revision == 1
     assert result_state.artifact_attempt_id is not None

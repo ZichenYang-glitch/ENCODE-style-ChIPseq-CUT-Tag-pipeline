@@ -13,7 +13,7 @@ def _valid_samples(sid="S1"):
 
 
 def _base_config():
-    return {"use_control": False}
+    return {"use_control": False, "blacklist_mode": "off"}
 
 
 @pytest.fixture
@@ -438,15 +438,18 @@ def test_mnase_callers_all_false_valid(make_validation_case, run_validator):
     assert result.returncode == 0, f"Expected pass, got:\n{result.stderr}"
 
 
-def test_mnase_se_still_rejected(make_validation_case, run_validator):
-    _, config_path, _ = make_validation_case(samples=_mnase_samples(layout="SE"))
-    result = run_validator(config_path)
-    assert result.returncode != 0
-    assert "requires paired-end layout" in (result.stdout + result.stderr)
+def test_scientific_policy_revision_key_rejected(tmp_path):
+    """The internal policy revision is not user-configurable."""
+    from encode_pipeline.config.errors import ValidationError
+    from encode_pipeline.config.validator import validate_config
 
-
-def test_mnase_narrow_still_rejected(make_validation_case, run_validator):
-    _, config_path, _ = make_validation_case(samples=_mnase_samples(peak_mode="narrow"))
-    result = run_validator(config_path)
-    assert result.returncode != 0
-    assert "requires peak_mode=nucleosome" in (result.stdout + result.stderr)
+    samples = tmp_path / "samples.tsv"
+    samples.write_text(_valid_samples(), encoding="utf-8")
+    with pytest.raises(ValidationError, match="scientific_policy_revision"):
+        validate_config(
+            {
+                "samples": str(samples),
+                "use_control": False,
+                "scientific_policy_revision": 9,
+            }
+        )

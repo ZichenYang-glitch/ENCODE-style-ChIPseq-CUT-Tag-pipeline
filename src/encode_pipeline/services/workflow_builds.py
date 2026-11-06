@@ -21,6 +21,31 @@ ENCODE_LOGICAL_ENTRYPOINT = "workflow/Snakefile"
 _CACHE_DIRECTORY_NAMES = frozenset({"__pycache__", ".mypy_cache", ".pytest_cache"})
 _SCRIPT_REFERENCE = re.compile(rb"(?<![0-9A-Za-z_.-])scripts/([^\x00\s'\"`\\|;&()<>]+)")
 _SCRIPT_NAME = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_.-]{0,254}$")
+# Scientific scripts import this small shared package directly.  Keep it in
+# the runtime closure without pulling the rest of the platform into the
+# scientific environment.  The explicit files are the modules the scripts
+# import; the tree additionally carries future modules in the same package.
+_RUNTIME_SHARED_SOURCE_FILES = (
+    "src/encode_pipeline/__init__.py",
+    "src/encode_pipeline/qc/__init__.py",
+    "src/encode_pipeline/qc/contract.py",
+    "src/encode_pipeline/qc/histone.py",
+    "src/encode_pipeline/qc/policy.py",
+)
+_RUNTIME_SHARED_SOURCE_TREES = ("src/encode_pipeline/qc",)
+# The Snakefile calls import_checkout_package before configuration.  The
+# exported runtime must contain that helper, the project identity file it
+# checks, and the scientific modules the Snakefile imports.  API, persistence,
+# and service modules stay out of this closure.
+_RUNTIME_STARTUP_FILES = (
+    "pyproject.toml",
+    "scripts/source_provenance.py",
+    "src/encode_pipeline/errors.py",
+)
+_RUNTIME_STARTUP_TREES = (
+    "src/encode_pipeline/config",
+    "src/encode_pipeline/samples",
+)
 
 
 class WorkflowBuildIdentityProvider:
@@ -220,10 +245,42 @@ class WorkflowBuildIdentityProvider:
         )
         for script_name in self._referenced_runtime_scripts(entries):
             self._add_required_file(entries, root / "scripts" / script_name)
+        self._add_shared_runtime_package(entries)
+        self._add_startup_closure(entries)
         entrypoint = ENCODE_LOGICAL_ENTRYPOINT
         if entrypoint not in entries:
             raise ValueError("workflow entrypoint is missing")
         return tuple(sorted(entries.items()))
+
+    def _add_shared_runtime_package(self, entries: dict[str, bytes]) -> None:
+        """Add the exact shared QC package imported by scientific scripts."""
+        root = self._project_root
+        for logical_path in _RUNTIME_SHARED_SOURCE_TREES:
+            self._add_tree(
+                entries,
+                root.joinpath(*logical_path.split("/")),
+                suffixes=None,
+            )
+        for logical_path in _RUNTIME_SHARED_SOURCE_FILES:
+            if logical_path not in entries:
+                self._add_required_file(
+                    entries, root.joinpath(*logical_path.split("/"))
+                )
+
+    def _add_startup_closure(self, entries: dict[str, bytes]) -> None:
+        """Add the checkout files required before the first Snakemake rule."""
+        root = self._project_root
+        for logical_path in _RUNTIME_STARTUP_TREES:
+            self._add_tree(
+                entries,
+                root.joinpath(*logical_path.split("/")),
+                suffixes=None,
+            )
+        for logical_path in _RUNTIME_STARTUP_FILES:
+            if logical_path not in entries:
+                self._add_required_file(
+                    entries, root.joinpath(*logical_path.split("/"))
+                )
 
     @staticmethod
     def _referenced_runtime_scripts(entries: dict[str, bytes]) -> tuple[str, ...]:

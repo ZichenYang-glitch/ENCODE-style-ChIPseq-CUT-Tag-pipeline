@@ -21,7 +21,7 @@ NARROW_ROW = "chr1\t0\t100\tpeak1\t100\t.\t1\t2\t3\t50\n"
 def test_blacklist_merges_and_checks_boundaries(tmp_path):
     path = tmp_path / "blacklist.bed"
     path.write_text(
-        "chr1\t10\t20\nchr1\t15\t30\nchr2\t0\t5\ntrack name=test\n",
+        "chr1\t10\t20\nchr1\t15\t30\nchr2\t0\t5\ntrack name=test\nchr1 40 50\n",
         encoding="utf-8",
     )
     blacklist = blacklist_filter.Blacklist(path)
@@ -29,6 +29,7 @@ def test_blacklist_merges_and_checks_boundaries(tmp_path):
     assert blacklist.overlaps("chr1", 0, 10) is False
     assert blacklist.overlaps("chr1", 0, 11) is True
     assert blacklist.overlaps("chr1", 30, 40) is False
+    assert blacklist.overlaps("chr1", 45, 48) is True
     assert blacklist.overlaps("chr2", 4, 6) is True
     assert blacklist.overlaps("chr3", 0, 100) is False
 

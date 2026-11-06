@@ -1,0 +1,130 @@
+{
+  "exclude": {
+    "common_bp": 1897161,
+    "enrichment": {
+      "rep1": {
+        "enrichment": 29.605692927017394,
+        "offpeak_bp": 3097853557,
+        "reads_per_offpeak_base": 0.00048379142926671274,
+        "reads_per_peak_base": 0.014322980495593152
+      },
+      "rep2": {
+        "enrichment": 19.869034009696776,
+        "offpeak_bp": 3097853557,
+        "reads_per_offpeak_base": 0.0026206032178815483,
+        "reads_per_peak_base": 0.05206885446200929
+      }
+    },
+    "frip": {
+      "rep1": {
+        "frip": "0.017808",
+        "reads_in_peaks": "27173",
+        "sample": "T1",
+        "total_reads": "1525888"
+      },
+      "rep2": {
+        "frip": "0.012022",
+        "reads_in_peaks": "98783",
+        "sample": "T2",
+        "total_reads": "8217028"
+      }
+    },
+    "frip_effects_b_minus_a": {
+      "absolute_difference_percentage_points": -0.5786000000000001,
+      "log2_ratio": -0.5668095846306614,
+      "relative_change": -0.32491015274034146
+    },
+    "jaccard": {
+      "exclude_merged_bp": 1897161,
+      "intersection_bp": 0,
+      "jaccard": 0.0,
+      "retain_merged_bp": 0,
+      "union_bp": 1897161
+    },
+    "offpeak_ratio_b_over_a": 1.0058909052405234,
+    "overlap": {
+      "rep1_hit_by_rep2": null,
+      "rep2_hit_by_rep1": 0.0
+    },
+    "peak_count": {
+      "rep1": 0,
+      "rep2": 2881
+    },
+    "width": {
+      "rep1": {
+        "mean_bp": null,
+        "median_bp": null,
+        "n": 0
+      },
+      "rep2": {
+        "mean_bp": 658.507809788268,
+        "median_bp": 535,
+        "n": 2881
+      }
+    }
+  },
+  "retain": {
+    "common_bp": 9515560,
+    "enrichment": {
+      "rep1": {
+        "enrichment": 24.02793107221902,
+        "offpeak_bp": 3090235158,
+        "reads_per_offpeak_base": 0.00047106091464641864,
+        "reads_per_peak_base": 0.011318619187940594
+      },
+      "rep2": {
+        "enrichment": 15.42052385717589,
+        "offpeak_bp": 3090235158,
+        "reads_per_offpeak_base": 0.002560828738069778,
+        "reads_per_peak_base": 0.03948932064954664
+      }
+    },
+    "frip": {
+      "rep1": {
+        "frip": "0.068891",
+        "reads_in_peaks": "107703",
+        "sample": "T1",
+        "total_reads": "1563392"
+      },
+      "rep2": {
+        "frip": "0.045331",
+        "reads_in_peaks": "375763",
+        "sample": "T2",
+        "total_reads": "8289326"
+      }
+    },
+    "frip_effects_b_minus_a": {
+      "absolute_difference_percentage_points": -2.355999999999999,
+      "log2_ratio": -0.6038066486322561,
+      "relative_change": -0.3419895196760098
+    },
+    "jaccard": {
+      "exclude_merged_bp": 8981476,
+      "intersection_bp": 329080,
+      "jaccard": 0.03458335610305647,
+      "retain_merged_bp": 863164,
+      "union_bp": 9515560
+    },
+    "offpeak_ratio_b_over_a": 1.0253031599952316,
+    "overlap": {
+      "rep1_hit_by_rep2": 0.46780072904009723,
+      "rep2_hit_by_rep1": 0.05779418847327019
+    },
+    "peak_count": {
+      "rep1": 1646,
+      "rep2": 12458
+    },
+    "width": {
+      "rep1": {
+        "mean_bp": 524.400972053463,
+        "median_bp": 428.0,
+        "n": 1646
+      },
+      "rep2": {
+        "mean_bp": 720.94043987799,
+        "median_bp": 560.0,
+        "n": 12458
+      }
+    }
+  }
+}

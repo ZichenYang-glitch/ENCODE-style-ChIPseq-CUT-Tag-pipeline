@@ -4,12 +4,16 @@
 # Excludes: timestamps, absolute paths, temp dirs, version strings, shell commands, reasons
 
 all
+analysis_identity_marker
+analysis_policy
+analysis_template_metrics
 bamcoverage
 bowtie2_align
 duplicate_handling
 fastqc
 fastqc_stage
 merge_biorep_bam
+mito_fraction
 mnase_dyad_bigwig
 mnase_mono_bigwig
 mnase_pooled_dyad_bigwig
@@ -21,6 +25,7 @@ mnase_split_mono
 mnase_split_sub
 pipeline_done
 pool_treatment_bam
+prepare_analysis_bam
 samtools_filter
 samtools_flagstat
 samtools_flagstat_final

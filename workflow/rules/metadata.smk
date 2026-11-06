@@ -2,6 +2,8 @@
 # 3a. Stage 4a replicate-aware metadata (derived structures, no scheduling changes)
 # ---------------------------------------------------------------------------
 
+from encode_pipeline.config.reference_policy import resolve_organelle_mode as _resolve_organelle_mode
+
 EXPERIMENT_IDS = sorted({s["experiment"] for s in SAMPLES})
 
 SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {exp: [] for exp in EXPERIMENT_IDS}
@@ -15,6 +17,23 @@ TREATMENT_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
 CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
     exp: [sid for sid in sids if SAMPLE_MAP[sid]["role"] == "control"] for exp, sids in SAMPLES_BY_EXPERIMENT.items()
 }
+
+
+def analysis_bam(sample):
+    """Return the canonical analysis BAM for a sample across both profiles."""
+    return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
+
+
+def analysis_bai(sample):
+    return f"{analysis_bam(sample)}.bai"
+
+
+def _pooled_peak_suffix(experiment):
+    """Return 'narrowPeak' or 'broadPeak' for the experiment."""
+    treatment_ids = TREATMENT_SAMPLES_BY_EXPERIMENT.get(experiment, [])
+    if not treatment_ids:
+        return "narrowPeak"
+    return "broadPeak" if SAMPLE_MAP[treatment_ids[0]]["peak_mode"] == "broad" else "narrowPeak"
 
 
 # ---------------------------------------------------------------------------
@@ -87,11 +106,7 @@ if REPLICATE_ANALYSIS:
                 ctrl_bams.add(cb)
         result = []
         for cs in sorted(ctrl_samples):
-            path = (
-                f"{OUTDIR}/{cs}/02_align/{cs}.analysis.bam"
-                if VALIDATED_CONFIG.get("analysis_profile") == "updated"
-                else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam"
-            )
+            path = analysis_bam(cs)
             result.append(("control_sample", path))
         for cb in sorted(ctrl_bams):
             result.append(("control_bam", cb))
@@ -444,6 +459,7 @@ QC_CONFIG = VALIDATED_CONFIG.get(
         "summary": True,
         "cuttag_fragment_size": True,
         "cross_correlation": False,
+        "cross_correlation_target_type": "auto",
         "preseq_complexity": False,
         "picard_metrics": False,
         "tss_enrichment": False,
@@ -546,18 +562,62 @@ def _pooled_chrom_sizes(experiment):
 # ---------------------------------------------------------------------------
 
 
+# SCI-2 duplicate policy: an explicit duplicate_analysis=exclude/retain
+# applies to every sample; "auto" resolves per sample by assay. CUT&Tag
+# retains duplicates (same-coordinate fragments can be independent
+# molecules, so coordinates alone cannot prove PCR copies); all other
+# assays exclude them. The narrow/broad peak mode no longer proxies this
+# decision.
+def get_duplicate_policy_for_assay(assay):
+    """The auto duplicate policy for an assay: CUT&Tag retains, others exclude."""
+    return "retain" if assay == "cuttag" else "exclude"
+
+
+def get_duplicate_policy(sample_id):
+    """Resolve the effective duplicate policy for a sample."""
+    setting = VALIDATED_CONFIG.get("duplicate_analysis", "auto")
+    if setting != "auto":
+        return setting
+    return get_duplicate_policy_for_assay(SAMPLE_MAP[sample_id]["assay"])
+
+
 def get_remove_dup(wildcards):
-    """Return "yes" or "no" for duplicate removal, dispatched by assay."""
-    s = SAMPLE_MAP[wildcards.sample]
-    if s["assay"] == "chipseq":
-        return get_remove_dup_chipseq(wildcards)
-    if s["assay"] == "cuttag":
-        return get_remove_dup_cuttag(wildcards)
-    if s["assay"] == "atac":
-        return get_remove_dup_atac(wildcards)
-    if s["assay"] == "mnase":
-        return get_remove_dup_mnase(wildcards)
-    raise ValueError(f"Unsupported assay for duplicate policy: {s['assay']}")
+    """Return the legacy BAM-layer switch for the resolved duplicate policy."""
+    return "yes" if get_duplicate_policy(wildcards.sample) == "exclude" else "no"
+
+
+# SCI-3 paired-end alignment insert limit: an explicit integer
+# tool_parameters.bowtie2.max_insert applies to every PE sample in the run;
+# "auto" resolves per PE sample by assay (chipseq=2000, atac=2000,
+# cuttag=700, mnase=500). SE samples do not pass -X and record
+# "not_applicable".
+def get_max_insert_for_assay(assay):
+    """Return the auto Bowtie2 PE maximum insert length (-X) for an assay."""
+    if assay not in BOWTIE2_MAX_INSERT_BY_ASSAY:
+        raise ValueError(f"Unsupported assay for Bowtie2 max_insert policy: {assay}")
+    return BOWTIE2_MAX_INSERT_BY_ASSAY[assay]
+
+
+def get_max_insert(sample_id):
+    """Resolve the effective Bowtie2 PE max_insert for a sample.
+
+    Returns an integer for PE samples and "not_applicable" for SE samples.
+    """
+    sample = SAMPLE_MAP[sample_id]
+    if sample["layout"] != "PE":
+        return "not_applicable"
+    setting = _tool_param("bowtie2", "max_insert", "auto")
+    if setting != "auto":
+        return int(setting)
+    return get_max_insert_for_assay(sample["assay"])
+
+
+def get_bowtie2_max_insert_arg(wildcards):
+    """Return the Bowtie2 -X argument for PE samples, or empty string for SE."""
+    resolved = get_max_insert(wildcards.sample)
+    if resolved == "not_applicable":
+        return ""
+    return f"-X {resolved}"
 
 
 def is_updated_profile():
@@ -614,21 +674,6 @@ if TSS_FRAGMENT_ENABLED:
 TSS_FRAGMENT_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS})
 
 
-def analysis_bam(sample):
-    """Return the analysis BAM for a sample.
-
-    Legacy keeps the existing final.bam contract. Updated uses a derived
-    analysis.bam so the raw marked BAM remains available.
-    """
-    if is_updated_profile():
-        return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
-    return f"{OUTDIR}/{sample}/02_align/{sample}.final.bam"
-
-
-def analysis_bai(sample):
-    return f"{analysis_bam(sample)}.bai"
-
-
 def get_duplicate_mode(wildcards):
     """Return the duplicate handling mode for the current profile."""
     if is_updated_profile():
@@ -636,38 +681,25 @@ def get_duplicate_mode(wildcards):
     return get_remove_dup(wildcards)
 
 
-def _organelle_context_assay(sample_id):
-    """Return the assay whose organelle policy applies to a sample.
-
-    Controls inherit the policy of the treatment they are called for; a
-    control row's own assay is not authoritative. A control shared across
-    assays with different policies cannot be represented by one analysis BAM,
-    so fail closed instead of silently choosing one policy.
-    """
-    sample = SAMPLE_MAP[sample_id]
-    if sample.get("role") != "control":
-        return sample["assay"]
-    contexts = sorted(
-        {SAMPLE_MAP[sid]["assay"] for sid in TREATMENT_SAMPLE_IDS if SAMPLE_MAP[sid].get("control_sample") == sample_id}
-    )
-    if not contexts:
-        return sample["assay"]
-    if len(contexts) > 1:
-        raise ValueError(
-            "updated profile cannot derive one organelle policy for control "
-            f"{sample_id!r}; referenced by treatment assays: "
-            f"{', '.join(contexts)}"
-        )
-    return contexts[0]
-
-
 def get_organelle_mode(wildcards):
     """Resolve the effective organelle policy for a sample."""
     config_mode = str(VALIDATED_CONFIG.get("organelle_mode", "auto"))
-    if config_mode != "auto":
-        return config_mode
-    assay = _organelle_context_assay(wildcards.sample)
-    return "exclude" if assay in ("atac", "cuttag") else "report"
+    return _resolve_organelle_mode(
+        SAMPLE_MAP[wildcards.sample],
+        config_mode=config_mode,
+        sample_map=SAMPLE_MAP,
+        treatment_ids=TREATMENT_SAMPLE_IDS,
+        error_cls=ValueError,
+    )
+
+
+def get_organelle_chroms_explicit(sample_id):
+    """Return True if organelle_chroms was explicitly configured for the sample's genome."""
+    sample = SAMPLE_MAP[sample_id]
+    resources = VALIDATED_CONFIG.get("genome_resources", {})
+    resource = resources.get(sample["genome"], {}) if isinstance(resources, dict) else {}
+    chroms = resource.get("organelle_chroms") if isinstance(resource, dict) else None
+    return isinstance(chroms, (list, tuple)) and bool(chroms)
 
 
 def get_organelle_chroms(wildcards):
@@ -681,18 +713,28 @@ def get_organelle_chroms(wildcards):
     return ["chrM", "MT", "chrMT"]
 
 
+# SCI-2: the BAM layer owns the duplicate decision, so every MACS3 call —
+# per-sample, pooled, consensus, and IDR-ready — consumes the chosen
+# molecule set faithfully with an explicit --keep-dup all instead of a
+# second implicit coordinate-based collapse. idr_macs3_args must use this
+# same constant.
+MACS3_KEEP_DUP_ARGS = "--keep-dup all"
+
+
 def get_macs3_args(wildcards):
     """Return MACS3 arguments string, dispatched by assay."""
     s = SAMPLE_MAP[wildcards.sample]
     if s["assay"] == "chipseq":
-        return get_macs3_args_chipseq(wildcards)
-    if s["assay"] == "cuttag":
-        return get_macs3_args_cuttag(wildcards)
-    if s["assay"] == "atac":
-        return get_macs3_args_atac(wildcards)
-    if s["assay"] == "mnase":
-        return get_macs3_args_mnase(wildcards)
-    raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
+        assay_args = get_macs3_args_chipseq(wildcards)
+    elif s["assay"] == "cuttag":
+        assay_args = get_macs3_args_cuttag(wildcards)
+    elif s["assay"] == "atac":
+        assay_args = get_macs3_args_atac(wildcards)
+    elif s["assay"] == "mnase":
+        assay_args = get_macs3_args_mnase(wildcards)
+    else:
+        raise ValueError(f"Unsupported assay for MACS3 policy: {s['assay']}")
+    return f"{assay_args} {MACS3_KEEP_DUP_ARGS}"
 
 
 def get_extend_reads(wildcards):
@@ -733,7 +775,7 @@ def _biorep_control_paths(experiment, bio_rep):
             control_bams.add(cb)
     paths = []
     for cs in sorted(control_samples):
-        paths.append(analysis_bam(cs) if is_updated_profile() else f"{OUTDIR}/{cs}/02_align/{cs}.final.bam")
+        paths.append(analysis_bam(cs))
     paths.extend(sorted(control_bams))
     return paths
 

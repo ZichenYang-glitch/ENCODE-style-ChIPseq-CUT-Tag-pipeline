@@ -3,8 +3,8 @@
 
 The session fixture in test/conftest.py prepends <repo>/src to PYTHONPATH so
 that tools spawned by tests (notably snakemake running the Snakefile under a
-different interpreter) import this checkout's package rather than whatever an
-editable install in a shared environment points at.
+different interpreter) import this checkout's package. The Snakefile rejects
+any other loaded package before configuration.
 """
 
 import os

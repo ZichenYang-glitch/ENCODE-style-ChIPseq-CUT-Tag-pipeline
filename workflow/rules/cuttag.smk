@@ -1,13 +1,11 @@
 # cuttag.smk — CUT&Tag biological policy functions
 # ==================================================
 # No rules in this file. These functions define assay-specific MACS3
-# parameters, duplicate removal policy, and read extension policy.
+# parameters and read extension policy. The duplicate policy is resolved
+# per sample in metadata.smk (get_duplicate_policy, SCI-2: CUT&Tag auto
+# retains duplicates).
 # They are consumed by dispatch wrappers in workflow/Snakefile and
 # called from rules in common.smk / peaks.smk.
-#
-# Stage 1: duplicate and extension policies are identical to ChIP-seq.
-# Future stages may diverge (e.g., keep duplicates for CUT&Tag,
-# shorter extension lengths, SEACR/GoPeaks hooks).
 
 
 def get_macs3_args_cuttag(wildcards):
@@ -35,16 +33,6 @@ def get_macs3_args_cuttag(wildcards):
     else:
         broad_cutoff = _tool_param("macs3", "broad_cutoff", 0.1)
         return f"-f {fmt} -g {genome} -q {qvalue} --broad --broad-cutoff {broad_cutoff}"
-
-
-def get_remove_dup_cuttag(wildcards):
-    """CUT&Tag duplicate removal policy.
-
-    Stage 1: identical to ChIP-seq (auto → peak_mode-based).
-    Future: CUT&Tag typically has few PCR duplicates; keeping them
-    may improve sensitivity for TF marks.
-    """
-    return get_remove_dup_chipseq(wildcards)
 
 
 def get_extend_reads_cuttag(wildcards):

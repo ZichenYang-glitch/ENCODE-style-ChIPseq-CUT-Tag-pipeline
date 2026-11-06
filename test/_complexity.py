@@ -51,6 +51,7 @@ def project(
         threads=1,
         mapq=mapq,
         remove_dup=remove_dup,
+        blacklist_mode="off",
         use_control=False,
         multiqc=False,
         replicate_analysis=False,

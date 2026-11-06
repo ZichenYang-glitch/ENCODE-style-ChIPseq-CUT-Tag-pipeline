@@ -47,10 +47,10 @@ def test_omitted_new_keys_resolve_to_legacy(tmp_path):
 
     assert validated["config_schema_version"] == "1.0.0"
     assert validated["analysis_profile"] == "legacy"
-    assert validated["blacklist_mode"] == "copies"
-    assert validated["qc"]["blacklist_filter"] is True
-    assert validated["duplicate_analysis"] == "exclude"
-    assert validated["organelle_mode"] == "keep"
+    assert validated["blacklist_mode"] == "analysis"
+    assert validated["qc"]["blacklist_filter"] is False
+    assert validated["duplicate_analysis"] == "auto"
+    assert validated["organelle_mode"] == "auto"
     assert validated["control_mode"] == "pooled"
     assert validated["duplicate_backend"] == ""
     assert validated["reference_mode"] == "legacy"
@@ -64,9 +64,9 @@ def test_explicit_v2_resolves_to_updated_raw(tmp_path):
 
     assert validated["config_schema_version"] == "2.0.0"
     assert validated["analysis_profile"] == "updated"
-    assert validated["blacklist_mode"] == "off"
+    assert validated["blacklist_mode"] == "analysis"
     assert validated["qc"]["blacklist_filter"] is False
-    assert validated["duplicate_analysis"] == "exclude"
+    assert validated["duplicate_analysis"] == "auto"
     assert validated["organelle_mode"] == "auto"
     assert validated["control_mode"] == "matched"
     assert validated["duplicate_backend"] == "picard"
@@ -113,9 +113,22 @@ def test_updated_alias_true_without_canonical_key_maps_to_copies(tmp_path):
     assert validated["qc"]["blacklist_filter"] is True
 
 
-def test_analysis_branch_requires_updated_profile(tmp_path):
-    with pytest.raises(ValidationError, match="requires analysis_profile=updated"):
-        _validate(tmp_path, blacklist_mode="analysis")
+def test_legacy_analysis_branch_is_accepted_and_executable(tmp_path):
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
+    validated = _validate(
+        tmp_path,
+        analysis_profile="legacy",
+        blacklist_mode="analysis",
+        genome_resources={
+            "hs": {
+                "effective_genome_size": "hs",
+                "blacklist": str(blacklist),
+            }
+        },
+    )
+    assert validated["blacklist_mode"] == "analysis"
+    validate_execution_support(validated)
 
 
 def test_updated_analysis_branch_is_executable(tmp_path):
@@ -164,11 +177,20 @@ def test_remove_dup_auto_does_not_override_explicit_duplicate_analysis(tmp_path)
     assert validated["duplicate_analysis"] == "retain"
 
 
-def test_updated_remove_dup_no_requires_explicit_policy(tmp_path):
-    with pytest.raises(
-        ValidationError, match="requires an explicit duplicate_analysis"
-    ):
-        _validate(tmp_path, analysis_profile="updated", remove_dup="no")
+def test_updated_remove_dup_no_maps_to_retain(tmp_path):
+    validated = _validate(tmp_path, analysis_profile="updated", remove_dup="no")
+    assert validated["duplicate_analysis"] == "retain"
+
+
+def test_legacy_explicit_duplicate_analysis_is_accepted(tmp_path):
+    validated = _validate(tmp_path, duplicate_analysis="retain")
+    assert validated["duplicate_analysis"] == "retain"
+
+
+def test_duplicate_policy_resolution_is_idempotent(tmp_path):
+    first = _validate(tmp_path, analysis_profile="updated", remove_dup="auto")
+    second = validate_config(first)
+    assert first == second
 
 
 def test_updated_remove_dup_no_and_retain_accepted(tmp_path):
@@ -401,10 +423,11 @@ def test_authoring_schema_exposes_a1_keys_and_executable_legacy_defaults():
 
     assert properties["config_schema_version"]["default"] == "1.0.0"
     assert properties["analysis_profile"]["default"] == "legacy"
-    assert properties["blacklist_mode"]["default"] == "copies"
+    assert properties["blacklist_mode"]["default"] == "analysis"
+    assert properties["organelle_mode"]["default"] == "auto"
     assert properties["duplicate_backend"]["default"] == ""
     assert properties["control_mode"]["default"] == "pooled"
-    assert properties["qc"]["properties"]["blacklist_filter"]["default"] is True
+    assert "blacklist_filter" not in properties["qc"]["properties"]
     assert "" in properties["duplicate_backend"]["enum"]
 
 
@@ -416,3 +439,24 @@ def test_updated_control_mode_auto_rejected_at_execution(tmp_path):
     )
     with pytest.raises(ValidationError, match="requires control_mode=matched"):
         validate_execution_support(validated)
+
+
+def test_default_template_canonical_copies_override(tmp_path):
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load((root / "config" / "config.yaml").read_text())
+    config["samples"] = str(tmp_path / "samples.tsv")
+    Path(config["samples"]).write_text(
+        "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
+        "bowtie2_index\n"
+        "S1\tR1.fq\tR2.fq\tPE\tchipseq\tCTCF\tnarrow\ths\t/idx\n",
+        encoding="utf-8",
+    )
+    config["outdir"] = str(tmp_path / "results")
+    config["blacklist_mode"] = "copies"
+    validated = validate_config(config)
+    assert validated["blacklist_mode"] == "copies"
+    assert validated["qc"]["blacklist_filter"] is True

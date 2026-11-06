@@ -46,13 +46,13 @@
     "blacklist_mode": {
       "type": "string",
       "enum": ["off", "copies", "analysis"],
-      "default": "copies",
-      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch (updated only)."
+      "default": "analysis",
+      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch in both profiles."
     },
     "organelle_mode": {
       "type": "string",
       "enum": ["auto", "exclude", "report", "keep"],
-      "default": "keep"
+      "default": "auto"
     },
     "duplicate_backend": {
       "type": "string",
@@ -61,8 +61,8 @@
     },
     "duplicate_analysis": {
       "type": "string",
-      "enum": ["exclude", "retain"],
-      "default": "exclude"
+      "enum": ["auto", "exclude", "retain"],
+      "default": "auto"
     },
     "control_mode": {
       "type": "string",
@@ -154,13 +154,39 @@
     },
     "tool_parameters": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "bowtie2": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["", "very-fast", "fast", "sensitive", "very-sensitive"],
+              "default": ""
+            },
+            "dovetail": { "type": ["boolean", "string"], "default": false },
+            "no_mixed": { "type": ["boolean", "string"], "default": false },
+            "no_discordant": { "type": ["boolean", "string"], "default": false },
+            "max_insert": {
+              "oneOf": [
+                { "type": "string", "const": "auto" },
+                { "type": "integer", "minimum": 1 },
+                { "type": "string", "pattern": "^[1-9][0-9]*$" }
+              ],
+              "default": "auto",
+              "description": "Paired-end maximum fragment length (-X). auto resolves per sample by assay."
+            },
+            "extra_args": { "type": "string", "default": "" }
+          }
+        }
+      }
     },
     "qc": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "blacklist_filter": { "type": ["boolean", "string"], "default": true },
+        "blacklist_filter": { "type": ["boolean", "string"] },
         "frip": { "type": ["boolean", "string"], "default": true },
         "library_complexity": { "type": ["boolean", "string"], "default": true },
         "nrf_pbc": { "type": ["boolean", "string"], "default": true },
@@ -168,6 +194,9 @@
         "summary": { "type": ["boolean", "string"], "default": true },
         "cuttag_fragment_size": { "type": ["boolean", "string"], "default": true },
         "cross_correlation": { "type": ["boolean", "string"], "default": false },
+        "cross_correlation_target_type": {
+          "type": "string", "enum": ["auto", "tf", "histone"], "default": "auto"
+        },
         "preseq_complexity": { "type": ["boolean", "string"], "default": false },
         "picard_metrics": { "type": ["boolean", "string"], "default": false },
         "tss_enrichment": { "type": ["boolean", "string"], "default": false }

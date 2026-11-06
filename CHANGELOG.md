@@ -8,6 +8,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- SCI-6: opt-in analysis-R1/SE cross-correlation with SPP-matched read length,
+  assay/target exclusion windows, paired candidates and separate execution,
+  interpretation and local threshold hints. Detail v2 drives sample/project
+  QC and MultiQC; empty data produce NA without fake SPP files. Authoring
+  schema 3.1.0 adds the ChIP target-type override; policy revision 6 requires
+  fresh output directories.
+
+- Versioned QC v2 contract (SCI-5; `scientific_policy_revision` 5):
+  `qc_summary`, `mnase_qc_summary`, `cuttag_fragment_size`, and
+  `mito_fraction` start with `schema_version` and preserve the exact v1
+  column order, while the adapter still reads v1 artifacts without
+  recalculating them. CUT&Tag fragment sizes count each complete valid PE
+  template once with `abs(TLEN)` from the canonical analysis BAM; zero TLEN,
+  orphan, cross-contig, and inconsistent templates are reported separately
+  and never enter a 0 bp bin. MNase QC separates read records from fragment
+  classes, reports invalid/classified/unclassified counts against the union
+  of possibly overlapping windows, and no longer implies a divide-by-two
+  conversion. Organelle diagnostics preserve unresolved/no-mapped states as
+  NA and expose matched contigs. A versioned adapter-owned
+  `analysis_policy.json` records resolved policy, input stages, resource
+  matches, and stage counts without workspace paths, and is registered in
+  the manifest, artifact catalog, output contract, and MultiQC summary.
+  Raw/analysis namespace manifest rows and the updated-profile fragment-CPM
+  gate are corrected; pooled QC keeps its fixed columns and delivered peak
+  count.
+
+- Assay-resolved Bowtie2 paired-end maximum fragment length (`-X` /
+  `tool_parameters.bowtie2.max_insert`, both profiles): `auto` resolves per
+  PE sample by assay (`chipseq: 2000`, `atac: 2000`, `cuttag: 700`,
+  `mnase: 500`) across treatment and control samples, while an explicit
+  positive integer overrides `auto` for the run and SE samples omit `-X`
+  (`resolved_max_insert: "not_applicable"`). Legacy `-X`/`--maxins` tokens
+  in `tool_parameters.bowtie2.extra_args` migrate into `max_insert` when
+  non-conflicting and fail closed on conflicts or invalid values while
+  preserving unrelated shell quoting, and `-I`/`--minins` is validated
+  against the effective per-sample maximum insert length. `scientific_policy_revision`
+  is bumped to 3.
+
+- Assay-based duplicate policy (both profiles): `duplicate_analysis` gains
+  an `auto` default that retains duplicates for CUT&Tag and excludes them
+  for ChIP-seq/ATAC-seq/MNase-seq, resolved per sample and recorded in the
+  effective configuration; the narrow/broad peak mode no longer proxies
+  the decision (legacy broad ChIP-seq now excludes). Every MACS3 call
+  (per-sample, pooled, consensus, IDR-ready) renders `--keep-dup all`, and
+  conflicting `--keep-dup` values in tool `extra_args` are rejected —
+  including argparse abbreviations the pinned MACS3 accepts (`--keep-d`,
+  `--k`) and the equals form — while synonymous `all` is normalized out and
+  unrelated arguments keep their shell quoting. `remove_dup` yes/no remain
+  as aliases.
+  The authoring schema is now 3.0.0 with `duplicate_analysis` defaulting
+  to `auto`.
+
+- Versioned run identity for both analysis profiles: the
+  `.helixweave/analysis_identity.json` marker now carries a marker schema
+  version, profile, internal `scientific_policy_revision`, and an identity
+  hash covering the full effective configuration (only `outdir`, `threads`,
+  and the `samples` path are excluded; parsed sample content is hashed);
+  both profiles refuse outdated-format, mismatched, corrupted, or symlinked
+  markers, missing or inconsistent `effective_config.json` records (required
+  fields plus an inner configuration that recomputes to the recorded
+  identity), symlinked `.helixweave` metadata directories, and unmarked
+  non-empty outdirs instead of mixing outputs from different scientific
+  behavior. Path-valued inputs are bound to their canonical locations, and
+  record writes use exclusively created temporary files with atomic replace.
+- Effective configuration traceability: startup prints a path-free summary of
+  the merged configuration, actual runs record it to
+  `.helixweave/effective_config.json`, Snakemake `--config` overrides go
+  through the same validator/identity/record path, and dry-runs never write
+  run records.
 - Updated ENCODE analysis profile with proper-pair filtering, marked duplicates,
   organelle-aware analysis BAMs, matched per-bioreplicate controls, and an
   identity-guarded analysis output namespace.

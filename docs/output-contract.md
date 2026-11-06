@@ -30,8 +30,10 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `library_complexity` | parse_dup_metrics.py | library_complexity | `results/<sample>/01_qc/<sample>.library_complexity.tsv` | stable |
 | `nrf_pbc` | calc_nrf_pbc.py | nrf_pbc | `results/<sample>/01_qc/<sample>.nrf_pbc.tsv` | stable |
 | `qc_summary` | assemble_qc_summary | qc_summary | `results/<sample>/01_qc/<sample>.qc_summary.tsv` | implemented |
-| `cross_correlation` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.qc` | stable |
-| `cross_correlation_plot` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf` | stable |
+| `cross_correlation` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.qc` | optional tool side artifact |
+| `cross_correlation_plot` | phantompeakqualtools | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cc.plot.pdf` | optional tool side artifact |
+| `cross_correlation_metadata` | make_cross_correlation_tagalign.py | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_metadata.json` | versioned input diagnostics |
+| `cross_correlation_qc` | write_cross_correlation_qc.py | cross_correlation | `results/<sample>/05_qc/cross_correlation/<sample>.cross_correlation_qc.tsv` | versioned detail, required when enabled |
 | `preseq` | preseq lc_extrap | preseq_complexity | `results/<sample>/05_qc/preseq/<sample>.preseq.txt` | stable |
 | `picard_alignment` | Picard CollectMultipleMetrics | picard_collect_multiple_metrics | `results/<sample>/05_qc/picard/<sample>.alignment_summary_metrics` | stable |
 | `picard_insert_size` | Picard CollectMultipleMetrics | picard_collect_multiple_metrics | `results/<sample>/05_qc/picard/<sample>.insert_size_metrics` | stable |
@@ -45,6 +47,16 @@ Project-level rows use empty `sample_id` and `experiment_id` fields.
 | `blacklist_filtered_bam` | bedtools intersect | blacklist_filter_bam | `results/<sample>/02_align/<sample>.blacklist_filtered.bam` | stable |
 | `pipeline_done` | touch | (common.smk) | `results/<sample>/logs/<sample>.pipeline.done` | stable |
 | `analysis_bam` | samtools | prepare_analysis_bam | `results/<sample>/02_align/<sample>.analysis.bam` | implemented |
+| `analysis_bai` | samtools index | prepare_analysis_bam | `results/<sample>/02_align/<sample>.analysis.bam.bai` | implemented |
+| `analysis_filtered_bai` | samtools index | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam.bai` | implemented |
+| `mito_fraction` | calc_organelle_metrics.py | mito_fraction | `results/<sample>/05_qc/<sample>.mito_fraction.tsv` | implemented |
+| `analysis_filtered_mito_fraction` | calc_organelle_metrics.py | mito_fraction | `results/analysis_filtered/<sample>/05_qc/<sample>.mito_fraction.tsv` | implemented |
+| `blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
+| `analysis_filtered_blacklist_stage_metrics` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.stage_metrics.json` | implemented |
+| `analysis_policy` | write_analysis_policy.py | analysis_policy | `results/<sample>/05_qc/<sample>.analysis_policy.json` | implemented |
+| `analysis_template_metrics` | calc_analysis_template_metrics.py | analysis_template_metrics | `results/<sample>/05_qc/<sample>.analysis_template_metrics.tsv` | implemented |
+| `analysis_filtered_cuttag_fragment_size` | calc_cuttag_fragment_size.py | cuttag_fragment_size | `results/analysis_filtered/<sample>/01_qc/<sample>.cuttag_fragment_size.tsv` | implemented |
+| `analysis_filtered_project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/analysis_filtered/multiqc/project_qc_summary.tsv` | implemented |
 | `analysis_filtered_bam` | samtools + filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/02_align/<sample>.analysis.bam` | implemented |
 | `blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
 | `analysis_filtered_blacklist_dropped` | filter_blacklist_templates.py | prepare_analysis_bam | `results/analysis_filtered/<sample>/05_qc/<sample>.blacklist_dropped.tsv` | implemented |
@@ -98,6 +110,7 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `biorep_final_bam` | samtools merge / symlink | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam` | stable |
 | `biorep_final_bai` | samtools index | (replicates.smk) | `results/experiments/<exp>/02_align/biorep<N>.final.bam.bai` | stable |
 | `pooled_macs3_peak` | macs3 callpeak | (replicates.smk) | `results/experiments/<exp>/04_peaks/pooled/<exp>_pooled_peaks/` | stable |
+| `pooled_filtered_peak` | bedtools intersect | blacklist_filter_pooled_peaks | `results/analysis_filtered/experiments/<exp>/04_peaks/pooled/<exp>_pooled_peaks_blacklist_filtered/<exp>_pooled_peaks.blacklist_filtered.<suffix>` | implemented |
 | `pooled_fe_bdg` | macs3 bdgcmp FE | pooled_signal_track_fe | `results/experiments/<exp>/03_signal/<exp>.pooled.FE.bdg` | stable |
 | `pooled_ppois_bdg` | macs3 bdgcmp ppois | pooled_signal_track_ppois | `results/experiments/<exp>/03_signal/<exp>.pooled.ppois.bdg` | stable |
 | `pooled_fe_bw` | bedGraphToBigWig | pooled_signal_track_fe_bw | `results/experiments/<exp>/03_signal/<exp>.pooled.FE.bw` | implemented |
@@ -169,8 +182,66 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `multiqc_report` | MultiQC | (report.smk) | `results/multiqc/multiqc_report.html` | stable |
 | `project_qc_summary` | aggregate_qc_summary | project_qc_summary | `results/multiqc/project_qc_summary.tsv` | implemented |
 | `result_manifest` | make_manifest.py | result_manifest | `results/multiqc/result_manifest.tsv` | implemented |
-| `cross_correlation_summary` | cross_correlation_summary.py | (report.smk) | `results/multiqc/cross_correlation_summary.tsv` | stable |
+| `cross_correlation_summary` | summarize_cross_correlation.py | cross_correlation_summary | `results/multiqc/cross_correlation_summary.tsv` | stable |
 | `tss_bed` | gtf_to_tss_bed.py | tss_bed_from_gtf | `results/reference/<genome>.tss.bed` | stable |
+
+## Analysis Namespace Boundary
+
+With `blacklist_mode: analysis`, sample and pooled outputs are written under
+`results/analysis_filtered/...`; with `copies` or `off`, they remain under
+`results/...`. The catalog registers the analysis-filtered variants for the
+canonical analysis BAM, organelle diagnostics, blacklist stage metrics,
+analysis policy, fragment-size/MNase/sample/pooled/project QC summaries, CPM
+and fragment CPM tracks, peaks, TSS profiles, and reference-filtered peak
+files. The manifest keeps the canonical QC output type; the analysis-filtered
+namespace is expressed by the relative path and the adapter's
+`analysis_branch` metadata, not by an `analysis_filtered_*` output type. A
+raw-only file such as `final.bam` remains under the raw root in both modes.
+
+## QC Contract (v2)
+
+`qc_summary` and `mnase_qc_summary` are version 2 writers. Their first column
+is `schema_version`, followed by the complete version 1 column order, then the
+new analysis-stage fields. `cuttag_fragment_size` and `mito_fraction` use the
+same version-first layout. The adapter reads exact v1 and exact v2 headers; it
+does not accept arbitrary extra columns, duplicate columns, unknown versions,
+undefined status values, or loose numeric types. Historical v1 artifacts are
+not rewritten or recomputed.
+
+The `analysis_policy` JSON records the resolved duplicate policy, PE insert
+bound, organelle mode/status/matched contigs, blacklist mode/application,
+scientific input stage for each QC product, stage counts, and the QC schema
+versions. It contains no absolute workspace paths, environment values, or
+contract in the filtered namespace.
+
+`analysis_template_metrics` is the assay-independent PE template-count
+component. It is written as a versioned v2 TSV for every sample from the
+canonical analysis BAM; SE is explicitly `not_applicable` with NA counts, and a
+missing or malformed BAM is `parse_failed` rather than a fabricated zero. The
+component is authoritative for the general valid/invalid template counts in
+`analysis_policy` schema version 2, which adds `analysis_template_status` and
+`input_stages.analysis_template_metrics`. Policy version 1 records remain
+readable. Both namespaces keep the canonical output type; the analysis-filtered
+branch is expressed by the path and `analysis_branch` metadata.
+
+`cuttag_fragment_size` counts each complete valid PE template once using
+`abs(TLEN)` and consumes the canonical analysis BAM. Zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted as invalid and never
+enter a biological length bin. Duplicate handling follows the upstream
+resolved policy; the script does not remove 0x400 records by itself.
+
+`mnase_qc_summary` reports read counts from the sub/mono/di BAMs separately
+from fragment counts classified from the canonical analysis BAM. Window
+counts may overlap; `analysis_unclassified_templates` is computed against the
+union of configured windows. `mito_fraction` consumes the pre-duplicate MAPQ
+BAM and reports `unresolved_contigs`/`no_mapped_reads` with NA values rather
+than fabricating zero.
+
+When every input to `project_qc_summary` is v1, aggregation preserves the v1
+header. If any input is v2, the project summary uses the v2 header and pads v1
+rows with NA for fields that version did not define. `pooled_qc_summary`
+keeps its existing fixed columns; `pooled_peak_count` is the delivered peak
+count.
 
 ## Manifest Field Schema
 
@@ -207,6 +278,11 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `picard_*` | `qc.picard_metrics: true` + `genome_resources.<genome>.reference_fasta` |
 | `tss_*` | `qc.tss_enrichment: true` + `genome_resources.<genome>.gtf` |
 | `cuttag_fragment_size` | `qc.cuttag_fragment_size: true` + `assay: cuttag` |
+| `analysis_bam`, `analysis_bai` | canonical analysis view for active samples |
+| `mito_fraction`, `blacklist_dropped`, `blacklist_stage_metrics` | active samples |
+| `analysis_policy` | treatment samples; analysis-filtered variant under `blacklist_mode: analysis` |
+| `mnase_qc_summary` | `assay: mnase` |
+| `qc_summary` | `qc.summary: true` + peak-centric treatment sample |
 | `seacr_*` | `cuttag.seacr.enabled: true` + `assay: cuttag` + `layout: PE` |
 | `pooled_mnase_*` | `replicate_analysis: true` + `>=2 MNase treatment bioreps` |
 | `idr_*` | `chipseq_idr: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
@@ -220,3 +296,18 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 - **Pooled FE/ppois BigWig genome resolution:** the first treatment sample's genome is used for `chrom_sizes` lookup in pooled experiments. Mixed-genome pooled experiments are not currently rejected. If a pooled experiment contains samples with different genomes, the BigWig conversion may use the wrong chromosome sizes.
 - **MACS3 bdgcmp sorting:** MACS3 `bdgcmp` produces coordinate-sorted bedGraph in practice, but the BigWig rules defensively re-sort via `LC_ALL=C sort -k1,1 -k2,2n` before calling `bedGraphToBigWig`.
 - **chrom_sizes path validation:** when `genome_resources.<genome>.chrom_sizes` is non-empty, `validate_samples.py` checks that the file exists. An empty string means "no BigWig for this genome" — this is not a validation error.
+
+### SCI-6 cross-correlation delivery
+
+`cross_correlation_qc` retains one canonical manifest type; `blacklist_mode=analysis`
+places it beneath `results/analysis_filtered/`, with `analysis_branch` metadata.
+The detail TSV (exact version 2 header) is the scheduled per-treatment output,
+including `no_data` with NA metrics when the analysis BAM has no usable tags.
+The raw `.cc.qc` and PDF are optional SPP side artifacts, present only when SPP
+produces them; direct raw/PDF targets are no longer scheduled. They are not
+replaced by fake files. Deleting the required detail triggers recomputation.
+The tagAlign and metadata JSON are tracked outputs. Metadata schema version 1
+is registered for platform download, including the full length distribution
+and first-500 estimate method; its manifest type is cross_correlation_metadata. Sample and
+project summaries consume the detail, not a second interpretation of raw SPP.
+The old seven-column scalar parser CLI remains available for historical files.

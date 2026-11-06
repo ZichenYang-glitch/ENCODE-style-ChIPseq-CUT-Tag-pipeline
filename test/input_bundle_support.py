@@ -124,6 +124,7 @@ def create_runnable_bundle(root: Path) -> Path:
         "mapq": 30,
         "binsize": 10,
         "use_control": False,
+        "blacklist_mode": "off",
         "genome_resources": {"mm10": {"effective_genome_size": "mm"}},
     }
     (root / "config.encode.yaml").write_text(

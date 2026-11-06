@@ -1,0 +1,131 @@
+{
+  "analysis_templates": {
+    "exclude": {
+      "analysis_valid_fragments": "762944",
+      "duplicate_fraction_picard": "0.023994",
+      "duplicate_metric_stage": "pre_duplicate_markdup_bam",
+      "stage": "analysis_bam"
+    },
+    "retain": {
+      "analysis_valid_fragments": "781696",
+      "duplicate_fraction_picard": "0.023994",
+      "duplicate_metric_stage": "pre_duplicate_markdup_bam",
+      "stage": "analysis_bam"
+    }
+  },
+  "candidate_arm": "exclude",
+  "common_universe_bp": 863164,
+  "common_universe_frip": {
+    "effects_exclude_minus_retain": {
+      "absolute_difference_percentage_points": -0.034,
+      "log2_ratio": -0.02366039495181474,
+      "relative_change": -0.016267164250514332
+    },
+    "epsilon": 1e-06,
+    "exclude": {
+      "bam": "/tmp/sci7-cuttag-ext/rep1-exclude/results/analysis_filtered/T1/02_align/T1.analysis.bam",
+      "frip": "0.020561",
+      "peaks": "/tmp/sci7-cuttag-ext/evidence/comparisons/rep1-duplicate.common.bed",
+      "reads_in_peaks": "31374",
+      "sample": "T1",
+      "total_reads": "1525888"
+    },
+    "normalization": "analysis BAM read records / common merged narrowPeak universe",
+    "offpeak_background_ratio_exclude_over_retain": 1.0003472580403001,
+    "offpeak_fraction": {
+      "exclude": 0.979439,
+      "retain": 0.979099
+    },
+    "retain": {
+      "bam": "/tmp/sci7-cuttag-ext/rep1-retain/results/analysis_filtered/T1/02_align/T1.analysis.bam",
+      "frip": "0.020901",
+      "peaks": "/tmp/sci7-cuttag-ext/evidence/comparisons/rep1-duplicate.common.bed",
+      "reads_in_peaks": "32676",
+      "sample": "T1",
+      "total_reads": "1563392"
+    },
+    "status": "measured"
+  },
+  "library_complexity": {
+    "exclude": {
+      "denominator": "MAPQ-filtered fragments before duplicate removal",
+      "nrf": "0.976006",
+      "pbc1": "0.975919",
+      "pbc2": "41.367912",
+      "stage": "pre_duplicate_mapq_bam"
+    },
+    "retain": {
+      "denominator": "MAPQ-filtered fragments before duplicate removal",
+      "nrf": "0.976006",
+      "pbc1": "0.975919",
+      "pbc2": "41.367912",
+      "stage": "pre_duplicate_mapq_bam"
+    }
+  },
+  "merged_bp_jaccard": {
+    "exclude_merged_bp": 0,
+    "intersection_bp": 0,
+    "jaccard": 0.0,
+    "retain_merged_bp": 863164,
+    "union_bp": 863164
+  },
+  "overlap_fraction_at_least_one_bp": {
+    "exclude_peaks_hit_by_retain": null,
+    "retain_peaks_hit_by_exclude": 0.0
+  },
+  "own_peak_frip": {
+    "exclude": {
+      "comparable_across_arms": false,
+      "denominator": "analysis BAM read records from calc_frip.py",
+      "frip": "0.000000",
+      "peaks": "arm-specific blacklist-filtered narrowPeak",
+      "reads_in_peaks": "0",
+      "total_reads": "1525888"
+    },
+    "retain": {
+      "comparable_across_arms": false,
+      "denominator": "analysis BAM read records from calc_frip.py",
+      "frip": "0.020901",
+      "peaks": "arm-specific blacklist-filtered narrowPeak",
+      "reads_in_peaks": "32676",
+      "total_reads": "1563392"
+    }
+  },
+  "peak_count": {
+    "exclude": 0,
+    "retain": 1646,
+    "role": "descriptive_only"
+  },
+  "peak_width_bp": {
+    "exclude": {
+      "mean_bp": null,
+      "median_bp": null,
+      "n": 0
+    },
+    "retain": {
+      "mean_bp": 524.400972053463,
+      "median_bp": 428.0,
+      "n": 1646
+    }
+  },
+  "reference_arm": "retain",
+  "replicate_consistency": "not_applicable_single_pair",
+  "scope": "single treatment/control pair; not biological acceptance",
+  "signal_background": {
+    "exclude": {
+      "enrichment": 75.36720389489558,
+      "offpeak_bp": 3098887554,
+      "reads_per_offpeak_base": 0.0004822743561865943,
+      "reads_per_peak_base": 0.03634766973599455
+    },
+    "genome_bp": 3099750718,
+    "normalization": "analysis-BAM read records per reference base",
+    "retain": {
+      "enrichment": 76.63845914928453,
+      "offpeak_bp": 3098887554,
+      "reads_per_offpeak_base": 0.000493956612922006,
+      "reads_per_peak_base": 0.037856073700942114
+    },
+    "status": "measured"
+  }
+}

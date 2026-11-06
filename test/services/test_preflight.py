@@ -69,6 +69,7 @@ def _make_valid_inputs(tmp_path: Path) -> WorkflowInputs:
     config = {
         "samples": str(samples_tsv),
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
     return WorkflowInputs(config=config, samples=str(samples_tsv), options={})

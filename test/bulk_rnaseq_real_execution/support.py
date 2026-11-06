@@ -26,6 +26,11 @@ from encode_pipeline.adapters.bulk_rnaseq import (
     BulkRnaSeqTranscriptomeBinding,
     RuntimeAssetBinding,
 )
+from encode_pipeline.adapters.bulk_rnaseq.deployment import (
+    CONTAINER_GID_ENV,
+    CONTAINER_UID_ENV,
+    _container_identity,
+)
 from encode_pipeline.adapters.bulk_rnaseq.execution import WORKSPACE_SCHEMA_VERSION
 from encode_pipeline.adapters.bulk_rnaseq.execution_identity import (
     verify_execution_implementation,
@@ -135,6 +140,8 @@ class GateSettings:
     redis_url: str = field(repr=False)
     docker_executable: Path = field(repr=False)
     docker_socket: Path = field(repr=False)
+    container_uid: int = field(default_factory=os.getuid)
+    container_gid: int = field(default_factory=os.getgid)
 
     def __post_init__(self) -> None:
         for name in (
@@ -156,6 +163,10 @@ class GateSettings:
             raise ValueError("docker_executable must name the Docker CLI")
         if not isinstance(self.redis_url, str) or not self.redis_url.strip():
             raise ValueError("redis_url must be non-empty")
+        for name in ("container_uid", "container_gid"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
 
 
 @dataclass(frozen=True)
@@ -441,12 +452,26 @@ def require_gate_settings(
             raise AssertionError(f"{name} is required by the explicit real gate")
     if source[REQUIRE_REAL_EXECUTION_ENV] != "1":
         raise AssertionError(f"{REQUIRE_REAL_EXECUTION_ENV} must be exactly 1")
+    container_identity = {}
+    for field_name, coordinate in (
+        ("container_uid", CONTAINER_UID_ENV),
+        ("container_gid", CONTAINER_GID_ENV),
+    ):
+        if coordinate not in source:
+            continue
+        try:
+            container_identity[field_name] = _container_identity(source[coordinate])
+        except ValueError:
+            raise AssertionError(
+                f"{coordinate} must be a non-negative ASCII decimal integer"
+            ) from None
     settings = GateSettings(
         runtime_root=Path(source[RUNTIME_ROOT_ENV]),
         fixture_manifest=Path(source[FIXTURE_MANIFEST_ENV]),
         redis_url=source[TEST_REDIS_URL_ENV],
         docker_executable=Path(source[MANAGED_DOCKER_EXECUTABLE_ENV]),
         docker_socket=Path(source[MANAGED_DOCKER_SOCKET_ENV]),
+        **container_identity,
     )
     if not settings.runtime_root.is_dir() or settings.runtime_root.is_symlink():
         raise AssertionError(f"{RUNTIME_ROOT_ENV} must name the staged runtime root")
@@ -503,6 +528,8 @@ def build_results_composition(
         ),
         transcriptome=fixture.transcriptome,
         implementation_qualification=qualification.value.implementation,
+        container_uid=settings.container_uid,
+        container_gid=settings.container_gid,
     )
     registry = WorkflowRegistry((BulkRnaSeqResultsWorkflowAdapter(execution=binding),))
     provider = WorkflowBuildIdentityProvider(registry, project_root=project_root)

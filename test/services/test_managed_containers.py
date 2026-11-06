@@ -165,6 +165,12 @@ def test_cleaner_runs_bounded_stop_relist_kill_remove_sequence(tmp_path, monkeyp
     monkeypatch.setenv("DOCKER_HOST", "tcp://remote.example:2375")
     with _fake_docker(
         tmp_path,
+        # This success-path contract launches a real Python CLI for every
+        # probe. Allow its six-command cleanup and final audits to finish on
+        # shared runners; the dedicated timeout test keeps its short budgets.
+        cleanup_timeout_seconds=2.0,
+        maximum_cleanup_timeout_seconds=4.0,
+        final_cleanup_timeout_seconds=1.0,
         state={
             "all": [_CONTAINER_A, _CONTAINER_B],
             "running": [_CONTAINER_B],

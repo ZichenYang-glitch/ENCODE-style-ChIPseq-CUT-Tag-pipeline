@@ -62,8 +62,11 @@ alignment)** sections to show the relevant before/after alignment counts.
   (chrM) or unplaced contigs may occur and are generally not problematic for
   peak calling.
 - **PE concordance:** for PE libraries, check the "properly paired" rate in
-  flagstat. Low properly-paired rates (< 50%) suggest insert size issues or
-  structural variation.
+  flagstat. Concordant pairing uses the assay-resolved Bowtie2 maximum
+  fragment length (`tool_parameters.bowtie2.max_insert`: 2000 bp for
+  ChIP-seq and ATAC-seq, 700 bp for CUT&Tag, 500 bp for MNase-seq under
+  `auto`, or an explicit positive integer override). Low properly-paired
+  rates (< 50%) suggest insert size issues or structural variation.
 
 ## Duplicate and Library Complexity
 
@@ -166,7 +169,11 @@ dependencies in the DAG; it is not a fallback based on whether a file already
 exists. Raw and filtered products coexist. `final.bam` is duplicate-processed
 according to the configured strategy, not necessarily deduplicated.
 `peak_counts` counts raw and, conditionally, filtered peak files; it does not
-consume a filtered BAM.
+consume a filtered BAM. In `blacklist_mode: analysis`, the `peaks` column is
+the delivered (filtered) count and `blacklist_filtered_peaks` carries the same
+delivered count; the raw MACS3 peak file remains available in the raw peak
+directory. A versioned raw/delivered column split is deferred to the SCI-5 QC
+contract rather than silently changing this v1 header.
 
 Unshifted counting can increase or decrease FRiP relative to shifted reads,
 depending on peak boundaries. Comparisons with another pipeline must match
@@ -211,53 +218,56 @@ listing/download or complete MultiQC HTML visibility.
 
 ## Cross-Correlation (phantompeakqualtools)
 
-**Outputs:** `*.cc.qc`, `*.cc.plot.pdf`, `cross_correlation_summary.tsv`
+This QC remains opt-in (`qc.cross_correlation: false`). Its input is the
+canonical analysis BAM: one R1 per complete valid PE template (`analysis_r1`)
+or valid SE primary alignments (`analysis_se`). It follows the run's duplicate
+and blacklist choices; marked duplicates are retained when the analysis policy
+retains them. There is no additional deduplication or 50 bp clipping. These
+inputs differ from ENCODE's clipped, pre-deduplication input, so NSC/RSC are
+local diagnostics and are not directly comparable or certification results.
 
-The cross-correlation analysis is the ENCODE-standard approach for assessing
-ChIP-seq library quality. It computes the Pearson correlation between
-positive- and negative-strand reads at varying shift distances.
+`qc.cross_correlation_target_type` is `auto`, `tf`, or `histone` (run-wide).
+Auto recognizes the existing histone target classes; other ChIP targets remain
+unknown. Narrow/broad mode does not classify target type. Explicit types apply
+to ChIP only; ATAC/CUT&Tag/MNase always receive diagnostic interpretation.
+The exclusion window starts at -500. Its upper bound is max(read_length+10,50)
+for TF and max(read_length+10,100) for histone or diagnostic inputs.
 
-**Key metrics in `cross_correlation_summary.tsv`:**
+The read-length estimate matches pinned run_spp.R: median reference span of
+the first 500 tagAlign records, rounded to even at half-integers. The recorded
+length distribution and variable-length flag cover **all** emitted tags,
+including changes after record 500. Variable-length input is diagnostic only.
 
-- **NSC** (Normalized Strand Coefficient): ratio of the cross-correlation
-  value at the estimated fragment length to the background cross-correlation.
-  ENCODE guidelines: NSC > 1.05 is acceptable; NSC > 1.1 is good. Higher
-  values indicate stronger ChIP enrichment relative to background.
-- **RSC** (Relative Strand Correlation): ratio of the fragment-length
-  cross-correlation to the phantom-peak (read-length) cross-correlation.
-  ENCODE guidelines: RSC > 0.8 is acceptable. Higher values indicate that
-  the enrichment signal dominates over the read-length artifact.
-- **Estimated fragment length:** the shift distance at which the
-  cross-correlation peaks. Should be consistent with expected library insert
-  size (typically 100-300 bp for standard ChIP-seq). The scalar summary reports
-  the first candidate in the tool's correlation-ranked output, matching the
-  main peak used for NSC/RSC. All candidates remain in the raw `.cc.qc` file.
-  Empty or malformed candidate lists are reported as `NA`; quality flags
-  continue to depend only on NSC/RSC.
-- **Phantom peak:** the correlation peak at the read length. A prominent
-  phantom peak is expected and reflects the strand-separation of paired reads
-  at the read length.
+The required per-treatment `*.cross_correlation_qc.tsv` has an exact version 2
+header. It records paired candidate lengths/scores, input stage, target type,
+length/window and three distinct interpretations:
 
-**Quality flags** (auto-assigned):
-- `ok`: NSC >= 1.05 and RSC >= 0.8
-- `low_nsc`: NSC < 1.05 (weak signal-to-noise)
-- `low_rsc`: RSC < 0.8 (phantom peak dominating)
-- `low_nsc_low_rsc`: both thresholds failed
-- `parse_failed`: `.cc.qc` file could not be parsed
+- `execution_status`: reported, no_data, missing, parse_failed, tool_failed,
+  or not_applicable. An empty valid BAM yields no_data and NA measurements;
+  a missing/unreadable BAM is an execution error, not an empty library.
+- `interpretation_status`: includes phantom_selected, unknown_target,
+  non_chip_diagnostic, variable_read_length, missing_values, or local numeric
+  hints ok/low_nsc/low_rsc/low_nsc_low_rsc.
+- `threshold_hint`: local_pass/local_fail only for fixed-length known-type
+  ChIP with complete finite values and no selected phantom; otherwise
+  not_evaluated. Local hints use NSC >=1.05 and RSC >=0.8 and do not certify
+  biological quality.
 
-**Important caveats:**
-- These thresholds are ENCODE guidelines for TF ChIP-seq, not universal
-  pass/fail gates. Histone marks and CUT&Tag have different cross-correlation
-  profiles.
-- CUT&Tag cross-correlation is less canonical than ChIP-seq. Tn5-based
-  fragmentation produces different strand distributions.
-- A sample flagged `low_nsc` may still yield biologically meaningful peaks;
-  use it as a prioritization signal, not a rejection criterion.
+NSC = primary_correlation / min_correlation. RSC =
+(primary_correlation - min_correlation) /
+(phantom_correlation - min_correlation). Finite negative RSC is preserved;
+zero-denominator and non-finite results remain NA. A low value alone does not
+establish biological failure. The phantom check combines selected/tied
+candidate positions near the actual phantom and read-length neighborhood
+with their scores, allowing for SPP's printed precision. RSC near one alone
+is insufficient to label a phantom.
 
-The project-level summary at `results/multiqc/cross_correlation_summary.tsv`
-aggregates all samples for easy comparison. When MultiQC is enabled, the same
-summary is included in `multiqc_report.html` as a custom
-**Cross-correlation QC** section.
+Raw `*.cc.qc` and `*.cc.plot.pdf` are optional SPP side artifacts, absent for
+no-data input. The required detail, tagAlign and metadata are tracked by
+Snakemake. The project summary and MultiQC Cross-correlation QC table consume
+the same detail as sample summary/adapter QC. Optional measurements are not
+fabricated as zero. Historical scalar parser CLI output remains supported;
+new detail consumers reject unknown versions and malformed headers/values.
 
 ## Picard CollectMultipleMetrics
 
@@ -315,6 +325,15 @@ and read-level `.CPM.bw` are unchanged. MNase and unknown CUT&Tag targets (under
 
 **Output:** `*.cuttag_fragment_size.tsv`
 
+The v2 table starts with `schema_version` and preserves the v1 columns. It
+consumes the canonical analysis BAM, so the distribution follows the resolved
+duplicate/organelle/blacklist policy. Each complete valid PE template is
+counted once with `abs(TLEN)`; negative TLEN is legal. Zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted in separate invalid
+columns and never enter a 0 bp biological bin. The `upstream_*` columns report
+templates/alignments removed while creating the analysis view; they are not
+mixed with invalid templates found in the final input.
+
 CUT&Tag uses Tn5 transposase which fragments DNA at nucleosome-adjacent sites.
 Fragment-size distributions reflect the underlying chromatin structure:
 
@@ -339,6 +358,48 @@ pipeline runs SEACR as a sidecar alongside MACS3.
 - SEACR relaxed peaks include lower-signal regions. Use relaxed when
   sensitivity is prioritized.
 - Compare SEACR and MACS3 peak sets to assess peak-caller agreement.
+
+## MNase-Specific QC
+
+**Output:** `*.mnase_qc_summary.tsv` (v2)
+
+The summary keeps the v1 sub/mono/di read counts and adds analysis-stage
+counts. Read counts come from the sub/mono/di BAMs via `samtools view -c` and
+are not divided by two; fragment counts come from complete valid PE templates
+in the canonical analysis BAM. `analysis_total_templates` is
+`analysis_valid_templates + analysis_invalid_templates`; invalid templates are
+also split into zero-TLEN, orphan, cross-contig, and inconsistent categories.
+
+Configured windows are inclusive. They may overlap, in which case each window
+still reports its own fragment count, while `analysis_classified_templates`
+counts each valid template once against the union and
+`analysis_unclassified_templates` is the remaining valid templates.
+`analysis_fraction_classified` is classified divided by valid templates and is
+NA when there are no valid templates. `window_overlap` records whether the
+configured windows overlap. A missing or malformed analysis BAM reports
+`analysis_status: parse_failed` with NA counts rather than zero.
+
+## General Analysis-Template Counts
+
+**Output:** `*.analysis_template_metrics.tsv` (v2)
+
+Every sample gets an assay-independent template count from the canonical
+analysis BAM. One complete valid PE template contributes one count; legal
+negative TLEN is preserved as `abs(TLEN)`, while zero TLEN, orphan,
+cross-contig, and inconsistent templates are counted in separate invalid
+categories. The component is independent of CUT&Tag fragment QC, so ChIP-seq,
+ATAC-seq, and CUT&Tag with `qc.cuttag_fragment_size: false` still record
+general valid/invalid counts.
+
+SE samples are explicitly `not_applicable` with NA counts; a missing or
+malformed BAM is `parse_failed`, never zero. A conserved table with zero valid
+templates is `no_valid_templates` and reports the legitimate zero. The
+`analysis_policy` schema version 2 records `analysis_template_status` and the
+`analysis_template_metrics` input stage. Policy version 1 records remain
+readable. The fixed sample v2 summary uses the general counts for
+`analysis_valid_fragments` and `analysis_invalid_templates` when the
+fragment-specific component is absent; fragment-only reason and upstream fields
+remain NA in that case.
 
 ## Replicate-Level Outputs
 
@@ -391,6 +452,15 @@ on actual module inputs and runtime and has not been established for every
 metric. CUT&Tag fragment-size TSVs likewise exist independently of whether a
 particular summary/platform consumer exposes every field.
 
+Each treatment sample also records `analysis_policy.json` with the resolved
+duplicate policy, PE insert bound, organelle mode/status and matched contigs,
+blacklist mode/application, QC input stages, and stage counts. The
+`mito_fraction.tsv` diagnostic uses the pre-duplicate MAPQ BAM; it reports
+`unresolved_contigs` or `no_mapped_reads` with NA values when the fraction is
+undefined. Neither record exposes absolute workspace paths or environment
+values. The v2 sample summary is the user-facing view of the same policy, and
+the platform extracts both the v2 metrics and the policy stage counts.
+
 ## Practical Checklists
 
 ### ChIP-seq QC Checklist
@@ -414,8 +484,11 @@ particular summary/platform consumer exposes every field.
 4. **SEACR peaks** recovered; compare stringent vs relaxed.
 5. **Cross-correlation:** interpret cautiously — CUT&Tag strand distributions
    differ from ChIP-seq. Low NSC may not indicate poor quality.
-6. **Low duplication rate** (< 20%) — Tn5 does not amplify, so true PCR
-   duplicates should be minimal.
+6. **Duplication rate** — CUT&Tag libraries do go through PCR amplification
+   after Tn5 tagging, so duplicates can occur; at the same time,
+   same-coordinate fragments can be independent molecules at high-affinity
+   sites. Interpret the rate together with NRF/PBC instead of assuming
+   duplicates must be near zero.
 7. **NRF/PBC** still informative but thresholds are less strict than ChIP-seq.
 8. **MultiQC** shows expected per-base quality and adapter content.
 

@@ -1,0 +1,12 @@
+Bootstrap: docker
+From: condaforge/miniforge3:24.11.3-0
+
+%files
+    workflow/envs/ci-conda.lock /opt/pipeline/workflow/envs/ci-conda.lock
+
+%post
+    conda create -n scientific-conda --file /opt/pipeline/workflow/envs/ci-conda.lock -y
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/envs/scientific-conda/bin:$PATH

@@ -44,7 +44,7 @@ def test_inline_snapshot_survives_sqlite_reopen_and_materializes_canonical_files
         )
         created = run_service.create_run(
             WORKFLOW_ID,
-            WorkflowInputs(config={}, samples=[row], options={}),
+            WorkflowInputs(config={"blacklist_mode": "off"}, samples=[row], options={}),
         )
     finally:
         first.close()
@@ -57,7 +57,7 @@ def test_inline_snapshot_survives_sqlite_reopen_and_materializes_canonical_files
         )
         restored = run_service.get_run(created.run_id)
         assert restored.inputs == {
-            "config": {},
+            "config": {"blacklist_mode": "off"},
             "samples": [row],
             "options": {},
         }

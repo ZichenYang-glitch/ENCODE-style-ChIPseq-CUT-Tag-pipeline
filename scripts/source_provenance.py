@@ -15,6 +15,7 @@ import csv
 from dataclasses import dataclass
 from email.parser import Parser
 import hashlib
+import importlib
 from importlib import machinery
 from importlib import util
 import json
@@ -24,6 +25,7 @@ import re
 import stat
 import sys
 import sysconfig
+from types import ModuleType
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -1519,6 +1521,90 @@ def require_checkout(repository_root: Path) -> None:
     except SourceProvenanceError as error:
         print(error, file=sys.stderr)
         raise SystemExit(2) from None
+
+
+_LOADED_CHECKOUT_GUIDANCE = (
+    "run this workflow under the interpreter that loads this checkout"
+)
+_INIT_FAILURE_GUIDANCE = (
+    "this Snakemake process located encode_pipeline but could not finish loading it"
+)
+
+
+def require_loaded_checkout(repository_root: Path, module: ModuleType) -> None:
+    """Exit when the loaded package is not the workflow checkout.
+
+    The Snakefile calls this in the Snakemake process after import and before
+    configuration. The check leaves ``sys.path`` and the environment unchanged.
+    """
+
+    try:
+        _require_loaded_checkout(repository_root, module)
+    except SourceProvenanceError as error:
+        print(error, file=sys.stderr)
+        raise SystemExit(2) from None
+
+
+def _require_loaded_checkout(repository_root: Path, module: ModuleType) -> None:
+    layout = _checkout_layout(repository_root)
+    if getattr(module, "__name__", None) != IMPORT_NAMESPACE:
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
+    raw_origin = getattr(module, "__file__", None)
+    if not isinstance(raw_origin, str):
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
+    origin = _resolved_existing_file(
+        Path(raw_origin),
+        reason_code="module_origin_mismatch",
+        guidance=_LOADED_CHECKOUT_GUIDANCE,
+    )
+    if origin != layout.initializer:
+        _fail("module_origin_mismatch", _LOADED_CHECKOUT_GUIDANCE)
+
+
+def _top_level_is_located(name: str) -> bool:
+    """Return whether a top-level module can be located without executing it.
+
+    An error while asking the import finders is not evidence that the module
+    is absent. The decision does not read exception text.
+    """
+
+    if name in sys.modules:
+        return True
+    try:
+        return util.find_spec(name) is not None
+    except (ImportError, ValueError, AttributeError):
+        return True
+
+
+def import_checkout_package(repository_root: Path) -> ModuleType:
+    """Import encode_pipeline for the Snakemake process that calls this.
+
+    Add this checkout's src only when the top-level package cannot be located.
+    A located package that fails during initialization is not replaced.
+    """
+
+    try:
+        module = _import_located_or_checkout_source(repository_root)
+        _require_loaded_checkout(repository_root, module)
+    except SourceProvenanceError as error:
+        print(error, file=sys.stderr)
+        raise SystemExit(2) from None
+    return module
+
+
+def _import_located_or_checkout_source(repository_root: Path) -> ModuleType:
+    layout = _checkout_layout(repository_root)
+    if not _top_level_is_located(IMPORT_NAMESPACE):
+        source_root = str(layout.source_root)
+        if source_root not in sys.path:
+            sys.path.insert(0, source_root)
+    try:
+        return importlib.import_module(IMPORT_NAMESPACE)
+    except ImportError:
+        raise SourceProvenanceError(
+            "module_initialization_failed",
+            _INIT_FAILURE_GUIDANCE,
+        ) from None
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1,139 +1,104 @@
 #!/usr/bin/env python3
 """Aggregate per-sample QC summary TSVs into a project-level summary.
 
-Replaces the shell head/tail concatenation in the project_qc_summary Snakemake rule.
-Validates header consistency across all input files and concatenates data rows.
-Uses the same 37-column header as assemble_qc_summary.py.
-
-Usage:
-    python3 scripts/aggregate_qc_summary.py \\
-        --output results/multiqc/project_qc_summary.tsv \\
-        results/S1/01_qc/S1.qc_summary.tsv \\
-        results/S2/01_qc/S2.qc_summary.tsv
+Version 1 inputs stay version 1 when every input is version 1.  If any input
+is version 2, the project summary is written with the exact v2 header and v1
+rows are padded with NA for fields that version did not define.  A v2 header
+must declare ``schema_version=2`` in every row; unknown versions are rejected
+rather than re-labelled.  Arbitrary extra columns are rejected.
 """
+
+from __future__ import annotations
 
 import argparse
 import csv
 import os
 import sys
 
-_NA = "NA"
+from qc_common import (
+    NA,
+    SAMPLE_QC_V1_COLUMNS,
+    SAMPLE_QC_V2_COLUMNS,
+)
 
-# Must match assemble_qc_summary.py exactly.
-# test/scripts/test_qc_summary.py catches drift.
-_QC_SUMMARY_COLUMNS = [
-    "sample",
-    "assay",
-    "target",
-    "genome",
-    "layout",
-    "peak_mode",
-    "use_control",
-    "control_type",
-    "final_bam",
-    "peaks",
-    "blacklist",
-    "blacklist_filtered_bam",
-    "blacklist_filtered_peaks",
-    "total_reads",
-    "reads_in_peaks",
-    "frip",
-    "peak_count",
-    "blacklist_filtered_peak_count",
-    "metrics_source",
-    "unpaired_reads_examined",
-    "read_pairs_examined",
-    "secondary_or_supplementary_reads",
-    "unmapped_reads",
-    "unpaired_read_duplicates",
-    "read_pair_duplicates",
-    "read_pair_optical_duplicates",
-    "percent_duplication",
-    "estimated_library_size",
-    "total_reads_examined",
-    "duplicate_reads_estimate",
-    "total_fragments",
-    "distinct_fragments",
-    "one_read_fragments",
-    "two_read_fragments",
-    "nrf",
-    "pbc1",
-    "pbc2",
-]
-
-_QCOL = {c: i for i, c in enumerate(_QC_SUMMARY_COLUMNS)}
+_QC_SUMMARY_COLUMNS = SAMPLE_QC_V2_COLUMNS
 
 
-def _check_header_and_yield_rows(filepath):
-    """Validate header and yield data rows from *filepath*.
-
-    sys.exit(1) on header mismatch.
-    """
-    fh = open(filepath, newline="")
-    reader = csv.reader(fh, delimiter="\t")
-    try:
-        header = next(reader)
-    except StopIteration:
-        fh.close()
-        print(
-            f"ERROR: empty or unreadable file: {filepath}",
-            file=sys.stderr,
-        )
+def _read_table(filepath):
+    if not os.path.isfile(filepath):
+        print(f"ERROR: input file not found: {filepath}", file=sys.stderr)
         sys.exit(1)
-
-    if header != _QC_SUMMARY_COLUMNS:
-        fh.close()
-        print(
-            f"ERROR: header mismatch in {filepath}",
-            file=sys.stderr,
-        )
-        print(f"  Expected {len(_QC_SUMMARY_COLUMNS)} columns", file=sys.stderr)
-        print(f"  Got      {len(header)} columns", file=sys.stderr)
-        for i, (exp, got) in enumerate(zip(_QC_SUMMARY_COLUMNS, header)):
-            if exp != got:
+    with open(filepath, newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle, delimiter="\t")
+        try:
+            header = tuple(next(reader))
+        except StopIteration:
+            print(f"ERROR: empty or unreadable file: {filepath}", file=sys.stderr)
+            sys.exit(1)
+        if len(set(header)) != len(header):
+            print(f"ERROR: duplicate columns in {filepath}", file=sys.stderr)
+            sys.exit(1)
+        if header == SAMPLE_QC_V1_COLUMNS:
+            version = "1"
+        elif header == SAMPLE_QC_V2_COLUMNS:
+            version = "2"
+        else:
+            print(f"ERROR: header mismatch in {filepath}", file=sys.stderr)
+            print(
+                f"  Expected {len(SAMPLE_QC_V1_COLUMNS)} v1 or "
+                f"{len(SAMPLE_QC_V2_COLUMNS)} v2 columns",
+                file=sys.stderr,
+            )
+            print(f"  Got      {len(header)} columns", file=sys.stderr)
+            sys.exit(1)
+        rows = []
+        for row in reader:
+            if not row:
+                continue
+            if len(row) != len(header):
+                print(f"ERROR: row width mismatch in {filepath}", file=sys.stderr)
+                sys.exit(1)
+            parsed = dict(zip(header, row, strict=True))
+            if version == "2" and parsed.get("schema_version") != "2":
                 print(
-                    f"  First diff at column {i}: expected {exp!r}, got {got!r}",
+                    f"ERROR: unsupported schema_version in {filepath}",
                     file=sys.stderr,
                 )
-                break
-        sys.exit(1)
-
-    for row in reader:
-        if row:
-            yield row
-    fh.close()
+                print("  A v2 header must declare schema_version=2", file=sys.stderr)
+                sys.exit(1)
+            rows.append(parsed)
+    return version, rows
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Aggregate per-sample QC summary TSVs into project-level summary"
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, help="Output TSV path")
     parser.add_argument("inputs", nargs="*", help="Per-sample qc_summary.tsv files")
     args = parser.parse_args()
 
-    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+    tables = []
+    saw_v2 = False
+    for filepath in args.inputs:
+        version, rows = _read_table(filepath)
+        saw_v2 = saw_v2 or version == "2"
+        tables.append((version, rows))
 
-    with open(args.output, "w", newline="") as out_fh:
-        writer = csv.writer(out_fh, delimiter="\t", lineterminator="\n")
-        writer.writerow(_QC_SUMMARY_COLUMNS)
-
-        if not args.inputs:
-            # Zero inputs — header-only output (preserves legacy behavior)
-            return
-
-        for filepath in args.inputs:
-            if not os.path.isfile(filepath):
-                print(
-                    f"ERROR: input file not found: {filepath}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            reader = _check_header_and_yield_rows(filepath)
-            for row in reader:
-                if row:  # skip empty lines
-                    writer.writerow(row)
+    columns = SAMPLE_QC_V2_COLUMNS if (saw_v2 or not tables) else SAMPLE_QC_V1_COLUMNS
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    with open(args.output, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=columns,
+            delimiter="\t",
+            lineterminator="\n",
+            extrasaction="ignore",
+        )
+        writer.writeheader()
+        for version, rows in tables:
+            for row in rows:
+                if version == "1" and columns is SAMPLE_QC_V2_COLUMNS:
+                    row = {**{column: NA for column in columns}, **row}
+                writer.writerow(row)
 
 
 if __name__ == "__main__":

@@ -107,10 +107,20 @@ def _project(root: Path, *, marker: str = "same") -> Path:
     files = {
         "pyproject.toml": f"[project]\nname = {marker!r}\n",
         "docs/architecture/artifact-inventory.yaml": "artifacts: []\n",
+        "src/encode_pipeline/__init__.py": f'__version__ = "0.0.0"\n# {marker}\n',
+        "src/encode_pipeline/qc/__init__.py": f"# {marker}\n",
+        "src/encode_pipeline/qc/contract.py": f"CONTRACT = {marker!r}\n",
+        "src/encode_pipeline/qc/histone.py": f"HISTONE = {marker!r}\n",
+        "src/encode_pipeline/qc/policy.py": f"POLICY = {marker!r}\n",
+        "src/encode_pipeline/errors.py": "class ValidationError(Exception):\n    pass\n",
+        "src/encode_pipeline/config/__init__.py": f"# {marker}\n",
+        "src/encode_pipeline/samples/__init__.py": f"# {marker}\n",
         "src/encode_pipeline/runtime.py": f"VALUE = {marker!r}\n",
         "src/encode_pipeline/adapters/encode_qc.py": f"CATALOG = {marker!r}\n",
         "workflow/Snakefile": (
-            f"# {marker}\n# scripts/tool.py scripts/tool.sh\nrule all:\n    input: []\n"
+            f"# {marker}\n"
+            "# scripts/tool.py scripts/tool.sh scripts/qc_common.py\n"
+            "rule all:\n    input: []\n"
         ),
         "workflow/rules/main.smk": f"# {marker}\n",
         "workflow/schemas/config.schema.json": '{"type":"object"}\n',
@@ -118,6 +128,8 @@ def _project(root: Path, *, marker: str = "same") -> Path:
         "profiles/default/config.yaml": "cores: 1\n",
         "scripts/tool.py": f"VALUE = {marker!r}\n",
         "scripts/tool.sh": f"#!/bin/sh\n# {marker}\n",
+        "scripts/qc_common.py": f"VALUE = {marker!r}\n",
+        "scripts/source_provenance.py": f"# {marker}\n",
     }
     for relative_path, contents in files.items():
         path = root / relative_path
@@ -285,8 +297,58 @@ def test_encode_runtime_build_digest_matches_release_golden(tmp_path):
     assert result.is_success
     # The adapter version is framed into this identity; this golden is for 0.4.1.
     assert result.value.digest == (
-        "d8c887a276cd33335845705b06ddf0edc5bd394b0c9068d3c5851121f5ff42a8"
+        "2801f5ad220b2028952af6d0d7bc022a1ef73683bafc43df4ca367403f2b0849"
     )
+
+
+def test_source_manifest_includes_the_shared_qc_runtime_closure(tmp_path):
+    root = _project(tmp_path / "project")
+    manifest = dict(
+        WorkflowBuildIdentityProvider(
+            create_default_workflow_registry(),
+            project_root=root,
+        ).source_manifest()
+    )
+
+    assert "scripts/qc_common.py" in manifest
+    assert "scripts/source_provenance.py" in manifest
+    assert "pyproject.toml" in manifest
+    assert {
+        logical_path for logical_path in manifest if logical_path.startswith("src/")
+    } == {
+        "src/encode_pipeline/__init__.py",
+        "src/encode_pipeline/errors.py",
+        "src/encode_pipeline/config/__init__.py",
+        "src/encode_pipeline/qc/__init__.py",
+        "src/encode_pipeline/qc/contract.py",
+        "src/encode_pipeline/qc/histone.py",
+        "src/encode_pipeline/qc/policy.py",
+        "src/encode_pipeline/samples/__init__.py",
+    }
+
+
+def test_build_digest_covers_the_shared_qc_contract(tmp_path):
+    root = _project(tmp_path / "project")
+    before = _capture(root)
+    (root / "src/encode_pipeline/qc/contract.py").write_text(
+        "CONTRACT = 'changed'\n",
+        encoding="utf-8",
+    )
+    after = _capture(root)
+
+    assert before.is_success
+    assert after.is_success
+    assert not before.value.matches(after.value)
+
+
+def test_build_capture_rejects_missing_shared_qc_contract(tmp_path):
+    root = _project(tmp_path / "project")
+    (root / "src/encode_pipeline/qc/contract.py").unlink()
+
+    result = _capture(root)
+
+    assert result.is_failure
+    assert result.issues[0].code == "WORKFLOW_BUILD_SOURCE_UNAVAILABLE"
 
 
 def test_build_digest_is_stable_across_absolute_roots_and_mtimes(tmp_path):

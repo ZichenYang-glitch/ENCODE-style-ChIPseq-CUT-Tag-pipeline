@@ -38,6 +38,9 @@ def _write_yaml(path, data):
             elif isinstance(value, dict):
                 _write_nested_yaml(fh, key, value)
                 continue
+            elif isinstance(value, str):
+                fh.write(f'{key}: "{value}"\n')
+                continue
             fh.write(f"{key}: {value}\n")
 
 
@@ -94,6 +97,7 @@ def _make_config(qc_block=None, genome_resources=None):
         "multiqc": "false",
         "replicate_analysis": "false",
         "chipseq_idr": "false",
+        "blacklist_mode": "off",
     }
     if qc_block is not None:
         cfg["qc"] = qc_block
@@ -606,7 +610,7 @@ def test_explicit_cross_correlation_target_resolves():
             "s1",
             "05_qc",
             "cross_correlation",
-            "s1.cc.qc",
+            "s1.cross_correlation_qc.tsv",
         )
         rc, stdout, stderr = _run_snakemake_dryrun(
             config_yml,
@@ -800,7 +804,8 @@ def test_cross_correlation_default_targets_keep_treatment_gate(
         assert "sample=S1" in jobs[0]
         assert "sample=C1" not in jobs[0]
         assert "rule cross_correlation_summary:" in text
-        assert "-x=-500:15 -rf -p=" in text
+        assert '-x="$WINDOW" -rf -p=' in text
+        assert "--target-type auto" in text
         assert "-speak=" not in text
     else:
         assert "rule cross_correlation_summary:" not in text

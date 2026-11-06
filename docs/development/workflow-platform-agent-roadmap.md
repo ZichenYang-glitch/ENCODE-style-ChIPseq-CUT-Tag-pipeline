@@ -4,6 +4,137 @@ This roadmap records the maintained product boundary, delivered baseline, and
 explicit follow-ons. It does not promise dates. Detailed implementation history
 belongs in Git history, the changelog, and release evidence.
 
+## 当前交付状态与后续计划（2026-11-06 集成候选）
+
+当前状态以本节和 [PR 收口与集成清单](current-delivery-integration.md) 的
+“集成候选（2026-11-06）”为准。下方 09:50 记录和更早日期记录原样保留。
+
+main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。集成候选在独立分支，
+未合入 main，未发布，科学默认未冻结。纳入 #190、科学实现与 SCI-7 结果至
+#203、#193、#198、#199、#204、#205、#206 和 #201。#194 与 #195 排除在外。
+JUND 比较已写入 #203 `65760720c4609de633ef9f636ab9d4eea4f3e8c0`，结论是
+no conclusion。Protected Bulk Gate 的已验收身份不变；候选的 119 路径闭包与
+该身份相同，本轮不重跑 Gate。
+
+| 工作线 | 范围 | 当前状态 | 验收边界 |
+| --- | --- | --- | --- |
+| 科学批次 | 已测量 discovery、JUND 跨靶点确认、MNase Rep1 | 记录已组合，结论 no conclusion | 未评估 confirmation 和 MNase 500-arm 短模板指标；不新增数据或阈值 |
+| Workflow skills | #199 指令对齐候选启动方式 | 使用 `python -m snakemake` 与两个 profile 开关 | `verify-checkout` 不是 Snakemake 进程检查 |
+| 源码身份 | #204 与 SCI-1～6 并存 | `import_checkout_package` 加科学导入 | 初始化失败不切换 checkout |
+| 测试精简 | #205 两项删除、#206 构建复用 | 保留覆盖仍在；副本、venv 和 PEP 517 构建独立 | 不启动第三批 |
+| CI 与 Gate | #190 清理预算和 #193 运行时接线 | 来源 head 的红灯不改记为通过 | 候选需要自己的普通 CI；历史 Gate 不追认 |
+
+## 历史交付状态与后续计划（2026-11-06 09:50）
+
+本节在写入时是当前入口。集成候选形成后，它改为历史。其中“当前”“下一步”
+只描述 09:50。
+
+main 仍为 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。
+#184～#206 共 23 条 PR 均 open、未合并；21 条 Draft，#194/#195 为非 Draft。
+17 个准确 head 的普通 CI、Lint、Lock Check 成功；#194/#195/#201/#204/#205/#206
+的 CI 失败，Lint/Lock Check 成功。完整 SHA、run 链接与历史身份见集成清单。
+
+最新变化：TF discovery #202 与 ATAC discovery #203 已交付并保持 no conclusion。
+TF confirmation 三臂均已结束，最后一臂于 11 月 5 日 23:52 左右完成；
+当前剩余工作是臂后比较、结果审阅与科学总表，不再把第三臂写成仍在比对。
+比较最终交付尚未核实，不能提前宣称科学验收完成。
+
+#204 的 Snakemake 源码身份修复、#205 的两项重复测试删除、#206 的构建产物
+复用已分别完成本轮定点代码审阅。#206 的 9 项打包测试在 CI 通过，但主 CI
+已经结束并失败；本轮日志确认仍为 conda/profile 与系统 Python 的共享基线问题。
+三条 PR 保持 Draft，不自动新增测试精简批次。
+
+| 工作线 | 范围 | 依赖 | 下一步 | 验收标准 | 关联 PR |
+| --- | --- | --- | --- | --- | --- |
+| 科学批次收口 | 已执行 discovery、TF 跨靶点确认和最终汇总 | 原 session 的比较、登记规则与身份记录 | 完成 JUND 比较及交付；汇总各 assay 未评估项 | 允许无结论，执行成功与科学裁决分开；默认冻结单独决定 | #192、#196～#198、#200、#202、#203；确认结果 PR 待核实 |
+| Workflow skills | 已验收显式调用与集成适配 | #199、#204、最终源码 | 核对启动方式和 profile 指令，只按实际差异补验证 | bootstrap 与 Snakemake 进程检查不混淆；不扩大身份保证 | #199、#204 |
+| 文档治理 | 当前入口、依赖清单、历史证据 | PR/CI 快照、科学交接 | 更新 #201；保留历史记录和未评估项 | 分支交付不冒充 main 能力，历史 SHA 不倒改 | #201；#194/#195 独立处理 |
+| 测试精简 | 已完成两批的验收 | 契约与隔离证据、共享 CI 基线 | 保持 #205/#206 范围，基线更新后复验新 head | 不弱化断言、不加 skip；收益限于实测模块 | #205、#206；#195 为审计线索 |
+| 开发方式优化 | 有限 goal、写入边界、独立 worktree 与交接 | 实际协作经验 | 维护跨 session 交接，后续文档变更单独定范围 | 无重复计算或重叠写入，负责人及证据可追溯 | #195、#201、#204 |
+| CI 与 Gate 运维 | 共享基线与最终组合验收 | #190、#193、最终闭包差异 | 优先审阅 #190 纳入方案，获准集成后复验受影响 head | 准确 SHA 必要检查成功；skip 单列；Gate 按真实影响运行 | #190、#193、#194、#195、#201、#204～#206 |
+
+执行顺序：科学比较收口与计划维护并行；优先处理共享 CI 基线，
+再按父子依赖形成集成候选。科学结果链延伸至 #200→#202→#203，
+#204/#205/#206 是各自基于 main 的独立 PR。详细顺序与组合验收要求见集成清单。
+
+#193 的正式 Protected Bulk Gate 已通过；不再列作旧环境欠验。
+最终候选是否重跑按真实闭包变化裁决。用户此前在已登记科学范围内的授权继续有效，
+不重复逐文件询问；本次更新计划不启动新计算，也不授权合并、发布或冻结默认。
+
+## 当前交付状态与后续计划（2026-10-30）
+
+本节是当前状态入口；[PR 收口与集成清单](current-delivery-integration.md)
+保存准确 head、检查链接、依赖顺序和验收要求。下方 2026-10-29 的计划及其他
+带日期记录均保留为历史快照，其中待授权、待复核、欠验等表述按各自记录时点
+理解，不覆盖本节的新结果，也不由新结果追认旧身份。
+
+当前 main 仍为 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`，#184～#200
+均 open、未合并。15 个准确 head 的普通 CI、Lint、Lock Check 成功；#194/#195
+的 CI 仍失败，需在共享维护基线下复验，不能宣称所有 PR 都已收尾。
+
+已执行批次包括 CUT&Tag 对照及扩展（#196/#197）、组蛋白对照（#200）和
+MNase Rep1 三臂（#198）。#198 的额外 200-arm 诊断已与原登记指标区分，
+原登记的 500-arm 短模板指标未评估。科学结论保持 inconclusive/no conclusion，
+默认未冻结；剩余 discovery、confirmation 和最终集成仍待推进。
+
+#199 在 `3950c7e77834c28ebde2a09b7b079809a0eacce6` 上已完成文案、结构、
+真实 validate/dry-run、拒绝路径及 Cursor/Codex 显式调用验收；交互式菜单和
+隐式自动触发未测试，不纳入本轮通过声明。#193 的正式 Protected Bulk Gate
+已通过，准确身份、run/attempt 见集成清单；未变闭包的文档与 skills 不自动重跑。
+
+| 工作线 | 范围 | 依赖 | 下一步 | 验收标准 | 关联 PR |
+| --- | --- | --- | --- | --- | --- |
+| 科学批次收口 | 剩余 discovery、confirmation 和集成验收 | 分组授权、输入/参考身份与登记规则 | 保留已完成批次，按依赖收拢现有分支，另行推进后续数据 | 证据可追溯；允许无结论；默认冻结单独裁决 | #192、#196、#197、#198、#200，链接见集成清单 |
+| Workflow skills | 已验收的运行、QC、排错指导及后续迭代 | #199 与最终科学实现 | 集成后核对指令；按实际反馈迭代 | 显式调用边界继续成立；不把未测的隐式触发算通过 | #199，链接见集成清单 |
+| 文档治理 | 当前入口、历史记录、准确交付顺序 | PR 状态及科学记录 | 独立文档分支维护本节和集成清单 | 当前与历史可区分，链接有效，未合并能力不冒充 main 已交付 | 当前文档分支；#194/#195 待处理 |
+| 测试精简 | 重复和低价值测试审计 | 真实契约与耗时证据、#195 建议复核 | 先列候选和保留理由，再分批实施 | 不降门槛、不加 skip、不丢契约覆盖 | #195 仅提供建议；实施另开 PR |
+| 开发方式优化 | goal、subagent 边界、worktree 和交接 | 实际协作问题与 #195 建议 | 固化轻量任务模板与依赖/交接约定 | 范围明确、写入不重叠、跨 session 可恢复 | #195；后续独立文档 PR |
+| CI 与 Gate 运维 | 共享维护基线、准确身份与证据 | #190、#193 及候选闭包差异 | 先处理 #194/#195 红灯，再按最终差异决定验证层次 | 精确 head 的检查成功，skip 单列；适用 Gate 绑定对应身份 | #190、#193、#194、#195，链接见集成清单 |
+
+具体顺序为 #190、#184→#191 的父子链，再处理 #193/#192 与后续验证、skills
+分支；#194/#195 独立收尾。最终集成、实际合并、发布与新增计算均需各自授权，
+本节不扩大此前授权。历史计划继续保留如下。
+
+## 后续交付计划（2026-10-29）
+
+本节是当前开发工作的状态与交付入口，区分分支交付、CI、科学验收和待合并事项，
+不把未合入的能力写成 main 或发行版的已交付功能。下文有日期的历史实施、失败和
+验收记录保留原文，其中“当前”按各自记录时点理解，不由新结果追认旧身份。
+
+当前交付边界：
+
+- 科学验证已有 CUT&Tag 对照与扩展记录（#196、#197）及组蛋白对照（#200）；
+  #198 仍是 MNase 待授权说明，不是科学执行结果。剩余 discovery、confirmation
+  和最终集成尚未收口，科学默认未冻结。
+- #199 已提交 provenance 说明、真实 validate/dry-run 及未标记目录拒绝的执行记录；
+  这些记录仍需复核，技能发现与实际调用验证待收口。各 PR 的 CI 状态按其准确
+  head 查询，不把瞬时运行状态写成长期验收结论。
+- #193 的 Protected Bulk Gate 已在准确 SHA
+  `39a5484119d688a3658c7e5f7d359704ee274866` 上通过，证据为
+  [run 40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755)，attempt 1。
+  这份证据只覆盖当时身份，不代表其他 head 的 Gate 已通过，也不要求逐个回跑历史版本。
+
+| 工作线 | 范围 | 依赖 | 下一步 | 验收标准 | 关联 PR |
+| --- | --- | --- | --- | --- | --- |
+| 科学批次收口 | 剩余 discovery、confirmation 和集成验收 | 分组下载/计算授权、输入与参考身份、冻结的比较规则 | 按已授权批次推进，逐项记录效应量和裁决，再形成明确的集成候选 | 计数、口径和身份可追溯；硬检查与无结论条件逐项裁决；允许 inconclusive，默认冻结单独裁决 | [#192](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/192)、[#196](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/196)、[#197](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/197)、[#198](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/198)、[#200](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/200) |
+| Workflow skills | 现有运行、QC 和排错能力的使用指导 | #199 的当前实现与执行记录 | 复核 provenance 措辞、真实 validate/dry-run 和拒绝路径，验证 Cursor/Codex 的发现及调用，再按实际反馈迭代 | 指令可实际使用且证据可复核；区分检查、dry-run、真实执行和生物学验收 | [#199](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/199) |
+| 文档治理 | 单一当前状态入口、过时说明及证据边界 | 当前实现、PR 状态和已核实的验收记录 | 独立文档 PR 维护本节及必要入口链接，逐项纠正当前说明中的过时表述 | 区分历史证据、当前分支实现和未验收项；历史记录不倒改，链接有效 | 独立文档 PR；关联上述交付 PR |
+| 测试精简 | 重复、低价值和高成本测试的审计与分批精简 | 真实契约覆盖清单、CI 耗时基线、审计建议的证据复核 | 先列具体候选及保留理由，再用独立小批次合并或删除 | 保留真实契约、负向分支和关键集成覆盖；不降门槛、不加 skip；相关检查通过并记录实际收益 | 参考 [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195)，实施另开 PR |
+| 开发方式优化 | goal 范围、subagent 写入边界、独立 worktree、任务依赖和交接 | 实际协作问题与审计建议 | 固化轻量任务及交接模板，明确每项任务的负责人、依赖和完成条件 | goal 按实际登记范围验收；新增范围另立目标；无重复执行或重叠写入，跨 session 可恢复 | 参考 [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195)，后续独立文档 PR |
+| CI 与 Gate 运维 | 准确 SHA 查询、工具准入、证据保存和任务资源清理 | 最终 diff 的闭包影响、固定工具/runtime 身份及对应执行条件 | 统一 SHA、run/attempt、准入、证据和清理记录；按实际闭包影响决定 Gate | 通过、失败、取消、跳过分开记录；适用 Gate 绑定准确身份，证据可核验、任务资源清理有记录 | [#193](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/193)、[#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194) |
+
+详细规则链接到对应材料，不在本表复制实现细节：
+[科学修复 spec](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/blob/57d8097eb96f431a543ac4d2fba94c513244fa7e/docs/development/scientific-computation-remediation-spec.md)、
+[SCI-7 比较设计与无结论条件](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/blob/57d8097eb96f431a543ac4d2fba94c513244fa7e/docs/development/sci7-public-data/comparison-design.md)、
+[#199 skills 实现](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/tree/008d25683f44f7058e4b45947e789f31d635bb27/.agents/skills)、
+[覆盖率政策](coverage-policy.md)、[真实执行分层说明](real-execution-harness.md)及
+[本地平台运行手册](local-platform-runtime.md)。未合并分支的材料使用其明确版本链接，
+避免在 main 中添加尚不存在的相对路径。
+
+科学与 skills 由各自现有 session 继续负责；文档治理在独立文档 worktree/PR
+推进，不混入正在开发的分支。测试先审计再实施，CI 运维可独立整理。本表是工作线
+规划，不等于新增六个 PR，也不扩大已授权的下载、计算、合并或发布范围。
+
 ## Product boundary
 
 HelixWeave is a workflow-neutral omics platform for one laboratory operating

@@ -1,0 +1,134 @@
+{
+  "IgG2": {
+    "bam": "primary proper pairs from sorted.bam, not MAPQ-filtered",
+    "candidate_arm": "max_insert_700",
+    "length_bins": [
+      "<=150",
+      "151-300",
+      "301-500",
+      "501-700",
+      ">700"
+    ],
+    "length_definition": "absolute template length",
+    "mapq_bins": [
+      "<30",
+      ">=30"
+    ],
+    "mapq_definition": "minimum of the two mates",
+    "newly_admitted_templates": {
+      "by_length_and_mapq": {
+        "151-300": {
+          "<30": 103,
+          ">=30": 44
+        },
+        "301-500": {
+          "<30": 127,
+          ">=30": 40
+        },
+        "501-700": {
+          "<30": 30098,
+          ">=30": 296087
+        },
+        "<=150": {
+          "<30": 26,
+          ">=30": 2
+        },
+        ">700": {
+          "<30": 0,
+          ">=30": 0
+        }
+      },
+      "by_length_bin": {
+        "151-300": 147,
+        "301-500": 167,
+        "501-700": 326185,
+        "<=150": 28,
+        ">700": 0
+      },
+      "by_mapq_bin": {
+        "<30": 30354,
+        ">=30": 296173
+      },
+      "total": 326527
+    },
+    "reference_arm": "max_insert_500",
+    "scope": "single max_insert contrast; not a default decision",
+    "short_template_stability": {
+      "changed": 3802,
+      "denominator": 1878855,
+      "fraction": 0.002023572867517717
+    },
+    "short_templates_absent_from_700": 9,
+    "template_counts": {
+      "max_insert_500": 2193162,
+      "max_insert_700": 2519642
+    },
+    "template_identity": "qname"
+  },
+  "T2": {
+    "bam": "primary proper pairs from sorted.bam, not MAPQ-filtered",
+    "candidate_arm": "max_insert_700",
+    "length_bins": [
+      "<=150",
+      "151-300",
+      "301-500",
+      "501-700",
+      ">700"
+    ],
+    "length_definition": "absolute template length",
+    "mapq_bins": [
+      "<30",
+      ">=30"
+    ],
+    "mapq_definition": "minimum of the two mates",
+    "newly_admitted_templates": {
+      "by_length_and_mapq": {
+        "151-300": {
+          "<30": 102,
+          ">=30": 39
+        },
+        "301-500": {
+          "<30": 214,
+          ">=30": 88
+        },
+        "501-700": {
+          "<30": 42903,
+          ">=30": 859421
+        },
+        "<=150": {
+          "<30": 29,
+          ">=30": 4
+        },
+        ">700": {
+          "<30": 0,
+          ">=30": 0
+        }
+      },
+      "by_length_bin": {
+        "151-300": 141,
+        "301-500": 302,
+        "501-700": 902324,
+        "<=150": 33,
+        ">700": 0
+      },
+      "by_mapq_bin": {
+        "<30": 43248,
+        ">=30": 859552
+      },
+      "total": 902800
+    },
+    "reference_arm": "max_insert_500",
+    "scope": "single max_insert contrast; not a default decision",
+    "short_template_stability": {
+      "changed": 4019,
+      "denominator": 3284411,
+      "fraction": 0.0012236592801570813
+    },
+    "short_templates_absent_from_700": 4,
+    "template_counts": {
+      "max_insert_500": 3518396,
+      "max_insert_700": 4421146
+    },
+    "template_identity": "qname"
+  }
+}

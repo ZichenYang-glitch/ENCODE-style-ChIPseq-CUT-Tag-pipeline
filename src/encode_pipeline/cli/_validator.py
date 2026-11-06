@@ -61,6 +61,7 @@ def main(argv=None):
             reproducibility_idr_chipseq_broad=broad_chipseq_idr_enabled,
             reproducibility_idr_cuttag_broad=broad_cuttag_idr_enabled,
         )
+        validator_module.validate_bowtie2_insert_bounds(validated, samples)
         validator_module.validate_picard_reference_resources(validated, samples)
         validator_module.validate_tss_annotation_resources(validated, samples)
         from encode_pipeline.samples.admission import (
