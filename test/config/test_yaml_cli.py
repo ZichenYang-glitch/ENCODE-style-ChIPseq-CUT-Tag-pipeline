@@ -45,7 +45,9 @@ def _make_minimal_config(tmp_path, config_text, samples_text=None):
         tmp_path, config_text, samples_text=samples_text
     )
     if config_text.strip() == "":
-        cfg_path.write_text(f'samples: "{samples_path}"\n', encoding="utf-8")
+        cfg_path.write_text(
+            f'samples: "{samples_path}"\nblacklist_mode: "off"\n', encoding="utf-8"
+        )
     return cfg_path, samples_path
 
 

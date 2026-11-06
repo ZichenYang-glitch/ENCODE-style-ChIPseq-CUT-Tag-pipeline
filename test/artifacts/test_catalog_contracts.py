@@ -88,7 +88,7 @@ def _base_config():
         "multiqc": True,
         "replicate_analysis": True,
         "chipseq_idr": False,
-        "qc": {"signal_tracks": True, "summary": True},
+        "qc": {"signal_tracks": True, "summary": True, "cross_correlation": True},
         "genome_resources": {
             "hs": {"effective_genome_size": "hs", "chrom_sizes": ""},
         },
@@ -208,7 +208,7 @@ def test_manifest_output_types_exist_in_catalog():
     assert not missing, f"Manifest output_types missing from catalog: {sorted(missing)}"
 
 
-def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
+def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path):
     catalog = load_catalog(str(INVENTORY_PATH))
     catalog_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
 
@@ -258,7 +258,7 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         {
             "chipseq_idr": True,
             "idr": {"seed": 42, "threshold": 0.05, "rank": "p.value"},
-            "qc": {"signal_tracks": True, "summary": True},
+            "qc": {"signal_tracks": True, "summary": True, "cross_correlation": True},
         },
         "\t".join(columns_full)
         + "\n"
@@ -830,6 +830,126 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config):
         tmp_config,
     )
 
+    # 15. Pooled blacklist analysis (2 bioreps, valid blacklist resource)
+    blacklist = tmp_path / "blacklist.bed"
+    blacklist.write_text("chr1\t100\t200\n", encoding="utf-8")
+    pooled_samples = (
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "S1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n"
+        + "\t".join(
+            [
+                "S2",
+                "R3.fq",
+                "R4.fq",
+                "PE",
+                "chipseq",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "2",
+            ]
+        )
+        + "\n"
+    )
+    pooled_analysis = _run_manifest(
+        {
+            "blacklist_mode": "analysis",
+            "replicate_analysis": True,
+            "genome_resources": {
+                "hs": {
+                    "effective_genome_size": "hs",
+                    "blacklist": str(blacklist),
+                }
+            },
+        },
+        pooled_samples,
+        tmp_config,
+    )
+    assert "pooled_filtered_peak" in pooled_analysis
+    all_types |= pooled_analysis
+
+    for mode in ("off", "copies"):
+        mode_types = _run_manifest(
+            {
+                "blacklist_mode": mode,
+                "replicate_analysis": True,
+                "genome_resources": {
+                    "hs": {
+                        "effective_genome_size": "hs",
+                        "blacklist": str(blacklist),
+                    }
+                },
+            },
+            pooled_samples,
+            tmp_config,
+        )
+        assert "pooled_filtered_peak" not in mode_types
+        all_types |= mode_types
+
+    # 16. Raw-namespace per-sample QC for MNase and CUT&Tag
+    all_types |= _run_manifest(
+        {"blacklist_mode": "off"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "M1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "mnase",
+                "H3",
+                "nucleosome",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+    all_types |= _run_manifest(
+        {"blacklist_mode": "off"},
+        "\t".join(columns_full)
+        + "\n"
+        + "\t".join(
+            [
+                "C1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "cuttag",
+                "H3K4me3",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        tmp_config,
+    )
+
     missing = []
     for mot in sorted(catalog_mots):
         if "<N>" in mot:
@@ -1000,3 +1120,60 @@ def test_artifact_instances_are_frozen():
     a = catalog[0]
     with pytest.raises((FrozenInstanceError, AttributeError)):
         a.id = "mutated"
+
+
+def test_fragment_cpm_manifest_respects_analysis_profile(tmp_path):
+    """The manifest must not advertise updated-only fragment tracks for legacy."""
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    columns = [
+        "sample",
+        "fastq_1",
+        "fastq_2",
+        "layout",
+        "assay",
+        "target",
+        "peak_mode",
+        "genome",
+        "bowtie2_index",
+        "experiment",
+        "biological_replicate",
+    ]
+    samples = tmp_path / "samples.tsv"
+    samples.write_text(
+        "\t".join(columns)
+        + "\n"
+        + "\t".join(
+            [
+                "A1",
+                "R1.fq",
+                "R2.fq",
+                "PE",
+                "atac",
+                "CTCF",
+                "narrow",
+                "hs",
+                "/idx",
+                "EXP1",
+                "1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def types_for(profile):
+        config = _base_config()
+        config.update(
+            {
+                "samples": str(samples),
+                "outdir": str(tmp_path / profile),
+                "analysis_profile": profile,
+                "fragment_cpm": "auto",
+            }
+        )
+        rows, _, _ = build_manifest_rows(config)
+        return {row["output_type"] for row in rows}
+
+    assert "fragment_cpm_bigwig" not in types_for("legacy")
+    assert "fragment_cpm_bigwig" in types_for("updated")

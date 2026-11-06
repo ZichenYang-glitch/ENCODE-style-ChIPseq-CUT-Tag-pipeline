@@ -14,9 +14,12 @@ class Blacklist:
         raw = {}
         with open(path, encoding="utf-8") as handle:
             for line in handle:
-                if not line.strip() or line.startswith(("#", "track", "browser")):
+                line_str = line.strip()
+                if not line_str or line_str.startswith(("#", "track", "browser")):
                     continue
-                fields = line.rstrip("\n").split("\t")
+                fields = line_str.split("\t")
+                if len(fields) < 3:
+                    fields = line_str.split()
                 if len(fields) < 3:
                     continue
                 try:
@@ -40,6 +43,7 @@ class Blacklist:
                     merged.append((start, end))
             self.intervals[chrom] = merged
             self.starts[chrom] = [item[0] for item in merged]
+        self.total_intervals = sum(len(ivs) for ivs in self.intervals.values())
 
     def overlaps(self, chrom, start, end):
         """Return True when [start, end) overlaps the blacklist."""
@@ -54,7 +58,12 @@ class Blacklist:
 
     def peak_line_overlaps(self, line):
         """Return True when a BED-like peak line overlaps the blacklist."""
-        fields = line.rstrip("\n").split("\t")
+        line_str = line.strip()
+        if not line_str:
+            return False
+        fields = line_str.split("\t")
+        if len(fields) < 3:
+            fields = line_str.split()
         if len(fields) < 3:
             return False
         try:

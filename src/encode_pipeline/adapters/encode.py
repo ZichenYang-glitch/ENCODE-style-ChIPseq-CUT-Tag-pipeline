@@ -531,7 +531,11 @@ class EncodeStyleWorkflowAdapter:
         if not isinstance(inputs, WorkflowInputs):
             return _artifact_extraction_failure("ENCODE_ARTIFACT_INPUTS_INVALID")
         try:
-            from encode_pipeline.manifest.make import build_manifest_rows
+            from encode_pipeline.config.errors import ValidationError
+            from encode_pipeline.manifest.make import (
+                build_manifest_rows,
+                resolve_manifest_namespaces,
+            )
 
             workspace_path = Path(workspace).absolute()
             config_value = yaml.safe_load(
@@ -541,20 +545,20 @@ class EncodeStyleWorkflowAdapter:
                 raise ValueError("workspace config is not a mapping")
             manifest_config = deepcopy(config_value)
             raw_outdir = workspace_path / "results"
-            analysis_outdir = (
-                raw_outdir / "analysis_filtered"
-                if config_value.get("blacklist_mode") == "analysis"
-                else raw_outdir
-            )
             manifest_config["outdir"] = str(raw_outdir)
-            manifest_config["analysis_outdir"] = str(analysis_outdir)
+            manifest_config.pop("analysis_outdir", None)
             samples_path = workspace_path / "config" / "samples.tsv"
             manifest_config["samples"] = str(samples_path)
+            _, analysis_outdir, _blacklist_mode = resolve_manifest_namespaces(
+                manifest_config
+            )
+            manifest_config["analysis_outdir"] = str(analysis_outdir)
+            analysis_outdir = Path(analysis_outdir)
             rows, _missing, _not_applicable = build_manifest_rows(
                 manifest_config,
                 samples_path=str(samples_path),
             )
-        except (OSError, ValueError, yaml.YAMLError):
+        except (OSError, ValueError, ValidationError, yaml.YAMLError):
             return _artifact_extraction_failure("ENCODE_ARTIFACT_MANIFEST_FAILED")
 
         candidates: list[ExtractedArtifactCandidate] = []
@@ -1031,6 +1035,7 @@ def _validate_scientific_inputs(
     """Run the existing config, sample, and resource validators unchanged."""
     from encode_pipeline.config.validate import (
         ValidationError,
+        validate_bowtie2_insert_bounds,
         validate_config,
         validate_execution_support,
         validate_picard_reference_resources,
@@ -1091,6 +1096,17 @@ def _validate_scientific_inputs(
             code="ENCODE_SAMPLES_INVALID",
             source="samples",
             path="samples",
+            sanitize=sanitize_errors,
+        )
+
+    try:
+        validate_bowtie2_insert_bounds(validated_config, samples)
+    except ValidationError as exc:
+        return _scientific_validation_failure(
+            exc,
+            code="ENCODE_CONFIG_INVALID",
+            source="config",
+            path="config",
             sanitize=sanitize_errors,
         )
 
@@ -1346,6 +1362,8 @@ def _artifact_mime_type(relative_path: str) -> str:
     lowered = relative_path.lower()
     if lowered.endswith(".tsv"):
         return "text/tab-separated-values"
+    if lowered.endswith(".json"):
+        return "application/json"
     if lowered.endswith(".html"):
         return "text/html"
     if lowered.endswith((".bed", ".bedgraph", ".narrowpeak", ".broadpeak")):

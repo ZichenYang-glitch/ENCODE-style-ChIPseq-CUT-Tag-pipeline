@@ -22,11 +22,22 @@ assay. It describes implemented behavior, not aspirational features.
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` for narrow, `no` for broad |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
+ChIP-seq **excludes** duplicates under `duplicate_analysis: auto`, in broad
+peak mode too — the narrow/broad mode no longer proxies the decision. An
+explicit `duplicate_analysis: exclude/retain` (or the legacy `remove_dup`
+yes/no alias) overrides the assay default for the whole run. The BAM layer
+executes the policy and every MACS3 call renders `--keep-dup all`. See the
+CUT&Tag section for the full per-assay matrix.
+
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+Under `tool_parameters.bowtie2.max_insert: auto` (default), PE ChIP-seq
+samples align with `-X 2000` (2000 bp) so longer sonicated chromatin
+fragments remain eligible for concordant pairing (`0x2`) and downstream
+`-f BAMPE` peak calling. SE ChIP-seq samples do not render `-X` and record
+`not_applicable` in `resolved_max_insert`. An explicit positive integer in
+`tool_parameters.bowtie2.max_insert` overrides `auto` for all PE samples in
+the run.
 
 ### Read extension (bamCoverage)
 
@@ -67,7 +78,36 @@ The narrow-peak mode applies the Tn5-aware parameters (`--nomodel --shift -100 -
 
 ### Duplicate policy
 
-Identical to ChIP-seq (`auto` → narrow-yes/broad-no). The policy delegate (`get_remove_dup_cuttag`) calls `get_remove_dup_chipseq` directly.
+CUT&Tag **retains** duplicates under `duplicate_analysis: auto` (the assay
+default matrix; same-coordinate fragments can be independent molecules, so
+coordinates alone cannot prove PCR copies — this retain default is a
+candidate pending the SCI-7 real-library data freeze). ChIP-seq, ATAC-seq,
+and MNase-seq exclude. The narrow/broad peak mode no longer proxies the
+decision — legacy broad ChIP-seq also excludes. An explicit
+`duplicate_analysis: exclude/retain` (or the `remove_dup` yes/no alias)
+overrides the assay default for the whole run. The BAM layer executes the
+policy and every MACS3 call renders `--keep-dup all`. Resolution lives in
+`get_duplicate_policy` (`workflow/rules/metadata.smk`).
+
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+| Assay | `max_insert: auto` (PE `-X`) | SE |
+| :--- | :--- | :--- |
+| `chipseq` | `2000` | Not emitted (`not_applicable`) |
+| `atac` | `2000` | Not emitted (`not_applicable`) |
+| `cuttag` | `700` | Not emitted (`not_applicable`) |
+| `mnase` | `500` | PE-only |
+
+Under `tool_parameters.bowtie2.max_insert: auto`, PE CUT&Tag samples align
+with `-X 700` (700 bp), covering sub-nucleosomal, mono-, di-, and
+tri-nucleosomal tethered Tn5 fragments without opening a 2000 bp window.
+Resolution lives in `get_max_insert` (`workflow/rules/metadata.smk`) and
+applies identically in `legacy` and `updated` profiles as well as treatment
+and control samples. Because `max_insert` sets Bowtie2's `-X` paired-end
+alignment parameter (rather than a post-alignment TLEN filter), when the
+individual read length exceeds `-X` (for example 150 bp reads with `-X 100`),
+Bowtie2 can still align templates up to the read length as concordant pairs
+(`0x2`).
 
 ### Read extension (bamCoverage)
 
@@ -111,13 +151,16 @@ Tn5-aware shift/extension matching common ATAC-seq practice applies to SE data o
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
+ATAC-seq **excludes** duplicates under `duplicate_analysis: auto` (no
+broad-peak exception — broad ATAC is not supported). An explicit
+`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
+alias) overrides the assay default for the whole run.
 
-ATAC-seq always removes duplicates in `auto` mode (no broad-peak exception).
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+PE ATAC-seq samples align with `-X 2000` under `tool_parameters.bowtie2.max_insert: auto`
+so nucleosome-free and multi-nucleosomal ATAC fragments up to 2000 bp are
+retained as proper pairs. SE ATAC-seq samples do not render `-X`.
 
 ### Read extension (bamCoverage)
 
@@ -163,10 +206,15 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 
 ### Summary and manifest
 
-- Per-sample `qc_summary.tsv` (37 columns) is assembled by `scripts/assemble_qc_summary.py`.
-- Project-level `project_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`.
-- `result_manifest.tsv` records core output existence with 10-column TSV, using `validate_samples` for DAG-consistent gating.
-- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce `mnase_qc_summary.tsv`.
+- Per-sample `qc_summary.tsv` is assembled by `scripts/assemble_qc_summary.py`
+  using the v2 contract (`schema_version` first, then the complete v1 column
+  order and analysis-stage fields). Historical v1 files remain readable.
+- Project-level `project_qc_summary.tsv` is aggregated by `scripts/aggregate_qc_summary.py`;
+  an all-v1 input set produces a v1 file, while any v2 input produces the v2 header.
+- Per-sample `analysis_policy.json` records the resolved duplicate, insert,
+  organelle, and blacklist policy plus QC input stages and stage counts.
+- `result_manifest.tsv` records core output existence with a 10-column TSV, using `validate_samples` for DAG-consistent gating.
+- MNase samples do not produce `qc_summary.tsv` (no peaks); instead they produce the v2 `mnase_qc_summary.tsv` with separate read and template counts.
 
 ---
 
@@ -187,13 +235,19 @@ under `04_signal/`.
 
 ### Duplicate policy
 
-| `remove_dup` config | Behavior |
-| :--- | :--- |
-| `auto` | `yes` |
-| `yes` | Always remove duplicates |
-| `no` | Never remove duplicates |
+MNase-seq **excludes** duplicates under `duplicate_analysis: auto` (MNase is
+PE-only; no broad-peak exception). An explicit
+`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
+alias) overrides the assay default for the whole run.
 
-MNase is PE-only and always removes duplicates in `auto` mode (no broad-peak exception).
+### Paired-end alignment insert limit (Bowtie2 `-X`)
+
+MNase-seq aligns with `-X 500` under `tool_parameters.bowtie2.max_insert: auto`
+(configurable via `tool_parameters.bowtie2.max_insert`). This is the
+Bowtie2 paired-end alignment search ceiling; it does not alter the
+downstream `mnase.fragments` (`sub` `[1, 139]`, `mono` `[140, 200]`,
+`di` `[300, 400]`) or `mnase.dyad_range` (`[130, 200]`) stratification
+windows.
 
 ### Read extension (bamCoverage)
 

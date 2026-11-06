@@ -13,7 +13,7 @@ import os
 
 import yaml
 
-from encode_pipeline.config.validate import validate_config
+from encode_pipeline.config.validate import resolve_blacklist_mode, validate_config
 from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
 
@@ -83,9 +83,9 @@ def _is_mnase(sample_dict):
     return sample_dict.get("assay", "") == "mnase"
 
 
-def _has_fragment_cpm(sample, mode):
+def _has_fragment_cpm(sample, mode, analysis_profile="updated"):
     """Return True when PR-E1 produces a fragment CPM track for *sample*."""
-    if mode == "off":
+    if analysis_profile != "updated" or mode == "off":
         return False
     assay = sample.get("assay", "")
     if assay in ("atac", "mnase"):
@@ -108,9 +108,14 @@ def _build_sample_rows(
     analysis_outdir=None,
     fragment_cpm="off",
     tss_fragment_profile=False,
+    analysis_profile="updated",
+    blacklist_mode="analysis",
+    cuttag_fragment_size=True,
+    cross_correlation=False,
 ):
     """Per-sample rows using validated sample dicts (key='id')."""
     analysis_root = analysis_outdir or outdir
+    filtered = analysis_root != outdir
     rows = []
     for s in sorted(samples, key=lambda x: x["id"]):
         sid = s["id"]
@@ -149,11 +154,154 @@ def _build_sample_rows(
             assay,
             target,
             genome,
+            "analysis_filtered_bam" if filtered else "analysis_bam",
+            "samtools/filter_blacklist_templates.py",
+            _resolve_path(analysis_root, sid, "02_align", f"{sid}.analysis.bam"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_filtered_bai" if filtered else "analysis_bai",
+            "samtools index",
+            _resolve_path(analysis_root, sid, "02_align", f"{sid}.analysis.bam.bai"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_filtered_mito_fraction" if filtered else "mito_fraction",
+            "calc_organelle_metrics.py",
+            _resolve_path(analysis_root, sid, "05_qc", f"{sid}.mito_fraction.tsv"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_filtered_blacklist_dropped" if filtered else "blacklist_dropped",
+            "filter_blacklist_templates.py",
+            _resolve_path(analysis_root, sid, "05_qc", f"{sid}.blacklist_dropped.tsv"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_filtered_blacklist_stage_metrics"
+            if filtered
+            else "blacklist_stage_metrics",
+            "filter_blacklist_templates.py",
+            _resolve_path(
+                analysis_root,
+                sid,
+                "05_qc",
+                f"{sid}.blacklist_dropped.stage_metrics.json",
+            ),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_policy",
+            "write_analysis_policy.py",
+            _resolve_path(analysis_root, sid, "05_qc", f"{sid}.analysis_policy.json"),
+        )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
+            "analysis_template_metrics",
+            "calc_analysis_template_metrics.py",
+            _resolve_path(
+                analysis_root,
+                sid,
+                "05_qc",
+                f"{sid}.analysis_template_metrics.tsv",
+            ),
+        )
+        if cross_correlation and s.get("role", "treatment") == "treatment":
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "cross_correlation_metadata",
+                "make_cross_correlation_tagalign.py",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "cross_correlation",
+                    f"{sid}.cross_correlation_metadata.json",
+                ),
+            )
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "cross_correlation_qc",
+                "write_cross_correlation_qc.py",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "05_qc",
+                    "cross_correlation",
+                    f"{sid}.cross_correlation_qc.tsv",
+                ),
+            )
+        if cuttag_fragment_size and assay == "cuttag":
+            _add_row(
+                rows,
+                sid,
+                "",
+                assay,
+                target,
+                genome,
+                "analysis_filtered_cuttag_fragment_size"
+                if filtered
+                else "cuttag_fragment_size",
+                "calc_cuttag_fragment_size.py",
+                _resolve_path(
+                    analysis_root,
+                    sid,
+                    "01_qc",
+                    f"{sid}.cuttag_fragment_size.tsv",
+                ),
+            )
+        _add_row(
+            rows,
+            sid,
+            "",
+            assay,
+            target,
+            genome,
             "cpm_bigwig",
             "bamCoverage",
             _resolve_path(analysis_root, sid, "03_bigwig", f"{sid}.CPM.bw"),
         )
-        if _has_fragment_cpm(s, fragment_cpm):
+        if _has_fragment_cpm(s, fragment_cpm, analysis_profile):
             fragment_method = (
                 "bamCoverage --extendReads --samFlagInclude 64"
                 if s.get("layout") == "PE"
@@ -197,7 +345,7 @@ def _build_sample_rows(
         if (
             tss_fragment_profile
             and not is_mn
-            and _has_fragment_cpm(s, fragment_cpm)
+            and _has_fragment_cpm(s, fragment_cpm, analysis_profile)
             and genomic_resources.get(genome, {}).get("gtf", "")
         ):
             _add_row(
@@ -514,7 +662,12 @@ def _build_sample_rows(
 
 
 def _build_experiment_rows(
-    samples, outdir, signal_tracks, genomic_resources, replicate_analysis
+    samples,
+    outdir,
+    signal_tracks,
+    genomic_resources,
+    replicate_analysis,
+    blacklist_mode="analysis",
 ):
     """Per-experiment rows using validated sample dicts.
 
@@ -583,6 +736,12 @@ def _build_experiment_rows(
 
             # Peak-centric pooled outputs — gated on non-MNase
             if not is_mn:
+                peak_suffix = (
+                    "broadPeak" if first.get("peak_mode") == "broad" else "narrowPeak"
+                )
+                has_bl = bool(genomic_resources.get(genome, {}).get("blacklist"))
+                is_filtered = blacklist_mode == "analysis" and has_bl
+
                 _add_row(
                     rows,
                     "",
@@ -601,6 +760,26 @@ def _build_experiment_rows(
                         f"{exp}_pooled_peaks",
                     ),
                 )
+                if is_filtered:
+                    _add_row(
+                        rows,
+                        "",
+                        exp,
+                        assay,
+                        target,
+                        genome,
+                        "pooled_filtered_peak",
+                        "bedtools intersect",
+                        _resolve_path(
+                            outdir,
+                            "experiments",
+                            exp,
+                            "04_peaks",
+                            "pooled",
+                            f"{exp}_pooled_peaks_blacklist_filtered",
+                            f"{exp}_pooled_peaks.blacklist_filtered.{peak_suffix}",
+                        ),
+                    )
                 _add_row(
                     rows,
                     "",
@@ -609,7 +788,7 @@ def _build_experiment_rows(
                     target,
                     genome,
                     "pooled_qc_summary",
-                    "pooled_qc_summary",
+                    "pooled_qc_summary.py",
                     _resolve_path(
                         outdir,
                         "experiments",
@@ -639,7 +818,7 @@ def _build_experiment_rows(
                     target,
                     genome,
                     "pooled_qc_summary",
-                    "pooled_qc_summary",
+                    "pooled_qc_summary.py",
                     "",
                     check_exists=False,
                 )
@@ -1442,7 +1621,10 @@ def _build_reproducibility_rows(samples, config, outdir):
     return rows
 
 
-def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
+def _build_project_rows(outdir, multiqc_enabled, has_peak_samples, filtered=False):
+    project_type = (
+        "analysis_filtered_project_qc_summary" if filtered else "project_qc_summary"
+    )
     rows = []
     if has_peak_samples:
         _add_row(
@@ -1452,7 +1634,7 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
             "",
             "",
             "",
-            "project_qc_summary",
+            project_type,
             "aggregate_qc_summary",
             _resolve_path(outdir, "multiqc", "project_qc_summary.tsv"),
         )
@@ -1464,7 +1646,7 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
             "",
             "",
             "",
-            "project_qc_summary",
+            project_type,
             "aggregate_qc_summary",
             "",
             check_exists=False,
@@ -1497,6 +1679,39 @@ def _build_project_rows(outdir, multiqc_enabled, has_peak_samples):
     return rows
 
 
+def resolve_manifest_namespaces(config):
+    """Return (raw_outdir, analysis_outdir, blacklist_mode).
+
+    ``analysis_outdir`` is an internal namespace derived from the resolved
+    blacklist mode, not a user-supplied requirement. Callers that already have
+    a validated run record may pass it explicitly.
+    """
+    outdir = str(config.get("outdir", "results"))
+    blacklist_mode = resolve_blacklist_mode(config)
+    analysis_outdir = config.get("analysis_outdir")
+    if not analysis_outdir:
+        analysis_outdir = (
+            os.path.join(outdir, "analysis_filtered")
+            if blacklist_mode == "analysis"
+            else outdir
+        )
+    return outdir, str(analysis_outdir), blacklist_mode
+
+
+def _manifest_bool(value, default, name):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "yes", "1"):
+            return True
+        if text in ("false", "no", "0"):
+            return False
+    raise ValueError(f"{name} must be true or false, got {value!r}")
+
+
 def build_manifest_rows(config, samples_path=None):
     """Build manifest row dicts from a validated config dict.
 
@@ -1507,21 +1722,39 @@ def build_manifest_rows(config, samples_path=None):
     Returns:
         tuple (rows, missing_count, not_applicable_count)
     """
-    outdir = config.get("outdir", "results")
-    analysis_outdir = config.get("analysis_outdir") or outdir
+    outdir, analysis_outdir, blacklist_mode = resolve_manifest_namespaces(config)
     qc = config.get("qc", {})
-    signal_tracks = qc.get("signal_tracks", True)
-    replicate_analysis = config.get("replicate_analysis", True)
-    chipseq_idr = config.get("chipseq_idr", False)
-    multiqc_enabled = config.get("multiqc", True)
-    genomic_resources = config.get("genome_resources", {})
+    if not isinstance(qc, dict):
+        raise ValueError("qc must be a mapping")
+    signal_tracks = _manifest_bool(qc.get("signal_tracks"), True, "qc.signal_tracks")
+    replicate_analysis = _manifest_bool(
+        config.get("replicate_analysis"), True, "replicate_analysis"
+    )
+    chipseq_idr = _manifest_bool(config.get("chipseq_idr"), False, "chipseq_idr")
+    multiqc_enabled = _manifest_bool(config.get("multiqc"), True, "multiqc")
+    if "genome_resources" in config:
+        genomic_resources = config["genome_resources"]
+    else:
+        genomic_resources = {}
+    if not isinstance(genomic_resources, dict):
+        raise ValueError("genome_resources must be a mapping")
+    for genome, entry in genomic_resources.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"genome_resources[{genome!r}] must be a mapping")
     fragment_cpm = config.get("fragment_cpm", "off")
-    tss_fragment_profile = bool(config.get("tss_fragment_profile", False))
+    analysis_profile = str(config.get("analysis_profile", "updated"))
+    cuttag_fragment_size = _manifest_bool(
+        qc.get("cuttag_fragment_size"), True, "qc.cuttag_fragment_size"
+    )
+    tss_fragment_profile = _manifest_bool(
+        config.get("tss_fragment_profile"), False, "tss_fragment_profile"
+    )
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
+    use_control = _manifest_bool(config.get("use_control"), False, "use_control")
     samples = load_and_validate_samples(
         samples_path,
-        use_control=config.get("use_control", False),
+        use_control=use_control,
         chipseq_idr_enabled=chipseq_idr,
     )
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
@@ -1537,6 +1770,12 @@ def build_manifest_rows(config, samples_path=None):
             analysis_outdir=analysis_outdir,
             fragment_cpm=fragment_cpm,
             tss_fragment_profile=tss_fragment_profile,
+            analysis_profile=analysis_profile,
+            blacklist_mode=blacklist_mode,
+            cuttag_fragment_size=cuttag_fragment_size,
+            cross_correlation=_manifest_bool(
+                qc.get("cross_correlation"), False, "qc.cross_correlation"
+            ),
         )
     )
     rows.extend(
@@ -1546,11 +1785,19 @@ def build_manifest_rows(config, samples_path=None):
             signal_tracks,
             genomic_resources,
             replicate_analysis,
+            blacklist_mode=blacklist_mode,
         )
     )
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
     rows.extend(_build_reproducibility_rows(treatment_samples, config, analysis_outdir))
-    rows.extend(_build_project_rows(analysis_outdir, multiqc_enabled, has_peak_samples))
+    rows.extend(
+        _build_project_rows(
+            analysis_outdir,
+            multiqc_enabled,
+            has_peak_samples,
+            filtered=analysis_outdir != outdir,
+        )
+    )
 
     missing_count = sum(1 for r in rows if r["status"] == "missing")
     na_count = sum(1 for r in rows if r["status"] == "not_applicable")

@@ -1,0 +1,295 @@
+{
+  "TF": {
+    "discovery": {
+      "experiment_accessions": [
+        "ENCSR054ZMK",
+        "ENCSR142JFU"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF032VKB",
+        "ENCFF225SRY",
+        "ENCFF429FLQ",
+        "ENCFF996ZFG"
+      ],
+      "raw_fastq_md5": [
+        "21938488725ce0dec60f03899009221d",
+        "28424afcf1c19a6b2375132429e93603",
+        "3418ca66ca583e45d9bff87ce8c6893d",
+        "bd36578c69a007effd8cec8b1db7673d"
+      ],
+      "library_accessions": [
+        "ENCLB047ULA",
+        "ENCLB265XRH"
+      ],
+      "biosample_accessions": [
+        "ENCBS781CUL",
+        "ENCBS825SFH"
+      ],
+      "donor_accessions": [
+        "ENCDO000AAC"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS781CUL:biological_replicate_1",
+        "ENCBS825SFH:biological_replicate_1"
+      ]
+    },
+    "confirmation": {
+      "experiment_accessions": [
+        "ENCSR785RQR",
+        "ENCSR194GTV"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF260LDK",
+        "ENCFF861BMZ",
+        "ENCFF919EHZ",
+        "ENCFF977HJB"
+      ],
+      "raw_fastq_md5": [
+        "1ed068054107050e7d992103ef6e1ebf",
+        "6d3130010f4ef05f4465ae5382bc8705",
+        "9331f325051d9231d43da09c796fee1a",
+        "afd4058b441e9caee9b4000096ab596a"
+      ],
+      "library_accessions": [
+        "ENCLB826NCM",
+        "ENCLB845WBX"
+      ],
+      "biosample_accessions": [
+        "ENCBS115SWR",
+        "ENCBS357BSQ"
+      ],
+      "donor_accessions": [
+        "ENCDO000AAD"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS115SWR:biological_replicate_1",
+        "ENCBS357BSQ:biological_replicate_1"
+      ]
+    },
+    "overlap": {
+      "raw_fastq_accessions": [],
+      "raw_fastq_md5": [],
+      "library_accessions": [],
+      "biosample_accessions": [],
+      "donor_accessions": [],
+      "bioreplicate_identities": []
+    },
+    "same_donor_only": false
+  },
+  "Histone": {
+    "discovery": {
+      "experiment_accessions": [
+        "ENCSR817LUF",
+        "ENCSR603VTC"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF397NRK",
+        "ENCFF404NTS",
+        "ENCFF515OUC",
+        "ENCFF582CRV",
+        "ENCFF643SFO",
+        "ENCFF672AIG",
+        "ENCFF984FCE"
+      ],
+      "raw_fastq_md5": [
+        "00209d61150251a61a876a2506c65229",
+        "2c57d6a8467b1d4070aa64c1211cbf24",
+        "4fafd89e6f9c4b7060161a876ba115fa",
+        "dd9a1f329d7d57a9a32f655deae55ecb",
+        "e8b5ba02a57e1d77659b3a7661f6b1d5",
+        "e8d8c70eb889c8b695e52f9c592cc4b4",
+        "e97096c7fc7702ebb37176030c52ad5c"
+      ],
+      "library_accessions": [
+        "ENCLB029SAO",
+        "ENCLB060FFB"
+      ],
+      "biosample_accessions": [
+        "ENCBS604GZI"
+      ],
+      "donor_accessions": [
+        "ENCDO670CKN"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS604GZI:biological_replicate_1"
+      ]
+    },
+    "confirmation": {
+      "experiment_accessions": [
+        "ENCSR213YKJ",
+        "ENCSR148TRG"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF051FBK",
+        "ENCFF128ZWQ",
+        "ENCFF205WSI",
+        "ENCFF301GMX",
+        "ENCFF336MKA",
+        "ENCFF365EHM",
+        "ENCFF400EIP",
+        "ENCFF412FMS",
+        "ENCFF460LNU",
+        "ENCFF467QAS",
+        "ENCFF488EWK",
+        "ENCFF491FRP",
+        "ENCFF506OGU",
+        "ENCFF513IJS",
+        "ENCFF553ATK",
+        "ENCFF631VOV",
+        "ENCFF657HCA",
+        "ENCFF667SAL",
+        "ENCFF698CXT",
+        "ENCFF893ETU",
+        "ENCFF917RJN",
+        "ENCFF938EQU",
+        "ENCFF945BDR",
+        "ENCFF983FPI"
+      ],
+      "raw_fastq_md5": [
+        "0de765e0f4ee8f2ccf51cb31e88e8faf",
+        "181aef9fad24da5de56cbf141fef04c5",
+        "1a5e250d92b2a292c93aca9caac80f32",
+        "2593ab3d4dfec6194bb934b92250cab1",
+        "271c20ada50d7cc937cd2bdf69ae376d",
+        "31b586b84022020bf44906c63d5141c3",
+        "357871e3d60c21630d4d3c5b365ccd4a",
+        "53c7f5dca1095e4fa32e42b47b965237",
+        "688ad144c337a0ee081c3247ef2c4ace",
+        "712d41219ef34caef704b6602ee10b15",
+        "7f8f98728987022dd21cabb0a99cebc2",
+        "847e197eca8c3fcf63fd96b2402612b3",
+        "8ff3f97ebe52857771c42095ea3a610f",
+        "90c8db5079474c5599dba92436c3f98d",
+        "99a62550e3c9753f74a83b5a88e1eb5a",
+        "a29964d00f80a3f5f49584ffc6ffb18a",
+        "aab38df122323224511166ffa0057bcc",
+        "bc6c2557d705dcca767418eb69e643ef",
+        "c4c8a1ad62636495a1d6f7a19fed1803",
+        "cbc2961b34bda7065514835d0412d3d6",
+        "d283a78b4cf4e96b4e4a8820ea3fc942",
+        "edef0ea249b4c1b16a1b0ad05ce6b902",
+        "ee4f0167756c80d3a1114fa3b2e5c621",
+        "f6ec9fb636f331b87baa9bc0813d76e6"
+      ],
+      "library_accessions": [
+        "ENCLB124DVV",
+        "ENCLB593YIT",
+        "ENCLB630JHI",
+        "ENCLB663MZT",
+        "ENCLB916TOH",
+        "ENCLB958EGD"
+      ],
+      "biosample_accessions": [
+        "ENCBS169TOO",
+        "ENCBS512CTC"
+      ],
+      "donor_accessions": [
+        "ENCDO509HIY"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS169TOO:biological_replicate_1",
+        "ENCBS512CTC:biological_replicate_2"
+      ]
+    },
+    "overlap": {
+      "raw_fastq_accessions": [],
+      "raw_fastq_md5": [],
+      "library_accessions": [],
+      "biosample_accessions": [],
+      "donor_accessions": [],
+      "bioreplicate_identities": []
+    },
+    "same_donor_only": false
+  },
+  "ATAC": {
+    "discovery": {
+      "experiment_accessions": [
+        "ENCSR844TIU"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF488RVS",
+        "ENCFF574DTB",
+        "ENCFF575LXK",
+        "ENCFF789PHQ"
+      ],
+      "raw_fastq_md5": [
+        "8ef971a1e83016970c54b61f9c510469",
+        "b65f99c481241ae778b7159e587b8a19",
+        "ce613825e138a86f52eed450bc0861b7",
+        "ffc5e74e3386b021f5290c6422f1ebf1"
+      ],
+      "library_accessions": [
+        "ENCLB190GZI",
+        "ENCLB265DZB"
+      ],
+      "biosample_accessions": [
+        "ENCBS159UJV",
+        "ENCBS206FNH"
+      ],
+      "donor_accessions": [
+        "ENCDO236IKC"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS159UJV:biological_replicate_2",
+        "ENCBS206FNH:biological_replicate_1"
+      ]
+    },
+    "confirmation": {
+      "experiment_accessions": [
+        "ENCSR639PPN"
+      ],
+      "raw_fastq_accessions": [
+        "ENCFF014SCS",
+        "ENCFF073PNP",
+        "ENCFF102LBT",
+        "ENCFF247FNL",
+        "ENCFF481IME",
+        "ENCFF749IYR",
+        "ENCFF851ZRP",
+        "ENCFF919HCJ"
+      ],
+      "raw_fastq_md5": [
+        "1231f99b8deda93ca9b54c5abfae4212",
+        "1613604536ff711837a3674e23a88aea",
+        "2043f656f0b54cba02706d9fe9be857e",
+        "29f5d819f1a29ad854f956b0206fcfdc",
+        "492dc7aec458ace1e44202d68cf5a124",
+        "6d282c9707fed3edda463dd02c9b3fd7",
+        "9b0b345c6648f3e0d91810705b9da8be",
+        "e5063e399bd1c5bb16764f7405d9619c"
+      ],
+      "library_accessions": [
+        "ENCLB426DNG",
+        "ENCLB474VLA",
+        "ENCLB798GSA",
+        "ENCLB800MCD"
+      ],
+      "biosample_accessions": [
+        "ENCBS227YAI",
+        "ENCBS269BPO",
+        "ENCBS818MLG",
+        "ENCBS959GLF"
+      ],
+      "donor_accessions": [
+        "ENCDO236IKC"
+      ],
+      "bioreplicate_identities": [
+        "ENCBS227YAI:biological_replicate_1",
+        "ENCBS269BPO:biological_replicate_2",
+        "ENCBS818MLG:biological_replicate_3",
+        "ENCBS959GLF:biological_replicate_4"
+      ]
+    },
+    "overlap": {
+      "raw_fastq_accessions": [],
+      "raw_fastq_md5": [],
+      "library_accessions": [],
+      "biosample_accessions": [],
+      "donor_accessions": [
+        "ENCDO236IKC"
+      ],
+      "bioreplicate_identities": []
+    },
+    "same_donor_only": true
+  }
+}

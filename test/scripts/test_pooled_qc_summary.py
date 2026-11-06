@@ -1,11 +1,16 @@
 """Producer contract for pooled experiment QC summaries."""
 
 import csv
+from pathlib import Path
 import sys
 
-import pytest
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from scripts import pooled_qc_summary
+import pytest  # noqa: E402
+
+from scripts import pooled_qc_summary  # noqa: E402
 
 
 EXPECTED_COLUMNS = [
@@ -43,6 +48,12 @@ def test_count_peaks_fails_closed_when_peak_file_is_missing(tmp_path, capsys):
         pooled_qc_summary.count_peaks(tmp_path, "narrow", "missing")
 
     assert "pooled peak file not found" in capsys.readouterr().err
+
+
+def test_count_peaks_supports_direct_file_path(tmp_path):
+    peak_file = tmp_path / "custom_filtered_peaks.narrowPeak"
+    peak_file.write_text("peak1\npeak2\n", encoding="utf-8")
+    assert pooled_qc_summary.count_peaks(peak_file, "narrow", "exp") == 2
 
 
 def test_main_writes_exact_fifteen_column_summary(tmp_path, monkeypatch):

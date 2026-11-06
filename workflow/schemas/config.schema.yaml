@@ -49,26 +49,26 @@ analysis_profile:
   default: legacy
   allowed: [legacy, updated]
   description: >
-    Analysis policy bundle. legacy preserves existing scientific inputs,
-    outputs, and paths. updated applies D-02/D-03/D-04/D-06 defaults.
+    Analysis policy bundle. Both profiles apply the current scientific policy;
+    legacy keeps the original backend dispatch, updated derives a filtered analysis BAM.
     updated must be explicit; it is not inferred from a missing key.
 
 blacklist_mode:
   type: string
-  default: copies
+  default: analysis
   allowed: [off, copies, analysis]
   description: >
     Canonical blacklist policy. off=raw; copies=QC copies; analysis=filtered
-    analysis branch (analysis_profile=updated only). In legacy configs the
+    analysis branch across both legacy and updated profiles. In legacy configs the
     historical qc.blacklist_filter alias maps true→copies and false→off.
 
 organelle_mode:
   type: string
-  default: keep
+  default: auto
   allowed: [auto, exclude, report, keep]
   description: >
-    Organelle policy. auto applies assay defaults; exclude/report/keep are
-    explicit. Legacy profile supports keep only.
+    Organelle policy across both profiles. auto applies assay defaults;
+    exclude/report/keep are explicit overrides.
 
 duplicate_backend:
   type: string
@@ -80,10 +80,14 @@ duplicate_backend:
 
 duplicate_analysis:
   type: string
-  default: exclude
-  allowed: [exclude, retain]
+  default: auto
+  allowed: [auto, exclude, retain]
   description: >
-    Duplicate policy for updated analysis. Legacy derives it from remove_dup.
+    Duplicate policy. auto resolves per sample by assay (CUT&Tag retains;
+    ChIP-seq, ATAC-seq, MNase-seq exclude). An explicit exclude/retain
+    overrides the assay default for the whole run. The legacy remove_dup
+    yes/no alias maps to exclude/retain. The BAM layer executes the policy
+    and every MACS3 call renders --keep-dup all.
 
 control_mode:
   type: string
@@ -227,7 +231,6 @@ qc:
   type: mapping
   required: false
   default:
-    blacklist_filter: true
     frip: true
     library_complexity: true
     nrf_pbc: true
@@ -235,6 +238,7 @@ qc:
     summary: true
     cuttag_fragment_size: true
     cross_correlation: false
+    cross_correlation_target_type: auto
     preseq_complexity: false
     picard_metrics: false
     tss_enrichment: false
@@ -245,11 +249,10 @@ qc:
   schema:
     blacklist_filter:
       type: boolean
-      default: true
       description: >
-        Enable blacklist filtering for BAM and peak files. When true,
-        blacklist-filtered outputs are only scheduled for genomes that
-        have a non-empty blacklist path in genome_resources.
+        Legacy alias for blacklist filtering. Prefer the canonical top-level
+        blacklist_mode. When blacklist_mode is omitted, true maps to copies and
+        false maps to off; it is not injected as a default.
     frip:
       type: boolean
       default: true
@@ -297,6 +300,13 @@ qc:
       description: >
         Enable phantompeakqualtools cross-correlation QC (NSC/RSC/fragment length).
         Produces .cc.qc and .cc.plot.pdf per sample.
+    cross_correlation_target_type:
+      type: string
+      default: auto
+      allowed: [auto, tf, histone]
+      description: >
+        Run-wide ChIP target type for the phantom exclusion window. Auto uses
+        known histone targets and leaves other names unknown; non-ChIP remains diagnostic.
     preseq_complexity:
       type: boolean
       default: false
@@ -619,6 +629,15 @@ tool_parameters:
           type: boolean
           default: false
           description: --no-discordant flag (emitted when true).
+        max_insert:
+          type: integer | string
+          default: "auto"
+          allowed: ["auto", "<positive integer>"]
+          description: >
+            Paired-end maximum fragment length (-X). auto resolves per sample
+            by assay (ChIP-seq: 2000, ATAC-seq: 2000, CUT&Tag: 700,
+            MNase-seq: 500); a positive integer overrides auto for all PE
+            samples in the run. Validated for SE runs but not emitted.
         extra_args:
           type: string
           default: ""

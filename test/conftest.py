@@ -21,6 +21,11 @@ _require_checkout = runpy.run_path(
 )["require_checkout"]
 _require_checkout(_REPOSITORY_ROOT)
 
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+if str(_REPOSITORY_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT / "scripts"))
+
 import pytest  # noqa: E402
 
 
@@ -348,6 +353,38 @@ def prepare_profile_workdir(profile_dir):
     return workdir, dest_config
 
 
+def seed_run_identity(workdir, executable, snakefile, config_path, outdir="results"):
+    """Create the versioned run marker for staged mid-run fixture directories.
+
+    Harnesses that pre-stage scientific outputs inside the outdir must seed
+    the same identity marker a real run creates before any scientific task;
+    the workflow refuses to write into unmarked non-empty outdirs.
+    """
+    marker = Path(workdir) / outdir / ".helixweave" / "analysis_identity.json"
+    if marker.exists():
+        return
+    result = subprocess.run(
+        [
+            str(executable),
+            "-s",
+            str(snakefile),
+            "--workflow-profile",
+            "none",
+            "--configfile",
+            str(config_path),
+            "--directory",
+            str(workdir),
+            "--cores",
+            "1",
+            f"{outdir}/.helixweave/analysis_identity.json",
+        ],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 @pytest.fixture(scope="session")
 def test_data_dir(repo_root):
     """Return the test data directory."""
@@ -404,6 +441,8 @@ def tmp_config(tmp_path):
         resolved = dict(config)
         if "samples" not in resolved:
             resolved["samples"] = str(samples_path)
+        if "blacklist_mode" not in resolved and "genome_resources" not in resolved:
+            resolved["blacklist_mode"] = "off"
 
         with open(config_path, "w", encoding="utf-8") as fh:
             _write_yaml(fh, resolved)
@@ -550,6 +589,8 @@ def _load_idr_paths_namespace(
             ("macs3", "broad_cutoff"): 0.1,
         }.get((tool, key), default),
         "_bioreps_for": lambda experiment, sample_type: ["1", "2"],
+        # SCI-2: defined in metadata.smk in the real workflow namespace.
+        "MACS3_KEEP_DUP_ARGS": "--keep-dup all",
     }
     exec(compile(code, str(idr_paths_file), "exec"), namespace)
     return namespace

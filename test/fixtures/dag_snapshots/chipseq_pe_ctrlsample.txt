@@ -4,13 +4,18 @@
 # Excludes: timestamps, absolute paths, temp dirs, version strings, shell commands, reasons
 
 all
+analysis_identity_marker
+analysis_policy
+analysis_template_metrics
 bamcoverage
 bowtie2_align
 duplicate_handling
 fastqc
 fastqc_stage
 macs3_callpeak
+mito_fraction
 pipeline_done
+prepare_analysis_bam
 samtools_filter
 samtools_flagstat
 samtools_flagstat_final

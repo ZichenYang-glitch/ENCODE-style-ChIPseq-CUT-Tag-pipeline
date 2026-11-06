@@ -30,6 +30,7 @@ def _placeholder_config(tmp_path: Path) -> Path:
             {
                 "samples": str(samples_path),
                 "use_control": False,
+                "blacklist_mode": "off",
             },
             sort_keys=True,
         ),

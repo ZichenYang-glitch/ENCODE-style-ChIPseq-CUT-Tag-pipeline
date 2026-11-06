@@ -10,6 +10,7 @@ import pytest
 
 from _complexity import REPO, project, run, snakemake
 from _tool_resolver import resolve_tool
+from conftest import seed_run_identity
 
 
 pytestmark = pytest.mark.real_execution
@@ -227,6 +228,13 @@ def test_original_metric_rules_execute_without_final_bam_or_qc_directories(
     tmp_path, tools, snakemake_executable, layout, policy, peak_mode
 ):
     config = project(tmp_path, layout, remove_dup=policy, peak_mode=peak_mode)
+    seed_run_identity(
+        tmp_path,
+        snakemake_executable,
+        REPO / "workflow/Snakefile",
+        config,
+        outdir="results",
+    )
     rows = spectrum(layout)
     # The original MAPQ/primary filter, but not duplicate exclusion, must apply.
     for name, mapq, excluded_flag in (
@@ -287,6 +295,13 @@ def test_uninformative_preseq_input_fails_without_fabricating_a_curve(
     tmp_path, tools, snakemake_executable
 ):
     config = project(tmp_path, "SE", remove_dup="no")
+    seed_run_identity(
+        tmp_path,
+        snakemake_executable,
+        REPO / "workflow/Snakefile",
+        config,
+        outdir="results",
+    )
     bam = write_bam(
         tmp_path, tools, [alignment(f"r{i}", 100 + i * 300) for i in range(3)]
     )

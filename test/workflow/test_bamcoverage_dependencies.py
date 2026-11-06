@@ -30,7 +30,7 @@ _BAMS = {
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch, run_validator):
+def project(tmp_path, monkeypatch, run_validator, snakemake_executable):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     # Preserve both original producer and consumer rules, including params
@@ -117,6 +117,7 @@ else:
             use_control=role == "control",
             multiqc=False,
             replicate_analysis=False,
+            blacklist_mode="off",
             qc={"signal_tracks": False},
             genome_resources={"tiny": {"effective_genome_size": 1000000}},
         )
@@ -126,10 +127,20 @@ else:
         config_path.write_text(json.dumps(config))
         validation = run_validator(config_path)
         assert validation.returncode == 0, validation.stderr
+        # The identity marker must exist before any staged scientific output;
+        # unmarked non-empty outdirs are refused.
+        from conftest import seed_run_identity
+
+        seed_run_identity(
+            tmp_path, snakemake_executable, REPO / "workflow/Snakefile", config_path
+        )
         bam = tmp_path / "results/S1/02_align/S1.final.bam"
         bam.parent.mkdir(parents=True)
         for suffix, encoded in zip(("", ".bai"), _BAMS[layout]):
             Path(str(bam) + suffix).write_bytes(base64.b64decode(encoded))
+        analysis_bam = tmp_path / "results/S1/02_align/S1.analysis.bam"
+        for suffix, encoded in zip(("", ".bai"), _BAMS[layout]):
+            Path(str(analysis_bam) + suffix).write_bytes(base64.b64decode(encoded))
         (tmp_path / "model.json").write_text(json.dumps({"prediction": prediction}))
         return config_path
 
@@ -198,7 +209,7 @@ def assert_coverage(workdir, extension):
     argv = json.loads((workdir / BW).read_text())
     assert argv == [
         "-b",
-        "results/S1/02_align/S1.final.bam",
+        "results/S1/02_align/S1.analysis.bam",
         "-o",
         BW,
         "--normalizeUsing",

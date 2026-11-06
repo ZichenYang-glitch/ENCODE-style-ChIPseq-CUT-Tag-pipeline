@@ -36,8 +36,9 @@ The nightly cron is `17 19 * * *` UTC (03:17 the next day in Asia/Shanghai).
   scientific end-to-end run.
 - `test/real_execution/test_staged_fastqc_multiqc.py` verifies staged FastQC
   outputs and the native MultiQC 1.35 report contract.
-- `test/real_execution/test_pseudoreplicate_splitting.py` and
-  `test/real_execution/test_cuttag_fragment_size.py` are focused real-tool
+- `test/real_execution/test_pseudoreplicate_splitting.py`,
+  `test/real_execution/test_cuttag_fragment_size.py`, and
+  `test/real_execution/test_mnase_qc_summary_v2.py` are focused real-tool
   contracts that require `samtools`.
 - `test/bulk_rnaseq_real_execution` contains the private, explicit
   nf-core/rnaseq 3.26.0 real-execution gates.

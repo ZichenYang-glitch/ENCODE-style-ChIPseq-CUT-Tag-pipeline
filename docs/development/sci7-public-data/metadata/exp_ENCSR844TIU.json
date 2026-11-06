@@ -1,0 +1,3526 @@
+{
+  "@context": "/terms/",
+  "@id": "/experiments/ENCSR844TIU/",
+  "@type": [
+    "Experiment",
+    "Dataset",
+    "Item"
+  ],
+  "accession": "ENCSR844TIU",
+  "aliases": [
+    "tim-reddy:mmCD4-Treg-atacseq"
+  ],
+  "alternate_accessions": [],
+  "analyses": [
+    {
+      "@id": "/analyses/ENCAN091PLV/",
+      "@type": [
+        "Analysis",
+        "Item"
+      ],
+      "accession": "ENCAN091PLV",
+      "aliases": [],
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "datasets": [
+        "/experiments/ENCSR844TIU/"
+      ],
+      "date_created": "2024-04-15T07:45:57.847435+00:00",
+      "documents": [],
+      "files": [
+        "/files/ENCFF040EQJ/",
+        "/files/ENCFF705NGT/",
+        "/files/ENCFF047ISW/",
+        "/files/ENCFF439XRZ/",
+        "/files/ENCFF696BKC/",
+        "/files/ENCFF105IRG/",
+        "/files/ENCFF613SZP/",
+        "/files/ENCFF125ODP/"
+      ],
+      "lab": "/labs/tim-reddy/",
+      "pipeline_award_rfas": [
+        "GGR"
+      ],
+      "pipeline_labs": [
+        "/labs/tim-reddy/"
+      ],
+      "pipelines": [
+        "/pipelines/ENCPL867PDN/"
+      ],
+      "schema_version": "1",
+      "status": "released",
+      "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+      "superseded_by": [],
+      "title": "Lab custom mm10",
+      "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+    }
+  ],
+  "assay_slims": [
+    "DNA accessibility"
+  ],
+  "assay_term_id": "OBI:0002039",
+  "assay_term_name": "ATAC-seq",
+  "assay_title": "ATAC-seq",
+  "assembly": [
+    "mm10"
+  ],
+  "audit": {
+    "INTERNAL_ACTION": [
+      {
+        "category": "mismatched status",
+        "detail": "Released analysis {ENCAN091PLV|/analyses/ENCAN091PLV/} has deleted subobject file {ENCFF125ODP|/files/ENCFF125ODP/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/analyses/ENCAN091PLV/"
+      },
+      {
+        "category": "mismatched status",
+        "detail": "Released analysis {ENCAN091PLV|/analyses/ENCAN091PLV/} has deleted subobject file {ENCFF105IRG|/files/ENCFF105IRG/}",
+        "level": 30,
+        "level_name": "INTERNAL_ACTION",
+        "name": "audit_item_status",
+        "path": "/analyses/ENCAN091PLV/"
+      }
+    ]
+  },
+  "award": {
+    "@id": "/awards/UM1HG009428/",
+    "@type": [
+      "Award",
+      "Item"
+    ],
+    "component": "functional characterization",
+    "description": "There is a fundamental gap in understanding how the millions of known regulatory elements functionally contribute to gene regulation and phenotypes. Continued existence of that gap is an important problem because, until it is filled, it will remain extremely difficult to identify the genetic mechanisms underlying the thousands of observed genetic associations with disease phenotypes. Our long-term goal is to understand how and to what extent gene regulatory elements alter target gene expression and impact phenotypes. The objectives of this particular proposal are to functionally characterize all regulatory elements contributing to the differentiation of CD4+ T cells. In doing so, we will identify the causal regulatory mechanisms that modulate the immune system. The rationale for this work is that understanding those mechanisms will be the foundation for future efforts to therapeutically modulate the immune system, and will establish a discovery platform for determining the mechanisms underlying countless other model systems. Specifically, we will characterize three complementary components of regulatory element activity: (i) the capacity of regulatory elements to drive expression of a reporter gene, (ii) the effect of each regulatory element on the expression of one or more target genes, and (iii) the contributions of regulatory elements to phenotypic function, namely differentiation. We will accomplish those goals across three specific aims. In Aim 1, we will quantify the activity of all regulatory elements that have evidence of differential activity between subtypes of mouse CD4 T cells. We will do so using a capture-based high-throughput reporter assay that allows us to assay larger (>500 bp) fragments from specific genomic regions of interest. In Aim 2, we will quantify the effects of regulatory elements on target genes using a novel strategy that combines high-throughput CRISPR/ Cas9-based epigenome editing screens and targeted high-throughput single-cell RNA-sequencing. In Aim 3, we will determine which regulatory elements are necessary or sufficient for CD4 T cell differentiation using high-throughput CRISPR/Cas9-based epigenome-editing screens combined differentiation into particular CD4 T cell subtypes. Each aim will provide functional characterization of all of the regulatory elements implicated in CD4 T cell differentiation. Together, the aims will provide a comprehensive, multi-layered, and systematic understanding of the ways that gene regulatory elements modulate the immune system. The result will be an actionable set of targets for designing strategies to modulate immune system activity for therapeutic benefit. Because the approach is general to any model system, the same strategy can be readily transferred to diverse systems including differentiation and disease models. Therefore, we expect that this project will have both immediate and long-term benefit for determining the ways that regulatory elements contribute to health and disease.",
+    "end_date": "2021-06-30",
+    "name": "UM1HG009428",
+    "pi": {
+      "@id": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+      "@type": [
+        "User",
+        "Item"
+      ],
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "submits_for": [
+        "/labs/richard-myers/",
+        "/labs/barbara-wold/",
+        "/labs/ali-mortazavi/",
+        "/labs/ross-hardison/",
+        "/labs/tim-reddy/"
+      ],
+      "title": "Tim Reddy",
+      "uuid": "261fcf1a-04d9-4879-a56a-320915587586"
+    },
+    "project": "ENCODE",
+    "rfa": "ENCODE4",
+    "schema_version": "11",
+    "start_date": "2017-08-21",
+    "status": "current",
+    "title": "REGULATORY MECHANISMS OF CD4+ T CELL DIFFERENTIATION",
+    "url": "https://projectreporter.nih.gov/project_info_description.cfm?aid=9247591&icde=36236391&ddparam=&ddvalue=&ddsub=&cr=1&csb=default&cs=ASC&pball=",
+    "uuid": "3830963f-2518-412d-b685-ca00c1fc92e4",
+    "viewing_group": "ENCODE4"
+  },
+  "bio_replicate_count": 2,
+  "biosample_ontology": {
+    "@id": "/biosample-types/primary_cell_CL_0000815/",
+    "@type": [
+      "BiosampleType",
+      "Item"
+    ],
+    "aliases": [],
+    "cell_slims": [
+      "CD4+ T cell",
+      "T cell",
+      "leukocyte",
+      "hematopoietic cell"
+    ],
+    "classification": "primary cell",
+    "dbxrefs": [],
+    "developmental_slims": [
+      "endoderm",
+      "mesoderm"
+    ],
+    "name": "primary_cell_CL_0000815",
+    "organ_slims": [
+      "bodily fluid",
+      "blood"
+    ],
+    "references": [],
+    "schema_version": "1",
+    "status": "released",
+    "synonyms": [
+      "Treg",
+      "regulatory T-cell",
+      "regulatory T-lymphocyte",
+      "regulatory T lymphocyte"
+    ],
+    "system_slims": [
+      "immune system"
+    ],
+    "term_id": "CL:0000815",
+    "term_name": "regulatory T cell",
+    "uuid": "fb7dd8dc-02c3-4d27-a2ec-068effcf3221"
+  },
+  "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+  "category_slims": [],
+  "contributing_files": [],
+  "date_created": "2023-11-13T18:29:18.399444+00:00",
+  "date_released": "2025-09-30",
+  "dbxrefs": [
+    "GEO:GSE321371"
+  ],
+  "default_analysis": "/analyses/ENCAN091PLV/",
+  "documents": [
+    "/documents/67c2ea0e-5de5-4d3a-81f5-7e847a427b3f/",
+    "/documents/67fe57d3-d3c0-4609-8dbf-27f3fc1441b4/"
+  ],
+  "files": [
+    {
+      "@id": "/files/ENCFF789PHQ/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF789PHQ",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1-read1"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2023/11/13/9b953712-6e14-4282-9da5-66860a2eeecd/ENCFF789PHQ.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 740537844,
+        "md5sum_base64": "/8XnTjOGsCH1KQxkIvHr8Q==",
+        "url": "https://encode-public.s3.amazonaws.com/2023/11/13/9b953712-6e14-4282-9da5-66860a2eeecd/ENCFF789PHQ.fastq.gz"
+      },
+      "content_md5sum": "845a635f348c1257afe33a0c327f1f3c",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2023-11-13T18:49:05.942904+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [
+        "HFHJYBGXG:1:1:ACTACGCT:",
+        "HFHJYBGXG:1:1:CCTACGCT:",
+        "HFHJYBGXG:1:1:GATACGCT:",
+        "HFHJYBGXG:1:1:GCAACGCT:",
+        "HFHJYBGXG:1:1:GCCACGCT:",
+        "HFHJYBGXG:1:1:GCGACGCT:",
+        "HFHJYBGXG:1:1:GCNACGCT:",
+        "HFHJYBGXG:1:1:GCTAAGCT:",
+        "HFHJYBGXG:1:1:GCTACACT:",
+        "HFHJYBGXG:1:1:GCTACCCT:",
+        "HFHJYBGXG:1:1:GCTACGAT:",
+        "HFHJYBGXG:1:1:GCTACGCA:",
+        "HFHJYBGXG:1:1:GCTACGCC:",
+        "HFHJYBGXG:1:1:GCTACGCG:",
+        "HFHJYBGXG:1:1:GCTACGCN:",
+        "HFHJYBGXG:1:1:GCTACGCT:",
+        "HFHJYBGXG:1:1:GCTACGGT:",
+        "HFHJYBGXG:1:1:GCTACGTT:",
+        "HFHJYBGXG:1:1:GCTACNCT:",
+        "HFHJYBGXG:1:1:GCTACTCT:",
+        "HFHJYBGXG:1:1:GCTAGGCT:",
+        "HFHJYBGXG:1:1:GCTANGCT:",
+        "HFHJYBGXG:1:1:GCTATGCT:",
+        "HFHJYBGXG:1:1:GCTCCGCT:",
+        "HFHJYBGXG:1:1:GCTGCGCT:",
+        "HFHJYBGXG:1:1:GCTNCGCT:",
+        "HFHJYBGXG:1:1:GCTTCGCT:",
+        "HFHJYBGXG:1:1:GGTACGCT:",
+        "HFHJYBGXG:1:1:GNTACGCT:",
+        "HFHJYBGXG:1:1:GTTACGCT:",
+        "HFHJYBGXG:1:1:NCTACGCT:",
+        "HFHJYBGXG:1:1:TCTACGCT:",
+        "HFHJYBGXG:2:1:ACTACGCT:",
+        "HFHJYBGXG:2:1:CCTACGCT:",
+        "HFHJYBGXG:2:1:GATACGCT:",
+        "HFHJYBGXG:2:1:GCAACGCT:",
+        "HFHJYBGXG:2:1:GCCACGCT:",
+        "HFHJYBGXG:2:1:GCGACGCT:",
+        "HFHJYBGXG:2:1:GCNACGCT:",
+        "HFHJYBGXG:2:1:GCTAAGCT:",
+        "HFHJYBGXG:2:1:GCTACACT:",
+        "HFHJYBGXG:2:1:GCTACCCT:",
+        "HFHJYBGXG:2:1:GCTACGAT:",
+        "HFHJYBGXG:2:1:GCTACGCA:",
+        "HFHJYBGXG:2:1:GCTACGCC:",
+        "HFHJYBGXG:2:1:GCTACGCG:",
+        "HFHJYBGXG:2:1:GCTACGCN:",
+        "HFHJYBGXG:2:1:GCTACGCT:",
+        "HFHJYBGXG:2:1:GCTACGGT:",
+        "HFHJYBGXG:2:1:GCTACGNT:",
+        "HFHJYBGXG:2:1:GCTACGTT:",
+        "HFHJYBGXG:2:1:GCTACNCT:",
+        "HFHJYBGXG:2:1:GCTACTCT:",
+        "HFHJYBGXG:2:1:GCTAGGCT:",
+        "HFHJYBGXG:2:1:GCTATGCT:",
+        "HFHJYBGXG:2:1:GCTCCGCT:",
+        "HFHJYBGXG:2:1:GCTGCGCT:",
+        "HFHJYBGXG:2:1:GCTNCGCT:",
+        "HFHJYBGXG:2:1:GCTTCGCT:",
+        "HFHJYBGXG:2:1:GGTACGCT:",
+        "HFHJYBGXG:2:1:GNTACGCT:",
+        "HFHJYBGXG:2:1:GTTACGCT:",
+        "HFHJYBGXG:2:1:NCTACGCT:",
+        "HFHJYBGXG:2:1:TCTACGCT:",
+        "HFHJYBGXG:3:1:ACTACGCT:",
+        "HFHJYBGXG:3:1:CCTACGCT:",
+        "HFHJYBGXG:3:1:GATACGCT:",
+        "HFHJYBGXG:3:1:GCAACGCT:",
+        "HFHJYBGXG:3:1:GCCACGCT:",
+        "HFHJYBGXG:3:1:GCGACGCT:",
+        "HFHJYBGXG:3:1:GCNACGCT:",
+        "HFHJYBGXG:3:1:GCTAAGCT:",
+        "HFHJYBGXG:3:1:GCTACACT:",
+        "HFHJYBGXG:3:1:GCTACCCT:",
+        "HFHJYBGXG:3:1:GCTACGAT:",
+        "HFHJYBGXG:3:1:GCTACGCA:",
+        "HFHJYBGXG:3:1:GCTACGCC:",
+        "HFHJYBGXG:3:1:GCTACGCG:",
+        "HFHJYBGXG:3:1:GCTACGCN:",
+        "HFHJYBGXG:3:1:GCTACGCT:",
+        "HFHJYBGXG:3:1:GCTACGGT:",
+        "HFHJYBGXG:3:1:GCTACGNT:",
+        "HFHJYBGXG:3:1:GCTACGTT:",
+        "HFHJYBGXG:3:1:GCTACNCT:",
+        "HFHJYBGXG:3:1:GCTACTCT:",
+        "HFHJYBGXG:3:1:GCTAGGCT:",
+        "HFHJYBGXG:3:1:GCTANGCT:",
+        "HFHJYBGXG:3:1:GCTATGCT:",
+        "HFHJYBGXG:3:1:GCTCCGCT:",
+        "HFHJYBGXG:3:1:GCTGCGCT:",
+        "HFHJYBGXG:3:1:GCTNCGCT:",
+        "HFHJYBGXG:3:1:GCTTCGCT:",
+        "HFHJYBGXG:3:1:GGTACGCT:",
+        "HFHJYBGXG:3:1:GNTACGCT:",
+        "HFHJYBGXG:3:1:GTTACGCT:",
+        "HFHJYBGXG:3:1:NCTACGCT:",
+        "HFHJYBGXG:3:1:TCTACGCT:",
+        "HFHJYBGXG:4:1:ACTACGCT:",
+        "HFHJYBGXG:4:1:CCTACGCT:",
+        "HFHJYBGXG:4:1:GATACGCT:",
+        "HFHJYBGXG:4:1:GCAACGCT:",
+        "HFHJYBGXG:4:1:GCCACGCT:",
+        "HFHJYBGXG:4:1:GCGACGCT:",
+        "HFHJYBGXG:4:1:GCNACGCT:",
+        "HFHJYBGXG:4:1:GCTAAGCT:",
+        "HFHJYBGXG:4:1:GCTACACT:",
+        "HFHJYBGXG:4:1:GCTACCCT:",
+        "HFHJYBGXG:4:1:GCTACGAT:",
+        "HFHJYBGXG:4:1:GCTACGCA:",
+        "HFHJYBGXG:4:1:GCTACGCC:",
+        "HFHJYBGXG:4:1:GCTACGCG:",
+        "HFHJYBGXG:4:1:GCTACGCN:",
+        "HFHJYBGXG:4:1:GCTACGCT:",
+        "HFHJYBGXG:4:1:GCTACGGT:",
+        "HFHJYBGXG:4:1:GCTACGNT:",
+        "HFHJYBGXG:4:1:GCTACGTT:",
+        "HFHJYBGXG:4:1:GCTACNCT:",
+        "HFHJYBGXG:4:1:GCTACTCT:",
+        "HFHJYBGXG:4:1:GCTAGGCT:",
+        "HFHJYBGXG:4:1:GCTANGCT:",
+        "HFHJYBGXG:4:1:GCTATGCT:",
+        "HFHJYBGXG:4:1:GCTCCGCT:",
+        "HFHJYBGXG:4:1:GCTGCGCT:",
+        "HFHJYBGXG:4:1:GCTNCGCT:",
+        "HFHJYBGXG:4:1:GCTTCGCT:",
+        "HFHJYBGXG:4:1:GGTACGCT:",
+        "HFHJYBGXG:4:1:GNTACGCT:",
+        "HFHJYBGXG:4:1:GTTACGCT:",
+        "HFHJYBGXG:4:1:NCTACGCT:",
+        "HFHJYBGXG:4:1:TCTACGCT:"
+      ],
+      "file_format": "fastq",
+      "file_size": 740537844,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF789PHQ/@@download/ENCFF789PHQ.fastq.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "ffc5e74e3386b021f5290c6422f1ebf1",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS206FNH/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "1",
+      "paired_with": "/files/ENCFF574DTB/",
+      "platform": {
+        "@id": "/platforms/OBI:0002021/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NextSeq500"
+        ],
+        "date_created": "2014-09-09T22:52:30.378817+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/4c23ec32-c7c8-4ac0-affb-04befcc881d4/",
+        "term_id": "OBI:0002021",
+        "term_name": "Illumina NextSeq 500",
+        "title": "Illumina NextSeq 500",
+        "uuid": "4f98e005-b191-417c-b66c-2e9b593a12a8"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 33342798,
+      "read_length": 26,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep1"
+        ],
+        "biological_replicate_number": 1,
+        "date_created": "2023-11-13T18:29:31.111540+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR844TIU/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR844TIU",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN091PLV/"
+          ],
+          "assay_slims": [
+            "DNA accessibility"
+          ],
+          "assay_term_id": "OBI:0002039",
+          "assay_term_name": "ATAC-seq",
+          "assay_title": "ATAC-seq",
+          "assembly": [
+            "mm10"
+          ],
+          "award": "/awards/UM1HG009428/",
+          "bio_replicate_count": 2,
+          "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+          "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2023-11-13T18:29:18.399444+00:00",
+          "date_released": "2025-09-30",
+          "dbxrefs": [
+            "GEO:GSE321371"
+          ],
+          "default_analysis": "/analyses/ENCAN091PLV/",
+          "documents": [
+            "/documents/67c2ea0e-5de5-4d3a-81f5-7e847a427b3f/",
+            "/documents/67fe57d3-d3c0-4609-8dbf-27f3fc1441b4/"
+          ],
+          "files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "hub": "/experiments/ENCSR844TIU/@@hub/hub.txt",
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/tim-reddy/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "CIEMAS, Room 2347",
+            "address2": "101 Science Drive, IGSP Box 3382",
+            "awards": [
+              "/awards/U01HG007900/",
+              "/awards/U54HG006998/"
+            ],
+            "city": "Durham",
+            "country": "USA",
+            "fax": "",
+            "institute_label": "Duke",
+            "institute_name": "Duke University",
+            "name": "tim-reddy",
+            "phone1": "919-564-9536",
+            "phone2": "",
+            "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+            "postal_code": "27708",
+            "schema_version": "5",
+            "state": "NC",
+            "status": "current",
+            "title": "Tim Reddy, Duke",
+            "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+          },
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+            "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/"
+          ],
+          "replication_type": "isogenic",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+          "status": "released",
+          "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 2,
+          "type_slims": [],
+          "uuid": "d1215c6b-010a-4b7b-a14f-eec200f0b03f"
+        },
+        "library": "/libraries/ENCLB190GZI/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "technical_replicate_number": 1,
+        "uuid": "c155ad10-74c1-468f-9a52-a36bd84c029b"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2023/11/13/9b953712-6e14-4282-9da5-66860a2eeecd/ENCFF789PHQ.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/data/atac_seq/processed_raw_reads/Siklenka_6420_200805A5/KS133.Treg.72hrs.ASTARR.insert.rep1.R1.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF789PHQ",
+      "uuid": "9b953712-6e14-4282-9da5-66860a2eeecd"
+    },
+    {
+      "@id": "/files/ENCFF574DTB/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF574DTB",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1-read2"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2023/11/13/10daebda-db6f-418b-a1f1-dea10f5613ef/ENCFF574DTB.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 748607968,
+        "md5sum_base64": "jvlxoegwFpcMVLYfnFEEaQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2023/11/13/10daebda-db6f-418b-a1f1-dea10f5613ef/ENCFF574DTB.fastq.gz"
+      },
+      "content_md5sum": "6cb8c3b3e0ac50ef275c6cd4eeada9a8",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2023-11-13T18:49:20.913599+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [
+        "HFHJYBGXG:1:2:ACTACGCT:",
+        "HFHJYBGXG:1:2:CCTACGCT:",
+        "HFHJYBGXG:1:2:GATACGCT:",
+        "HFHJYBGXG:1:2:GCAACGCT:",
+        "HFHJYBGXG:1:2:GCCACGCT:",
+        "HFHJYBGXG:1:2:GCGACGCT:",
+        "HFHJYBGXG:1:2:GCNACGCT:",
+        "HFHJYBGXG:1:2:GCTAAGCT:",
+        "HFHJYBGXG:1:2:GCTACACT:",
+        "HFHJYBGXG:1:2:GCTACCCT:",
+        "HFHJYBGXG:1:2:GCTACGAT:",
+        "HFHJYBGXG:1:2:GCTACGCA:",
+        "HFHJYBGXG:1:2:GCTACGCC:",
+        "HFHJYBGXG:1:2:GCTACGCG:",
+        "HFHJYBGXG:1:2:GCTACGCN:",
+        "HFHJYBGXG:1:2:GCTACGCT:",
+        "HFHJYBGXG:1:2:GCTACGGT:",
+        "HFHJYBGXG:1:2:GCTACGTT:",
+        "HFHJYBGXG:1:2:GCTACNCT:",
+        "HFHJYBGXG:1:2:GCTACTCT:",
+        "HFHJYBGXG:1:2:GCTAGGCT:",
+        "HFHJYBGXG:1:2:GCTANGCT:",
+        "HFHJYBGXG:1:2:GCTATGCT:",
+        "HFHJYBGXG:1:2:GCTCCGCT:",
+        "HFHJYBGXG:1:2:GCTGCGCT:",
+        "HFHJYBGXG:1:2:GCTNCGCT:",
+        "HFHJYBGXG:1:2:GCTTCGCT:",
+        "HFHJYBGXG:1:2:GGTACGCT:",
+        "HFHJYBGXG:1:2:GNTACGCT:",
+        "HFHJYBGXG:1:2:GTTACGCT:",
+        "HFHJYBGXG:1:2:NCTACGCT:",
+        "HFHJYBGXG:1:2:TCTACGCT:",
+        "HFHJYBGXG:2:2:ACTACGCT:",
+        "HFHJYBGXG:2:2:CCTACGCT:",
+        "HFHJYBGXG:2:2:GATACGCT:",
+        "HFHJYBGXG:2:2:GCAACGCT:",
+        "HFHJYBGXG:2:2:GCCACGCT:",
+        "HFHJYBGXG:2:2:GCGACGCT:",
+        "HFHJYBGXG:2:2:GCNACGCT:",
+        "HFHJYBGXG:2:2:GCTAAGCT:",
+        "HFHJYBGXG:2:2:GCTACACT:",
+        "HFHJYBGXG:2:2:GCTACCCT:",
+        "HFHJYBGXG:2:2:GCTACGAT:",
+        "HFHJYBGXG:2:2:GCTACGCA:",
+        "HFHJYBGXG:2:2:GCTACGCC:",
+        "HFHJYBGXG:2:2:GCTACGCG:",
+        "HFHJYBGXG:2:2:GCTACGCN:",
+        "HFHJYBGXG:2:2:GCTACGCT:",
+        "HFHJYBGXG:2:2:GCTACGGT:",
+        "HFHJYBGXG:2:2:GCTACGNT:",
+        "HFHJYBGXG:2:2:GCTACGTT:",
+        "HFHJYBGXG:2:2:GCTACNCT:",
+        "HFHJYBGXG:2:2:GCTACTCT:",
+        "HFHJYBGXG:2:2:GCTAGGCT:",
+        "HFHJYBGXG:2:2:GCTATGCT:",
+        "HFHJYBGXG:2:2:GCTCCGCT:",
+        "HFHJYBGXG:2:2:GCTGCGCT:",
+        "HFHJYBGXG:2:2:GCTNCGCT:",
+        "HFHJYBGXG:2:2:GCTTCGCT:",
+        "HFHJYBGXG:2:2:GGTACGCT:",
+        "HFHJYBGXG:2:2:GNTACGCT:",
+        "HFHJYBGXG:2:2:GTTACGCT:",
+        "HFHJYBGXG:2:2:NCTACGCT:",
+        "HFHJYBGXG:2:2:TCTACGCT:",
+        "HFHJYBGXG:3:2:ACTACGCT:",
+        "HFHJYBGXG:3:2:CCTACGCT:",
+        "HFHJYBGXG:3:2:GATACGCT:",
+        "HFHJYBGXG:3:2:GCAACGCT:",
+        "HFHJYBGXG:3:2:GCCACGCT:",
+        "HFHJYBGXG:3:2:GCGACGCT:",
+        "HFHJYBGXG:3:2:GCNACGCT:",
+        "HFHJYBGXG:3:2:GCTAAGCT:",
+        "HFHJYBGXG:3:2:GCTACACT:",
+        "HFHJYBGXG:3:2:GCTACCCT:",
+        "HFHJYBGXG:3:2:GCTACGAT:",
+        "HFHJYBGXG:3:2:GCTACGCA:",
+        "HFHJYBGXG:3:2:GCTACGCC:",
+        "HFHJYBGXG:3:2:GCTACGCG:",
+        "HFHJYBGXG:3:2:GCTACGCN:",
+        "HFHJYBGXG:3:2:GCTACGCT:",
+        "HFHJYBGXG:3:2:GCTACGGT:",
+        "HFHJYBGXG:3:2:GCTACGNT:",
+        "HFHJYBGXG:3:2:GCTACGTT:",
+        "HFHJYBGXG:3:2:GCTACNCT:",
+        "HFHJYBGXG:3:2:GCTACTCT:",
+        "HFHJYBGXG:3:2:GCTAGGCT:",
+        "HFHJYBGXG:3:2:GCTANGCT:",
+        "HFHJYBGXG:3:2:GCTATGCT:",
+        "HFHJYBGXG:3:2:GCTCCGCT:",
+        "HFHJYBGXG:3:2:GCTGCGCT:",
+        "HFHJYBGXG:3:2:GCTNCGCT:",
+        "HFHJYBGXG:3:2:GCTTCGCT:",
+        "HFHJYBGXG:3:2:GGTACGCT:",
+        "HFHJYBGXG:3:2:GNTACGCT:",
+        "HFHJYBGXG:3:2:GTTACGCT:",
+        "HFHJYBGXG:3:2:NCTACGCT:",
+        "HFHJYBGXG:3:2:TCTACGCT:",
+        "HFHJYBGXG:4:2:ACTACGCT:",
+        "HFHJYBGXG:4:2:CCTACGCT:",
+        "HFHJYBGXG:4:2:GATACGCT:",
+        "HFHJYBGXG:4:2:GCAACGCT:",
+        "HFHJYBGXG:4:2:GCCACGCT:",
+        "HFHJYBGXG:4:2:GCGACGCT:",
+        "HFHJYBGXG:4:2:GCNACGCT:",
+        "HFHJYBGXG:4:2:GCTAAGCT:",
+        "HFHJYBGXG:4:2:GCTACACT:",
+        "HFHJYBGXG:4:2:GCTACCCT:",
+        "HFHJYBGXG:4:2:GCTACGAT:",
+        "HFHJYBGXG:4:2:GCTACGCA:",
+        "HFHJYBGXG:4:2:GCTACGCC:",
+        "HFHJYBGXG:4:2:GCTACGCG:",
+        "HFHJYBGXG:4:2:GCTACGCN:",
+        "HFHJYBGXG:4:2:GCTACGCT:",
+        "HFHJYBGXG:4:2:GCTACGGT:",
+        "HFHJYBGXG:4:2:GCTACGNT:",
+        "HFHJYBGXG:4:2:GCTACGTT:",
+        "HFHJYBGXG:4:2:GCTACNCT:",
+        "HFHJYBGXG:4:2:GCTACTCT:",
+        "HFHJYBGXG:4:2:GCTAGGCT:",
+        "HFHJYBGXG:4:2:GCTANGCT:",
+        "HFHJYBGXG:4:2:GCTATGCT:",
+        "HFHJYBGXG:4:2:GCTCCGCT:",
+        "HFHJYBGXG:4:2:GCTGCGCT:",
+        "HFHJYBGXG:4:2:GCTNCGCT:",
+        "HFHJYBGXG:4:2:GCTTCGCT:",
+        "HFHJYBGXG:4:2:GGTACGCT:",
+        "HFHJYBGXG:4:2:GNTACGCT:",
+        "HFHJYBGXG:4:2:GTTACGCT:",
+        "HFHJYBGXG:4:2:NCTACGCT:",
+        "HFHJYBGXG:4:2:TCTACGCT:"
+      ],
+      "file_format": "fastq",
+      "file_size": 748607968,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF574DTB/@@download/ENCFF574DTB.fastq.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "8ef971a1e83016970c54b61f9c510469",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS206FNH/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "2",
+      "paired_with": "/files/ENCFF789PHQ/",
+      "platform": {
+        "@id": "/platforms/OBI:0002021/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NextSeq500"
+        ],
+        "date_created": "2014-09-09T22:52:30.378817+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/4c23ec32-c7c8-4ac0-affb-04befcc881d4/",
+        "term_id": "OBI:0002021",
+        "term_name": "Illumina NextSeq 500",
+        "title": "Illumina NextSeq 500",
+        "uuid": "4f98e005-b191-417c-b66c-2e9b593a12a8"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 33342798,
+      "read_length": 26,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep1"
+        ],
+        "biological_replicate_number": 1,
+        "date_created": "2023-11-13T18:29:31.111540+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR844TIU/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR844TIU",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN091PLV/"
+          ],
+          "assay_slims": [
+            "DNA accessibility"
+          ],
+          "assay_term_id": "OBI:0002039",
+          "assay_term_name": "ATAC-seq",
+          "assay_title": "ATAC-seq",
+          "assembly": [
+            "mm10"
+          ],
+          "award": "/awards/UM1HG009428/",
+          "bio_replicate_count": 2,
+          "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+          "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2023-11-13T18:29:18.399444+00:00",
+          "date_released": "2025-09-30",
+          "dbxrefs": [
+            "GEO:GSE321371"
+          ],
+          "default_analysis": "/analyses/ENCAN091PLV/",
+          "documents": [
+            "/documents/67c2ea0e-5de5-4d3a-81f5-7e847a427b3f/",
+            "/documents/67fe57d3-d3c0-4609-8dbf-27f3fc1441b4/"
+          ],
+          "files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "hub": "/experiments/ENCSR844TIU/@@hub/hub.txt",
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/tim-reddy/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "CIEMAS, Room 2347",
+            "address2": "101 Science Drive, IGSP Box 3382",
+            "awards": [
+              "/awards/U01HG007900/",
+              "/awards/U54HG006998/"
+            ],
+            "city": "Durham",
+            "country": "USA",
+            "fax": "",
+            "institute_label": "Duke",
+            "institute_name": "Duke University",
+            "name": "tim-reddy",
+            "phone1": "919-564-9536",
+            "phone2": "",
+            "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+            "postal_code": "27708",
+            "schema_version": "5",
+            "state": "NC",
+            "status": "current",
+            "title": "Tim Reddy, Duke",
+            "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+          },
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+            "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/"
+          ],
+          "replication_type": "isogenic",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+          "status": "released",
+          "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 2,
+          "type_slims": [],
+          "uuid": "d1215c6b-010a-4b7b-a14f-eec200f0b03f"
+        },
+        "library": "/libraries/ENCLB190GZI/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "technical_replicate_number": 1,
+        "uuid": "c155ad10-74c1-468f-9a52-a36bd84c029b"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2023/11/13/10daebda-db6f-418b-a1f1-dea10f5613ef/ENCFF574DTB.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/data/atac_seq/processed_raw_reads/Siklenka_6420_200805A5/KS133.Treg.72hrs.ASTARR.insert.rep1.R2.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF574DTB",
+      "uuid": "10daebda-db6f-418b-a1f1-dea10f5613ef"
+    },
+    {
+      "@id": "/files/ENCFF488RVS/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF488RVS",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2-read1"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2023/11/13/63babc1d-1ea9-4683-829b-ab672d56ed98/ENCFF488RVS.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        2
+      ],
+      "biological_replicates_formatted": "Rep 2",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 1227795683,
+        "md5sum_base64": "zmE4JeE4qG9S7tRQvAhhtw==",
+        "url": "https://encode-public.s3.amazonaws.com/2023/11/13/63babc1d-1ea9-4683-829b-ab672d56ed98/ENCFF488RVS.fastq.gz"
+      },
+      "content_md5sum": "85dce5e04791e88b99c1da910e2b3fac",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2023-11-13T18:49:37.419874+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [
+        "HFHJYBGXG:1:1:AGAGGCTG:",
+        "HFHJYBGXG:1:1:CAAGGCTG:",
+        "HFHJYBGXG:1:1:CCAGGCTG:",
+        "HFHJYBGXG:1:1:CGAAGCTG:",
+        "HFHJYBGXG:1:1:CGACGCTG:",
+        "HFHJYBGXG:1:1:CGAGACTG:",
+        "HFHJYBGXG:1:1:CGAGCCTG:",
+        "HFHJYBGXG:1:1:CGAGGATG:",
+        "HFHJYBGXG:1:1:CGAGGCAG:",
+        "HFHJYBGXG:1:1:CGAGGCCG:",
+        "HFHJYBGXG:1:1:CGAGGCGG:",
+        "HFHJYBGXG:1:1:CGAGGCTA:",
+        "HFHJYBGXG:1:1:CGAGGCTC:",
+        "HFHJYBGXG:1:1:CGAGGCTG:",
+        "HFHJYBGXG:1:1:CGAGGCTN:",
+        "HFHJYBGXG:1:1:CGAGGCTT:",
+        "HFHJYBGXG:1:1:CGAGGGTG:",
+        "HFHJYBGXG:1:1:CGAGGNTG:",
+        "HFHJYBGXG:1:1:CGAGGTTG:",
+        "HFHJYBGXG:1:1:CGAGNCTG:",
+        "HFHJYBGXG:1:1:CGAGTCTG:",
+        "HFHJYBGXG:1:1:CGANGCTG:",
+        "HFHJYBGXG:1:1:CGATGCTG:",
+        "HFHJYBGXG:1:1:CGCGGCTG:",
+        "HFHJYBGXG:1:1:CGGGGCTG:",
+        "HFHJYBGXG:1:1:CGNGGCTG:",
+        "HFHJYBGXG:1:1:CGTGGCTG:",
+        "HFHJYBGXG:1:1:CNAGGCTG:",
+        "HFHJYBGXG:1:1:CTAGGCTG:",
+        "HFHJYBGXG:1:1:GGAGGCTG:",
+        "HFHJYBGXG:1:1:NGAGGCTG:",
+        "HFHJYBGXG:1:1:TGAGGCTG:",
+        "HFHJYBGXG:2:1:AGAGGCTG:",
+        "HFHJYBGXG:2:1:CAAGGCTG:",
+        "HFHJYBGXG:2:1:CCAGGCTG:",
+        "HFHJYBGXG:2:1:CGAAGCTG:",
+        "HFHJYBGXG:2:1:CGACGCTG:",
+        "HFHJYBGXG:2:1:CGAGACTG:",
+        "HFHJYBGXG:2:1:CGAGCCTG:",
+        "HFHJYBGXG:2:1:CGAGGATG:",
+        "HFHJYBGXG:2:1:CGAGGCAG:",
+        "HFHJYBGXG:2:1:CGAGGCCG:",
+        "HFHJYBGXG:2:1:CGAGGCGG:",
+        "HFHJYBGXG:2:1:CGAGGCNG:",
+        "HFHJYBGXG:2:1:CGAGGCTA:",
+        "HFHJYBGXG:2:1:CGAGGCTC:",
+        "HFHJYBGXG:2:1:CGAGGCTG:",
+        "HFHJYBGXG:2:1:CGAGGCTN:",
+        "HFHJYBGXG:2:1:CGAGGCTT:",
+        "HFHJYBGXG:2:1:CGAGGGTG:",
+        "HFHJYBGXG:2:1:CGAGGNTG:",
+        "HFHJYBGXG:2:1:CGAGGTTG:",
+        "HFHJYBGXG:2:1:CGAGTCTG:",
+        "HFHJYBGXG:2:1:CGANGCTG:",
+        "HFHJYBGXG:2:1:CGATGCTG:",
+        "HFHJYBGXG:2:1:CGCGGCTG:",
+        "HFHJYBGXG:2:1:CGGGGCTG:",
+        "HFHJYBGXG:2:1:CGNGGCTG:",
+        "HFHJYBGXG:2:1:CGTGGCTG:",
+        "HFHJYBGXG:2:1:CNAGGCTG:",
+        "HFHJYBGXG:2:1:CTAGGCTG:",
+        "HFHJYBGXG:2:1:GGAGGCTG:",
+        "HFHJYBGXG:2:1:NGAGGCTG:",
+        "HFHJYBGXG:2:1:TGAGGCTG:",
+        "HFHJYBGXG:3:1:AGAGGCTG:",
+        "HFHJYBGXG:3:1:CAAGGCTG:",
+        "HFHJYBGXG:3:1:CCAGGCTG:",
+        "HFHJYBGXG:3:1:CGAAGCTG:",
+        "HFHJYBGXG:3:1:CGACGCTG:",
+        "HFHJYBGXG:3:1:CGAGACTG:",
+        "HFHJYBGXG:3:1:CGAGCCTG:",
+        "HFHJYBGXG:3:1:CGAGGATG:",
+        "HFHJYBGXG:3:1:CGAGGCAG:",
+        "HFHJYBGXG:3:1:CGAGGCCG:",
+        "HFHJYBGXG:3:1:CGAGGCGG:",
+        "HFHJYBGXG:3:1:CGAGGCNG:",
+        "HFHJYBGXG:3:1:CGAGGCTA:",
+        "HFHJYBGXG:3:1:CGAGGCTC:",
+        "HFHJYBGXG:3:1:CGAGGCTG:",
+        "HFHJYBGXG:3:1:CGAGGCTN:",
+        "HFHJYBGXG:3:1:CGAGGCTT:",
+        "HFHJYBGXG:3:1:CGAGGGTG:",
+        "HFHJYBGXG:3:1:CGAGGNTG:",
+        "HFHJYBGXG:3:1:CGAGGTTG:",
+        "HFHJYBGXG:3:1:CGAGNCTG:",
+        "HFHJYBGXG:3:1:CGAGTCTG:",
+        "HFHJYBGXG:3:1:CGANGCTG:",
+        "HFHJYBGXG:3:1:CGATGCTG:",
+        "HFHJYBGXG:3:1:CGCGGCTG:",
+        "HFHJYBGXG:3:1:CGGGGCTG:",
+        "HFHJYBGXG:3:1:CGNGGCTG:",
+        "HFHJYBGXG:3:1:CGTGGCTG:",
+        "HFHJYBGXG:3:1:CNAGGCTG:",
+        "HFHJYBGXG:3:1:CTAGGCTG:",
+        "HFHJYBGXG:3:1:GGAGGCTG:",
+        "HFHJYBGXG:3:1:NGAGGCTG:",
+        "HFHJYBGXG:3:1:TGAGGCTG:",
+        "HFHJYBGXG:4:1:AGAGGCTG:",
+        "HFHJYBGXG:4:1:CAAGGCTG:",
+        "HFHJYBGXG:4:1:CCAGGCTG:",
+        "HFHJYBGXG:4:1:CGAAGCTG:",
+        "HFHJYBGXG:4:1:CGACGCTG:",
+        "HFHJYBGXG:4:1:CGAGACTG:",
+        "HFHJYBGXG:4:1:CGAGCCTG:",
+        "HFHJYBGXG:4:1:CGAGGATG:",
+        "HFHJYBGXG:4:1:CGAGGCAG:",
+        "HFHJYBGXG:4:1:CGAGGCCG:",
+        "HFHJYBGXG:4:1:CGAGGCGG:",
+        "HFHJYBGXG:4:1:CGAGGCNG:",
+        "HFHJYBGXG:4:1:CGAGGCTA:",
+        "HFHJYBGXG:4:1:CGAGGCTC:",
+        "HFHJYBGXG:4:1:CGAGGCTG:",
+        "HFHJYBGXG:4:1:CGAGGCTN:",
+        "HFHJYBGXG:4:1:CGAGGCTT:",
+        "HFHJYBGXG:4:1:CGAGGGTG:",
+        "HFHJYBGXG:4:1:CGAGGNTG:",
+        "HFHJYBGXG:4:1:CGAGGTTG:",
+        "HFHJYBGXG:4:1:CGAGNCTG:",
+        "HFHJYBGXG:4:1:CGAGTCTG:",
+        "HFHJYBGXG:4:1:CGANGCTG:",
+        "HFHJYBGXG:4:1:CGATGCTG:",
+        "HFHJYBGXG:4:1:CGCGGCTG:",
+        "HFHJYBGXG:4:1:CGGGGCTG:",
+        "HFHJYBGXG:4:1:CGNGGCTG:",
+        "HFHJYBGXG:4:1:CGTGGCTG:",
+        "HFHJYBGXG:4:1:CNAGGCTG:",
+        "HFHJYBGXG:4:1:CTAGGCTG:",
+        "HFHJYBGXG:4:1:GGAGGCTG:",
+        "HFHJYBGXG:4:1:NGAGGCTG:",
+        "HFHJYBGXG:4:1:TGAGGCTG:"
+      ],
+      "file_format": "fastq",
+      "file_size": 1227795683,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF488RVS/@@download/ENCFF488RVS.fastq.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "ce613825e138a86f52eed450bc0861b7",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS159UJV/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "1",
+      "paired_with": "/files/ENCFF575LXK/",
+      "platform": {
+        "@id": "/platforms/OBI:0002021/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NextSeq500"
+        ],
+        "date_created": "2014-09-09T22:52:30.378817+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/4c23ec32-c7c8-4ac0-affb-04befcc881d4/",
+        "term_id": "OBI:0002021",
+        "term_name": "Illumina NextSeq 500",
+        "title": "Illumina NextSeq 500",
+        "uuid": "4f98e005-b191-417c-b66c-2e9b593a12a8"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 55524124,
+      "read_length": 26,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep2"
+        ],
+        "biological_replicate_number": 2,
+        "date_created": "2023-11-13T18:29:31.468586+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR844TIU/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR844TIU",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN091PLV/"
+          ],
+          "assay_slims": [
+            "DNA accessibility"
+          ],
+          "assay_term_id": "OBI:0002039",
+          "assay_term_name": "ATAC-seq",
+          "assay_title": "ATAC-seq",
+          "assembly": [
+            "mm10"
+          ],
+          "award": "/awards/UM1HG009428/",
+          "bio_replicate_count": 2,
+          "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+          "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2023-11-13T18:29:18.399444+00:00",
+          "date_released": "2025-09-30",
+          "dbxrefs": [
+            "GEO:GSE321371"
+          ],
+          "default_analysis": "/analyses/ENCAN091PLV/",
+          "documents": [
+            "/documents/67c2ea0e-5de5-4d3a-81f5-7e847a427b3f/",
+            "/documents/67fe57d3-d3c0-4609-8dbf-27f3fc1441b4/"
+          ],
+          "files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "hub": "/experiments/ENCSR844TIU/@@hub/hub.txt",
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/tim-reddy/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "CIEMAS, Room 2347",
+            "address2": "101 Science Drive, IGSP Box 3382",
+            "awards": [
+              "/awards/U01HG007900/",
+              "/awards/U54HG006998/"
+            ],
+            "city": "Durham",
+            "country": "USA",
+            "fax": "",
+            "institute_label": "Duke",
+            "institute_name": "Duke University",
+            "name": "tim-reddy",
+            "phone1": "919-564-9536",
+            "phone2": "",
+            "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+            "postal_code": "27708",
+            "schema_version": "5",
+            "state": "NC",
+            "status": "current",
+            "title": "Tim Reddy, Duke",
+            "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+          },
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+            "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/"
+          ],
+          "replication_type": "isogenic",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+          "status": "released",
+          "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 2,
+          "type_slims": [],
+          "uuid": "d1215c6b-010a-4b7b-a14f-eec200f0b03f"
+        },
+        "library": "/libraries/ENCLB265DZB/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "technical_replicate_number": 1,
+        "uuid": "97c10f9f-1d93-48d4-b878-5382812918c0"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2023/11/13/63babc1d-1ea9-4683-829b-ab672d56ed98/ENCFF488RVS.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/data/atac_seq/processed_raw_reads/Siklenka_6420_200805A5/KS133.Treg.72hrs.ASTARR.insert.rep2.R1.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "2_1"
+      ],
+      "title": "ENCFF488RVS",
+      "uuid": "63babc1d-1ea9-4683-829b-ab672d56ed98"
+    },
+    {
+      "@id": "/files/ENCFF575LXK/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF575LXK",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2-read2"
+      ],
+      "alternate_accessions": [],
+      "analyses": [],
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2023/11/13/7045a7a7-eaea-42c6-b5ad-18ca3990343d/ENCFF575LXK.fastq.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        2
+      ],
+      "biological_replicates_formatted": "Rep 2",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 1235619157,
+        "md5sum_base64": "tl+ZxIEkGud4txWeWHuKGQ==",
+        "url": "https://encode-public.s3.amazonaws.com/2023/11/13/7045a7a7-eaea-42c6-b5ad-18ca3990343d/ENCFF575LXK.fastq.gz"
+      },
+      "content_md5sum": "fd40c8e86cdc8aa550a735229855b2b8",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2023-11-13T18:49:58.504522+00:00",
+      "dbxrefs": [],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [
+        "HFHJYBGXG:1:2:AGAGGCTG:",
+        "HFHJYBGXG:1:2:CAAGGCTG:",
+        "HFHJYBGXG:1:2:CCAGGCTG:",
+        "HFHJYBGXG:1:2:CGAAGCTG:",
+        "HFHJYBGXG:1:2:CGACGCTG:",
+        "HFHJYBGXG:1:2:CGAGACTG:",
+        "HFHJYBGXG:1:2:CGAGCCTG:",
+        "HFHJYBGXG:1:2:CGAGGATG:",
+        "HFHJYBGXG:1:2:CGAGGCAG:",
+        "HFHJYBGXG:1:2:CGAGGCCG:",
+        "HFHJYBGXG:1:2:CGAGGCGG:",
+        "HFHJYBGXG:1:2:CGAGGCTA:",
+        "HFHJYBGXG:1:2:CGAGGCTC:",
+        "HFHJYBGXG:1:2:CGAGGCTG:",
+        "HFHJYBGXG:1:2:CGAGGCTN:",
+        "HFHJYBGXG:1:2:CGAGGCTT:",
+        "HFHJYBGXG:1:2:CGAGGGTG:",
+        "HFHJYBGXG:1:2:CGAGGNTG:",
+        "HFHJYBGXG:1:2:CGAGGTTG:",
+        "HFHJYBGXG:1:2:CGAGNCTG:",
+        "HFHJYBGXG:1:2:CGAGTCTG:",
+        "HFHJYBGXG:1:2:CGANGCTG:",
+        "HFHJYBGXG:1:2:CGATGCTG:",
+        "HFHJYBGXG:1:2:CGCGGCTG:",
+        "HFHJYBGXG:1:2:CGGGGCTG:",
+        "HFHJYBGXG:1:2:CGNGGCTG:",
+        "HFHJYBGXG:1:2:CGTGGCTG:",
+        "HFHJYBGXG:1:2:CNAGGCTG:",
+        "HFHJYBGXG:1:2:CTAGGCTG:",
+        "HFHJYBGXG:1:2:GGAGGCTG:",
+        "HFHJYBGXG:1:2:NGAGGCTG:",
+        "HFHJYBGXG:1:2:TGAGGCTG:",
+        "HFHJYBGXG:2:2:AGAGGCTG:",
+        "HFHJYBGXG:2:2:CAAGGCTG:",
+        "HFHJYBGXG:2:2:CCAGGCTG:",
+        "HFHJYBGXG:2:2:CGAAGCTG:",
+        "HFHJYBGXG:2:2:CGACGCTG:",
+        "HFHJYBGXG:2:2:CGAGACTG:",
+        "HFHJYBGXG:2:2:CGAGCCTG:",
+        "HFHJYBGXG:2:2:CGAGGATG:",
+        "HFHJYBGXG:2:2:CGAGGCAG:",
+        "HFHJYBGXG:2:2:CGAGGCCG:",
+        "HFHJYBGXG:2:2:CGAGGCGG:",
+        "HFHJYBGXG:2:2:CGAGGCNG:",
+        "HFHJYBGXG:2:2:CGAGGCTA:",
+        "HFHJYBGXG:2:2:CGAGGCTC:",
+        "HFHJYBGXG:2:2:CGAGGCTG:",
+        "HFHJYBGXG:2:2:CGAGGCTN:",
+        "HFHJYBGXG:2:2:CGAGGCTT:",
+        "HFHJYBGXG:2:2:CGAGGGTG:",
+        "HFHJYBGXG:2:2:CGAGGNTG:",
+        "HFHJYBGXG:2:2:CGAGGTTG:",
+        "HFHJYBGXG:2:2:CGAGTCTG:",
+        "HFHJYBGXG:2:2:CGANGCTG:",
+        "HFHJYBGXG:2:2:CGATGCTG:",
+        "HFHJYBGXG:2:2:CGCGGCTG:",
+        "HFHJYBGXG:2:2:CGGGGCTG:",
+        "HFHJYBGXG:2:2:CGNGGCTG:",
+        "HFHJYBGXG:2:2:CGTGGCTG:",
+        "HFHJYBGXG:2:2:CNAGGCTG:",
+        "HFHJYBGXG:2:2:CTAGGCTG:",
+        "HFHJYBGXG:2:2:GGAGGCTG:",
+        "HFHJYBGXG:2:2:NGAGGCTG:",
+        "HFHJYBGXG:2:2:TGAGGCTG:",
+        "HFHJYBGXG:3:2:AGAGGCTG:",
+        "HFHJYBGXG:3:2:CAAGGCTG:",
+        "HFHJYBGXG:3:2:CCAGGCTG:",
+        "HFHJYBGXG:3:2:CGAAGCTG:",
+        "HFHJYBGXG:3:2:CGACGCTG:",
+        "HFHJYBGXG:3:2:CGAGACTG:",
+        "HFHJYBGXG:3:2:CGAGCCTG:",
+        "HFHJYBGXG:3:2:CGAGGATG:",
+        "HFHJYBGXG:3:2:CGAGGCAG:",
+        "HFHJYBGXG:3:2:CGAGGCCG:",
+        "HFHJYBGXG:3:2:CGAGGCGG:",
+        "HFHJYBGXG:3:2:CGAGGCNG:",
+        "HFHJYBGXG:3:2:CGAGGCTA:",
+        "HFHJYBGXG:3:2:CGAGGCTC:",
+        "HFHJYBGXG:3:2:CGAGGCTG:",
+        "HFHJYBGXG:3:2:CGAGGCTN:",
+        "HFHJYBGXG:3:2:CGAGGCTT:",
+        "HFHJYBGXG:3:2:CGAGGGTG:",
+        "HFHJYBGXG:3:2:CGAGGNTG:",
+        "HFHJYBGXG:3:2:CGAGGTTG:",
+        "HFHJYBGXG:3:2:CGAGNCTG:",
+        "HFHJYBGXG:3:2:CGAGTCTG:",
+        "HFHJYBGXG:3:2:CGANGCTG:",
+        "HFHJYBGXG:3:2:CGATGCTG:",
+        "HFHJYBGXG:3:2:CGCGGCTG:",
+        "HFHJYBGXG:3:2:CGGGGCTG:",
+        "HFHJYBGXG:3:2:CGNGGCTG:",
+        "HFHJYBGXG:3:2:CGTGGCTG:",
+        "HFHJYBGXG:3:2:CNAGGCTG:",
+        "HFHJYBGXG:3:2:CTAGGCTG:",
+        "HFHJYBGXG:3:2:GGAGGCTG:",
+        "HFHJYBGXG:3:2:NGAGGCTG:",
+        "HFHJYBGXG:3:2:TGAGGCTG:",
+        "HFHJYBGXG:4:2:AGAGGCTG:",
+        "HFHJYBGXG:4:2:CAAGGCTG:",
+        "HFHJYBGXG:4:2:CCAGGCTG:",
+        "HFHJYBGXG:4:2:CGAAGCTG:",
+        "HFHJYBGXG:4:2:CGACGCTG:",
+        "HFHJYBGXG:4:2:CGAGACTG:",
+        "HFHJYBGXG:4:2:CGAGCCTG:",
+        "HFHJYBGXG:4:2:CGAGGATG:",
+        "HFHJYBGXG:4:2:CGAGGCAG:",
+        "HFHJYBGXG:4:2:CGAGGCCG:",
+        "HFHJYBGXG:4:2:CGAGGCGG:",
+        "HFHJYBGXG:4:2:CGAGGCNG:",
+        "HFHJYBGXG:4:2:CGAGGCTA:",
+        "HFHJYBGXG:4:2:CGAGGCTC:",
+        "HFHJYBGXG:4:2:CGAGGCTG:",
+        "HFHJYBGXG:4:2:CGAGGCTN:",
+        "HFHJYBGXG:4:2:CGAGGCTT:",
+        "HFHJYBGXG:4:2:CGAGGGTG:",
+        "HFHJYBGXG:4:2:CGAGGNTG:",
+        "HFHJYBGXG:4:2:CGAGGTTG:",
+        "HFHJYBGXG:4:2:CGAGNCTG:",
+        "HFHJYBGXG:4:2:CGAGTCTG:",
+        "HFHJYBGXG:4:2:CGANGCTG:",
+        "HFHJYBGXG:4:2:CGATGCTG:",
+        "HFHJYBGXG:4:2:CGCGGCTG:",
+        "HFHJYBGXG:4:2:CGGGGCTG:",
+        "HFHJYBGXG:4:2:CGNGGCTG:",
+        "HFHJYBGXG:4:2:CGTGGCTG:",
+        "HFHJYBGXG:4:2:CNAGGCTG:",
+        "HFHJYBGXG:4:2:CTAGGCTG:",
+        "HFHJYBGXG:4:2:GGAGGCTG:",
+        "HFHJYBGXG:4:2:NGAGGCTG:",
+        "HFHJYBGXG:4:2:TGAGGCTG:"
+      ],
+      "file_format": "fastq",
+      "file_size": 1235619157,
+      "file_type": "fastq",
+      "flowcell_details": [],
+      "href": "/files/ENCFF575LXK/@@download/ENCFF575LXK.fastq.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "b65f99c481241ae778b7159e587b8a19",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS159UJV/"
+      ],
+      "output_category": "raw data",
+      "output_type": "reads",
+      "paired_end": "2",
+      "paired_with": "/files/ENCFF488RVS/",
+      "platform": {
+        "@id": "/platforms/OBI:0002021/",
+        "@type": [
+          "Platform",
+          "Item"
+        ],
+        "aliases": [
+          "encode:NextSeq500"
+        ],
+        "date_created": "2014-09-09T22:52:30.378817+00:00",
+        "dbxrefs": [],
+        "schema_version": "7",
+        "status": "released",
+        "submitted_by": "/users/4c23ec32-c7c8-4ac0-affb-04befcc881d4/",
+        "term_id": "OBI:0002021",
+        "term_name": "Illumina NextSeq 500",
+        "title": "Illumina NextSeq 500",
+        "uuid": "4f98e005-b191-417c-b66c-2e9b593a12a8"
+      },
+      "processed": false,
+      "quality_metrics": [],
+      "read_count": 55524124,
+      "read_length": 26,
+      "read_length_units": "nt",
+      "replicate": {
+        "@id": "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/",
+        "@type": [
+          "Replicate",
+          "Item"
+        ],
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep2"
+        ],
+        "biological_replicate_number": 2,
+        "date_created": "2023-11-13T18:29:31.468586+00:00",
+        "experiment": {
+          "@id": "/experiments/ENCSR844TIU/",
+          "@type": [
+            "Experiment",
+            "Dataset",
+            "Item"
+          ],
+          "accession": "ENCSR844TIU",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq"
+          ],
+          "alternate_accessions": [],
+          "analyses": [
+            "/analyses/ENCAN091PLV/"
+          ],
+          "assay_slims": [
+            "DNA accessibility"
+          ],
+          "assay_term_id": "OBI:0002039",
+          "assay_term_name": "ATAC-seq",
+          "assay_title": "ATAC-seq",
+          "assembly": [
+            "mm10"
+          ],
+          "award": "/awards/UM1HG009428/",
+          "bio_replicate_count": 2,
+          "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+          "biosample_summary": "Mus musculus strain C57BL/6NJ regulatory T cell",
+          "category_slims": [],
+          "contributing_files": [],
+          "date_created": "2023-11-13T18:29:18.399444+00:00",
+          "date_released": "2025-09-30",
+          "dbxrefs": [
+            "GEO:GSE321371"
+          ],
+          "default_analysis": "/analyses/ENCAN091PLV/",
+          "documents": [
+            "/documents/67c2ea0e-5de5-4d3a-81f5-7e847a427b3f/",
+            "/documents/67fe57d3-d3c0-4609-8dbf-27f3fc1441b4/"
+          ],
+          "files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "hub": "/experiments/ENCSR844TIU/@@hub/hub.txt",
+          "internal_status": "unreviewed",
+          "internal_tags": [],
+          "lab": {
+            "@id": "/labs/tim-reddy/",
+            "@type": [
+              "Lab",
+              "Item"
+            ],
+            "address1": "CIEMAS, Room 2347",
+            "address2": "101 Science Drive, IGSP Box 3382",
+            "awards": [
+              "/awards/U01HG007900/",
+              "/awards/U54HG006998/"
+            ],
+            "city": "Durham",
+            "country": "USA",
+            "fax": "",
+            "institute_label": "Duke",
+            "institute_name": "Duke University",
+            "name": "tim-reddy",
+            "phone1": "919-564-9536",
+            "phone2": "",
+            "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+            "postal_code": "27708",
+            "schema_version": "5",
+            "state": "NC",
+            "status": "current",
+            "title": "Tim Reddy, Duke",
+            "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+          },
+          "objective_slims": [],
+          "original_files": [
+            "/files/ENCFF789PHQ/",
+            "/files/ENCFF574DTB/",
+            "/files/ENCFF488RVS/",
+            "/files/ENCFF575LXK/",
+            "/files/ENCFF705NGT/",
+            "/files/ENCFF047ISW/",
+            "/files/ENCFF696BKC/",
+            "/files/ENCFF613SZP/",
+            "/files/ENCFF040EQJ/",
+            "/files/ENCFF439XRZ/"
+          ],
+          "perturbed": false,
+          "possible_controls": [],
+          "references": [],
+          "related_annotations": [],
+          "related_files": [],
+          "related_series": [],
+          "replicates": [
+            "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+            "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/"
+          ],
+          "replication_type": "isogenic",
+          "revoked_files": [],
+          "schema_version": "37",
+          "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+          "status": "released",
+          "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+          "superseded_by": [],
+          "supersedes": [],
+          "tech_replicate_count": 2,
+          "type_slims": [],
+          "uuid": "d1215c6b-010a-4b7b-a14f-eec200f0b03f"
+        },
+        "library": "/libraries/ENCLB265DZB/",
+        "schema_version": "9",
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "technical_replicate_number": 1,
+        "uuid": "97c10f9f-1d93-48d4-b878-5382812918c0"
+      },
+      "run_type": "paired-ended",
+      "s3_uri": "s3://encode-public/2023/11/13/7045a7a7-eaea-42c6-b5ad-18ca3990343d/ENCFF575LXK.fastq.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/data/atac_seq/processed_raw_reads/Siklenka_6420_200805A5/KS133.Treg.72hrs.ASTARR.insert.rep2.R2.fastq.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "2_1"
+      ],
+      "title": "ENCFF575LXK",
+      "uuid": "7045a7a7-eaea-42c6-b5ad-18ca3990343d"
+    },
+    {
+      "@id": "/files/ENCFF705NGT/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF705NGT",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1-bam"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "tim-reddy:atac_seq_fastq_to_bam"
+          ],
+          "analysis_step_types": [
+            "alignment",
+            "filtering",
+            "QA calculation"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/",
+          "date_created": "2018-03-15T20:54:25.671496+00:00",
+          "documents": [],
+          "input_file_types": [
+            "reads",
+            "genome reference",
+            "exclusion list regions"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-mapping-filtering-step-v-1",
+          "output_file_types": [
+            "alignments"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-mapping-filtering-step",
+          "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+          "title": "FASTQ reads mapping and filtering step",
+          "uuid": "5bb21a80-7b35-48d9-a111-22b7064504c1",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-1/",
+            "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-02-27T06:56:23.664666+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-mapping-filtering-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/8c17eed0-8a06-4200-ae61-b192fbc80fb6/",
+          "/software-versions/0fbc9f1d-70dd-45ab-963d-e659218fcf25/",
+          "/software-versions/6a6c0c45-3e31-43e6-90a4-d3d209174531/",
+          "/software-versions/13e61050-fe4f-4002-9ae0-8d1adcf81a04/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "afa6af1e-344e-49fd-97ef-156df50387d0"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/01/29/e8452eec-c259-4e38-bddd-8a603c1a9bdd/ENCFF705NGT.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 1576212293,
+        "md5sum_base64": "/nNbagWTQES36aeq5fTmfw==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/01/29/e8452eec-c259-4e38-bddd-8a603c1a9bdd/ENCFF705NGT.bam"
+      },
+      "content_md5sum": "b87e1933abaf285f84ec84360d1c3ec1",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-01-29T06:27:56.444609+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF789PHQ/",
+        "/files/ENCFF574DTB/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 1576212293,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF705NGT/@@download/ENCFF705NGT.bam",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "mapped_read_length": 26,
+      "mapped_run_type": "paired-ended",
+      "md5sum": "fe735b6a05934044b7e9a7aae5f4e67f",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS206FNH/"
+      ],
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2024/01/29/e8452eec-c259-4e38-bddd-8a603c1a9bdd/ENCFF705NGT.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/b432e7a7-066e-4c8d-a364-737777479259/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/processing/atac_seq/Siklenka_6420_200805A5-pe-blacklist-removal/KS133.Treg.72hrs.ASTARR.insert.rep1.masked.dups_marked.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF705NGT",
+      "uuid": "e8452eec-c259-4e38-bddd-8a603c1a9bdd"
+    },
+    {
+      "@id": "/files/ENCFF047ISW/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF047ISW",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2-bam"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "tim-reddy:atac_seq_fastq_to_bam"
+          ],
+          "analysis_step_types": [
+            "alignment",
+            "filtering",
+            "QA calculation"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/",
+          "date_created": "2018-03-15T20:54:25.671496+00:00",
+          "documents": [],
+          "input_file_types": [
+            "reads",
+            "genome reference",
+            "exclusion list regions"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-mapping-filtering-step-v-1",
+          "output_file_types": [
+            "alignments"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-mapping-filtering-step",
+          "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+          "title": "FASTQ reads mapping and filtering step",
+          "uuid": "5bb21a80-7b35-48d9-a111-22b7064504c1",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-1/",
+            "/analysis-step-versions/ggr-tr1-atac-seq-mapping-filtering-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-02-27T06:56:23.664666+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-mapping-filtering-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/8c17eed0-8a06-4200-ae61-b192fbc80fb6/",
+          "/software-versions/0fbc9f1d-70dd-45ab-963d-e659218fcf25/",
+          "/software-versions/6a6c0c45-3e31-43e6-90a4-d3d209174531/",
+          "/software-versions/13e61050-fe4f-4002-9ae0-8d1adcf81a04/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "afa6af1e-344e-49fd-97ef-156df50387d0"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/01/29/6465ae78-dfaf-4adc-8c66-a050f1376202/ENCFF047ISW.bam?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        2
+      ],
+      "biological_replicates_formatted": "Rep 2",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 2540648346,
+        "md5sum_base64": "GVjuHQDj++ejjRbs0T9/Sw==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/01/29/6465ae78-dfaf-4adc-8c66-a050f1376202/ENCFF047ISW.bam"
+      },
+      "content_md5sum": "e30f8ddf3c33754ef0173630c9a36e1b",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-01-29T06:28:20.552418+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF488RVS/",
+        "/files/ENCFF575LXK/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bam",
+      "file_size": 2540648346,
+      "file_type": "bam",
+      "flowcell_details": [],
+      "href": "/files/ENCFF047ISW/@@download/ENCFF047ISW.bam",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "mapped_read_length": 26,
+      "mapped_run_type": "paired-ended",
+      "md5sum": "1958ee1d00e3fbe7a38d16ecd13f7f4b",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS159UJV/"
+      ],
+      "output_category": "alignment",
+      "output_type": "alignments",
+      "processed": true,
+      "quality_metrics": [],
+      "read_length_units": "nt",
+      "s3_uri": "s3://encode-public/2024/01/29/6465ae78-dfaf-4adc-8c66-a050f1376202/ENCFF047ISW.bam",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/b432e7a7-066e-4c8d-a364-737777479259/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/atac-seq_Siklenka/processing/atac_seq/Siklenka_6420_200805A5-pe-blacklist-removal/KS133.Treg.72hrs.ASTARR.insert.rep2.masked.dups_marked.bam",
+      "superseded_by": [],
+      "technical_replicates": [
+        "2_1"
+      ],
+      "title": "ENCFF047ISW",
+      "uuid": "6465ae78-dfaf-4adc-8c66-a050f1376202"
+    },
+    {
+      "@id": "/files/ENCFF696BKC/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF696BKC",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1-raw-bw"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [],
+          "analysis_step_types": [
+            "signal generation"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/",
+          "date_created": "2024-02-27T07:20:45.258039+00:00",
+          "documents": [],
+          "input_file_types": [
+            "alignments"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-extract-genomic-signal-step-v-1",
+          "output_file_types": [
+            "signal of unique reads"
+          ],
+          "parents": [
+            "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-extract-genomic-signal-step",
+          "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+          "title": "Genomic Signal Extraction Step",
+          "uuid": "6000970a-99e8-4726-862b-a8725a6344c1",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-02-27T07:21:27.478455+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/614851d4-394c-4a4e-97e3-3e49ce13f5a7/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "344eaa82-098e-484d-a69a-ee9b61fb1dde"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/05/10/10009b5b-1c02-4a7d-a820-c65c41b3d44e/ENCFF696BKC.bigWig?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 249343820,
+        "md5sum_base64": "gHhmFbyusRj8959t7VQZlg==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/05/10/10009b5b-1c02-4a7d-a820-c65c41b3d44e/ENCFF696BKC.bigWig"
+      },
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-05-10T17:55:34.151217+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF705NGT/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bigWig",
+      "file_size": 249343820,
+      "file_type": "bigWig",
+      "flowcell_details": [],
+      "href": "/files/ENCFF696BKC/@@download/ENCFF696BKC.bigWig",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "80786615bcaeb118fcf79f6ded541996",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS206FNH/"
+      ],
+      "output_category": "signal",
+      "output_type": "signal of unique reads",
+      "processed": true,
+      "quality_metrics": [],
+      "s3_uri": "s3://encode-public/2024/05/10/10009b5b-1c02-4a7d-a820-c65c41b3d44e/ENCFF696BKC.bigWig",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/2293aae8-01fe-4058-8aeb-eca253dfb18b/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/Keith/ENCODE_submission/data/ATAC_seq/bigWig/KS133.Treg.72hrs.ASTARR.insert.rep1.masked.dedup.sorted.raw.encode.bw",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF696BKC",
+      "uuid": "10009b5b-1c02-4a7d-a820-c65c41b3d44e"
+    },
+    {
+      "@id": "/files/ENCFF613SZP/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF613SZP",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2-raw-bw"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [],
+          "analysis_step_types": [
+            "signal generation"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/",
+          "date_created": "2024-02-27T07:20:45.258039+00:00",
+          "documents": [],
+          "input_file_types": [
+            "alignments"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-extract-genomic-signal-step-v-1",
+          "output_file_types": [
+            "signal of unique reads"
+          ],
+          "parents": [
+            "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-extract-genomic-signal-step",
+          "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+          "title": "Genomic Signal Extraction Step",
+          "uuid": "6000970a-99e8-4726-862b-a8725a6344c1",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-02-27T07:21:27.478455+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-extract-genomic-signal-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/614851d4-394c-4a4e-97e3-3e49ce13f5a7/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "344eaa82-098e-484d-a69a-ee9b61fb1dde"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/05/10/757dcca8-c86e-449e-819b-0f2f89d301e6/ENCFF613SZP.bigWig?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        2
+      ],
+      "biological_replicates_formatted": "Rep 2",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 351842835,
+        "md5sum_base64": "TvRlDAO9a/vwftI6bSea9g==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/05/10/757dcca8-c86e-449e-819b-0f2f89d301e6/ENCFF613SZP.bigWig"
+      },
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-05-10T17:55:42.435278+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF047ISW/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bigWig",
+      "file_size": 351842835,
+      "file_type": "bigWig",
+      "flowcell_details": [],
+      "href": "/files/ENCFF613SZP/@@download/ENCFF613SZP.bigWig",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "4ef4650c03bd6bfbf07ed23a6d279af6",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS159UJV/"
+      ],
+      "output_category": "signal",
+      "output_type": "signal of unique reads",
+      "processed": true,
+      "quality_metrics": [],
+      "s3_uri": "s3://encode-public/2024/05/10/757dcca8-c86e-449e-819b-0f2f89d301e6/ENCFF613SZP.bigWig",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/2293aae8-01fe-4058-8aeb-eca253dfb18b/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/Revathy/collabs/Keith/ENCODE_submission/data/ATAC_seq/bigWig/KS133.Treg.72hrs.ASTARR.insert.rep2.masked.dedup.sorted.raw.encode.bw",
+      "superseded_by": [],
+      "technical_replicates": [
+        "2_1"
+      ],
+      "title": "ENCFF613SZP",
+      "uuid": "757dcca8-c86e-449e-819b-0f2f89d301e6"
+    },
+    {
+      "@id": "/files/ENCFF040EQJ/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF040EQJ",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1-narrowPeak"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "tim-reddy:atac_seq_bam_to_peaks"
+          ],
+          "analysis_step_types": [
+            "peak calling"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/",
+          "date_created": "2018-03-15T20:56:20.586169+00:00",
+          "documents": [],
+          "input_file_types": [
+            "alignments"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-peak-calling-step-v-1",
+          "output_file_types": [
+            "peaks"
+          ],
+          "parents": [
+            "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-peak-calling-step",
+          "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+          "title": "MACS2 peak calling step",
+          "uuid": "de770d2f-971f-4a82-8fdd-b42b31cd3802",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-0/",
+            "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-04-15T08:05:35.941396+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-peak-calling-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/1c1265da-7599-4208-aec6-807d7b9b9b07/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "cfd20f84-15b7-4589-a6e6-b770a125052f"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/05/10/02bd93bf-0d48-46e1-b9af-a1f95dbec598/ENCFF040EQJ.bed.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        1
+      ],
+      "biological_replicates_formatted": "Rep 1",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 1880680,
+        "md5sum_base64": "XJzVUgaM7EaFsfRnIokNdA==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/05/10/02bd93bf-0d48-46e1-b9af-a1f95dbec598/ENCFF040EQJ.bed.gz"
+      },
+      "content_md5sum": "593fcf87850257750f9ce464e2876fae",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-05-10T18:20:06.401004+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF705NGT/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bed",
+      "file_format_type": "narrowPeak",
+      "file_size": 1880680,
+      "file_type": "bed narrowPeak",
+      "flowcell_details": [],
+      "href": "/files/ENCFF040EQJ/@@download/ENCFF040EQJ.bed.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "5c9cd552068cec4685b1f46722890d74",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS206FNH/"
+      ],
+      "output_category": "annotation",
+      "output_type": "peaks",
+      "processed": true,
+      "quality_metrics": [],
+      "s3_uri": "s3://encode-public/2024/05/10/02bd93bf-0d48-46e1-b9af-a1f95dbec598/ENCFF040EQJ.bed.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/6ae05a74-7f1e-4e29-914b-1718cb85bed2/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/tmp/KS133.Treg.72hrs.ASTARR.insert.rep1.masked.dedup.sorted_peaks.encode.narrowPeak.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "1_1"
+      ],
+      "title": "ENCFF040EQJ",
+      "uuid": "02bd93bf-0d48-46e1-b9af-a1f95dbec598"
+    },
+    {
+      "@id": "/files/ENCFF439XRZ/",
+      "@type": [
+        "File",
+        "Item"
+      ],
+      "accession": "ENCFF439XRZ",
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2-narrowPeak"
+      ],
+      "alternate_accessions": [],
+      "analyses": [
+        {
+          "@id": "/analyses/ENCAN091PLV/",
+          "@type": [
+            "Analysis",
+            "Item"
+          ],
+          "pipeline_award_rfas": [
+            "GGR"
+          ],
+          "status": "released",
+          "title": "Lab custom mm10",
+          "uuid": "761396bd-58de-4c55-a212-bbea5fdaa7d1"
+        }
+      ],
+      "analysis_step_version": {
+        "@id": "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/",
+        "@type": [
+          "AnalysisStepVersion",
+          "Item"
+        ],
+        "aliases": [],
+        "analysis_step": {
+          "@id": "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+          "@type": [
+            "AnalysisStep",
+            "Item"
+          ],
+          "aliases": [
+            "tim-reddy:atac_seq_bam_to_peaks"
+          ],
+          "analysis_step_types": [
+            "peak calling"
+          ],
+          "current_version": "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/",
+          "date_created": "2018-03-15T20:56:20.586169+00:00",
+          "documents": [],
+          "input_file_types": [
+            "alignments"
+          ],
+          "major_version": 1,
+          "name": "ggr-tr1-atac-seq-peak-calling-step-v-1",
+          "output_file_types": [
+            "peaks"
+          ],
+          "parents": [
+            "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/"
+          ],
+          "pipelines": [
+            {
+              "@id": "/pipelines/ENCPL867PDN/",
+              "@type": [
+                "Pipeline",
+                "Item"
+              ],
+              "accession": "ENCPL867PDN",
+              "aliases": [],
+              "alternate_accessions": [],
+              "analysis_steps": [
+                "/analysis-steps/ggr-tr1-atac-seq-mapping-filtering-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-peak-calling-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-quantification-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-bed-to-bigbed-step-v-1/",
+                "/analysis-steps/ggr-tr1-atac-seq-extract-genomic-signal-step-v-1/"
+              ],
+              "assay_term_names": [
+                "ATAC-seq"
+              ],
+              "award": "/awards/U01HG007900/",
+              "date_created": "2018-03-15T20:51:46.837660+00:00",
+              "documents": [],
+              "lab": "/labs/tim-reddy/",
+              "references": [],
+              "schema_version": "14",
+              "status": "released",
+              "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+              "title": "GGR ATAC-seq pipeline VERSION TR.1",
+              "uuid": "a131cbfb-3ab1-4fd8-a960-49ab6f84f647"
+            }
+          ],
+          "schema_version": "17",
+          "status": "released",
+          "step_label": "ggr-tr1-atac-seq-peak-calling-step",
+          "submitted_by": "/users/a3f5ce81-93e3-4769-8552-7f8024ee29f9/",
+          "title": "MACS2 peak calling step",
+          "uuid": "de770d2f-971f-4a82-8fdd-b42b31cd3802",
+          "versions": [
+            "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-0/",
+            "/analysis-step-versions/ggr-tr1-atac-seq-peak-calling-step-v-1-2/"
+          ]
+        },
+        "date_created": "2024-04-15T08:05:35.941396+00:00",
+        "minor_version": 2,
+        "name": "ggr-tr1-atac-seq-peak-calling-step-v-1-2",
+        "schema_version": "4",
+        "software_versions": [
+          "/software-versions/1c1265da-7599-4208-aec6-807d7b9b9b07/"
+        ],
+        "status": "released",
+        "submitted_by": "/users/1e75d989-a438-4d77-a451-8a297fd3636e/",
+        "uuid": "cfd20f84-15b7-4589-a6e6-b770a125052f"
+      },
+      "assay_term_name": "ATAC-seq",
+      "assay_title": "ATAC-seq",
+      "assembly": "mm10",
+      "award": "/awards/UM1HG009428/",
+      "azure_uri": "https://datasetencode.blob.core.windows.net/dataset/2024/05/10/7d156721-1af8-43d9-8fe7-91ada121612c/ENCFF439XRZ.bed.gz?sv=2019-10-10&si=prod&sr=c&sig=9qSQZo4ggrCNpybBExU8SypuUZV33igI11xw0P7rB3c%3D",
+      "biological_replicates": [
+        2
+      ],
+      "biological_replicates_formatted": "Rep 2",
+      "biosample_ontology": "/biosample-types/primary_cell_CL_0000815/",
+      "cloud_metadata": {
+        "file_size": 2133068,
+        "md5sum_base64": "bMHwwE7z4kbsZKkP9l3RVw==",
+        "url": "https://encode-public.s3.amazonaws.com/2024/05/10/7d156721-1af8-43d9-8fe7-91ada121612c/ENCFF439XRZ.bed.gz"
+      },
+      "content_md5sum": "2b404bf2fc355c5723e00afe71b5484b",
+      "dataset": "/experiments/ENCSR844TIU/",
+      "date_created": "2024-05-10T18:20:11.760203+00:00",
+      "dbxrefs": [],
+      "derived_from": [
+        "/files/ENCFF047ISW/"
+      ],
+      "donors": [
+        "/mouse-donors/ENCDO236IKC/"
+      ],
+      "fastq_signature": [],
+      "file_format": "bed",
+      "file_format_type": "narrowPeak",
+      "file_size": 2133068,
+      "file_type": "bed narrowPeak",
+      "flowcell_details": [],
+      "href": "/files/ENCFF439XRZ/@@download/ENCFF439XRZ.bed.gz",
+      "lab": {
+        "@id": "/labs/tim-reddy/",
+        "@type": [
+          "Lab",
+          "Item"
+        ],
+        "address1": "CIEMAS, Room 2347",
+        "address2": "101 Science Drive, IGSP Box 3382",
+        "awards": [
+          "/awards/U01HG007900/",
+          "/awards/U54HG006998/"
+        ],
+        "city": "Durham",
+        "country": "USA",
+        "fax": "",
+        "institute_label": "Duke",
+        "institute_name": "Duke University",
+        "name": "tim-reddy",
+        "phone1": "919-564-9536",
+        "phone2": "",
+        "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+        "postal_code": "27708",
+        "schema_version": "5",
+        "state": "NC",
+        "status": "current",
+        "title": "Tim Reddy, Duke",
+        "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+      },
+      "md5sum": "6cc1f0c04ef3e246ec64a90ff65dd157",
+      "no_file_available": false,
+      "origin_batches": [
+        "/biosamples/ENCBS159UJV/"
+      ],
+      "output_category": "annotation",
+      "output_type": "peaks",
+      "processed": true,
+      "quality_metrics": [],
+      "s3_uri": "s3://encode-public/2024/05/10/7d156721-1af8-43d9-8fe7-91ada121612c/ENCFF439XRZ.bed.gz",
+      "schema_version": "31",
+      "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+      "status": "released",
+      "step_run": "/analysis-step-runs/6ae05a74-7f1e-4e29-914b-1718cb85bed2/",
+      "submitted_by": {
+        "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "@type": [
+          "User",
+          "Item"
+        ],
+        "lab": "/labs/tim-reddy/",
+        "submits_for": [
+          "/labs/tim-reddy/"
+        ],
+        "title": "Revathy Venukuttan",
+        "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+      },
+      "submitted_file_name": "/data/reddylab/tmp/KS133.Treg.72hrs.ASTARR.insert.rep2.masked.dedup.sorted_peaks.encode.narrowPeak.gz",
+      "superseded_by": [],
+      "technical_replicates": [
+        "2_1"
+      ],
+      "title": "ENCFF439XRZ",
+      "uuid": "7d156721-1af8-43d9-8fe7-91ada121612c"
+    }
+  ],
+  "hub": "/experiments/ENCSR844TIU/@@hub/hub.txt",
+  "internal_status": "unreviewed",
+  "internal_tags": [],
+  "lab": {
+    "@id": "/labs/tim-reddy/",
+    "@type": [
+      "Lab",
+      "Item"
+    ],
+    "address1": "CIEMAS, Room 2347",
+    "address2": "101 Science Drive, IGSP Box 3382",
+    "awards": [
+      "/awards/U01HG007900/",
+      "/awards/U54HG006998/"
+    ],
+    "city": "Durham",
+    "country": "USA",
+    "fax": "",
+    "institute_label": "Duke",
+    "institute_name": "Duke University",
+    "name": "tim-reddy",
+    "phone1": "919-564-9536",
+    "phone2": "",
+    "pi": "/users/261fcf1a-04d9-4879-a56a-320915587586/",
+    "postal_code": "27708",
+    "schema_version": "5",
+    "state": "NC",
+    "status": "current",
+    "title": "Tim Reddy, Duke",
+    "uuid": "cc2272f4-10de-4310-8233-33a3ace62643"
+  },
+  "objective_slims": [],
+  "original_files": [
+    "/files/ENCFF789PHQ/",
+    "/files/ENCFF574DTB/",
+    "/files/ENCFF488RVS/",
+    "/files/ENCFF575LXK/",
+    "/files/ENCFF705NGT/",
+    "/files/ENCFF047ISW/",
+    "/files/ENCFF696BKC/",
+    "/files/ENCFF613SZP/",
+    "/files/ENCFF040EQJ/",
+    "/files/ENCFF439XRZ/"
+  ],
+  "perturbed": false,
+  "possible_controls": [],
+  "references": [],
+  "related_annotations": [],
+  "related_files": [],
+  "related_series": [],
+  "replicates": [
+    {
+      "@id": "/replicates/c155ad10-74c1-468f-9a52-a36bd84c029b/",
+      "@type": [
+        "Replicate",
+        "Item"
+      ],
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep1"
+      ],
+      "biological_replicate_number": 1,
+      "date_created": "2023-11-13T18:29:31.111540+00:00",
+      "experiment": "/experiments/ENCSR844TIU/",
+      "library": {
+        "@id": "/libraries/ENCLB190GZI/",
+        "@type": [
+          "Library",
+          "Item"
+        ],
+        "accession": "ENCLB190GZI",
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep1-lib"
+        ],
+        "alternate_accessions": [],
+        "award": "/awards/UM1HG009428/",
+        "barcode_details": [],
+        "biosample": {
+          "@id": "/biosamples/ENCBS206FNH/",
+          "@type": [
+            "Biosample",
+            "Item"
+          ],
+          "accession": "ENCBS206FNH",
+          "age": "unknown",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq-rep1-biosample"
+          ],
+          "alternate_accessions": [],
+          "applied_modifications": [],
+          "award": "/awards/UM1HG009428/",
+          "biosample_ontology": {
+            "@id": "/biosample-types/primary_cell_CL_0000815/",
+            "@type": [
+              "BiosampleType",
+              "Item"
+            ],
+            "aliases": [],
+            "cell_slims": [
+              "CD4+ T cell",
+              "T cell",
+              "leukocyte",
+              "hematopoietic cell"
+            ],
+            "classification": "primary cell",
+            "dbxrefs": [],
+            "developmental_slims": [
+              "endoderm",
+              "mesoderm"
+            ],
+            "name": "primary_cell_CL_0000815",
+            "organ_slims": [
+              "bodily fluid",
+              "blood"
+            ],
+            "references": [],
+            "schema_version": "1",
+            "status": "released",
+            "synonyms": [
+              "Treg",
+              "regulatory T-cell",
+              "regulatory T-lymphocyte",
+              "regulatory T lymphocyte"
+            ],
+            "system_slims": [
+              "immune system"
+            ],
+            "term_id": "CL:0000815",
+            "term_name": "regulatory T cell",
+            "uuid": "fb7dd8dc-02c3-4d27-a2ec-068effcf3221"
+          },
+          "characterizations": [],
+          "date_created": "2023-11-13T18:29:13.624451+00:00",
+          "dbxrefs": [
+            "GEO:SAMN54967562"
+          ],
+          "documents": [],
+          "donor": {
+            "@id": "/mouse-donors/ENCDO236IKC/",
+            "@type": [
+              "MouseDonor",
+              "Donor",
+              "Item"
+            ],
+            "accession": "ENCDO236IKC",
+            "aliases": [
+              "encode:C57BL_6NJ"
+            ],
+            "alternate_accessions": [],
+            "award": "/awards/U24HG009397/",
+            "characterizations": [],
+            "date_created": "2020-06-15T18:33:32.162125+00:00",
+            "dbxrefs": [
+              "GEO:SAMN45080142"
+            ],
+            "documents": [],
+            "external_ids": [
+              "JAX:005304"
+            ],
+            "genetic_modifications": [],
+            "lab": "/labs/encode-consortium/",
+            "organism": {
+              "@id": "/organisms/mouse/",
+              "@type": [
+                "Organism",
+                "Item"
+              ],
+              "name": "mouse",
+              "schema_version": "6",
+              "scientific_name": "Mus musculus",
+              "status": "released",
+              "taxon_id": "10090",
+              "uuid": "3413218c-3d86-498b-a0a2-9a406638e786"
+            },
+            "references": [],
+            "schema_version": "11",
+            "status": "released",
+            "strain_background": "C57BL/6",
+            "strain_name": "C57BL/6NJ",
+            "submitted_by": "/users/38dc09c2-4c05-49d2-b73d-4b75261fcbf1/",
+            "superseded_by": [],
+            "uuid": "760d8001-1a43-453e-a271-5aa4b4e37396"
+          },
+          "genetic_modifications": [],
+          "internal_tags": [],
+          "lab": "/labs/tim-reddy/",
+          "life_stage": "unknown",
+          "model_organism_donor_modifications": [],
+          "organism": {
+            "@id": "/organisms/mouse/",
+            "@type": [
+              "Organism",
+              "Item"
+            ],
+            "name": "mouse",
+            "schema_version": "6",
+            "scientific_name": "Mus musculus",
+            "status": "released",
+            "taxon_id": "10090",
+            "uuid": "3413218c-3d86-498b-a0a2-9a406638e786"
+          },
+          "origin_batch": "/biosamples/ENCBS206FNH/",
+          "parent_of": [],
+          "perturbed": false,
+          "references": [],
+          "schema_version": "26",
+          "sex": "unknown",
+          "simple_summary": "strain C57BL/6NJ C57BL/6",
+          "source": {
+            "@id": "/sources/maria-ciofani/",
+            "@type": [
+              "Source",
+              "Item"
+            ],
+            "aliases": [],
+            "name": "maria-ciofani",
+            "schema_version": "6",
+            "status": "released",
+            "title": "Maria Ciofani",
+            "url": "https://immunology.duke.edu/people/maria-ciofani-phd",
+            "uuid": "0c90e030-b80f-4303-b746-3bbac387e5ef"
+          },
+          "status": "released",
+          "submitted_by": {
+            "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+            "@type": [
+              "User",
+              "Item"
+            ],
+            "lab": "/labs/tim-reddy/",
+            "submits_for": [
+              "/labs/tim-reddy/"
+            ],
+            "title": "Revathy Venukuttan",
+            "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+          },
+          "summary": "Mus musculus strain C57BL/6NJ regulatory T primary cell",
+          "treatments": [],
+          "uuid": "474aeb5b-9c57-40ae-970f-3e9387168e40"
+        },
+        "date_created": "2023-11-13T18:29:24.615693+00:00",
+        "dbxrefs": [],
+        "documents": [],
+        "lab": "/labs/tim-reddy/",
+        "nucleic_acid_term_id": "SO:0000352",
+        "nucleic_acid_term_name": "DNA",
+        "schema_version": "20",
+        "spikeins_used": [],
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "treatments": [],
+        "uuid": "9cce5f1f-aba0-42f9-a8e1-8304110da145"
+      },
+      "schema_version": "9",
+      "status": "released",
+      "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+      "technical_replicate_number": 1,
+      "uuid": "c155ad10-74c1-468f-9a52-a36bd84c029b"
+    },
+    {
+      "@id": "/replicates/97c10f9f-1d93-48d4-b878-5382812918c0/",
+      "@type": [
+        "Replicate",
+        "Item"
+      ],
+      "aliases": [
+        "tim-reddy:mmCD4-Treg-atacseq-rep2"
+      ],
+      "biological_replicate_number": 2,
+      "date_created": "2023-11-13T18:29:31.468586+00:00",
+      "experiment": "/experiments/ENCSR844TIU/",
+      "library": {
+        "@id": "/libraries/ENCLB265DZB/",
+        "@type": [
+          "Library",
+          "Item"
+        ],
+        "accession": "ENCLB265DZB",
+        "aliases": [
+          "tim-reddy:mmCD4-Treg-atacseq-rep2-lib"
+        ],
+        "alternate_accessions": [],
+        "award": "/awards/UM1HG009428/",
+        "barcode_details": [],
+        "biosample": {
+          "@id": "/biosamples/ENCBS159UJV/",
+          "@type": [
+            "Biosample",
+            "Item"
+          ],
+          "accession": "ENCBS159UJV",
+          "age": "unknown",
+          "aliases": [
+            "tim-reddy:mmCD4-Treg-atacseq-rep2-biosample"
+          ],
+          "alternate_accessions": [],
+          "applied_modifications": [],
+          "award": "/awards/UM1HG009428/",
+          "biosample_ontology": {
+            "@id": "/biosample-types/primary_cell_CL_0000815/",
+            "@type": [
+              "BiosampleType",
+              "Item"
+            ],
+            "aliases": [],
+            "cell_slims": [
+              "CD4+ T cell",
+              "T cell",
+              "leukocyte",
+              "hematopoietic cell"
+            ],
+            "classification": "primary cell",
+            "dbxrefs": [],
+            "developmental_slims": [
+              "endoderm",
+              "mesoderm"
+            ],
+            "name": "primary_cell_CL_0000815",
+            "organ_slims": [
+              "bodily fluid",
+              "blood"
+            ],
+            "references": [],
+            "schema_version": "1",
+            "status": "released",
+            "synonyms": [
+              "Treg",
+              "regulatory T-cell",
+              "regulatory T-lymphocyte",
+              "regulatory T lymphocyte"
+            ],
+            "system_slims": [
+              "immune system"
+            ],
+            "term_id": "CL:0000815",
+            "term_name": "regulatory T cell",
+            "uuid": "fb7dd8dc-02c3-4d27-a2ec-068effcf3221"
+          },
+          "characterizations": [],
+          "date_created": "2024-01-29T04:08:53.969137+00:00",
+          "dbxrefs": [
+            "GEO:SAMN54967555"
+          ],
+          "documents": [],
+          "donor": {
+            "@id": "/mouse-donors/ENCDO236IKC/",
+            "@type": [
+              "MouseDonor",
+              "Donor",
+              "Item"
+            ],
+            "accession": "ENCDO236IKC",
+            "aliases": [
+              "encode:C57BL_6NJ"
+            ],
+            "alternate_accessions": [],
+            "award": "/awards/U24HG009397/",
+            "characterizations": [],
+            "date_created": "2020-06-15T18:33:32.162125+00:00",
+            "dbxrefs": [
+              "GEO:SAMN45080142"
+            ],
+            "documents": [],
+            "external_ids": [
+              "JAX:005304"
+            ],
+            "genetic_modifications": [],
+            "lab": "/labs/encode-consortium/",
+            "organism": {
+              "@id": "/organisms/mouse/",
+              "@type": [
+                "Organism",
+                "Item"
+              ],
+              "name": "mouse",
+              "schema_version": "6",
+              "scientific_name": "Mus musculus",
+              "status": "released",
+              "taxon_id": "10090",
+              "uuid": "3413218c-3d86-498b-a0a2-9a406638e786"
+            },
+            "references": [],
+            "schema_version": "11",
+            "status": "released",
+            "strain_background": "C57BL/6",
+            "strain_name": "C57BL/6NJ",
+            "submitted_by": "/users/38dc09c2-4c05-49d2-b73d-4b75261fcbf1/",
+            "superseded_by": [],
+            "uuid": "760d8001-1a43-453e-a271-5aa4b4e37396"
+          },
+          "genetic_modifications": [],
+          "internal_tags": [],
+          "lab": "/labs/tim-reddy/",
+          "life_stage": "unknown",
+          "model_organism_donor_modifications": [],
+          "organism": {
+            "@id": "/organisms/mouse/",
+            "@type": [
+              "Organism",
+              "Item"
+            ],
+            "name": "mouse",
+            "schema_version": "6",
+            "scientific_name": "Mus musculus",
+            "status": "released",
+            "taxon_id": "10090",
+            "uuid": "3413218c-3d86-498b-a0a2-9a406638e786"
+          },
+          "origin_batch": "/biosamples/ENCBS159UJV/",
+          "parent_of": [],
+          "perturbed": false,
+          "references": [],
+          "schema_version": "26",
+          "sex": "unknown",
+          "simple_summary": "strain C57BL/6NJ C57BL/6",
+          "source": {
+            "@id": "/sources/maria-ciofani/",
+            "@type": [
+              "Source",
+              "Item"
+            ],
+            "aliases": [],
+            "name": "maria-ciofani",
+            "schema_version": "6",
+            "status": "released",
+            "title": "Maria Ciofani",
+            "url": "https://immunology.duke.edu/people/maria-ciofani-phd",
+            "uuid": "0c90e030-b80f-4303-b746-3bbac387e5ef"
+          },
+          "status": "released",
+          "submitted_by": {
+            "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+            "@type": [
+              "User",
+              "Item"
+            ],
+            "lab": "/labs/tim-reddy/",
+            "submits_for": [
+              "/labs/tim-reddy/"
+            ],
+            "title": "Revathy Venukuttan",
+            "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+          },
+          "summary": "Mus musculus strain C57BL/6NJ regulatory T primary cell",
+          "treatments": [],
+          "uuid": "af9bac17-06cd-46f8-9991-c02a273053a4"
+        },
+        "date_created": "2023-11-13T18:29:24.985124+00:00",
+        "dbxrefs": [],
+        "documents": [],
+        "lab": "/labs/tim-reddy/",
+        "nucleic_acid_term_id": "SO:0000352",
+        "nucleic_acid_term_name": "DNA",
+        "schema_version": "20",
+        "spikeins_used": [],
+        "status": "released",
+        "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+        "treatments": [],
+        "uuid": "fed5242f-c507-4331-8bb6-0a01a9344915"
+      },
+      "schema_version": "9",
+      "status": "released",
+      "submitted_by": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+      "technical_replicate_number": 1,
+      "uuid": "97c10f9f-1d93-48d4-b878-5382812918c0"
+    }
+  ],
+  "replication_type": "isogenic",
+  "revoked_files": [],
+  "schema_version": "37",
+  "simple_biosample_summary": "strain C57BL/6NJ C57BL/6",
+  "status": "released",
+  "submitted_by": {
+    "@id": "/users/826dd675-b1cb-44e9-958a-c7457ec1c879/",
+    "@type": [
+      "User",
+      "Item"
+    ],
+    "lab": "/labs/tim-reddy/",
+    "submits_for": [
+      "/labs/tim-reddy/"
+    ],
+    "title": "Revathy Venukuttan",
+    "uuid": "826dd675-b1cb-44e9-958a-c7457ec1c879"
+  },
+  "superseded_by": [],
+  "supersedes": [],
+  "tech_replicate_count": 2,
+  "type_slims": [],
+  "uuid": "d1215c6b-010a-4b7b-a14f-eec200f0b03f",
+  "visualize": {
+    "mm10": [
+      "Ensembl",
+      "UCSC"
+    ]
+  }
+}

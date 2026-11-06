@@ -43,6 +43,7 @@ def test_adapter_plan_workspace_returns_config_file(tmp_path):
         "samples": str(tmp_path / "samples.tsv"),
         "outdir": "custom",
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
     samples_tsv = tmp_path / "samples.tsv"
@@ -84,6 +85,7 @@ def test_adapter_plan_workspace_translates_semantic_config_only_at_materializati
         "replicate_analysis": {"enabled": False},
         "chipseq_idr": {"enabled": False},
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
 
@@ -108,6 +110,7 @@ def test_adapter_plan_workspace_translates_semantic_config_only_at_materializati
         "replicate_analysis": {"enabled": False},
         "chipseq_idr": {"enabled": False},
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
 
@@ -125,6 +128,7 @@ def test_adapter_plan_workspace_semantic_config_has_only_completion_issue(tmp_pa
             config={
                 "replicate_analysis": {"enabled": False},
                 "chipseq_idr": {"enabled": False},
+                "blacklist_mode": "off",
             },
             samples=str(samples_tsv),
         ),
@@ -157,6 +161,7 @@ def test_adapter_plan_workspace_round_trip_pe_control_replicate(tmp_path):
         "samples": str(samples_tsv),
         "threads": 1,
         "use_control": False,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
 
@@ -188,6 +193,7 @@ def test_adapter_plan_workspace_rejects_relative_fastq_path(tmp_path):
     config = {
         "samples": str(samples_tsv),
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
 
@@ -220,6 +226,7 @@ def test_adapter_plan_workspace_rejects_relative_genome_resource_path(
     config = {
         "samples": str(samples_tsv),
         "threads": 1,
+        "blacklist_mode": "off",
         "genome_resources": {
             "hs": {
                 "effective_genome_size": "hs",
@@ -281,7 +288,7 @@ def test_adapter_plan_workspace_accepts_inline_rows_and_is_byte_deterministic(
         "bowtie2_index": str((tmp_path / "indices/hs").resolve()),
     }
     inputs = WorkflowInputs(
-        config={},
+        config={"blacklist_mode": "off"},
         samples=[row],
         options={},
     )
@@ -322,7 +329,7 @@ row = {
 }
 adapter = EncodeStyleWorkflowAdapter()
 result = adapter.plan_workspace(
-    WorkflowInputs(config={}, samples=[row]), base / "workspace"
+    WorkflowInputs(config={"blacklist_mode": "off"}, samples=[row]), base / "workspace"
 )
 if result.is_failure:
     print(json.dumps({"codes": [issue.code for issue in result.issues]}))
@@ -404,11 +411,11 @@ def test_inline_and_server_path_modes_render_equivalent_workspace_files(tmp_path
     adapter = EncodeStyleWorkflowAdapter()
 
     inline = adapter.plan_workspace(
-        WorkflowInputs(config={}, samples=[row]),
+        WorkflowInputs(config={"blacklist_mode": "off"}, samples=[row]),
         tmp_path / "workspace-inline",
     )
     server_path = adapter.plan_workspace(
-        WorkflowInputs(config={"samples": str(samples_path)}),
+        WorkflowInputs(config={"samples": str(samples_path), "blacklist_mode": "off"}),
         tmp_path / "workspace-path",
     )
 
@@ -439,6 +446,7 @@ def test_adapter_plan_workspace_semantic_round_trip_via_loader(tmp_path):
         "samples": str(samples_tsv),
         "threads": 1,
         "use_control": True,
+        "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
     }
 

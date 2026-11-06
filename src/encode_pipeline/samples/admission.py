@@ -15,6 +15,10 @@ import gzip
 import os
 import struct
 
+from encode_pipeline.config.reference_policy import (
+    resolve_blacklist_mode,
+    resolve_organelle_mode,
+)
 from encode_pipeline.errors import ValidationError
 from encode_pipeline.qc.histone import classify_histone_target
 
@@ -143,7 +147,7 @@ def _read_chrom_sizes(path: str, *, error_cls=ValidationError) -> dict[str, int]
     try:
         with open(path, encoding="utf-8") as handle:
             for line in handle:
-                fields = line.rstrip("\n").split("\t")
+                fields = line.strip().split()
                 if len(fields) < 2:
                     continue
                 name, length = fields[0], fields[1]
@@ -154,6 +158,125 @@ def _read_chrom_sizes(path: str, *, error_cls=ValidationError) -> dict[str, int]
     if not sizes:
         raise error_cls(f"chrom_sizes is empty or invalid: {path}")
     return sizes
+
+
+def _read_fai(path: str, *, error_cls=ValidationError) -> dict[str, int]:
+    sizes: dict[str, int] = {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.strip().split()
+                if len(fields) < 2:
+                    continue
+                name, length = fields[0], fields[1]
+                if name and length.isdigit():
+                    sizes[name] = int(length)
+    except OSError as exc:
+        raise error_cls(f"reference_fasta .fai is not readable: {path}") from exc
+    if not sizes:
+        raise error_cls(f"reference_fasta .fai is empty or invalid: {path}")
+    return sizes
+
+
+def _get_reference_contigs(
+    resource: dict,
+    *,
+    genome: str,
+    error_cls=ValidationError,
+) -> dict[str, int] | None:
+    """Return contig lengths from chrom_sizes or FAI, verifying agreement if both exist."""
+    chrom_sizes_path = resource.get("chrom_sizes") if isinstance(resource, dict) else ""
+    sizes = (
+        _read_chrom_sizes(chrom_sizes_path, error_cls=error_cls)
+        if (chrom_sizes_path and os.path.isfile(chrom_sizes_path))
+        else None
+    )
+
+    fasta_path = resource.get("reference_fasta") if isinstance(resource, dict) else ""
+    fai_path = f"{fasta_path}.fai" if fasta_path else None
+    fai = (
+        _read_fai(fai_path, error_cls=error_cls)
+        if (fai_path and os.path.isfile(fai_path))
+        else None
+    )
+
+    if sizes is not None and fai is not None:
+        common = set(sizes).intersection(fai)
+        if not common:
+            raise error_cls(
+                f"Genome {genome!r} reference_fasta.fai and chrom_sizes "
+                "have no contigs in common"
+            )
+        for contig in sorted(common):
+            if sizes[contig] != fai[contig]:
+                raise error_cls(
+                    f"Genome {genome!r} contig {contig!r} length mismatch: "
+                    f"reference_fasta.fai ({fai[contig]}) != chrom_sizes ({sizes[contig]})"
+                )
+        # FAI and chrom_sizes can describe different reference roles
+        # (for example a full FASTA index and a primary-only sizes file).
+        # Keep the union after checking every shared length, so organelle or
+        # blacklist contigs present in only one source remain visible.
+        merged = dict(fai)
+        merged.update(sizes)
+        return merged
+    return sizes or fai
+
+
+def _validate_blacklist_bed(
+    path: str,
+    *,
+    ref_contigs: dict[str, int] | None = None,
+    genome: str = "",
+    error_cls=ValidationError,
+) -> None:
+    """Validate blacklist BED file syntax, interval coordinates, and contig bounds."""
+    if not os.path.isfile(path):
+        raise error_cls(f"blacklist file not found: {path}")
+    valid_count = 0
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line_no, raw_line in enumerate(handle, 1):
+                line = raw_line.strip()
+                if not line or line.startswith(("#", "track", "browser")):
+                    continue
+                fields = line.split("\t")
+                if len(fields) < 3:
+                    raise error_cls(
+                        f"blacklist BED line {line_no} has fewer than 3 fields: {raw_line.rstrip()!r}"
+                    )
+                chrom = fields[0]
+                try:
+                    start = int(fields[1])
+                    end = int(fields[2])
+                except ValueError:
+                    raise error_cls(
+                        f"blacklist BED line {line_no} coordinates are not integers: {raw_line.rstrip()!r}"
+                    )
+                if start < 0:
+                    raise error_cls(
+                        f"blacklist BED line {line_no} start coordinate {start} is negative: {raw_line.rstrip()!r}"
+                    )
+                if end <= start:
+                    raise error_cls(
+                        f"blacklist BED line {line_no} invalid interval start={start} >= end={end}: {raw_line.rstrip()!r}"
+                    )
+                if ref_contigs is not None:
+                    if chrom not in ref_contigs:
+                        raise error_cls(
+                            f"blacklist BED line {line_no} contig {chrom!r} is absent from reference for genome {genome!r}"
+                        )
+                    if end > ref_contigs[chrom]:
+                        raise error_cls(
+                            f"blacklist BED line {line_no} interval {chrom}:{start}-{end} exceeds contig length {ref_contigs[chrom]}"
+                        )
+                valid_count += 1
+    except OSError as exc:
+        raise error_cls(f"blacklist file is not readable: {path}") from exc
+    if valid_count == 0:
+        raise error_cls(
+            f"blacklist BED is empty or contains no valid intervals: {path}"
+        )
 
 
 def _validate_external_control_bam(
@@ -178,6 +301,7 @@ def _validate_external_control_bam(
             "External control validation requires genome_resources["
             f"{genome!r}].chrom_sizes"
         )
+    _get_reference_contigs(resource, genome=genome, error_cls=error_cls)
     expected = _read_chrom_sizes(chrom_sizes, error_cls=error_cls)
     for name, length in sq.items():
         if name not in expected:
@@ -218,11 +342,36 @@ def validate_reference_control_admission(
                     "present in genome_resources"
                 )
 
-    use_control = bool(config.get("use_control", False))
+    raw_use_control = config.get("use_control", False)
+    if isinstance(raw_use_control, str):
+        use_control = raw_use_control.strip().lower() in ("true", "yes", "1")
+    else:
+        use_control = bool(raw_use_control)
     resources = config.get("genome_resources", {})
-    if config.get("blacklist_mode") == "analysis":
+
+    sample_map = {str(s.get("id", "")): s for s in samples}
+    treatment_ids = [
+        str(s.get("id", ""))
+        for s in samples
+        if s.get("role") == "treatment" and s.get("id")
+    ]
+
+    def _effective_organelle_mode(sample: dict) -> str:
+        return resolve_organelle_mode(
+            sample,
+            config_mode=str(config.get("organelle_mode", "auto")),
+            sample_map=sample_map,
+            treatment_ids=treatment_ids,
+            error_cls=error_cls,
+        )
+
+    validated_genomes = set()
+    blacklist_mode = resolve_blacklist_mode(config)
+    if blacklist_mode in ("analysis", "copies"):
         if not isinstance(resources, dict):
-            raise error_cls("blacklist_mode=analysis requires genome_resources")
+            raise error_cls(
+                f"blacklist_mode={blacklist_mode} requires genome_resources"
+            )
         for sample in samples:
             if sample.get("role") == "treatment" or (
                 use_control and sample.get("role") == "control"
@@ -232,9 +381,76 @@ def validate_reference_control_admission(
                 if not isinstance(entry, dict) or not entry.get("blacklist"):
                     raise error_cls(
                         f"Sample {sample.get('id', '?')!r}: "
-                        "blacklist_mode=analysis requires a non-empty "
+                        f"blacklist_mode={blacklist_mode} requires a non-empty "
                         f"genome_resources[{genome!r}].blacklist"
                     )
+                blacklist_path = entry["blacklist"]
+                ref_contigs = _get_reference_contigs(
+                    entry, genome=genome, error_cls=error_cls
+                )
+                _validate_blacklist_bed(
+                    blacklist_path,
+                    ref_contigs=ref_contigs,
+                    genome=genome,
+                    error_cls=error_cls,
+                )
+                validated_genomes.add(genome)
+
+    # Reference contig and organelle validation across all active samples
+    if isinstance(resources, dict):
+        for sample in samples:
+            if sample.get("role") == "treatment" or (
+                use_control and sample.get("role") == "control"
+            ):
+                genome = sample.get("genome", "")
+                entry = resources.get(genome, {})
+                if not isinstance(entry, dict):
+                    continue
+                ref_contigs = _get_reference_contigs(
+                    entry, genome=genome, error_cls=error_cls
+                )
+                if (
+                    blacklist_mode in ("analysis", "copies")
+                    and genome not in validated_genomes
+                    and entry.get("blacklist")
+                ):
+                    _validate_blacklist_bed(
+                        entry["blacklist"],
+                        ref_contigs=ref_contigs,
+                        genome=genome,
+                        error_cls=error_cls,
+                    )
+                    validated_genomes.add(genome)
+
+                explicit_organelle = entry.get("organelle_chroms")
+                if (
+                    isinstance(explicit_organelle, (list, tuple))
+                    and ref_contigs is not None
+                ):
+                    for c in explicit_organelle:
+                        if c not in ref_contigs:
+                            raise error_cls(
+                                f"Sample {sample.get('id', '?')!r}: explicit organelle contig "
+                                f"{c!r} not found in reference contigs for genome {genome!r}"
+                            )
+
+                effective_organelle_mode = _effective_organelle_mode(sample)
+
+                if effective_organelle_mode == "exclude" and ref_contigs is not None:
+                    candidates = (
+                        [str(c) for c in explicit_organelle]
+                        if isinstance(explicit_organelle, (list, tuple))
+                        and explicit_organelle
+                        else ["chrM", "MT", "chrMT"]
+                    )
+                    if not any(c in ref_contigs for c in candidates):
+                        raise error_cls(
+                            f"Sample {sample.get('id', '?')!r}: organelle_mode is 'exclude' "
+                            f"but none of candidate contigs {candidates} exist in reference "
+                            f"contigs for genome {genome!r}. Explicitly configure "
+                            f"genome_resources[{genome!r}].organelle_chroms or set "
+                            "organelle_mode: keep."
+                        )
     if (
         config.get("analysis_profile") == "updated"
         and config.get("fragment_cpm") == "on"

@@ -142,6 +142,10 @@ def idr_macs3_args(experiment, assay, peak_mode):
             parts.append("--nomodel --shift -100 --extsize 200")
     if extra:
         parts.append(extra)
+    # SCI-2: shared with get_macs3_args — the BAM layer owns the duplicate
+    # decision; IDR-ready calls consume it faithfully. This changes IDR
+    # inputs relative to the implicit default, not the IDR method itself.
+    parts.append(MACS3_KEEP_DUP_ARGS)
     return " ".join(parts)
 
 

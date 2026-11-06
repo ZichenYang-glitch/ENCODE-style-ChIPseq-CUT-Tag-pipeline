@@ -13,19 +13,48 @@ gating. This page is the maintained configuration reference; the
 | `threads` | `8` | positive integer | Threads per job. |
 | `mapq` | `30` | integer >= 0 | Minimum MAPQ for samtools filtering. |
 | `binsize` | `10` | positive integer | Bin size in bp for bamCoverage BigWig. |
-| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Duplicate removal mode. See below. |
+| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Legacy alias for the duplicate policy. See below. |
+| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy selector; per-sample assay resolution in auto. See below. |
 | `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming and trimmed-read FastQC. Raw-input FastQC always runs. |
 | `extend_reads` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Extend SE reads to fragment size. |
 | `use_control` | `false` | boolean | Enable control sample resolution. |
 | `multiqc` | `true` | boolean | Enable MultiQC report aggregation. |
 
-### `remove_dup` modes
+### Duplicate policy (`duplicate_analysis` and `remove_dup`)
 
-| Value | Behavior |
+The duplicate policy is decided per sample at the BAM layer; every MACS3
+call (per-sample, pooled, consensus, and IDR-ready) then renders
+`--keep-dup all` so peak callers consume the chosen molecule set without a
+second implicit coordinate collapse.
+
+| `duplicate_analysis` | Behavior |
 | :--- | :--- |
-| `"auto"` | Remove duplicates for narrow-peak samples; skip for `broad` peak mode. |
-| `"yes"` | Always remove duplicates. The bundled core env uses `samtools markdup`; Picard is used only if available in a custom runtime environment. |
-| `"no"` | Never remove duplicates. `final.bam` may be a symlink to the filtered BAM. |
+| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (same-coordinate fragments can be independent molecules, so coordinates alone cannot prove PCR copies — a candidate default pending the SCI-7 real-library data freeze); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
+| `"exclude"` | Remove duplicates for all samples. |
+| `"retain"` | Keep duplicates for all samples (marked, for metrics, where the backend supports marking). |
+
+`remove_dup` remains as a legacy alias: `"yes"` maps to `exclude`, `"no"`
+maps to `retain`, and `"auto"` never overrides an explicit
+`duplicate_analysis`. Setting both to conflicting values
+(e.g. `remove_dup: "no"` with `duplicate_analysis: exclude`) is rejected.
+The startup summary and `<outdir>/.helixweave/effective_config.json`
+record the per-sample resolution (`resolved_duplicate_analysis`).
+
+In legacy runs, exclusion uses Picard `REMOVE_DUPLICATES=true` when Picard
+is available, otherwise the `samtools markdup` fallback; retained samples
+keep a symlinked `final.bam`. In updated runs, Picard marks duplicates in
+`final.bam` and `analysis.bam` applies the policy (`-F 0x400` for exclude
+samples).
+
+A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
+`tool_parameters.idr_macs3.extra_args` is migrated: a synonymous
+`--keep-dup all` is normalized away (the workflow renders the flag
+itself); any other value is rejected with migration guidance rather than
+being decided by argument order. Argparse abbreviations that the pinned
+MACS3 accepts (`--keep-d`, `--k`, and the `--keep-dup=all` equals form)
+are treated as the same flag. Only the managed tokens' original text is
+removed — every other argument keeps its original quoting and shell
+expansions byte-for-byte (e.g. `--tempdir "$TMPDIR"` still expands).
 
 ## Genome resources
 
@@ -46,8 +75,10 @@ genome_resources:
   BigWig conversion. When non-empty and `qc.signal_tracks: true`, FE/ppois
   bedGraph tracks are also converted to BigWig format. When empty, only
   bedGraph signal tracks are produced. See the BigWig section below.
-- **`blacklist`**: BED file of problematic regions. Used when
-  `qc.blacklist_filter: true`.
+- **`blacklist`**: BED file of problematic regions. Required when
+  `blacklist_mode: analysis` (default) or `blacklist_mode: copies` (or
+  `qc.blacklist_filter: true`). When `blacklist_mode: off`, this path is
+  optional and unused.
 - **`gtf`**: Annotation file required when `qc.tss_enrichment: true`; used to
   derive transcription start sites for deepTools TSS profile QC.
 - **`reference_fasta`**: Required when `qc.picard_metrics: true`; must have a
@@ -95,7 +126,6 @@ MultiQC runs in `workflow/envs/multiqc.yml` when Snakemake is invoked with
 
 ```yaml
 qc:
-  blacklist_filter: true
   frip: true
   library_complexity: true
   nrf_pbc: true
@@ -110,8 +140,8 @@ qc:
 
 | Switch | Default | Effect |
 | :--- | :--- | :--- |
-| `blacklist_filter` | `true` | Create additional blacklist-filtered BAM and peak copies for eligible treatment samples with a configured blacklist BED. Raw outputs remain available; consumers are described below. |
-| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples, using both filtered copies when blacklist QC applies. |
+| `blacklist_filter` | not set | Legacy alias for `blacklist_mode`; prefer the canonical top-level key. When `blacklist_mode` is omitted, `true` maps to `copies` and `false` maps to `off`. The alias is not injected by the default config or authoring form. If specified alongside `blacklist_mode`, conflicting settings (such as `blacklist_mode: analysis` with `qc.blacklist_filter: true`) raise a validation error. |
+| `frip` | `true` | Compute read-record FRiP for peak-assay treatment samples using the canonical analysis BAM. |
 | `library_complexity` | `true` | Parse duplicate metrics. Picard fields are reported when Picard is available; otherwise fallback fields are emitted as `NA`. |
 | `nrf_pbc` | `true` | Compute NRF and PBC1/PBC2 from the MAPQ-filtered, duplicate-containing BAM (`{sample}.mapq{mapq}.bam`), before duplicate handling. |
 | `signal_tracks` | `true` | Produce MACS3 FE (fold-enrichment) and ppois (Poisson p-value) bedGraph tracks for eligible peak-assay treatment samples and pooled replicate experiments. FE/ppois BigWig conversion is available when `genome_resources.<genome>.chrom_sizes` is also configured. |
@@ -132,43 +162,63 @@ switches are false. Explicitly requesting a rule output is distinct from default
 target selection.
 
 Blacklist handling is not a global replacement of BAMs, peaks or signal tracks.
-In [`qc.smk`](../workflow/rules/qc.smk), `_has_blacklist_qc` requires both the
+In [`qc.smk`](../workflow/rules/qc.smk), when `blacklist_mode: copies` is selected, `_has_blacklist_qc` requires both the
 switch and a sample in `BLACKLIST_SAMPLES` (treatment samples with a nonempty
-blacklist genome resource). `_frip_inputs` then requests the filtered BAM **and**
-filtered peaks; otherwise it requests `final.bam` and the original peak directory.
-This is configuration-based DAG selection: missing selected outputs must be
-produced, not silently replaced with raw inputs. `_peak_counts_inputs` requests
-raw peaks and optional filtered peaks, never the filtered BAM.
+blacklist genome resource) to produce side-car filtered BAM copies (`<sample>.blacklist_filtered.bam`) and filtered peak directories.
+In `blacklist_mode: analysis`, filtering is applied directly during canonical analysis BAM and final peak preparation, which downstream consumers uniformly consume.
+`_peak_counts_inputs` requests raw peaks and optional filtered peaks, never the filtered BAM.
 
-### Analysis-filtered blacklist branch
+### Effective blacklist mode decision table
 
-`analysis_profile: updated` also supports a whole-analysis blacklist branch:
+The workflow, manifest CLI, and artifact extractor use one resolver. The
+default template and authoring form emit only the canonical key; the legacy
+alias is accepted when a user explicitly supplies it.
+
+| Input | Effective mode | Output namespace | Resource requirement | Main analysis / copies |
+| :--- | :--- | :--- | :--- | :--- |
+| no canonical, no alias | `analysis` | `<outdir>/analysis_filtered` | non-empty blacklist for every active genome | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: analysis` | `analysis` | `<outdir>/analysis_filtered` | required | analysis chain filtered; no sidecar copies |
+| `blacklist_mode: copies` | `copies` | `<outdir>` | required | main analysis not blacklist-filtered; sidecar BAM/peak copies |
+| `blacklist_mode: off` | `off` | `<outdir>` | unused | no blacklist filtering |
+| no canonical, alias `true` | `copies` | `<outdir>` | required | as `copies` |
+| no canonical, alias `false` | `off` | `<outdir>` | unused | as `off` |
+| `analysis` + alias `false` | `analysis` | `<outdir>/analysis_filtered` | required | canonical key wins |
+| `analysis` + alias `true`, `copies` + alias `false`, `off` + alias `true` | invalid | — | — | reject with a configuration error |
+
+`analysis_outdir` is an internal derived namespace, not a user-required key.
+`use_control: false` excludes control rows from active policy/identity
+resolution; controls referenced by multiple treatments are resolved by their
+effective organelle mode, not by assay name alone.
+
+### Canonical analysis BAM and blacklist filtering
+
+Both `legacy` and `updated` profiles use a canonical analysis BAM (`<sample>.analysis.bam`)
+as the uniform input for downstream consumers (peak calling, signal tracks, FRiP, TSS,
+SEACR, IDR, consensus).
 
 ```yaml
-analysis_profile: updated
-blacklist_mode: analysis
+blacklist_mode: analysis   # "analysis" (default), "copies", or "off"
+organelle_mode: auto       # "auto" (default), "exclude", "keep", or "report"
 genome_resources:
   hg38:
     effective_genome_size: "hs"
-    blacklist: "/refs/hg38/hg38.blacklist.bed"
+    blacklist: "config/blacklist/hg38-blacklist.v2.bed"
 ```
 
-`blacklist_mode: analysis` requires a non-empty blacklist for every active
-sample genome and is rejected under `analysis_profile: legacy`. Raw
-preprocessing outputs stay under `results/<sample>/`; analysis outputs move to
-`results/analysis_filtered/<sample>/` and
-`results/analysis_filtered/experiments/<experiment>/`. The analysis BAM is
-derived after duplicate/organelle filtering. PE templates are removed when the
-fragment span (`min(POS, PNEXT)` through `min + abs(TLEN) - 1`) overlaps the
-blacklist; SE reads use their alignment span. Non-proper/orphan PE records fail
-closed. Per-template drop counts are written to
-`05_qc/<sample>.blacklist_dropped.tsv`.
-
-In this branch, MACS3, BigWig, FRiP, SEACR, cross-correlation, TSS, MNase, IDR
-and consensus consume the filtered analysis BAM/namespace. Per-sample peaks are
-also written as `04_peaks/<sample>_blacklist_filtered/`, and final IDR/consensus
-peak sets are filtered before promotion. The raw `final.bam` and raw QC remain
-available under `results/`.
+- When `blacklist_mode: analysis` (the default for both profiles):
+  A valid, non-empty blacklist BED matching the reference assembly is required for each active sample genome.
+  The analysis BAM is prepared by enforcing proper PE template closure, applying the duplicate and organelle
+  policy, and filtering out templates overlapping blacklist intervals. Downstream analyses (MACS3, SEACR,
+  BigWig, FRiP, cross-correlation, TSS, MNase, IDR, consensus) consume `<sample>.analysis.bam`.
+  Single-sample and pooled peaks undergo peak-level blacklist filtering before final QC and promotion.
+  Per-template blacklist drops are tracked in `05_qc/<sample>.blacklist_dropped.tsv`, and stage metrics
+  are recorded in `<sample>.blacklist_dropped.stage_metrics.json`.
+- When `blacklist_mode: copies`:
+  The canonical analysis BAM is prepared with duplicate/organelle/template filtering but without blacklist filtering.
+  Additional copies of blacklist-filtered BAMs and peaks (`<sample>.blacklist_filtered.bam`, `*_blacklist_filtered/`)
+  are produced alongside canonical outputs for side-by-side QC evaluation.
+- When `blacklist_mode: off`:
+  Blacklist filtering is disabled; unconfigured or unused blacklist resources are not required or validated.
 
 `final.bam` may retain duplicates according to the duplicate policy.
 Default CPM coverage uses that final BAM in
@@ -328,6 +378,8 @@ use built-in defaults.
 
 ```yaml
 tool_parameters:
+  bowtie2:
+    max_insert: "auto" # auto | positive integer -> PE -X N
   macs3:
     qvalue: 0.01
   idr_macs3:
@@ -338,11 +390,40 @@ tool_parameters:
 
 | Block | Key | Default | Effect |
 | :--- | :--- | :--- | :--- |
+| `bowtie2` | `max_insert` | `"auto"` | Paired-end Bowtie2 maximum fragment length (`-X`). `"auto"` resolves per PE sample by assay (`chipseq: 2000`, `atac: 2000`, `cuttag: 700`, `mnase: 500`); a positive integer overrides `"auto"` for all PE samples in the run. Validated for SE runs, not emitted on the SE command line, and recorded as `"not_applicable"` in `resolved_max_insert`. |
 | `macs3` | `qvalue` | `0.01` | MACS3 q-value cutoff for peak calling. Must be a finite probability in (0, 1]. |
 | `macs3` | `broad_cutoff` | `0.1` | MACS3 broad-peak q-value cutoff. Must be a finite probability in (0, 1]. |
 | `idr_macs3` | `pvalue` | `0.1` | Relaxed p-value for IDR-ready per-biorep peak calls. Only used when `chipseq_idr: true`. Must be a finite probability in (0, 1]. |
 | `bamcoverage` | `normalize_using` | `"CPM"` | deepTools bamCoverage normalization method. |
 | any block | `extra_args` | `""` | Additional CLI arguments passed through to the tool. Use sparingly. |
+
+### Bowtie2 paired-end insert limit (`tool_parameters.bowtie2.max_insert`)
+
+In `auto` mode, `rule bowtie2_align` resolves `-X` per PE sample by assay
+(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) across both
+`legacy` and `updated` profiles and for both treatment and control rows.
+An explicit positive integer in `tool_parameters.bowtie2.max_insert`
+overrides `auto` for every PE sample in the run. SE samples never emit `-X`
+and are recorded as `"not_applicable"` in `resolved_max_insert` inside
+`<outdir>/.helixweave/effective_config.json`.
+
+A legacy `-X` or `--maxins` in `tool_parameters.bowtie2.extra_args` (including
+attached `-X<N>`, `--maxins=<N>`, and unambiguous `getopt_long` prefixes
+`--max`, `--maxi`, `--maxin`) is migrated into `tool_parameters.bowtie2.max_insert`
+when `max_insert` is omitted or `"auto"`, or stripped when it matches an
+explicit `max_insert` integer; conflicting values, bundled short flags such
+as `-qX700`, `-X=<N>` (rejected by Bowtie2), or non-positive values are
+rejected with migration guidance rather than being decided by argument order.
+Unrelated tokens in `extra_args` — including arguments consumed by other
+Bowtie2 options such as `--rg-id '-X500'` or `--rg-id '-I5000'` — keep their
+original shell quoting and runtime variable expansions byte-for-byte. If
+`extra_args` also passes a standalone `-I` or `--minins`, validation enforces
+that the minimum insert length is a non-negative integer no larger than the
+effective maximum insert length for every PE sample in the run. Note that
+`max_insert` configures Bowtie2's `-X` paired-end alignment bound rather than a
+post-alignment TLEN filter: when individual read length exceeds `-X` (e.g.
+150 bp reads with `-X 100`), Bowtie2 can still mark templates up to the read
+length as concordant pairs (`0x2`).
 
 ## Strict input validation
 
@@ -378,3 +459,92 @@ those are already checked regardless of strict mode.
 | `cuttag.seacr.enabled` | `false` | Always; affects CUT&Tag samples only |
 | `qc.tss_enrichment` | `false` | Requires `genome_resources.<genome>.gtf` |
 | `tool_parameters.*` | tool defaults | Always; absent keys use built-in tool defaults |
+
+## Run identity and effective configuration
+
+Every run — both `legacy` and `updated` profiles — records a versioned
+identity marker at `<outdir>/.helixweave/analysis_identity.json` before any
+scientific task executes. The marker carries a marker schema version, the
+analysis profile, the internal `scientific_policy_revision`, and a hash of the
+merged, validated configuration plus the parsed sample sheet. The identity
+covers every validated (effective) config value — including the `mnase`,
+`cuttag`/SEACR, `qc`, `idr`/`reproducibility`, genome-resource, duplicate,
+organelle, blacklist, and tool-parameter blocks — with only these explicitly
+excluded scheduling/location keys: `outdir`, `threads`, and the `samples`
+path (the parsed sample content is hashed instead).
+`scientific_policy_revision` is an internal workflow identity; it cannot be
+set by user configuration. Path-valued inputs (FASTQ, Bowtie2 index prefix,
+external control BAM, and genome-resource file paths) enter the identity
+through their canonical absolute locations, so the same relative string in a
+different working directory cannot alias a different actual input; the same
+actual input referenced through equivalent path forms stays equivalent.
+
+| Outdir / marker state | Behavior |
+| :--- | :--- |
+| New directory, or only scheduler metadata (`.snakemake`, `.helixweave`) | The marker is created, then scientific tasks run |
+| Marker matches profile, policy revision, and identity | The same run may continue |
+| Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
+| Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
+| Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
+| Marker valid but `effective_config.json` missing, unreadable, missing required fields, or inconsistent with the run identity | Refused; the run does not continue without an intact, truthful configuration record |
+
+The record stores scientific input paths in the canonical form resolved at
+creation time, so resuming from a different working directory with
+equivalent absolute paths of the same actual inputs stays valid, while a
+different actual resource is refused. The record is validated beyond file
+integrity: it must carry the profile, schema version (consistent with the
+recorded configuration), policy revision, identity, and a `config` block
+whose canonical form recomputes to the recorded identity, so a bare
+identity string or a tampered inner configuration is refused like any other
+mismatch. Nothing is auto-repaired from current parameters.
+
+The marker and the effective-config record form one metadata boundary: each
+is written to an exclusively created temporary regular file inside the
+verified metadata directory and atomically replaced into place, record
+first, so a valid marker never publishes without its record and neither
+symlinked parents nor pre-placed temporary symlinks can redirect the write.
+
+Dry-runs perform the same checks (a dry-run reports a mismatch) but never
+create the marker or any run record.
+
+### CLI overrides and the effective configuration record
+
+Snakemake `--config KEY=VALUE` overrides are merged with `--configfile` before
+validation, so an override goes through the same validator, the run identity,
+and the effective configuration record. The merged value must be legal for the
+active profile; conflicting or internal keys are rejected.
+
+```bash
+snakemake -s workflow/Snakefile --configfile config/config.yaml \
+  --config mapq=20
+```
+
+At startup the workflow prints a short, path-free summary of the effective
+configuration (profile, policy revision, mapq/trim/binsize, duplicate,
+organelle, and blacklist modes, sample assay counts). An actual run also
+saves the merged, normalized configuration to
+`<outdir>/.helixweave/effective_config.json`. A dry-run prints the summary but
+writes nothing into the run directory.
+
+Overrides that change scientific identity require a fresh outdir — they are
+not applied on top of an existing run directory. The standalone
+`validate --config FILE` command validates only that file; it does not
+validate `--config` values injected later. To check an overridden run, use
+the workflow's own merged-config validation and dry-run.
+
+### SCI-6 cross-correlation settings
+
+Cross-correlation remains opt-in. `qc.cross_correlation_target_type` defaults
+to `auto`; `tf`/`histone` are run-wide ChIP overrides. Auto leaves unrecognized
+ChIP targets unknown, and non-ChIP assays remain diagnostic regardless of the
+requested type. Authoring schema 3.1.0 exposes the enum; YAML config versions
+1.0.0/2.0.0 and both analysis profiles remain supported. For direct Snakemake,
+`--config 'qc={"cross_correlation":true,"cross_correlation_target_type":"tf"}'`
+uses the same validator as configuration files; unchanged sibling settings
+are preserved by the workflow merge. Platform runs use validated snapshots,
+with no arbitrary command injection.
+
+Scientific policy revision 6 isolates old cross-correlation semantics from new
+runs: use a fresh outdir. The required detail records the resolved window and
+analysis_r1/analysis_se stage; raw SPP QC/PDF are optional for no-data samples.
+See [QC interpretation](qc-interpretation.md#cross-correlation-phantompeakqualtools).

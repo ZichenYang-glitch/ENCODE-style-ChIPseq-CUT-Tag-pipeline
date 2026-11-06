@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "3.1.0"
 MAX_CORES = 1024
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
@@ -92,9 +92,9 @@ def _config_schema() -> dict[str, object]:
     qc_properties = {
         key: _boolean_or_string_schema(default=default)
         for key, default in (
-            # Authoring remains executable legacy until B/C lands. Legacy
-            # qc.blacklist_filter=true keeps the historical copies behavior.
-            ("blacklist_filter", True),
+            # Canonical blacklist filtering defaults to analysis; the legacy
+            # qc.blacklist_filter alias is accepted by the backend but is not
+            # injected by the authoring form.
             ("frip", True),
             ("library_complexity", True),
             ("nrf_pbc", True),
@@ -106,6 +106,12 @@ def _config_schema() -> dict[str, object]:
             ("picard_metrics", False),
             ("tss_enrichment", False),
         )
+    }
+    qc_properties["cross_correlation_target_type"] = {
+        "type": "string",
+        "enum": ["auto", "tf", "histone"],
+        "default": "auto",
+        "description": "Run-wide ChIP target override; non-ChIP remains diagnostic.",
     }
     schema: dict[str, object] = {
         "$schema": JSON_SCHEMA_DIALECT,
@@ -140,21 +146,25 @@ def _config_schema() -> dict[str, object]:
                 "type": "string",
                 "enum": ["legacy", "updated"],
                 "default": "legacy",
-                "description": "Analysis policy bundle; legacy preserves existing outputs.",
+                "description": (
+                    "Analysis policy bundle. Both profiles apply the current "
+                    "scientific policy; legacy keeps the original backend "
+                    "dispatch, updated derives a filtered analysis BAM."
+                ),
             },
             "blacklist_mode": {
                 "type": "string",
                 "enum": ["off", "copies", "analysis"],
-                "default": "copies",
+                "default": "analysis",
                 "description": (
                     "off=raw; copies=QC copies; analysis=filtered analysis "
-                    "branch (analysis_profile=updated only)."
+                    "branch in both legacy and updated profiles."
                 ),
             },
             "organelle_mode": {
                 "type": "string",
                 "enum": ["auto", "exclude", "report", "keep"],
-                "default": "keep",
+                "default": "auto",
             },
             "duplicate_backend": {
                 "type": "string",
@@ -163,8 +173,8 @@ def _config_schema() -> dict[str, object]:
             },
             "duplicate_analysis": {
                 "type": "string",
-                "enum": ["exclude", "retain"],
-                "default": "exclude",
+                "enum": ["auto", "exclude", "retain"],
+                "default": "auto",
             },
             "control_mode": {
                 "type": "string",

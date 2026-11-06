@@ -121,6 +121,7 @@ def test_fragment_tss_profile_runs_end_to_end(tmp_path, samtools_path, snakemake
                 "fragment_cpm: auto",
                 "tss_fragment_profile: true",
                 "organelle_mode: auto",
+                "blacklist_mode: off",
                 "duplicate_backend: picard",
                 "duplicate_analysis: exclude",
                 "control_mode: matched",
