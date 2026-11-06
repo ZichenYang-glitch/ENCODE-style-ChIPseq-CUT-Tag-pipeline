@@ -4,11 +4,30 @@ This roadmap records the maintained product boundary, delivered baseline, and
 explicit follow-ons. It does not promise dates. Detailed implementation history
 belongs in Git history, the changelog, and release evidence.
 
-## 当前交付状态与后续计划（2026-11-06）
+## 当前交付状态与后续计划（2026-11-06 集成候选）
 
-当前状态以本节及 [PR 收口与集成清单](current-delivery-integration.md) 的
-2026-11-06 09:50（Asia/Shanghai）快照为准。下方所有带日期记录原样保留为
-历史；其中“当前”“待授权”“未完成”仅描述对应时点。
+当前状态以本节和 [PR 收口与集成清单](current-delivery-integration.md) 的
+“集成候选（2026-11-06）”为准。下方 09:50 记录和更早日期记录原样保留。
+
+main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。集成候选在独立分支，
+未合入 main，未发布，科学默认未冻结。纳入 #190、科学实现与 SCI-7 结果至
+#203、#193、#198、#199、#204、#205、#206 和 #201。#194 与 #195 排除在外。
+JUND 比较已写入 #203 `65760720c4609de633ef9f636ab9d4eea4f3e8c0`，结论是
+no conclusion。Protected Bulk Gate 的已验收身份不变；候选的 119 路径闭包与
+该身份相同，本轮不重跑 Gate。
+
+| 工作线 | 范围 | 当前状态 | 验收边界 |
+| --- | --- | --- | --- |
+| 科学批次 | 已测量 discovery、JUND 跨靶点确认、MNase Rep1 | 记录已组合，结论 no conclusion | 未评估 confirmation 和 MNase 500-arm 短模板指标；不新增数据或阈值 |
+| Workflow skills | #199 指令对齐候选启动方式 | 使用 `python -m snakemake` 与两个 profile 开关 | `verify-checkout` 不是 Snakemake 进程检查 |
+| 源码身份 | #204 与 SCI-1～6 并存 | `import_checkout_package` 加科学导入 | 初始化失败不切换 checkout |
+| 测试精简 | #205 两项删除、#206 构建复用 | 保留覆盖仍在；副本、venv 和 PEP 517 构建独立 | 不启动第三批 |
+| CI 与 Gate | #190 清理预算和 #193 运行时接线 | 来源 head 的红灯不改记为通过 | 候选需要自己的普通 CI；历史 Gate 不追认 |
+
+## 历史交付状态与后续计划（2026-11-06 09:50）
+
+本节在写入时是当前入口。集成候选形成后，它改为历史。其中“当前”“下一步”
+只描述 09:50。
 
 main 仍为 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。
 #184～#206 共 23 条 PR 均 open、未合并；21 条 Draft，#194/#195 为非 Draft。

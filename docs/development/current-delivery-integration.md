@@ -1,8 +1,81 @@
 # 当前 PR 收口与集成清单
 
-## 当前快照与执行计划（2026-11-06 09:50，Asia/Shanghai）
+## 集成候选（2026-11-06）
 
-本节取代下方历史快照中的“当前”和“下一步”，历史正文原样保留。
+本节是当前入口。下方 09:50 快照和更早正文是历史证据，不描述本候选。
+main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本候选没有合入 main，
+没有发布，也没有冻结科学默认。
+
+来源合并树是 `526e26d1ff8dc6e39807fae9c9406f9bd0a19e7e`。
+技能启动说明对齐是 `b436087176f2c82d7c01f30dca1434eaecab3349`。
+包含本节的提交是评审候选；完整 SHA 以 Draft PR head 为准，不把任一来源
+PR head 写成候选身份。候选 CI 是该 head 上新跑的普通 CI、Lint 和 Lock Check，
+不沿用下表里来源 head 的结果。
+
+### 纳入
+
+祖先核对后，子提交已经包含的父提交没有再次叠补丁。#190 的两个 CI 提交
+（`4e7c5a46945f69a703d0d3ec0d90ac8ebc7d599c`、
+`b6f3a49f45a6b8093f8c42db6684bce5f1425475`）与科学链上的
+`978651a45974216066488449f49e43dced5bb40e`、
+`50c28743dfa3693ec90de3d2bd6106cbdbf4ed8a` patch-id 相同，只保留一次。
+#190 独有的清理预算 `32570adf50725206e0bfe40a6af1d3d81391478d` 已进入候选。
+
+| PR | 准确 head | 处理 |
+| --- | --- | --- |
+| #190 | `b6f3a49f45a6b8093f8c42db6684bce5f1425475` | 快进纳入 |
+| #184–#192、#196、#197、#200、#202 | 见 09:50 表，本轮复核未移动 | 由 #203 祖先包含 |
+| #203 | `65760720c4609de633ef9f636ab9d4eea4f3e8c0` | 合并；普通 CI [42154760414](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760414)、Lint [42154760469](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760469)、Lock Check [42154760405](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760405) 均为 success |
+| #193 | `39a5484119d688a3658c7e5f7d359704ee274866` | 合并。PR CI [40811304880](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304880) attempt 1 success。Protected Bulk Gate 仍是 dispatch [40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755) attempt 1 success，只属于该 head |
+| #198 | `e9abd5803f60ff07b8606f3dfc5900116d44c022` | 合并 |
+| #199 | `3950c7e77834c28ebde2a09b7b079809a0eacce6` | 合并 |
+| #204 | `ae08bd2544ae47a3691cd30ce299ebaaf96c5a68` | 合并 |
+| #205 | `be4a2db56811adc1e9702382234cdddb5819b998` | 合并 |
+| #206 | `ce86c52cc489825e04e52cef6b268e0a678ceba7` | 合并 |
+| #201 | `ce10b73717af4c602b3210a0ebd6451ed52b50db` | 合并。该 head 的 CI [42146755914](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42146755914) 仍是 failure；Lint 与 Lock Check 成功。失败留在来源 head，不记成候选通过 |
+
+### 排除
+
+#194 `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` 只改 `AGENTS.md` 的 Cloud Agent
+工具链说明。#195 `a64434962c3f497a83188b46f8b2f488a353cd8e` 只新增
+`docs/research/agentic-engineering-audit/` 的工程审计。二者都不改变科学行为、
+工作流、CI、测试、锁文件或 API。它们各自的 CI 仍失败。本候选不纳入，避免把
+Cloud 运行手册和一套并行的代理流程路线图写成当前交付。后续应在候选之后单独
+审阅，并先核对已过时的环境、Alembic 和 Actions 陈述。
+
+### 冲突处理
+
+- `docs/development/sci7-public-data/README.md`：保留各 assay 已交付记录，并写入
+  MNase Rep1 的 no conclusion。不再写“MNase 记录留在另一分支”。
+- `workflow/Snakefile`：使用 `import_checkout_package`。包已定位但初始化失败时
+  停止，不退回另一个 checkout。SCI-1～6 的 insert bound、policy revision、
+  run identity 和 effective config 导入全部保留。
+- `test/config/test_validation.py`：删除 `test_mnase_se_still_rejected` 和
+  `test_mnase_narrow_still_rejected`。保留同断言的 `test_mnase_se_rejected`、
+  `test_mnase_narrow_peak_mode_rejected`，以及 `test_scientific_policy_revision_key_rejected`。
+
+#193 的 conda 工具链、profile 隔离和容器 UID/GID 接线在合并后与 gate head 的
+`.github/workflows/ci.yml`、`workflow/envs/ci-conda.lock`、
+`workflow/envs/ci-conda.yml`、`containers/Apptainer.ci-conda.def` 字节相同。
+
+### 闭包与 Gate
+
+相对 `39a5484119d688a3658c7e5f7d359704ee274866`，119 个 bulk 实现路径和
+`execution-implementation-manifest-1.0.0.json` 字节相同，aggregate 仍为
+`15a16a23f8a97afa006b475a9a9be741ba84750ddedd81f96ca10326383c5b86`。
+`default-execution-qualification-1.1.0.json` 也相同。
+`scripts/source_provenance.py` 和 `workflow/Snakefile` 有变化，且不在这 119 个路径里。
+因此本候选不重跑 Protected Bulk Gate，也不把历史 Gate 写成候选已通过。
+
+### 科学边界
+
+SCI-7 本批测量和记录已交付，结论是 no conclusion。JUND 是跨靶点检查，不是
+NR2F2 的生物学重复。CUT&Tag、histone、MNase、ATAC 的 confirmation 未执行。
+MNase 登记的 500-arm 短模板指标未评估。默认未冻结。
+
+## 历史快照与执行计划（2026-11-06 09:50，Asia/Shanghai）
+
+本节在写入时取代当时的历史“当前”和“下一步”。它现在本身是历史，原样保留。
 此次重新查询了 #184～#206 的开放状态、准确 head 的普通工作流结果，
 并读取 #201～#206 的 CI job 列表；本地科学状态只读核对，不接管原 session。
 
