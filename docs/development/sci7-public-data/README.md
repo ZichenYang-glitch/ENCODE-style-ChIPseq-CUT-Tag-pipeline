@@ -9,14 +9,18 @@ inconclusive for a default. Histone H3K36me3 retain versus exclude is in
 replicate and does not freeze a default. TF ChIP NR2F2 retain versus
 exclude, and max_insert 500 versus 2000, are in
 [`tf-nr2f2-discovery.md`](tf-nr2f2-discovery.md). That result is one
-biological replicate and does not freeze a default. ATAC-seq ENCSR844TIU
+biological replicate and does not freeze a default. The JUND confirmation
+pair is in [`tf-jund-confirmation.md`](tf-jund-confirmation.md). It is a
+different target and cell context, one biological replicate, and does not
+freeze a default. ATAC-seq ENCSR844TIU
 exclude versus retain, and max_insert 500 versus 2000, are in
 [`atac-treg-discovery.md`](atac-treg-discovery.md). Two biological
 replicates from one donor do not freeze a default. The cross-batch
 summary is in [`sci7-batch-summary.md`](sci7-batch-summary.md). No
 scientific acceptance has completed. The MNase Rep1 no-conclusion record
-stays on its own branch and is not repeated here. Confirmation FASTQ has
-not been downloaded.
+stays on its own branch and is not repeated here. The TF confirmation FASTQ
+pair has been measured. The other confirmation FASTQ files have not been
+downloaded.
 
 ## Scope
 
@@ -77,7 +81,9 @@ are never treated as proof of independence.
 [`confirmation-file-manifest.tsv`](confirmation-file-manifest.tsv) contains 28
 ENCODE confirmation FASTQ (92,835,234,501 bytes), and
 [`geo-sra-confirmation-file-manifest.tsv`](geo-sra-confirmation-file-manifest.tsv)
-contains 10 optional GEO/SRA FASTQ (3,371,454,387 bytes). None is downloaded.
+contains 10 optional GEO/SRA FASTQ (3,371,454,387 bytes). The four TF
+confirmation FASTQ files from the ENCODE list were downloaded and measured.
+The histone, ATAC, and optional GEO/SRA confirmation files were not.
 
 [`reference-identity.md`](reference-identity.md) separately records proposed
 FASTA assembly/release, contig naming, FAI/chrom_sizes derivation, blacklist

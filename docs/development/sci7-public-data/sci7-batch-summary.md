@@ -3,12 +3,13 @@
 Status: **no default is frozen.** CUT&Tag, histone H3K36me3, MNase Rep1,
 TF NR2F2, and ATAC Treg discovery have each been measured under the
 pre-registered rules in [`comparison-design.md`](comparison-design.md).
-Confirmation FASTQ has not been downloaded. Exit status 0 is not scientific
-acceptance.
+The TF confirmation pair, JUND ENCSR785RQR with control ENCSR194GTV, has
+also been measured and is in
+[`tf-jund-confirmation.md`](tf-jund-confirmation.md). It does not freeze a
+default. Exit status 0 is not scientific acceptance.
 
-This note records effect sizes, independence, unevaluated metrics, and why
-the remaining confirmation candidates were not run. It does not change a
-production default.
+This note records effect sizes, independence, and the confirmation
+candidates that remain unevaluated. It does not change a production default.
 
 ## What was measured
 
@@ -19,6 +20,7 @@ production default.
 | MNase Rep1 | exclude versus retain; 200 versus 500 is a diagnostic only | One library. Rep2 and Rep3 were not run | No conclusion. The registered 1% short-template metric was not evaluated. |
 | TF NR2F2 | exclude versus retain; max_insert 500 versus 2000 | One biological replicate and its matched input | No conclusion. Joint signal trigger is false. Short-template fraction is far below 1%. |
 | ATAC Treg | exclude versus retain; max_insert 500 versus 2000 | Two biological replicates, one donor, ENCDO236IKC. Reads are 26 bp | No conclusion. Neither replicate meets the joint signal trigger. Short-template fractions are about 0.00115 and 0.00118. |
+| TF JUND confirmation | exclude versus retain; max_insert 500 versus 2000 | One JUND library in K562 cells with a CEBPB deletion, plus matched input. Different target and cell context from NR2F2 | No conclusion. Joint signal trigger is false. Short-template fraction is 1,829 / 155,206,704. |
 
 Candidate settings that were tested, and not frozen:
 
@@ -46,6 +48,12 @@ CUT&Tag and histone details stay in their own notes. The new batches:
 A large TF peak-count change and a small ATAC peak-set change are both
 descriptive. Neither freezes a default by itself.
 
+The JUND confirmation library is also one replicate. Blacklist-filtered
+narrow peaks are 316,361 on retain and 7,430 on exclude. Common-universe
+relative FRiP change is −0.126901. Relative off-peak change is 0.034947,
+which is not strictly above 0.05, so the joint trigger is false.
+Short-template fraction is 1,829 / 155,206,704.
+
 ## Independence
 
 Donor, library, and biosample overlap was reviewed before any confirmation
@@ -72,20 +80,18 @@ Candidates that do not answer those questions were not downloaded:
   the completed no-conclusion records, and they were not used to tune a
   threshold.
 
-TF ENCSR785RQR with control ENCSR194GTV is the donor-independent confirmation
-candidate named for the TF policy question. It is a different target and cell
-context from NR2F2, which the confirmation review already records. Its eight
-FASTQ files are 74,110,406,175 official bytes. At the decision point the
-filesystem had 150,058,029,056 bytes free. Keeping 20 GiB free after download
-would still leave too little room for even one alignment arm: the completed
-TF discovery arms used on the order of 45 GiB of results for each arm of an
-11.4 GiB FASTQ group. This confirmation group is about 6.5 times that FASTQ
-volume. The expansion was paused before download. The FASTQ was not fetched,
-and the confirmation comparison was not run.
+TF ENCSR785RQR with control ENCSR194GTV was the donor-independent
+confirmation candidate named for the TF policy question. It is a different
+target and cell context from NR2F2. Its four FASTQ files are 74,110,406,175
+official bytes. Those files were downloaded, the three arms finished, and
+the registered comparison is in
+[`tf-jund-confirmation.md`](tf-jund-confirmation.md). The result does not
+freeze `exclude` or `max_insert` 2000, and it was not used to move a
+threshold.
 
 ## Unevaluated metrics
 
-- Confirmation, for every batch above.
+- Confirmation for CUT&Tag, histone, MNase, and ATAC.
 - MNase registered short-template fraction on the 500-arm denominator.
   A separate 200-arm diagnostic was reported and is not that metric.
 - Length-binned coverage correlation as quality evidence. Occupied-window
