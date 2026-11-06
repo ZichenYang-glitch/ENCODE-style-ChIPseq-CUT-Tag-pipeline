@@ -38,8 +38,8 @@ main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本候选没有合入 m
 ### 排除
 
 #194 `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` 只改 `AGENTS.md` 的 Cloud Agent
-工具链说明。#195 `a64434962c3f497a83188b46f8b2f488a353cd8e` 只新增
-`docs/research/agentic-engineering-audit/` 的工程审计。二者都不改变科学行为、
+工具链说明。#195 `a64434962c3f497a83188b46f8b2f488a353cd8e` 只新增九份工程审计笔记，
+这些文件只存在于该 PR，不在本候选中。二者都不改变科学行为、
 工作流、CI、测试、锁文件或 API。它们各自的 CI 仍失败。本候选不纳入，避免把
 Cloud 运行手册和一套并行的代理流程路线图写成当前交付。后续应在候选之后单独
 审阅，并先核对已过时的环境、Alembic 和 Actions 陈述。
