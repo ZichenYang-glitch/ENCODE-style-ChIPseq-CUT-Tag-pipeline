@@ -109,6 +109,25 @@ def _build_sdist(tmp_path: Path) -> Path:
     return sdists[0]
 
 
+def _snapshot_artifact(artifact: Path, destination_dir: Path) -> Path:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    copied = destination_dir / artifact.name
+    shutil.copy2(artifact, copied)
+    return copied
+
+
+@pytest.fixture(scope="module")
+def release_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the pristine checkout wheel once for read-only consumers."""
+    return _build_wheel(tmp_path_factory.mktemp("release-wheel"))
+
+
+@pytest.fixture(scope="module")
+def release_sdist(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the pristine checkout sdist once for read-only consumers."""
+    return _build_sdist(tmp_path_factory.mktemp("release-sdist"))
+
+
 def _install_in_clean_room(tmp_path: Path, artifact: Path) -> Path:
     environment_root = tmp_path / "venv"
     venv.EnvBuilder(with_pip=False, system_site_packages=True).create(environment_root)
@@ -167,12 +186,14 @@ def _install_in_clean_room(tmp_path: Path, artifact: Path) -> Path:
 def test_clean_room_artifact_provenance_mode(
     tmp_path: Path,
     artifact_kind: str,
+    request: pytest.FixtureRequest,
 ) -> None:
     case_root = tmp_path / artifact_kind
     case_root.mkdir()
-    artifact = (
-        _build_wheel(case_root) if artifact_kind == "wheel" else _build_sdist(case_root)
+    built = request.getfixturevalue(
+        "release_wheel" if artifact_kind == "wheel" else "release_sdist"
     )
+    artifact = _snapshot_artifact(built, case_root / "artifact")
     python = _install_in_clean_room(case_root, artifact)
 
     provenance = subprocess.run(
@@ -258,8 +279,11 @@ def test_packaged_artifact_inventory_matches_documented_contract() -> None:
     assert packaged.read_bytes() == documented.read_bytes()
 
 
-def test_wheel_metadata_entrypoints_and_runtime_resources(tmp_path: Path) -> None:
-    wheel = _build_wheel(tmp_path)
+def test_wheel_metadata_entrypoints_and_runtime_resources(
+    tmp_path: Path,
+    release_wheel: Path,
+) -> None:
+    wheel = _snapshot_artifact(release_wheel, tmp_path / "artifact")
 
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
@@ -406,10 +430,9 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
 
 def test_sdist_contains_the_exact_encode_runtime_source_manifest(
     tmp_path: Path,
+    release_sdist: Path,
 ) -> None:
-    source = tmp_path / "release"
-    source.mkdir()
-    sdist = _build_sdist(source)
+    sdist = _snapshot_artifact(release_sdist, tmp_path / "artifact")
     expected = dict(
         WorkflowBuildIdentityProvider(
             create_default_workflow_registry(environ={}),
@@ -478,10 +501,9 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
 
 def test_sdist_bootstrap_asset_is_self_contained_outside_a_checkout(
     tmp_path: Path,
+    release_sdist: Path,
 ) -> None:
-    source = tmp_path / "release"
-    source.mkdir()
-    sdist = _build_sdist(source)
+    sdist = _snapshot_artifact(release_sdist, tmp_path / "artifact")
     extracted = tmp_path / "extracted"
     with tarfile.open(sdist, "r:gz") as archive:
         archive.extractall(extracted, filter="data")
@@ -544,8 +566,9 @@ print(json.dumps({"count": result.installed_files, "identity": result.closure_id
 
 def test_extracted_wheel_supports_registry_and_openapi_outside_source_tree(
     tmp_path: Path,
+    release_wheel: Path,
 ) -> None:
-    wheel = _build_wheel(tmp_path)
+    wheel = _snapshot_artifact(release_wheel, tmp_path / "artifact")
     installed = tmp_path / "installed"
     with zipfile.ZipFile(wheel) as archive:
         archive.extractall(installed)
