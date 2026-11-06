@@ -760,11 +760,9 @@ def test_lint_and_lock_workflows_cover_the_maintained_contracts():
     assert "Pull-request base SHA is unexpectedly empty" in lock_runs
 
 
-# The Snakefile's try/except ImportError fallback only inserts the current
-# checkout's src/ when the snakemake interpreter cannot import
-# encode_pipeline. CI relies on the chipseq environment being free of the
-# HelixWeave distribution; if it ever gains the package, a local multi-checkout
-# setup silently runs the wrong package code (no error, no warning).
+# The chipseq environment stays free of the HelixWeave distribution. Rule
+# scripts in that environment import the checkout by inserting src/. The
+# driver Snakefile rejects a foreign encode_pipeline before rules run.
 HELIXWEAVE_DISTRIBUTION_NAMES = ("helixweave", "encode-pipeline", "encode_pipeline")
 
 

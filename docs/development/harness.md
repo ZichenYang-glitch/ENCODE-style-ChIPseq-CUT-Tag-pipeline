@@ -174,15 +174,31 @@ the recipe in
 [local platform runtime](local-platform-runtime.md) and the rules in
 [Python source provenance](source-provenance.md).
 
-The one silent failure mode left is the Snakemake channel: the Snakefile
-imports `encode_pipeline` with a conditional `ImportError` fallback, so if you
-drive a worktree's `workflow/Snakefile` with a shared environment whose
-editable install points at another checkout (for example the main checkout's
-`.local/envs/ci-fast`), the import succeeds against that other checkout and
-the fallback never fires. The result is mixed execution — the worktree's
-rules and config with the other checkout's package code — with no error and
-no warning.
+`workflow/Snakefile` calls `import_checkout_package` in the Snakemake process
+before configuration and rules. That call checks the package loaded by this
+process. It does not certify child-rule interpreters or the rest of the tool
+chain. The loaded initializer must be this checkout's
+`src/encode_pipeline/__init__.py`. A foreign editable install, `PYTHONPATH`
+entry, or console-script interpreter exits 2 with a path-free provenance line
+and does not build the DAG. This checkout's `src/` is added only when no
+top-level `encode_pipeline` can be located. A located package that fails while
+initializing exits 2 as `module_initialization_failed` and is left in place.
 
-Note the asymmetry: `pytest` in the same situation fails loudly, because
-checkout provenance rejects a sibling worktree by design. Never infer from a
-passing pytest run that a snakemake run used the correct package code.
+`verify-checkout` covers the interpreter that runs the bootstrap under
+`-I -S`. It ignores `PYTHONPATH` and does not read a `snakemake` script's
+shebang, so a later `bin/snakemake` process can still be a different
+interpreter. For a multi-checkout environment, run the workflow with the same
+interpreter and with explicit profiles:
+
+```bash
+"$HELIXWEAVE_CHECKOUT_ENV/bin/python" -I -S scripts/checkout_bootstrap.py \
+  --repository-root . verify-checkout
+env -u PYTHONPATH -u PYTHONHOME \
+  "$HELIXWEAVE_CHECKOUT_ENV/bin/python" -m snakemake \
+  -s workflow/Snakefile --configfile config/config.yaml \
+  --profile none --workflow-profile none -n
+```
+
+Record the Snakemake process's interpreter and the `encode_pipeline` import
+line from that process. A passing `verify-checkout` describes only the
+bootstrap process.

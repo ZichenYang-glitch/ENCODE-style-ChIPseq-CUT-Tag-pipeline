@@ -10,49 +10,37 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 import re
+import runpy
+import sys
 
-# Stable package imports with a local-source fallback for environments where
-# encode-pipeline has not been pip-installed (e.g., fresh clones or HPC runs).
-# The fallback adds the repository src/ directory to sys.path temporarily.
-try:
-    from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
-    from encode_pipeline.config.scientific_policy import (
-        ANALYSIS_MARKER_SCHEMA_VERSION,
-        SCIENTIFIC_POLICY_REVISION,
-    )
-    from encode_pipeline.config.validate import (
-        validate_bowtie2_insert_bounds,
-        validate_config,
-        validate_execution_support,
-        validate_picard_reference_resources,
-        validate_tss_annotation_resources,
-    )
-    from encode_pipeline.samples.admission import (
-        validate_reference_control_admission,
-    )
-    from encode_pipeline.samples.load import load_and_validate_samples
-    from encode_pipeline.qc.histone import classify_histone_target
-except ImportError:
-    sys.path.insert(0, os.path.join(os.path.dirname(workflow.basedir), "src"))
-    from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
-    from encode_pipeline.config.scientific_policy import (
-        ANALYSIS_MARKER_SCHEMA_VERSION,
-        SCIENTIFIC_POLICY_REVISION,
-    )
-    from encode_pipeline.config.validate import (
-        validate_bowtie2_insert_bounds,
-        validate_config,
-        validate_execution_support,
-        validate_picard_reference_resources,
-        validate_tss_annotation_resources,
-    )
-    from encode_pipeline.samples.admission import (
-        validate_reference_control_admission,
-    )
-    from encode_pipeline.samples.load import load_and_validate_samples
-    from encode_pipeline.qc.histone import classify_histone_target
+# Load encode_pipeline for this Snakemake process before configuration.
+# This checkout's src/ is added only when the top-level package cannot be
+# located. A located package that fails during initialization stops startup
+# and must not fall back to another checkout.
+_REPOSITORY_ROOT = Path(workflow.basedir).resolve().parent
+_import_checkout_package = runpy.run_path(
+    str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py")
+)["import_checkout_package"]
+encode_pipeline = _import_checkout_package(_REPOSITORY_ROOT)
+
+from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
+from encode_pipeline.config.scientific_policy import (
+    ANALYSIS_MARKER_SCHEMA_VERSION,
+    SCIENTIFIC_POLICY_REVISION,
+)
+from encode_pipeline.config.validate import (
+    validate_bowtie2_insert_bounds,
+    validate_config,
+    validate_execution_support,
+    validate_picard_reference_resources,
+    validate_tss_annotation_resources,
+)
+from encode_pipeline.samples.admission import (
+    validate_reference_control_admission,
+)
+from encode_pipeline.samples.load import load_and_validate_samples
+from encode_pipeline.qc.histone import classify_histone_target
 
 
 def wildcard_choices(values):
