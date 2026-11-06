@@ -1,9 +1,9 @@
 """Executable contracts for the exported ENCODE scientific runtime bundle.
 
 The real ``WorkflowBuildIdentityProvider.source_manifest()`` is the only input
-to the exported tree.  Scripts run with ``python -S`` and without
-``PYTHONPATH`` so an installed HelixWeave package cannot mask a missing runtime
-module.
+to the exported tree.  Scripts and the Snakefile dry-run use a process whose
+``sys.path`` does not include the host checkout, so an editable HelixWeave
+install cannot mask a missing runtime module.
 """
 
 from __future__ import annotations
@@ -12,10 +12,14 @@ import csv
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import textwrap
 
 import pytest
+
+from conftest import prepare_profile_workdir
 
 from encode_pipeline.qc.contract import (
     MITO_QC_V2_COLUMNS,
@@ -135,7 +139,7 @@ def bundle(tmp_path_factory, manifest) -> Path:
     return _export(root, manifest, include_shared_closure=True)
 
 
-def test_real_manifest_carries_only_the_shared_qc_closure(manifest):
+def test_real_manifest_carries_the_startup_closure(manifest):
     logical_paths = {logical_path for logical_path, _content in manifest}
     shared_source_paths = {
         logical_path
@@ -144,11 +148,28 @@ def test_real_manifest_carries_only_the_shared_qc_closure(manifest):
     }
 
     assert "scripts/qc_common.py" in logical_paths
+    assert "scripts/source_provenance.py" in logical_paths
+    assert "pyproject.toml" in logical_paths
     assert SHARED_QC_CLOSURE <= shared_source_paths
-    # No platform module outside the shared QC package enters the bundle.
+    allowed_prefixes = (
+        "src/encode_pipeline/__init__.py",
+        "src/encode_pipeline/errors.py",
+        "src/encode_pipeline/qc/",
+        "src/encode_pipeline/config/",
+        "src/encode_pipeline/samples/",
+    )
     assert all(
-        logical_path == "src/encode_pipeline/__init__.py"
-        or logical_path.startswith("src/encode_pipeline/qc/")
+        logical_path.startswith(allowed_prefixes) or logical_path in allowed_prefixes
+        for logical_path in shared_source_paths
+    )
+    assert not any(
+        logical_path.startswith(
+            (
+                "src/encode_pipeline/api/",
+                "src/encode_pipeline/persistence/",
+                "src/encode_pipeline/services/",
+            )
+        )
         for logical_path in shared_source_paths
     )
 
@@ -412,3 +433,100 @@ def test_exported_cross_correlation_detail_and_project_consumer(bundle):
     with summary.open() as handle:
         row = next(csv.DictReader(handle, delimiter="\t"))
     assert row["interpretation_status"] == "ok" and row["rsc"] == "2"
+
+
+def _loaded_inits(stderr: str) -> list[str]:
+    suffix = "/encode_pipeline/__init__.py"
+    found: list[str] = []
+    for line in stderr.splitlines():
+        origin = ""
+        if " matches " in line:
+            origin = line.split(" matches ", 1)[1].strip()
+        elif line.startswith("# code object from "):
+            origin = line.removeprefix("# code object from ").strip().strip("'\"")
+        if origin.endswith(suffix):
+            found.append(origin)
+    return found
+
+
+def _run_exported_dry_run(bundle: Path, *, hide_host_checkout: bool):
+    workdir, config = prepare_profile_workdir(
+        str(REPO_ROOT / "test" / "profiles" / "chipseq_se_noctrl")
+    )
+    host_src = str((REPO_ROOT / "src").resolve())
+    snakefile = str(bundle / "workflow" / "Snakefile")
+    launcher = textwrap.dedent(
+        """
+        import runpy
+        import sys
+        from pathlib import Path
+
+        host = Path(sys.argv.pop())
+        hide_host = sys.argv.pop() == "1"
+        if hide_host:
+            sys.path[:] = [
+                entry
+                for entry in sys.path
+                if not entry or Path(entry).resolve() != host
+            ]
+        sys.argv = sys.argv[1:]
+        runpy.run_module("snakemake", run_name="__main__")
+        """
+    )
+    env = _clean_environment()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("SNAKEMAKE_PROFILE", None)
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-v",
+                "-c",
+                launcher,
+                "snakemake",
+                "-s",
+                snakefile,
+                "--configfile",
+                config,
+                "--directory",
+                workdir,
+                "--cores",
+                "1",
+                "--dry-run",
+                "--profile",
+                "none",
+                "--workflow-profile",
+                "none",
+                "1" if hide_host_checkout else "0",
+                host_src,
+            ],
+            cwd=workdir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    return completed
+
+
+def test_exported_runtime_dry_run_loads_the_bundle_package(bundle):
+    completed = _run_exported_dry_run(bundle, hide_host_checkout=True)
+    output = completed.stdout + completed.stderr
+
+    assert completed.returncode == 0, output
+    assert "Building DAG of jobs" in output
+    assert "source provenance check failed" not in output
+    bundle_init = str((bundle / "src" / "encode_pipeline" / "__init__.py").resolve())
+    assert _loaded_inits(completed.stderr)[:1] == [bundle_init]
+
+
+def test_exported_runtime_rejects_a_located_host_checkout(bundle):
+    completed = _run_exported_dry_run(bundle, hide_host_checkout=False)
+    output = completed.stdout + completed.stderr
+
+    assert completed.returncode != 0
+    assert "source provenance check failed [module_origin_mismatch]" in output
+    assert "Building DAG of jobs" not in output

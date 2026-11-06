@@ -488,12 +488,16 @@ def test_sdist_contains_the_exact_encode_runtime_source_manifest(
                     f"{prefix}/workflow/",
                     f"{prefix}/profiles/default/",
                     f"{prefix}/src/encode_pipeline/qc/",
+                    f"{prefix}/src/encode_pipeline/config/",
+                    f"{prefix}/src/encode_pipeline/samples/",
                 )
             )
             or name
             in {
                 f"{prefix}/docs/architecture/artifact-inventory.yaml",
                 f"{prefix}/src/encode_pipeline/__init__.py",
+                f"{prefix}/src/encode_pipeline/errors.py",
+                f"{prefix}/pyproject.toml",
             }
             or (
                 name.startswith(f"{prefix}/scripts/")

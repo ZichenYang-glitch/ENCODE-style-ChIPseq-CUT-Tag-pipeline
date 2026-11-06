@@ -112,6 +112,9 @@ def _project(root: Path, *, marker: str = "same") -> Path:
         "src/encode_pipeline/qc/contract.py": f"CONTRACT = {marker!r}\n",
         "src/encode_pipeline/qc/histone.py": f"HISTONE = {marker!r}\n",
         "src/encode_pipeline/qc/policy.py": f"POLICY = {marker!r}\n",
+        "src/encode_pipeline/errors.py": "class ValidationError(Exception):\n    pass\n",
+        "src/encode_pipeline/config/__init__.py": f"# {marker}\n",
+        "src/encode_pipeline/samples/__init__.py": f"# {marker}\n",
         "src/encode_pipeline/runtime.py": f"VALUE = {marker!r}\n",
         "src/encode_pipeline/adapters/encode_qc.py": f"CATALOG = {marker!r}\n",
         "workflow/Snakefile": (
@@ -126,6 +129,7 @@ def _project(root: Path, *, marker: str = "same") -> Path:
         "scripts/tool.py": f"VALUE = {marker!r}\n",
         "scripts/tool.sh": f"#!/bin/sh\n# {marker}\n",
         "scripts/qc_common.py": f"VALUE = {marker!r}\n",
+        "scripts/source_provenance.py": f"# {marker}\n",
     }
     for relative_path, contents in files.items():
         path = root / relative_path
@@ -293,7 +297,7 @@ def test_encode_runtime_build_digest_matches_release_golden(tmp_path):
     assert result.is_success
     # The adapter version is framed into this identity; this golden is for 0.4.1.
     assert result.value.digest == (
-        "cf2cf331eb9f62b0665d3054b8d3aa51fcc1f9bb8e011444efa119fb93b60d2f"
+        "2801f5ad220b2028952af6d0d7bc022a1ef73683bafc43df4ca367403f2b0849"
     )
 
 
@@ -307,14 +311,19 @@ def test_source_manifest_includes_the_shared_qc_runtime_closure(tmp_path):
     )
 
     assert "scripts/qc_common.py" in manifest
+    assert "scripts/source_provenance.py" in manifest
+    assert "pyproject.toml" in manifest
     assert {
         logical_path for logical_path in manifest if logical_path.startswith("src/")
     } == {
         "src/encode_pipeline/__init__.py",
+        "src/encode_pipeline/errors.py",
+        "src/encode_pipeline/config/__init__.py",
         "src/encode_pipeline/qc/__init__.py",
         "src/encode_pipeline/qc/contract.py",
         "src/encode_pipeline/qc/histone.py",
         "src/encode_pipeline/qc/policy.py",
+        "src/encode_pipeline/samples/__init__.py",
     }
 
 

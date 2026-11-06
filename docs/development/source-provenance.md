@@ -87,7 +87,10 @@ configuration it calls `import_checkout_package`. The checkout `src/`
 directory is added only when the top-level `encode_pipeline` cannot be
 located. A located package that fails during initialization exits 2 with
 `module_initialization_failed` and is not replaced. A package that finishes
-loading must be that checkout's `src/encode_pipeline/__init__.py`. This is
+loading must be that checkout's `src/encode_pipeline/__init__.py`. The exported
+ENCODE runtime manifest carries `scripts/source_provenance.py`,
+`pyproject.toml`, and the scientific modules this startup imports, so the
+exported tree can satisfy that check without loading another checkout. This is
 the identity of that Snakemake process, not of later rule interpreters or
 the surrounding toolchain. `verify-checkout` remains the identity check for
 the interpreter that invoked the bootstrap.

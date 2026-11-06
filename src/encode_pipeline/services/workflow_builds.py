@@ -33,6 +33,19 @@ _RUNTIME_SHARED_SOURCE_FILES = (
     "src/encode_pipeline/qc/policy.py",
 )
 _RUNTIME_SHARED_SOURCE_TREES = ("src/encode_pipeline/qc",)
+# The Snakefile calls import_checkout_package before configuration.  The
+# exported runtime must contain that helper, the project identity file it
+# checks, and the scientific modules the Snakefile imports.  API, persistence,
+# and service modules stay out of this closure.
+_RUNTIME_STARTUP_FILES = (
+    "pyproject.toml",
+    "scripts/source_provenance.py",
+    "src/encode_pipeline/errors.py",
+)
+_RUNTIME_STARTUP_TREES = (
+    "src/encode_pipeline/config",
+    "src/encode_pipeline/samples",
+)
 
 
 class WorkflowBuildIdentityProvider:
@@ -233,6 +246,7 @@ class WorkflowBuildIdentityProvider:
         for script_name in self._referenced_runtime_scripts(entries):
             self._add_required_file(entries, root / "scripts" / script_name)
         self._add_shared_runtime_package(entries)
+        self._add_startup_closure(entries)
         entrypoint = ENCODE_LOGICAL_ENTRYPOINT
         if entrypoint not in entries:
             raise ValueError("workflow entrypoint is missing")
@@ -248,6 +262,21 @@ class WorkflowBuildIdentityProvider:
                 suffixes=None,
             )
         for logical_path in _RUNTIME_SHARED_SOURCE_FILES:
+            if logical_path not in entries:
+                self._add_required_file(
+                    entries, root.joinpath(*logical_path.split("/"))
+                )
+
+    def _add_startup_closure(self, entries: dict[str, bytes]) -> None:
+        """Add the checkout files required before the first Snakemake rule."""
+        root = self._project_root
+        for logical_path in _RUNTIME_STARTUP_TREES:
+            self._add_tree(
+                entries,
+                root.joinpath(*logical_path.split("/")),
+                suffixes=None,
+            )
+        for logical_path in _RUNTIME_STARTUP_FILES:
             if logical_path not in entries:
                 self._add_required_file(
                     entries, root.joinpath(*logical_path.split("/"))
