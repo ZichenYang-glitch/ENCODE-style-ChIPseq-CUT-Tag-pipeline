@@ -19,9 +19,9 @@ import sys
 # located. A located package that fails during initialization stops startup
 # and must not fall back to another checkout.
 _REPOSITORY_ROOT = Path(workflow.basedir).resolve().parent
-_import_checkout_package = runpy.run_path(
-    str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py")
-)["import_checkout_package"]
+_import_checkout_package = runpy.run_path(str(_REPOSITORY_ROOT / "scripts" / "source_provenance.py"))[
+    "import_checkout_package"
+]
 encode_pipeline = _import_checkout_package(_REPOSITORY_ROOT)
 
 from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
