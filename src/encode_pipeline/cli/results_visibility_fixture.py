@@ -215,6 +215,10 @@ def _write_controlled_workflow(
     scripts_root = project_root / "scripts"
     workflow_root.mkdir()
     scripts_root.mkdir()
+    shutil.copy2(
+        REPOSITORY_ROOT / "scripts" / "source_provenance.py",
+        scripts_root / "source_provenance.py",
+    )
     (workflow_root / "Snakefile").write_text(
         """
 from pathlib import Path

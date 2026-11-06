@@ -16,6 +16,8 @@ from encode_pipeline.cli.results_visibility_fixture import (
     FIXTURE_SENTINEL_NAME,
     prepare_results_visibility_fixture,
 )
+from encode_pipeline.services.defaults import create_default_workflow_registry
+from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -57,12 +59,18 @@ def test_fixture_contains_deterministic_project_and_four_inputs(tmp_path):
         "profiles/default/config.yaml",
         "workflow/Snakefile",
         "scripts/results_visibility_task.py",
+        "scripts/source_provenance.py",
         "samples.tsv",
     )
     assert all((project_root / relative).is_file() for relative in required)
     assert (project_root / FIXTURE_SENTINEL_NAME).read_text(encoding="utf-8") == (
         FIXTURE_SENTINEL_CONTENT
     )
+    identity = WorkflowBuildIdentityProvider(
+        create_default_workflow_registry(),
+        project_root=project_root.resolve(),
+    ).capture("encode-style-chipseq-cuttag-atac-mnase")
+    assert identity.is_success
 
     reader = csv.DictReader(
         io.StringIO(inputs.expected_qc_summary, newline=""),
