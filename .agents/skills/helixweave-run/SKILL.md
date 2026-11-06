@@ -33,7 +33,10 @@ other HelixWeave skills. Stop when that is the main request.
 Read [../_shared/entries.md](../_shared/entries.md) before choosing a command.
 That file is the command inventory. When it and the checkout disagree, follow
 the checkout. `scripts/checkout_bootstrap.py` has no `snakemake` subcommand.
-Launch Snakemake with the `snakemake` executable.
+Launch Snakemake as `python -m snakemake` with the interpreter of the
+environment selected for this run. `verify-checkout` checks only that
+bootstrap process. Pass `--profile none --workflow-profile none` unless the
+user asked for `profiles/default`.
 
 ## Choose the path
 

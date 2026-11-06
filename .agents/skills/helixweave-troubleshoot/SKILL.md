@@ -66,18 +66,23 @@ Exit status 2 and one line,
 `scripts/source_provenance.py`. Reason codes include
 `bootstrap_startup_unsafe`, `bootstrap_source_invalid`,
 `repository_root_invalid`, `pytest_plugin_unsafe`,
-`pytest_plugin_missing`, `pth_mapping_unsafe`, and
-`startup_hook_unsafe`. The failure list is
-`docs/development/source-provenance.md`. Retry with this checkout's own
-bootstrap under `python3 -I -S`. Leave unrelated environments installed.
+`pytest_plugin_missing`, `pth_mapping_unsafe`,
+`startup_hook_unsafe`, and `module_initialization_failed`. The failure list is
+`docs/development/source-provenance.md`. `verify-checkout` checks the
+bootstrap process. A Snakemake failure from `import_checkout_package` is that
+Snakemake process: a located package that fails during initialization is not
+replaced, and a passing bootstrap check does not clear it. Retry the workflow
+with this run's own Python (`python -m snakemake`). Leave unrelated
+environments installed.
 Do not point `PYTHONPATH` at another worktree. Do not edit the scientific
 config to clear this line.
 
 ## Conda, profile, or missing tool
 
-The small runner is `workflow/envs/runner.lock`, `snakemake` on `PATH`, and
-`--use-conda`. Rule tools come from `workflow/envs/`. A missing rule
-environment is a conda failure for that rule. It is not a reason to
+The small runner is `workflow/envs/runner.lock`. Start Snakemake with that
+environment's Python (`python -m snakemake`) and `--use-conda`. Do not use a
+`snakemake` script from another prefix. Rule tools come from `workflow/envs/`.
+A missing rule environment is a conda failure for that rule. It is not a reason to
 recreate the platform stack.
 
 The platform ci-fast stack is Python 3.12, Snakemake 8.30.0, Redis 7 or

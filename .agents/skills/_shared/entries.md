@@ -61,20 +61,30 @@ Maintained path: `docs/quickstart.md`.
 ```bash
 python3 scripts/validate_samples.py --config CONFIG
 python3 scripts/validate_samples.py --config CONFIG --strict-inputs
-snakemake -s workflow/Snakefile --workflow-profile none \
-  --configfile CONFIG -n --use-conda
-snakemake -s workflow/Snakefile --workflow-profile none \
-  --configfile CONFIG --cores N --use-conda
+env -u PYTHONPATH -u PYTHONHOME \
+  python -m snakemake -s workflow/Snakefile --profile none \
+  --workflow-profile none --configfile CONFIG -n --use-conda
+env -u PYTHONPATH -u PYTHONHOME \
+  python -m snakemake -s workflow/Snakefile --profile none \
+  --workflow-profile none --configfile CONFIG --cores N --use-conda
 ```
+
+`python` is the interpreter of the environment selected for this run.
+`workflow/envs/runner.lock` is that environment for a direct workflow. Do not
+substitute a `snakemake` script from another prefix. `verify-checkout` checks
+the bootstrap process only. Inside the Snakemake process,
+`workflow/Snakefile` calls `import_checkout_package` before configuration.
+That call adds this checkout's `src/` only when `encode_pipeline` cannot be
+located. A located package that fails during initialization stops startup.
 
 Resume an interrupted matching run with `--rerun-incomplete`. Snakemake
 8.30 loads `profiles/default` from the current directory, then from the
 Snakefile directory, unless `--workflow-profile none` is given. This
 checkout's `profiles/default` sets another `configfile`, `use-conda`,
-`rerun-incomplete`, and `keep-going`. Pass `--workflow-profile none` when
-the user chose a config file. Use `snakemake --profile profiles/default`
-only when they asked for that scheduler profile. That profile is not
-`analysis_profile`.
+`rerun-incomplete`, and `keep-going`. Pass `--profile none` and
+`--workflow-profile none` when the user chose a config file. Use
+`python -m snakemake --profile profiles/default` only when they asked for
+that scheduler profile. That profile is not `analysis_profile`.
 
 `scripts/validate_samples.py` is a provenance-checked wrapper around
 `encode_pipeline.cli.validate`. It validates one config file. It does not see

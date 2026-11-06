@@ -106,14 +106,18 @@ configuration record".
 
 ## Dry-run and real run
 
-Dry-run, from the same directory. `--workflow-profile none` stops Snakemake
-8.30 from loading `profiles/default` out of the current directory or the
-Snakefile directory. That profile selects `config/config.yaml`, `use-conda`,
-`rerun-incomplete`, and `keep-going`, and it is not `analysis_profile`.
+Dry-run, from the same directory. `--profile none` and
+`--workflow-profile none` stop Snakemake 8.30 from loading `profiles/default`
+out of the current directory or the Snakefile directory. That profile selects
+`config/config.yaml`, `use-conda`, `rerun-incomplete`, and `keep-going`, and
+it is not `analysis_profile`. `python` is the interpreter of this run's
+environment. `verify-checkout` does not certify the Snakemake process. The
+Snakefile calls `import_checkout_package` in that process before configuration.
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
-  --configfile CONFIG -n --use-conda
+env -u PYTHONPATH -u PYTHONHOME \
+  python -m snakemake -s "$ROOT/workflow/Snakefile" --profile none \
+  --workflow-profile none --configfile CONFIG -n --use-conda
 ```
 
 The dry-run loads the Snakefile, prints the effective summary to stderr, and
@@ -130,8 +134,9 @@ Real run, only after the user authorizes execution and the outdir check
 below allows it:
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
-  --configfile CONFIG --cores N --use-conda
+env -u PYTHONPATH -u PYTHONHOME \
+  python -m snakemake -s "$ROOT/workflow/Snakefile" --profile none \
+  --workflow-profile none --configfile CONFIG --cores N --use-conda
 ```
 
 `N` is the core count the user chose. `--use-conda` selects rule environments
@@ -158,8 +163,10 @@ Resume an interrupted run only when the marker matches this profile, this
 recomputes to that identity. The user must authorize the resume.
 
 ```bash
-snakemake -s "$ROOT/workflow/Snakefile" --workflow-profile none \
-  --configfile CONFIG --cores N --use-conda --rerun-incomplete
+env -u PYTHONPATH -u PYTHONHOME \
+  python -m snakemake -s "$ROOT/workflow/Snakefile" --profile none \
+  --workflow-profile none --configfile CONFIG --cores N --use-conda \
+  --rerun-incomplete
 ```
 
 `--rerun-incomplete` reruns jobs that left incomplete outputs. It does not
