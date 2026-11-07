@@ -94,7 +94,7 @@ Hard timeouts only stop hangs.
 | Coverage artifact gate | 1 min | 5 min |
 | Full-main Python | 20 min | 45 min |
 | Frontend | 2 min | 8 min |
-| Browser E2E | 4 min | 10 min |
+| Browser E2E | 4 min | 20 min |
 | Lint | 1 min | 5 min |
 | Lock check | 1 min | 3 min |
 | Platform real execution | 6 min | 12 min |

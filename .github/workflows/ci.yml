@@ -503,7 +503,7 @@ jobs:
 
   browser-e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       redis:
         image: redis:7.4.9-alpine
@@ -567,11 +567,18 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright operating-system dependencies
+        timeout-minutes: 12
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 3
+        working-directory: frontend
+        run: npx playwright install chromium
 
       - name: Schema-default submission and ENCODE cores smoke
+        timeout-minutes: 6
         shell: micromamba-shell {0}
         run: |
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
@@ -581,6 +588,7 @@ jobs:
             --label "schema-default submission and ENCODE cores smoke"
 
       - name: Real browser durable execution gate
+        timeout-minutes: 8
         shell: micromamba-shell {0}
         working-directory: frontend
         env:
@@ -605,6 +613,7 @@ jobs:
           echo "### browser-e2e timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
           echo "- Soft budget: 240s (informational)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Hard timeout: 1200s" >> "$GITHUB_STEP_SUMMARY"
 
   platform-real-execution:
     if: >-
