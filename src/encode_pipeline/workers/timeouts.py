@@ -81,16 +81,25 @@ def _require_frozen_member(pid: int, starttime: int) -> bool:
     return state in {"T", "t"}
 
 
+class _OwnedTreeScanRetry(Exception):
+    """The stop is queued, but this parent does not show it yet."""
+
+
 def _linux_descendants(root_pid: int) -> tuple[tuple[int, int], ...]:
     """Return one generation of descendants of a confirmed frozen parent.
 
     The outer loop registers and freezes this generation before exploring its
     children. Reading only owned thread children lists avoids treating failures
     in unrelated proc entries as a failure of this tree (or as an empty tree).
+    A parent that is still running has not failed the proof: ``SIGSTOP`` is
+    queued before ``/proc`` reports the stop, and the scan waits for that
+    observation. An absent parent stays fatal.
     """
     root = _owned_stat(root_pid)
-    if root is None or not _require_frozen_member(root_pid, root[1]):
+    if root is None:
         raise ProcessRunnerCleanupError("Workflow parent is not frozen.")
+    if not _require_frozen_member(root_pid, root[1]):
+        raise _OwnedTreeScanRetry()
     try:
         with os.scandir(f"/proc/{root_pid}/task") as entries:
             tids = sorted(int(entry.name) for entry in entries if entry.name.isdigit())
@@ -411,58 +420,68 @@ def _kill_owned_horse_tree(
                     # Parent-before-child stopping closes the fork window. A
                     # registered descendant that exited inside it is retired here
                     # with its identity recorded; only the root, and any identity
-                    # that changed underneath us, stays fatal.
-                    _require_frozen_member(horse_pid, root_starttime)
-                    if retire_exited_members()[0]:
-                        previous = None
-                        time.sleep(0.02)
-                        continue
-                    for pid, starttime in tracked.items():
-                        _signal_owned(pid, starttime, signal.SIGSTOP)
-                    retired, all_frozen = retire_exited_members()
-                    if retired or not all_frozen:
-                        time.sleep(0.02)
-                        continue
-                    for pid in (horse_pid, *tracked):
-                        for child, starttime in _linux_descendants(pid):
-                            known = tracked.get(child, exited.get(child))
-                            if known is None:
-                                tracked[child] = starttime
-                            elif known != starttime:
-                                raise ProcessRunnerCleanupError(
-                                    "Owned child identity changed."
-                                )
-                    # A member discovered in this pass may have exited already --
-                    # its stopped parent cannot reap it -- so retire it before
-                    # the next pass turns it into a fatal zombie requirement.
-                    if retire_exited_members()[0]:
-                        previous = None
-                        time.sleep(0.02)
-                        continue
-                    identities = tuple(sorted(tracked.items()))
-                    members = ((horse_pid, root_starttime), *identities)
-                    # Inspect every member even if an earlier one is not yet
-                    # stopped: a lost later member cannot be hidden by all().
-                    stopped = [
-                        _stopped_or_gone(pid, starttime) for pid, starttime in members
-                    ]
-                    retired, all_frozen = retire_exited_members()
-                    if retired:
-                        previous = None
-                        time.sleep(0.02)
-                        continue
-                    if all_frozen and all(stopped) and identities == previous:
-                        # Reconfirm after the last reads; a zombie root is never
-                        # a substitute for this proof.
+                    # that changed underneath us, stays fatal. A root that is
+                    # still running is waiting for the queued stop to become
+                    # visible; an empty descendant set must not skip that wait.
+                    try:
+                        if not _require_frozen_member(horse_pid, root_starttime):
+                            time.sleep(0.02)
+                            continue
+                        if retire_exited_members()[0]:
+                            previous = None
+                            time.sleep(0.02)
+                            continue
+                        for pid, starttime in tracked.items():
+                            _signal_owned(pid, starttime, signal.SIGSTOP)
                         retired, all_frozen = retire_exited_members()
-                        if (
-                            not retired
-                            and all_frozen
-                            and _require_frozen_member(horse_pid, root_starttime)
-                        ):
-                            break
-                    previous = identities
-                    time.sleep(0.02)
+                        if retired or not all_frozen:
+                            time.sleep(0.02)
+                            continue
+                        for pid in (horse_pid, *tracked):
+                            for child, starttime in _linux_descendants(pid):
+                                known = tracked.get(child, exited.get(child))
+                                if known is None:
+                                    tracked[child] = starttime
+                                elif known != starttime:
+                                    raise ProcessRunnerCleanupError(
+                                        "Owned child identity changed."
+                                    )
+                        # A member discovered in this pass may have exited already --
+                        # its stopped parent cannot reap it -- so retire it before
+                        # the next pass turns it into a fatal zombie requirement.
+                        if retire_exited_members()[0]:
+                            previous = None
+                            time.sleep(0.02)
+                            continue
+                        identities = tuple(sorted(tracked.items()))
+                        members = ((horse_pid, root_starttime), *identities)
+                        # Inspect every member even if an earlier one is not yet
+                        # stopped: a lost later member cannot be hidden by all().
+                        stopped = [
+                            _stopped_or_gone(pid, starttime)
+                            for pid, starttime in members
+                        ]
+                        retired, all_frozen = retire_exited_members()
+                        if retired:
+                            previous = None
+                            time.sleep(0.02)
+                            continue
+                        if all_frozen and all(stopped) and identities == previous:
+                            # Reconfirm after the last reads; a zombie root is never
+                            # a substitute for this proof.
+                            retired, all_frozen = retire_exited_members()
+                            if (
+                                not retired
+                                and all_frozen
+                                and _require_frozen_member(horse_pid, root_starttime)
+                            ):
+                                break
+                        previous = identities
+                        time.sleep(0.02)
+                    except _OwnedTreeScanRetry:
+                        previous = None
+                        time.sleep(0.02)
+                        continue
                 else:
                     raise ProcessRunnerCleanupError(
                         "Nested workflow tree did not stabilize."

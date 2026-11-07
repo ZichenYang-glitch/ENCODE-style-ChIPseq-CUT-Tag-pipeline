@@ -347,3 +347,120 @@ def test_stop_closes_session_spawn_window_after_initial_scan(tmp_path, monkeypat
         elif horse.poll() is None:
             os.killpg(horse.pid, signal.SIGKILL)
             horse.wait(timeout=5)
+
+
+def _same_group_sleeper():
+    """Return a session leader and the child sharing its process group."""
+    code = (
+        "import subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable,'-I','-B','-c','import time; time.sleep(30)'])\n"
+        "time.sleep(30)\n"
+    )
+    horse = subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", code], start_new_session=True
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            assert horse.poll() is None
+            assert time.monotonic() < deadline
+            children = []
+            task_root = Path(f"/proc/{horse.pid}/task")
+            if task_root.is_dir():
+                for tid in task_root.iterdir():
+                    try:
+                        words = (tid / "children").read_text().split()
+                    except FileNotFoundError:
+                        continue
+                    children.extend(int(word) for word in words)
+            if children:
+                return horse, children[0]
+            time.sleep(0.01)
+    except BaseException:
+        os.killpg(horse.pid, signal.SIGKILL)
+        horse.wait(timeout=5)
+        raise
+
+
+def test_queued_stop_stays_acknowledgable_until_freeze_is_visible(
+    monkeypatch,
+):
+    """A stop that is not visible in /proc yet must not become a worker crash.
+
+    The first ``/proc`` read can still show the root running after ``SIGSTOP``
+    has been queued. That observation used to abort the proof, so RQ recorded
+    ``WORKER_PROCESS_TERMINATED`` even though cancellation had been requested.
+    """
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker = _worker(horse.pid)
+    worker._stopped_job_id = "cancel-job"
+    starttime = _stat(horse.pid)[1]
+    pending = {"left": 4}
+    real_state = timeouts._owned_state
+
+    def delayed_stop(pid, observed_starttime):
+        state = real_state(pid, observed_starttime)
+        if pid == horse.pid and state in {"T", "t"} and pending["left"] > 0:
+            pending["left"] -= 1
+            return "S"
+        return state
+
+    monkeypatch.setattr(timeouts, "_owned_state", delayed_stop)
+    try:
+        assert worker.kill_horse() is None
+        assert pending["left"] == 0
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is True
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime)
+            == "cancel-job"
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+        assert _stat(child) is None
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_root_that_never_freezes_is_not_acknowledged(monkeypatch):
+    """A tree that never shows the stop stays unacknowledged after it is killed."""
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker = _worker(horse.pid)
+    worker._stopped_job_id = "cancel-job"
+    starttime = _stat(horse.pid)[1]
+    real_state = timeouts._owned_state
+
+    def still_running(pid, observed_starttime):
+        state = real_state(pid, observed_starttime)
+        if pid == horse.pid and state in {"T", "t", "R", "S", "D"}:
+            return "S"
+        return state
+
+    monkeypatch.setattr(timeouts, "_owned_state", still_running)
+    try:
+        assert worker.kill_horse() is None
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_DID_NOT_STABILIZE"
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime) is None
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+        # The group signal reaches an unregistered child. Its zombie is not an
+        # acknowledgement, and this process may have adopted it as subreaper.
+        observed = _stat(child)
+        assert observed is None or observed[0] in {"Z", "X", "x"}
+        if observed is not None:
+            try:
+                os.waitpid(child, 0)
+            except ChildProcessError:
+                pass
+    finally:
+        _finish_pair(horse, child)
