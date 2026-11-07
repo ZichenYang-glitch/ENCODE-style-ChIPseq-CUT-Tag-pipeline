@@ -1,8 +1,61 @@
 # 当前 PR 收口与集成清单
 
-## 集成候选（2026-11-06）
+## 已合入 main（2026-11-06）
 
-本节是当前入口。下方 09:50 快照和更早正文是历史证据，不描述本候选。
+本节是当前入口。下方“集成候选（2026-11-06）”和更早快照保留为历史，
+不改写当时的检查记录。
+
+[#207](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/207)
+和 [#209](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/209)
+已用各自的 merge commit 进入 main。没有发布、部署、打 tag，科学默认也没有冻结。
+
+| 身份 | 值 |
+| --- | --- |
+| 当前 main | `cc06a039515d79c654e4fcf760ac4c1c630e8432` |
+| #209 合并时间 | 2026-11-07T08:53:06Z |
+| #209 head | `c789d4a56d868be6429b35d2e5dec3c356fdd651` |
+| #207 merge | `8b65684cd139763f1153de2f394630bdc6fc4186` |
+| #207 合并时间 | 2026-11-06T08:52:04Z |
+| #207 head | `7d0cdab70898558c9e1a34a4eae3cd98a317127e` |
+
+#209 只调整 `browser-e2e` 的时间预算：job 上限 20 分钟，系统依赖、Chromium 下载、schema smoke 和浏览器测试各自有步骤时限。测试命令、断言、checkout 核对和零跳过检查没有改。
+
+#209 合入提交 `cc06a039515d79c654e4fcf760ac4c1c630e8432` 的普通检查：
+
+- CI [42357352926](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352926) attempt 2，结论 success。checkout SHA 是这个 merge commit。
+- attempt 1 的 durable browser gate 有 1 个失败：移动端取消断言期望 `cancelled`，实际停在 `failed`。schema smoke 已通过，安装步骤也成功。attempt 2 只重跑了 `browser-e2e`。
+- attempt 2 的 schema smoke 为 2 passed，durable browser gate 为 12 passed。
+- Lint [42357352919](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352919) 与 Lock Check [42357352813](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352813) 成功。
+- 四项条件执行 job 仍是 skipped，不算通过。这次没有重跑 Bulk Gate 或真实 FASTQ。
+
+#207 合入提交 `8b65684cd139763f1153de2f394630bdc6fc4186` 的普通检查：
+
+- CI [42190768316](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768316) attempt 2，结论 success。checkout SHA 是 #207 的 merge commit。
+- attempt 1 的 `browser-e2e` 在安装 Playwright 字体依赖时被 10 分钟时限取消，浏览器测试没有开始。attempt 2 只重跑了这个 job。
+- attempt 2 的 `browser-e2e` 实际执行了 schema smoke（2 passed）和 real browser durable execution gate（12 passed）。
+- 两个 fast-check shard、fast-checks、coverage、frontend 在 attempt 1 成功，attempt 2 沿用这些结果。
+- Lint [42190768421](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768421) 与 Lock Check [42190768305](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768305) 成功。
+- `real-execution`、`platform-real-execution`、`bulk-rnaseq-real-execution`、`container-smoke` 仍是 skipped，不算通过。
+
+证据边界各自独立：
+
+- Protected Bulk job 只属于 `815fdb52e09f4237005d3375591a23799a3904d0`。[run 42178753311](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42178753311) attempt 1 的 `bulk-rnaseq-real-execution` 成功。JUnit 是 4 tests、0 failures、0 errors、0 skipped。产品证据 56 个 artifact、93 条 QC、1234 字节下载。同一次 workflow 的总结是 failure，因为当时的 `platform-real-execution` 失败。
+- `7d0cdab70898558c9e1a34a4eae3cd98a317127e` 只把真实 `scripts/source_provenance.py` 复制进取消测试 fixture。Bulk 实现、119 文件 manifest、资格记录和执行接线未变，aggregate 仍是 `6591f3069a5d9cdd0283c330809c7fb221b9d2b3dc6593c2dacadb5a19735f16`。该 head 没有重跑 Bulk Gate。本地真实 Redis 的 `platform_real_execution`（`test/workers`）为 10 passed、312 deselected、0 skipped。
+- 历史 Gate [40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755) 仍只属于 `39a5484119d688a3658c7e5f7d359704ee274866`。
+
+#184、#190、#201、#204、#205、#206 在合入后由 GitHub 标为 merged。
+#185–#189、#191–#193、#196–#200、#202、#203 的当时 head 已完整包含在 #207 的 merge commit `8b65684cd139763f1153de2f394630bdc6fc4186` 中，没有额外提交；它们被关闭以记录纳入，不是各自再合并进 main。分支都保留。
+#194 与 #195 保持 open，后续单独审阅。
+
+已集成的是这条科学实现、SCI-7 本批测量记录、workflow skills、源码身份、测试精简和 Bulk 运行时接线。
+SCI-7 本批结论仍是 no conclusion。JUND 是跨靶点检查，不是 NR2F2 的生物学重复。
+CUT&Tag、histone、MNase、ATAC 的 confirmation 未执行。MNase 登记的 500-arm 短模板指标未评估。
+后续优先是 Peri 接入的小规模独立验证；SQLite 继续作为生命周期和结果元数据的现有存储。
+这两项都还没有开始。
+
+## 历史：集成候选（2026-11-06，合入前）
+
+本节在 #207 合入前是当前入口。合入身份见上方。下面保留当时的候选描述。
 main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本候选没有合入 main，
 没有发布，也没有冻结科学默认。
 

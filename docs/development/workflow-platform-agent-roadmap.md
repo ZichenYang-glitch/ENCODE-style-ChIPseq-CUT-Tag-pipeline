@@ -4,10 +4,33 @@ This roadmap records the maintained product boundary, delivered baseline, and
 explicit follow-ons. It does not promise dates. Detailed implementation history
 belongs in Git history, the changelog, and release evidence.
 
-## 当前交付状态与后续计划（2026-11-06 集成候选）
+## 当前交付状态与后续计划（2026-11-06 已合入 main）
 
 当前状态以本节和 [PR 收口与集成清单](current-delivery-integration.md) 的
-“集成候选（2026-11-06）”为准。下方 09:50 记录和更早日期记录原样保留。
+“已合入 main（2026-11-06）”为准。下方集成候选记录和更早日期记录原样保留。
+
+当前 main 是 [#209](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/209)
+的 merge commit `cc06a039515d79c654e4fcf760ac4c1c630e8432`，合并时间 2026-11-07T08:53:06Z。
+它的第一父提交是 [#207](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/207)
+的 merge commit `8b65684cd139763f1153de2f394630bdc6fc4186`。
+#209 的 CI [42357352926](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352926)
+attempt 2 成功，checkout 是 #209 的 merge commit；attempt 1 的浏览器取消断言失败后只重跑了 `browser-e2e`。
+#207 的 CI [42190768316](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768316)
+attempt 2 成功，checkout 是 #207 的 merge commit。
+两次 Lint 与 Lock Check 都成功。四项条件执行 job 仍是 skipped。没有发布，科学默认未冻结。
+
+| 工作线 | 范围 | 当前状态 | 验收边界 |
+| --- | --- | --- | --- |
+| 已合入交付 | 科学实现、SCI-7 本批记录、skills、源码身份、测试精简、Bulk 接线、browser 时限 | main `cc06a039515d79c654e4fcf760ac4c1c630e8432` | #194、#195 未纳入，保持 open |
+| browser-e2e 时限 | #209，job 20 分钟，安装与测试分步限时 | 合入提交的 CI attempt 2 成功 | 只属于 `cc06a03`；不改变 #207 或 `815fdb52` 的记录 |
+| 科学批次 | discovery、JUND 跨靶点、MNase Rep1 | 记录已在 main，结论 no conclusion | confirmation 未执行；MNase 500-arm 短模板指标未评估；默认未冻结 |
+| Protected Bulk | `815fdb52e09f4237005d3375591a23799a3904d0` 的 job | [run 42178753311](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42178753311) attempt 1 的 Bulk job 成功，JUnit 4/0/0/0 | 那次 workflow 总结是 failure；不是 `7d0cdab` 或 merge commit 的新 Gate |
+| 平台取消 | `7d0cdab` 的 fixture 修复 | 本地真实 Redis `platform_real_execution` 10 passed、0 skipped | 只复制真实 provenance helper；Bulk 闭包 aggregate 未变 |
+| 后续 | Peri 小规模独立验证 | 尚未开始 | SQLite 继续承担现有生命周期和结果元数据职责 |
+
+## 历史：交付状态与后续计划（2026-11-06 集成候选）
+
+本节在 #207 合入前是当前入口。合入后的状态见上方。下方 09:50 记录和更早日期记录原样保留。
 
 main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。集成候选在独立分支，
 未合入 main，未发布，科学默认未冻结。纳入 #190、科学实现与 SCI-7 结果至
