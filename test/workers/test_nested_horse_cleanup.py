@@ -347,3 +347,396 @@ def test_stop_closes_session_spawn_window_after_initial_scan(tmp_path, monkeypat
         elif horse.poll() is None:
             os.killpg(horse.pid, signal.SIGKILL)
             horse.wait(timeout=5)
+
+
+def _same_group_sleeper():
+    """Return a session leader and the child sharing its process group."""
+    code = (
+        "import subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable,'-I','-B','-c','import time; time.sleep(30)'])\n"
+        "time.sleep(30)\n"
+    )
+    horse = subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", code], start_new_session=True
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while True:
+            assert horse.poll() is None
+            assert time.monotonic() < deadline
+            children = []
+            task_root = Path(f"/proc/{horse.pid}/task")
+            if task_root.is_dir():
+                for tid in task_root.iterdir():
+                    try:
+                        words = (tid / "children").read_text().split()
+                    except FileNotFoundError:
+                        continue
+                    children.extend(int(word) for word in words)
+            if children:
+                return horse, children[0]
+            time.sleep(0.01)
+    except BaseException:
+        os.killpg(horse.pid, signal.SIGKILL)
+        horse.wait(timeout=5)
+        raise
+
+
+def test_queued_stop_stays_acknowledgable_until_freeze_is_visible(
+    monkeypatch,
+):
+    """A stop that is not visible in /proc yet must not become a worker crash.
+
+    The first ``/proc`` read can still show the root running after ``SIGSTOP``
+    has been queued. That observation used to abort the proof, so RQ recorded
+    ``WORKER_PROCESS_TERMINATED`` even though cancellation had been requested.
+    """
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker = _worker(horse.pid)
+    worker._stopped_job_id = "cancel-job"
+    starttime = _stat(horse.pid)[1]
+    pending = {"left": 4}
+    real_state = timeouts._owned_state
+
+    def delayed_stop(pid, observed_starttime):
+        state = real_state(pid, observed_starttime)
+        if pid == horse.pid and state in {"T", "t"} and pending["left"] > 0:
+            pending["left"] -= 1
+            return "S"
+        return state
+
+    monkeypatch.setattr(timeouts, "_owned_state", delayed_stop)
+    try:
+        assert worker.kill_horse() is None
+        assert pending["left"] == 0
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is True
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime)
+            == "cancel-job"
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+        assert _stat(child) is None
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_root_that_never_freezes_is_not_acknowledged(monkeypatch):
+    """A tree that never shows the stop stays unacknowledged after it is killed."""
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker = _worker(horse.pid)
+    worker._stopped_job_id = "cancel-job"
+    starttime = _stat(horse.pid)[1]
+    real_state = timeouts._owned_state
+
+    def still_running(pid, observed_starttime):
+        state = real_state(pid, observed_starttime)
+        if pid == horse.pid and state in {"T", "t", "R", "S", "D"}:
+            return "S"
+        return state
+
+    monkeypatch.setattr(timeouts, "_owned_state", still_running)
+    try:
+        assert worker.kill_horse() is None
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_DID_NOT_STABILIZE"
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime) is None
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+        # The group signal reaches an unregistered child. Its zombie is not an
+        # acknowledgement, and this process may have adopted it as subreaper.
+        observed = _stat(child)
+        assert observed is None or observed[0] in {"Z", "X", "x"}
+        if observed is not None:
+            try:
+                os.waitpid(child, 0)
+            except ChildProcessError:
+                pass
+    finally:
+        _finish_pair(horse, child)
+
+
+def _cancel_gate(horse):
+    worker = _worker(horse.pid)
+    worker._stopped_job_id = "cancel-job"
+    identity = _stat(horse.pid)
+    assert identity is not None
+    return worker, identity[1]
+
+
+def _assert_cancelled(worker, horse, child, starttime):
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    report = worker._nested_cleanup_report
+    assert report is not None and report.confirmed is True
+    assert (
+        acknowledgement_decision(worker, "cancel-job", horse.pid, starttime)
+        == "cancel-job"
+    )
+    assert horse.wait(timeout=5) == -signal.SIGKILL
+    observed = _stat(child)
+    assert observed is None or observed[0] in {"Z", "X", "x"}
+    if observed is not None:
+        try:
+            os.waitpid(child, 0)
+        except ChildProcessError:
+            pass
+        assert _stat(child) is None
+    return report
+
+
+def test_descendant_scan_retries_a_freeze_that_is_not_visible_yet(monkeypatch):
+    """The outer loop can observe the stop before the descendant scan does.
+
+    That second observation is the new retry. The stop is acknowledged only
+    after a later scan sees the same tree frozen and the cleanup proof holds.
+    """
+    import encode_pipeline.workers.timeouts as timeouts
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_require = timeouts._require_frozen_member
+    real_scan = timeouts._linux_descendants
+    observed = {"in_scan": False, "forced": False, "scans": 0}
+
+    def scan(pid):
+        observed["scans"] += 1
+        observed["in_scan"] = True
+        try:
+            return real_scan(pid)
+        finally:
+            observed["in_scan"] = False
+
+    def require(pid, observed_starttime):
+        frozen = real_require(pid, observed_starttime)
+        if (
+            observed["in_scan"]
+            and pid == horse.pid
+            and frozen
+            and not observed["forced"]
+        ):
+            observed["forced"] = True
+            return False
+        return frozen
+
+    monkeypatch.setattr(timeouts, "_linux_descendants", scan)
+    monkeypatch.setattr(timeouts, "_require_frozen_member", require)
+    started = time.monotonic()
+    try:
+        assert worker.kill_horse() is None
+        assert observed["forced"] is True
+        assert observed["scans"] >= 2
+        assert time.monotonic() - started < 1.5
+        _assert_cancelled(worker, horse, child, starttime)
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_descendant_scan_that_never_sees_the_stop_stays_unconfirmed(monkeypatch):
+    """A scan that never accepts the freeze uses the existing deadline.
+
+    The run stays unacknowledged. The deadline is the one already owned by the
+    freeze loop.
+    """
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_require = timeouts._require_frozen_member
+    real_scan = timeouts._linux_descendants
+    observed = {"in_scan": False, "forced": 0}
+
+    def scan(pid):
+        observed["in_scan"] = True
+        try:
+            return real_scan(pid)
+        finally:
+            observed["in_scan"] = False
+
+    def require(pid, observed_starttime):
+        frozen = real_require(pid, observed_starttime)
+        if observed["in_scan"] and pid == horse.pid and frozen:
+            observed["forced"] += 1
+            return False
+        return frozen
+
+    monkeypatch.setattr(timeouts, "_linux_descendants", scan)
+    monkeypatch.setattr(timeouts, "_require_frozen_member", require)
+    started = time.monotonic()
+    try:
+        assert worker.kill_horse() is None
+        elapsed = time.monotonic() - started
+        assert observed["forced"] >= 2
+        assert 1.5 <= elapsed <= 4.0
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_DID_NOT_STABILIZE"
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime) is None
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+        current = _stat(child)
+        assert current is None or current[0] in {"Z", "X", "x"}
+        if current is not None:
+            try:
+                os.waitpid(child, 0)
+            except ChildProcessError:
+                pass
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_child_stop_that_is_not_visible_yet_still_acknowledges(monkeypatch):
+    """A registered child can still look live immediately after its stop."""
+    import encode_pipeline.workers.timeouts as timeouts
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_visibility = timeouts._member_visibility
+    pending = {"left": 1}
+
+    def visibility(pid, observed_starttime):
+        result = real_visibility(pid, observed_starttime)
+        if pid == child and result == "frozen" and pending["left"] > 0:
+            pending["left"] -= 1
+            return "live"
+        return result
+
+    monkeypatch.setattr(timeouts, "_member_visibility", visibility)
+    try:
+        assert worker.kill_horse() is None
+        assert pending["left"] == 0
+        _assert_cancelled(worker, horse, child, starttime)
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_member_exit_before_the_next_freeze_pass_still_acknowledges(monkeypatch):
+    """A registered member that exits before the next pass is retired, not fatal."""
+    import encode_pipeline.workers.timeouts as timeouts
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_scan = timeouts._linux_descendants
+    real_sleep = timeouts.time.sleep
+    discovered = {"ok": False}
+    killed = {"done": False}
+
+    def scan(pid):
+        found = real_scan(pid)
+        if any(member == child for member, _starttime in found):
+            discovered["ok"] = True
+        return found
+
+    def sleep(seconds):
+        if seconds == 0.02 and discovered["ok"] and not killed["done"]:
+            os.kill(child, signal.SIGKILL)
+            killed["done"] = True
+        return real_sleep(seconds)
+
+    monkeypatch.setattr(timeouts, "_linux_descendants", scan)
+    monkeypatch.setattr(timeouts.time, "sleep", sleep)
+    try:
+        assert worker.kill_horse() is None
+        assert killed["done"] is True
+        report = _assert_cancelled(worker, horse, child, starttime)
+        assert any(member == child for member, _starttime in report.exited)
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_member_exit_during_stop_census_still_acknowledges(monkeypatch):
+    """A member that exits while the stop census is running is retired."""
+    import encode_pipeline.workers.timeouts as timeouts
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_scan = timeouts._linux_descendants
+    real_stopped = timeouts._stopped_or_gone
+    discovered = {"ok": False}
+    killed = {"done": False}
+
+    def scan(pid):
+        found = real_scan(pid)
+        if any(member == child for member, _starttime in found):
+            discovered["ok"] = True
+        return found
+
+    def stopped(pid, observed_starttime):
+        if pid == child and discovered["ok"] and not killed["done"]:
+            os.kill(child, signal.SIGKILL)
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                state = _stat(child)
+                if state is None or state[0] in {"Z", "X", "x"}:
+                    break
+                time.sleep(0.001)
+            else:
+                raise AssertionError("child did not exit during the stop census")
+            killed["done"] = True
+        return real_stopped(pid, observed_starttime)
+
+    monkeypatch.setattr(timeouts, "_linux_descendants", scan)
+    monkeypatch.setattr(timeouts, "_stopped_or_gone", stopped)
+    try:
+        assert worker.kill_horse() is None
+        assert killed["done"] is True
+        report = _assert_cancelled(worker, horse, child, starttime)
+        assert any(member == child for member, _starttime in report.exited)
+    finally:
+        _finish_pair(horse, child)
+
+
+def test_rediscovered_member_identity_is_not_retried(monkeypatch):
+    """A starttime change found by a later scan stays fatal.
+
+    ``_OwnedTreeScanRetry`` must not turn that failure into another wait.
+    """
+    import encode_pipeline.workers.timeouts as timeouts
+
+    from .test_horse_stop_wait_race import acknowledgement_decision
+
+    horse, child = _same_group_sleeper()
+    worker, starttime = _cancel_gate(horse)
+    real_scan = timeouts._linux_descendants
+    horse_scans = {"n": 0}
+
+    def scan(pid):
+        found = real_scan(pid)
+        if pid != horse.pid:
+            return found
+        horse_scans["n"] += 1
+        if horse_scans["n"] < 2:
+            return found
+        return tuple(
+            (member, member_starttime + 1)
+            if member == child
+            else (member, member_starttime)
+            for member, member_starttime in found
+        )
+
+    monkeypatch.setattr(timeouts, "_linux_descendants", scan)
+    try:
+        assert worker.kill_horse() is None
+        assert horse_scans["n"] >= 2
+        report = worker._nested_cleanup_report
+        assert report is not None and report.confirmed is False
+        assert report.unconfirmed_reason == "OWNED_TREE_CHILD_IDENTITY_CHANGED"
+        assert (
+            acknowledgement_decision(worker, "cancel-job", horse.pid, starttime) is None
+        )
+        assert horse.wait(timeout=5) == -signal.SIGKILL
+    finally:
+        _finish_pair(horse, child)
