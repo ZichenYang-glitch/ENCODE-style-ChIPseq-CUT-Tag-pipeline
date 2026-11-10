@@ -84,8 +84,14 @@ export function validationLead(view: DraftValidationView): string {
   switch (view.status) {
     case 'unavailable':
       return 'Draft validation is not connected yet.';
+    case 'idle':
+      return 'No validation result is stored for this draft. Validation does not start a run.';
     case 'unconfirmed':
       return 'The validation response was not confirmed. This page has no validation result.';
+    case 'request-failed':
+      return 'Validation could not be completed. The draft was not changed.';
+    case 'stale':
+      return 'The previous validation result is not for the current draft.';
     case 'issues':
       return 'Validation reported problems.';
     case 'no-snapshot':

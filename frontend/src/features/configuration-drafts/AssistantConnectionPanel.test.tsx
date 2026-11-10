@@ -48,9 +48,10 @@ describe('assistant connection panel', () => {
     expect(screen.getByText(/was not reconnected/i)).toBeInTheDocument();
     expect(screen.queryByText('Assistant available')).not.toBeInTheDocument();
     const connect = screen.getByRole('button', { name: 'Connect assistant' });
-    expect(connect).toBeDisabled();
     await userEvent.setup().click(connect);
-    expect(onConnect).not.toHaveBeenCalled();
+    expect(onConnect).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Assistant available')).not.toBeInTheDocument();
   });
 
   it('does not change the visible state when connect is requested', async () => {

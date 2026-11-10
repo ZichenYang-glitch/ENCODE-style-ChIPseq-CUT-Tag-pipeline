@@ -101,7 +101,10 @@ export interface ExplanationView {
 
 export type DraftValidationStatus =
   | 'unavailable'
+  | 'idle'
   | 'unconfirmed'
+  | 'request-failed'
+  | 'stale'
   | 'issues'
   | 'no-snapshot'
   | 'snapshot';

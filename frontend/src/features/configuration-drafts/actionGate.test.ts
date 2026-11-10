@@ -3,10 +3,9 @@ import { adoptBlockReason, connectBlockReason } from './actionGate';
 import { createPendingProposal } from './testFixtures';
 
 describe('authoring action gates', () => {
-  it('keeps an unavailable assistant from looking connected', () => {
-    expect(connectBlockReason(true, 'bridge-unavailable')).toBe(
-      'The assistant is unavailable. You can keep editing by hand.',
-    );
+  it('lets a person retry an unavailable assistant without treating it as connected', () => {
+    expect(connectBlockReason(true, 'bridge-unavailable')).toBeNull();
+    expect(connectBlockReason(true, 'available')).toMatch(/already available/);
     expect(connectBlockReason(false, 'disconnected')).toMatch(/reviewed configuration-draft interface/);
   });
 

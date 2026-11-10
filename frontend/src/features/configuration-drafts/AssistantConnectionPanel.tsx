@@ -7,15 +7,23 @@ import { connectionDetail, connectionHeading } from './statusCopy';
 interface AssistantConnectionPanelProps {
   connection: AssistantConnectionView;
   writesEnabled: boolean;
+  unavailableMessage?: string;
   onConnect?: () => void;
+  onClose?: () => void;
 }
 
 export function AssistantConnectionPanel({
   connection,
   writesEnabled,
+  unavailableMessage,
   onConnect,
+  onClose,
 }: AssistantConnectionPanelProps) {
-  const connectReason = connectBlockReason(writesEnabled, connection.state);
+  const connectReason = connectBlockReason(
+    writesEnabled,
+    connection.state,
+    unavailableMessage,
+  );
   const detail = connectionDetail(connection);
   return (
     <Panel title="Assistant connection">
@@ -42,6 +50,16 @@ export function AssistantConnectionPanel({
         >
           Connect assistant
         </Button>
+        {connection.state === 'available' && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!onClose}
+            onClick={() => onClose?.()}
+          >
+            Close assistant
+          </Button>
+        )}
         {connectReason !== null && (
           <p id="assistant-connect-reason" className="text-xs text-[var(--color-text-muted)]">
             {connectReason}

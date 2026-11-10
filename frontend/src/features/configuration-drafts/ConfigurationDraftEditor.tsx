@@ -1,18 +1,31 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Button } from '../../components/Button';
 import { ConfigEditor, type ConfigMode } from '../input-workbench/ConfigEditor';
 import { OptionsEditor } from '../input-workbench/OptionsEditor';
 import type { WorkbenchSchema } from '../input-workbench/schemaContract';
-import { useInputDraft } from '../input-workbench/useInputDraft';
+import { useInputDraft, type InputDraftSeed } from '../input-workbench/useInputDraft';
+import { stableDocumentSnapshot } from './authoringContract';
 import { AUTHORING_WRITES_UNAVAILABLE } from './model';
+
+export interface EditorDocument {
+  config: unknown;
+  options: unknown;
+}
 
 interface ConfigurationDraftEditorProps {
   schema: WorkbenchSchema;
   schemaIdentity: string;
   discardEpoch: number;
+  serverReloadEpoch?: number;
   writesEnabled: boolean;
+  saveUnavailableReason?: string;
+  documentSeed?: InputDraftSeed | null;
+  externalDirty?: boolean;
+  confirmedSnapshot?: string | null;
+  managedInputs?: ReactNode;
   onDirtyChange: (dirty: boolean) => void;
-  onSave?: () => void;
+  onDocumentChange?: (document: EditorDocument) => void;
+  onSave?: (document: EditorDocument) => void;
   onDiscard: () => void;
 }
 
@@ -23,8 +36,15 @@ export function ConfigurationDraftEditor({
   schema,
   schemaIdentity,
   discardEpoch,
+  serverReloadEpoch = 0,
   writesEnabled,
+  saveUnavailableReason = AUTHORING_WRITES_UNAVAILABLE,
+  documentSeed = null,
+  externalDirty = false,
+  confirmedSnapshot = null,
+  managedInputs = null,
   onDirtyChange,
+  onDocumentChange,
   onSave,
   onDiscard,
 }: ConfigurationDraftEditorProps) {
@@ -100,11 +120,17 @@ export function ConfigurationDraftEditor({
         </div>
       )}
       <DraftEditorSession
-        key={`${acceptedIdentity}:${discardEpoch}:${reloadEpoch}`}
+        key={`${acceptedIdentity}:${discardEpoch}:${reloadEpoch}:${serverReloadEpoch}`}
         schema={activeSchema}
         writesEnabled={writesEnabled}
         saveBlockedReason={identityChanged ? SCHEMA_RELOAD_REASON : null}
+        saveUnavailableReason={saveUnavailableReason}
+        documentSeed={documentSeed}
+        externalDirty={externalDirty}
+        confirmedSnapshot={confirmedSnapshot}
+        managedInputs={managedInputs}
         onDirtyChange={noteDirty}
+        onDocumentChange={onDocumentChange}
         onSave={onSave}
         onDiscard={discardEdits}
       />
@@ -116,31 +142,42 @@ function DraftEditorSession({
   schema,
   writesEnabled,
   saveBlockedReason,
+  saveUnavailableReason,
+  documentSeed,
+  externalDirty,
+  confirmedSnapshot,
+  managedInputs,
   onDirtyChange,
+  onDocumentChange,
   onSave,
   onDiscard,
 }: {
   schema: WorkbenchSchema;
   writesEnabled: boolean;
   saveBlockedReason: string | null;
+  saveUnavailableReason: string;
+  documentSeed: InputDraftSeed | null;
+  externalDirty: boolean;
+  confirmedSnapshot: string | null;
+  managedInputs: ReactNode;
   onDirtyChange: (dirty: boolean) => void;
-  onSave?: () => void;
+  onDocumentChange?: (document: EditorDocument) => void;
+  onSave?: (document: EditorDocument) => void;
   onDiscard: () => void;
 }) {
   const reasonId = useId();
-  const draft = useInputDraft(schema);
+  const draft = useInputDraft(schema, documentSeed);
   const [mode, setMode] = useState<ConfigMode>('form');
   const [baseline, setBaseline] = useState<string | null>(null);
   const interacted = useRef(false);
-  const current = stableSnapshot(draft.state.config, draft.state.options);
+  const current = stableDocumentSnapshot(draft.state.config, draft.state.options);
   const invalid =
     draft.state.yamlIssue !== null ||
     draft.state.configFormIssue !== null ||
     draft.state.optionsFormIssue !== null;
-  const dirty =
-    baseline !== null &&
-    interacted.current &&
-    (current !== baseline || invalid);
+  const contentDirty =
+    baseline !== null && interacted.current && (current !== baseline || invalid);
+  const dirty = contentDirty || externalDirty;
   const saveEnabled =
     dirty &&
     !invalid &&
@@ -154,6 +191,17 @@ function DraftEditorSession({
   }, [current]);
 
   useEffect(() => {
+    if (invalid) return;
+    onDocumentChange?.({ config: draft.state.config, options: draft.state.options });
+  }, [current, draft.state.config, draft.state.options, invalid, onDocumentChange]);
+
+  useEffect(() => {
+    if (!confirmedSnapshot || confirmedSnapshot !== current || externalDirty) return;
+    interacted.current = false;
+    setBaseline(current);
+  }, [confirmedSnapshot, current, externalDirty]);
+
+  useEffect(() => {
     onDirtyChange(dirty);
     return () => onDirtyChange(false);
   }, [dirty, onDirtyChange]);
@@ -164,7 +212,7 @@ function DraftEditorSession({
 
   let saveReason = 'Save is available after you change the draft.';
   if (saveBlockedReason) saveReason = saveBlockedReason;
-  else if (!writesEnabled) saveReason = AUTHORING_WRITES_UNAVAILABLE;
+  else if (!writesEnabled) saveReason = saveUnavailableReason;
   else if (dirty && invalid) {
     saveReason = 'Fix the editor errors before saving. These edits are kept.';
   }
@@ -176,6 +224,7 @@ function DraftEditorSession({
         onPointerDown={markInteraction}
         onKeyDown={markInteraction}
       >
+        {managedInputs}
         <ConfigEditor
           schema={schema}
           draft={draft}
@@ -185,8 +234,8 @@ function DraftEditorSession({
         <OptionsEditor schema={schema} draft={draft} />
       </div>
       <p className="text-xs text-[var(--color-text-muted)]">
-        Sample selection stays in the existing input workbench. This page does
-        not start a run.
+        Sample revisions come from the project list. Local file paths are not
+        accepted on this page.
       </p>
       {dirty && (
         <p role="status">
@@ -199,7 +248,9 @@ function DraftEditorSession({
           variant="primary"
           disabled={!saveEnabled}
           aria-describedby={saveEnabled ? undefined : reasonId}
-          onClick={() => onSave?.()}
+          onClick={() =>
+            onSave?.({ config: draft.state.config, options: draft.state.options })
+          }
         >
           Save edits
         </Button>
@@ -214,8 +265,4 @@ function DraftEditorSession({
       )}
     </div>
   );
-}
-
-function stableSnapshot(config: unknown, options: unknown): string {
-  return JSON.stringify({ config, options });
 }

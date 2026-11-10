@@ -9,6 +9,7 @@ import { proposalStatusCopy } from './statusCopy';
 interface ProposalReviewProps {
   proposal: ProposalView | null;
   writesEnabled: boolean;
+  unavailableMessage?: string;
   dirty: boolean;
   onAdopt?: () => void;
   onReject?: () => void;
@@ -18,6 +19,7 @@ interface ProposalReviewProps {
 export function ProposalReview({
   proposal,
   writesEnabled,
+  unavailableMessage,
   dirty,
   onAdopt,
   onReject,
@@ -30,8 +32,18 @@ export function ProposalReview({
       </Panel>
     );
   }
-  const adoptReason = adoptBlockReason({ writesEnabled, dirty, proposal });
-  const rejectReason = rejectBlockReason({ writesEnabled, dirty, proposal });
+  const adoptReason = adoptBlockReason({
+    writesEnabled,
+    dirty,
+    proposal,
+    unavailable: unavailableMessage,
+  });
+  const rejectReason = rejectBlockReason({
+    writesEnabled,
+    dirty,
+    proposal,
+    unavailable: unavailableMessage,
+  });
   const refreshDisabled = proposal.state !== 'unconfirmed' || !onRefresh;
   const adoptDescriptionId = useId();
   const rejectDescriptionId = useId();

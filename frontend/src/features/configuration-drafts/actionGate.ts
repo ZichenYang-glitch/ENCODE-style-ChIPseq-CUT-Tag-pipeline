@@ -10,8 +10,9 @@ export const UNSAVED_EDIT_BLOCK =
 export function writeBlockReason(
   writesEnabled: boolean,
   dirty: boolean,
+  unavailable = AUTHORING_WRITES_UNAVAILABLE,
 ): string | null {
-  if (!writesEnabled) return AUTHORING_WRITES_UNAVAILABLE;
+  if (!writesEnabled) return unavailable;
   if (dirty) return UNSAVED_EDIT_BLOCK;
   return null;
 }
@@ -19,13 +20,11 @@ export function writeBlockReason(
 export function connectBlockReason(
   writesEnabled: boolean,
   state: AssistantConnectionState,
+  unavailable = AUTHORING_WRITES_UNAVAILABLE,
 ): string | null {
-  if (state === 'bridge-unavailable') {
-    return 'The assistant is unavailable. You can keep editing by hand.';
-  }
   if (state === 'connecting') return 'The assistant is still connecting.';
   if (state === 'available') return 'The assistant is already available.';
-  if (!writesEnabled) return AUTHORING_WRITES_UNAVAILABLE;
+  if (!writesEnabled) return unavailable;
   return null;
 }
 
@@ -33,8 +32,9 @@ export function adoptBlockReason(input: {
   writesEnabled: boolean;
   dirty: boolean;
   proposal: ProposalView | null;
+  unavailable?: string;
 }): string | null {
-  const blocked = writeBlockReason(input.writesEnabled, input.dirty);
+  const blocked = writeBlockReason(input.writesEnabled, input.dirty, input.unavailable);
   if (blocked) return blocked;
   return proposalDecisionBlock(input.proposal, 'adopt');
 }
@@ -43,8 +43,9 @@ export function rejectBlockReason(input: {
   writesEnabled: boolean;
   dirty: boolean;
   proposal: ProposalView | null;
+  unavailable?: string;
 }): string | null {
-  const blocked = writeBlockReason(input.writesEnabled, input.dirty);
+  const blocked = writeBlockReason(input.writesEnabled, input.dirty, input.unavailable);
   if (blocked) return blocked;
   return proposalDecisionBlock(input.proposal, 'reject');
 }
@@ -88,9 +89,10 @@ export function validateBlockReason(input: {
   writesEnabled: boolean;
   dirty: boolean;
   draftExpired: boolean;
+  unavailable?: string;
 }): string | null {
   if (input.draftExpired) {
     return 'This draft has expired, so it cannot be validated.';
   }
-  return writeBlockReason(input.writesEnabled, input.dirty);
+  return writeBlockReason(input.writesEnabled, input.dirty, input.unavailable);
 }

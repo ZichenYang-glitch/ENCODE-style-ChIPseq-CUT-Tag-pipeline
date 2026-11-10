@@ -15,9 +15,11 @@ interface StructuredRequestPanelProps {
   connectionAvailable: boolean;
   draftExpired: boolean;
   writesEnabled: boolean;
+  unavailableMessage?: string;
   dirty: boolean;
   requestStatus: SuggestionRequestStatus;
   onRequest?: (question: StructuredQuestion) => void;
+  onCheckRequest?: () => void;
 }
 
 export function StructuredRequestPanel({
@@ -25,9 +27,11 @@ export function StructuredRequestPanel({
   connectionAvailable,
   draftExpired,
   writesEnabled,
+  unavailableMessage,
   dirty,
   requestStatus,
   onRequest,
+  onCheckRequest,
 }: StructuredRequestPanelProps) {
   const baseId = useId();
   const [intent, setIntent] = useState<SuggestionIntent | null>(null);
@@ -80,6 +84,7 @@ export function StructuredRequestPanel({
 
   const blockReason = requestBlockReason({
     writesEnabled,
+    unavailableMessage,
     dirty,
     connectionAvailable,
     draftExpired,
@@ -171,6 +176,10 @@ export function StructuredRequestPanel({
         {intent === 'explain_issues' && (
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Validation issue</legend>
+            <p className="text-xs text-[var(--color-text-muted)]">
+              These labels come from the current catalog. The request sends the
+              explain intent. It does not send a separate issue code.
+            </p>
             {capability.issues.length === 0 && (
               <p role="status">No explainable validation issues were declared.</p>
             )}
@@ -188,10 +197,17 @@ export function StructuredRequestPanel({
           </fieldset>
         )}
         {requestStatus === 'unconfirmed' && (
-          <p role="status">
-            The suggestion response was not confirmed. This page will not send
-            it again on its own.
-          </p>
+          <div className="space-y-2">
+            <p role="status">
+              The suggestion response was not confirmed. This page will not send
+              it again on its own.
+            </p>
+            {onCheckRequest && (
+              <Button type="button" variant="secondary" onClick={() => onCheckRequest()}>
+                Check this request
+              </Button>
+            )}
+          </div>
         )}
         {requestStatus === 'failed' && (
           <p role="alert">
@@ -305,6 +321,7 @@ function ConstraintHint({ field }: { field: CapabilityField }) {
 
 function requestBlockReason(input: {
   writesEnabled: boolean;
+  unavailableMessage?: string;
   dirty: boolean;
   connectionAvailable: boolean;
   draftExpired: boolean;
@@ -315,9 +332,13 @@ function requestBlockReason(input: {
     return 'This draft has expired. You can review adoption receipts, not request a new suggestion.';
   }
   if (input.requestStatus === 'unconfirmed') {
-    return 'The suggestion response was not confirmed. This page will not send it again on its own.';
+    return 'The suggestion response was not confirmed. Check the same request before sending a new one.';
   }
-  const blocked = writeBlockReason(input.writesEnabled, input.dirty);
+  const blocked = writeBlockReason(
+    input.writesEnabled,
+    input.dirty,
+    input.unavailableMessage,
+  );
   if (blocked) return blocked;
   if (!input.connectionAvailable) {
     return 'Connect the assistant before requesting a suggestion.';

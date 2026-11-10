@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 interface UnsavedEditsDialogProps {
   open: boolean;
   writesEnabled: boolean;
+  unavailableMessage?: string;
   saveAttempted: boolean;
   onSave: () => void;
   onDiscard: () => void;
@@ -13,6 +14,7 @@ interface UnsavedEditsDialogProps {
 export function UnsavedEditsDialog({
   open,
   writesEnabled,
+  unavailableMessage = 'Saving waits for the reviewed configuration-draft interface.',
   saveAttempted,
   onSave,
   onDiscard,
@@ -77,7 +79,7 @@ export function UnsavedEditsDialog({
         )}
         {!writesEnabled && (
           <p className="mt-2 text-sm" id="unsaved-save-reason">
-            Saving waits for the reviewed configuration-draft interface.
+            {unavailableMessage}
           </p>
         )}
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">

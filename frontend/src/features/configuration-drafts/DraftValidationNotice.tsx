@@ -7,6 +7,7 @@ import { validationLead } from './statusCopy';
 interface DraftValidationNoticeProps {
   validation: DraftValidationView;
   writesEnabled: boolean;
+  unavailableMessage?: string;
   dirty: boolean;
   draftExpired: boolean;
   onValidate?: () => void;
@@ -15,11 +16,17 @@ interface DraftValidationNoticeProps {
 export function DraftValidationNotice({
   validation,
   writesEnabled,
+  unavailableMessage,
   dirty,
   draftExpired,
   onValidate,
 }: DraftValidationNoticeProps) {
-  const reason = validateBlockReason({ writesEnabled, dirty, draftExpired });
+  const reason = validateBlockReason({
+    writesEnabled,
+    dirty,
+    draftExpired,
+    unavailable: unavailableMessage,
+  });
   return (
     <Panel title="Draft validation">
       <div className="space-y-3">

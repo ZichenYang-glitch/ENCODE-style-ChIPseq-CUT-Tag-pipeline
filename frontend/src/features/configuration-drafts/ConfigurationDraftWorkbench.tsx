@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useBlocker, useLocation } from 'react-router-dom';
+import { Button } from '../../components/Button';
 import type { WorkbenchSchema } from '../input-workbench/schemaContract';
+import type { InputDraftSeed } from '../input-workbench/useInputDraft';
 import { AssistantConnectionPanel } from './AssistantConnectionPanel';
-import { ConfigurationDraftEditor } from './ConfigurationDraftEditor';
+import {
+  ConfigurationDraftEditor,
+  type EditorDocument,
+} from './ConfigurationDraftEditor';
 import { ConfigurationDraftList } from './ConfigurationDraftList';
 import { DraftValidationNotice } from './DraftValidationNotice';
 import { ExplanationNotice } from './ExplanationNotice';
@@ -37,13 +42,28 @@ export interface ConfigurationDraftWorkbenchProps {
   validation: DraftValidationView;
   requestStatus: SuggestionRequestStatus;
   writesEnabled: boolean;
+  apiConnected?: boolean;
+  saveUnavailableReason?: string;
+  documentSeed?: InputDraftSeed | null;
+  externalDirty?: boolean;
+  confirmedSnapshot?: string | null;
+  serverReloadEpoch?: number;
+  remoteConflict?: boolean;
+  managedInputs?: ReactNode;
+  actionNotice?: string | null;
   onSelectDraft?: (sid: string) => void;
   onListPrevious?: () => void;
   onListNext?: () => void;
   onRetryList?: () => void;
-  onSave?: () => void;
+  onSave?: (document: EditorDocument) => void;
+  onDiscarded?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onReloadRemote?: () => void;
+  onKeepRemote?: () => void;
   onConnect?: () => void;
+  onClose?: () => void;
   onRequest?: (question: StructuredQuestion) => void;
+  onCheckRequest?: () => void;
   onAdopt?: () => void;
   onReject?: () => void;
   onRefreshProposal?: () => void;
@@ -66,13 +86,28 @@ export function ConfigurationDraftWorkbench({
   validation,
   requestStatus,
   writesEnabled,
+  apiConnected = false,
+  saveUnavailableReason,
+  documentSeed = null,
+  externalDirty = false,
+  confirmedSnapshot = null,
+  serverReloadEpoch = 0,
+  remoteConflict = false,
+  managedInputs = null,
+  actionNotice = null,
   onSelectDraft,
   onListPrevious,
   onListNext,
   onRetryList,
   onSave,
+  onDiscarded,
+  onDirtyChange,
+  onReloadRemote,
+  onKeepRemote,
   onConnect,
+  onClose,
   onRequest,
+  onCheckRequest,
   onAdopt,
   onReject,
   onRefreshProposal,
@@ -86,6 +121,7 @@ export function ConfigurationDraftWorkbench({
     { kind: 'leave' } | { kind: 'select'; sid: string } | null
   >(null);
   const dirtyRef = useRef(false);
+  const documentRef = useRef<EditorDocument | null>(null);
   const allowNavigation = useRef(false);
   const location = useLocation();
   dirtyRef.current = dirty;
@@ -104,9 +140,6 @@ export function ConfigurationDraftWorkbench({
       [],
     ),
   );
-  const onDirtyChange = useCallback((next: boolean) => {
-    setDirty((current) => (current === next ? current : next));
-  }, []);
 
   useEffect(() => {
     allowNavigation.current = false;
@@ -132,9 +165,19 @@ export function ConfigurationDraftWorkbench({
     onSelectDraft?.(sid);
   }
 
-  function requestSave() {
-    if (!writesEnabled || !onSave) return;
-    onSave();
+  const noteDirty = useCallback((next: boolean) => {
+    setDirty(next);
+    onDirtyChange?.(next);
+  }, [onDirtyChange]);
+
+  const noteDocument = useCallback((document: EditorDocument) => {
+    documentRef.current = document;
+  }, []);
+
+  function requestSave(document?: EditorDocument) {
+    const payload = document ?? documentRef.current;
+    if (!writesEnabled || !onSave || !payload) return;
+    onSave(payload);
     setSaveAttempted(true);
   }
 
@@ -142,6 +185,7 @@ export function ConfigurationDraftWorkbench({
     setDiscardEpoch((value) => value + 1);
     setSaveAttempted(false);
     setLocalNotice('Unsaved edits discarded.');
+    onDiscarded?.();
   }
 
   function discardAndContinue() {
@@ -149,6 +193,7 @@ export function ConfigurationDraftWorkbench({
     setDiscardEpoch((value) => value + 1);
     setSaveAttempted(false);
     setLocalNotice('Unsaved edits discarded.');
+    onDiscarded?.();
     setPrompt(null);
     if (current?.kind === 'select') onSelectDraft?.(current.sid);
     if (blocker.state === 'blocked') {
@@ -185,10 +230,11 @@ export function ConfigurationDraftWorkbench({
           {projectName ?? 'Project list is not connected yet.'}
         </p>
       </header>
-      {!writesEnabled && (
+      {!writesEnabled && !apiConnected && (
         <p role="status">{AUTHORING_WRITES_UNAVAILABLE}</p>
       )}
       {localNotice && <p role="status">{localNotice}</p>}
+      {actionNotice && <p role="status">{actionNotice}</p>}
       {saveAttempted && dirty && (
         <p role="status">
           The save response has not been confirmed. These edits are still
@@ -211,7 +257,9 @@ export function ConfigurationDraftWorkbench({
           <AssistantConnectionPanel
             connection={connection}
             writesEnabled={writesEnabled}
+            unavailableMessage={saveUnavailableReason}
             onConnect={onConnect}
+            onClose={onClose}
           />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -227,12 +275,38 @@ export function ConfigurationDraftWorkbench({
                   ? 'Edits stay local until a confirmed save.'
                   : 'No server draft is open. Edits in this editor stay on this page.'}
               </p>
+              {remoteConflict && (
+                <div
+                  role="status"
+                  className="space-y-3 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface-subtle)] p-3"
+                >
+                  <p>
+                    The server has a newer draft. These edits stay here until
+                    you choose. Nothing is overwritten.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="button" variant="secondary" onClick={() => onKeepRemote?.()}>
+                      Keep these edits
+                    </Button>
+                    <Button type="button" variant="danger" onClick={() => onReloadRemote?.()}>
+                      Reload server draft
+                    </Button>
+                  </div>
+                </div>
+              )}
               <ConfigurationDraftEditor
                 schema={schema}
                 schemaIdentity={schemaIdentity}
                 discardEpoch={discardEpoch}
+                serverReloadEpoch={serverReloadEpoch}
                 writesEnabled={writesEnabled}
-                onDirtyChange={onDirtyChange}
+                saveUnavailableReason={saveUnavailableReason}
+                documentSeed={documentSeed}
+                externalDirty={externalDirty}
+                confirmedSnapshot={confirmedSnapshot}
+                managedInputs={managedInputs}
+                onDirtyChange={noteDirty}
+                onDocumentChange={noteDocument}
                 onSave={onSave ? requestSave : undefined}
                 onDiscard={discardLocal}
               />
@@ -247,13 +321,16 @@ export function ConfigurationDraftWorkbench({
             connectionAvailable={connection.state === 'available'}
             draftExpired={draftExpired}
             writesEnabled={writesEnabled}
+            unavailableMessage={saveUnavailableReason}
             dirty={dirty}
             requestStatus={requestStatus}
             onRequest={onRequest}
+            onCheckRequest={onCheckRequest}
           />
           <ProposalReview
             proposal={proposal}
             writesEnabled={writesEnabled}
+            unavailableMessage={saveUnavailableReason}
             dirty={dirty}
             onAdopt={onAdopt}
             onReject={onReject}
@@ -263,6 +340,7 @@ export function ConfigurationDraftWorkbench({
           <DraftValidationNotice
             validation={validation}
             writesEnabled={writesEnabled}
+            unavailableMessage={saveUnavailableReason}
             dirty={dirty}
             draftExpired={draftExpired}
             onValidate={onValidate}
@@ -272,6 +350,7 @@ export function ConfigurationDraftWorkbench({
       <UnsavedEditsDialog
         open={prompt !== null}
         writesEnabled={writesEnabled && onSave !== undefined}
+        unavailableMessage={saveUnavailableReason}
         saveAttempted={saveAttempted}
         onSave={requestSave}
         onDiscard={discardAndContinue}
