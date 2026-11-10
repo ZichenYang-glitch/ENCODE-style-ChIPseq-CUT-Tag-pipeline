@@ -1,9 +1,59 @@
 # 当前 PR 收口与集成清单
 
-## 已合入 main（2026-11-06）
+## 已合入 main（2026-11-10）
 
-本节是当前入口。下方“集成候选（2026-11-06）”和更早快照保留为历史，
-不改写当时的检查记录。
+本节是当前入口。下方“历史：已合入 main（2026-11-06，#209 之后）”和更早快照
+保留为历史，不改写当时的检查记录。后续顺序见
+[roadmap](workflow-platform-agent-roadmap.md) 的 2026-11-10 一节。
+
+| 身份 | 值 |
+| --- | --- |
+| 当前 main | `ff30329607c4b6c9849bfc7369906e81b428937d` |
+| #211 合并时间 | 2026-11-10T05:01:32Z |
+| #211 head | `75f360b0414f9b2ab8bc40b74ff42b3b3234cf05` |
+| #210 merge | `b2f15868c6f74ab8764a73ae6fe4394f67304475` |
+| #210 合并时间 | 2026-11-09T04:18:49Z |
+| #210 head | `6978349ca515a37a55a93abc3ec65519fd0be2f8` |
+
+#211 把已通过的固定版本 A0 原型、实验补丁和证据收进仓库。阅读入口是
+[A0 归档](peri-a0-archive.md)。固定实验基线仍是 HelixWeave
+`622778f64e59f935d822d92a91bade78807dabce` 和 Peri
+`c7d154c9985cbe08ba25e964cb7468d15014e6d0`，不是这个 merge commit。
+归档预检不证明从零构建。
+
+#211 合入提交的普通检查：
+
+- CI [42759496217](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759496217) attempt 1，结论 success。checkout 是 `ff303296…`。
+- Lint [42759495513](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759495513) 与 Lock Check [42759495427](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759495427) attempt 1 成功，checkout 相同。
+- `real-execution`、`platform-real-execution`、`bulk-rnaseq-real-execution`、`container-smoke` 是 skipped，不算通过。没有为 `ff303296…` 重跑 Protected Bulk Gate。
+
+#210 合入提交的普通检查：
+
+- push CI [42561124629](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124629) attempt 1，结论 success。checkout 是 `b2f1586…`。
+- Lint [42561124779](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124779) 与 Lock Check [42561124690](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124690) 成功。
+- 四项条件执行 job 在这次 push 上是 skipped，不算通过。
+
+#210 head 另有一次 workflow_dispatch
+[42553090512](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42553090512)，
+attempt 1，结论 success，head 是 `6978349…`。其中 `bulk-rnaseq-real-execution` 成功。
+这份 Gate 只属于该 head，不覆盖 `b2f1586…` 或 `ff303296…`。
+
+[#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212)
+仍是 Draft，未合入。2026-11-10 查询时 head 是
+`b3eb210b6a0a8d4712cf41fe493017cc9423a5e4`，记录的 base 是 `b2f1586…`。
+该 head 的 CI [42759504413](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504413)
+attempt 1 结论 failure；Lint 与 Lock Check 成功；四项条件执行 job skipped。
+独立审阅要求返修，backend session 正在处理。审阅报告不在本仓库。
+更新后的 head 需要单独查 CI 和复审，不能沿用 `b3eb210…` 的失败或把它写成已经修好。
+
+[#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194)
+与 [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195)
+仍是 open、非 Draft、未合并。本轮只记录去向，不修改、关闭或合并。
+
+## 历史：已合入 main（2026-11-06，#209 之后）
+
+本节在 #210 合入前是当前入口。下方“集成候选（2026-11-06）”和更早快照保留为历史，
+不改写当时的检查记录。本节末尾“Peri 尚未开始”只描述当时。
 
 [#207](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/207)
 和 [#209](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/209)

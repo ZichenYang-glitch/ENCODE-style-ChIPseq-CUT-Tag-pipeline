@@ -4,10 +4,64 @@ This roadmap records the maintained product boundary, delivered baseline, and
 explicit follow-ons. It does not promise dates. Detailed implementation history
 belongs in Git history, the changelog, and release evidence.
 
-## 当前交付状态与后续计划（2026-11-06 已合入 main）
+## 当前交付状态与后续计划（2026-11-10）
 
-当前状态以本节和 [PR 收口与集成清单](current-delivery-integration.md) 的
-“已合入 main（2026-11-06）”为准。下方集成候选记录和更早日期记录原样保留。
+本节和 [PR 收口与集成清单](current-delivery-integration.md) 的
+“已合入 main（2026-11-10）”是当前入口。下方 2026-11-06 及更早记录按当时状态理解。
+旧 SHA、旧失败和旧验收结果保持原样。
+
+当前 main 是
+[#211](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/211)
+的 merge commit `ff30329607c4b6c9849bfc7369906e81b428937d`，
+合并时间 2026-11-10T05:01:32Z。它的第一父提交是
+[#210](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/210)
+的 merge commit `b2f15868c6f74ab8764a73ae6fe4394f67304475`。
+没有发布，科学默认未冻结。
+
+### 已交付
+
+- 科学实现、SCI-7 本批记录、workflow skills、源码身份和两批测试精简已随 #207/#209 进入 main。SCI-7 本批结论仍是 no conclusion。confirmation 未执行。MNase 登记的 500-arm 短模板指标未评估。
+- #210 取消竞态修复已合入。head `6978349ca515a37a55a93abc3ec65519fd0be2f8`，合并时间 2026-11-09T04:18:49Z。该 head 的 workflow_dispatch [42553090512](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42553090512) attempt 1 成功，其中包括 `bulk-rnaseq-real-execution`。这份 Gate 只属于 `6978349…`。merge commit 的 push CI [42561124629](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124629) attempt 1 成功，四项条件执行 job 是 skipped。
+- A0 在固定 HelixWeave `622778f64e59f935d822d92a91bade78807dabce`、固定 Peri `c7d154c9985cbe08ba25e964cb7468d15014e6d0`、固定补丁和已声明边界内通过。阅读入口是 [A0 归档](peri-a0-archive.md)。实验基线不是 #211 的合并提交。`scripts/peri_a0_reproduce/plan.py` 只生成计划，不证明从零构建。
+- #211 归档已合入，head `75f360b0414f9b2ab8bc40b74ff42b3b3234cf05`。合入后的 push CI [42759496217](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759496217)、Lint [42759495513](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759495513) 和 Lock Check [42759495427](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759495427) 都是 attempt 1 / success，checkout 是 `ff303296…`。四项条件执行 job skipped。没有为这个 merge commit 重跑 Protected Bulk Gate。
+
+### 正在推进
+
+- [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212) 仍是 Draft。2026-11-10 查询时 head 仍是 `b3eb210b6a0a8d4712cf41fe493017cc9423a5e4`，PR 记录的 base 仍是 `b2f1586…`。该 head 已有 C1/C2 实现。对这个 head 的独立审阅要求返修，backend session 正在同一条线返修。这不是验收通过，也不能把这次结论套到后来的新提交上。
+- 该 head 的 CI [42759504413](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504413) attempt 1 结论 failure。失败 job 是两个 fast-check shard、`fast-checks`、`coverage`、`frontend` 和 `browser-e2e`。Lint [42759504797](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504797) 与 Lock Check [42759504355](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504355) 成功。四项条件执行 job skipped。审阅报告留在审阅会话的本机交接材料里，不是 main 上的文件。
+- C3 可以与返修并行准备不依赖未定契约的页面和组件。正式接线等待返修复审后冻结的接口。C4 等待后端与前端整合后的真实闭环验收。
+
+### 尚未包含
+
+- 真实模型 provider、任意自由文本，以及 Agent 的 create、preflight、start、cancel。
+- 长期 Peri fork 决策和生产容量结论。
+- 科学默认冻结，以及未执行的独立 confirmation。
+- Peri 从零构建。
+
+[run 42178753311](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42178753311) 的 Bulk job 只属于 `815fdb52e09f4237005d3375591a23799a3904d0`，同一次 workflow 总结是 failure。`6978349…` 的 Gate 不覆盖 `b2f1586…` 或 `ff303296…`。
+
+### 后续交付计划
+
+下表只记录范围、依赖、下一步和验收标准。每一项都要另定范围后才实施。
+
+| 工作线 | 范围 | 依赖 | 下一步 | 验收标准 | 关联 |
+| --- | --- | --- | --- | --- | --- |
+| A1 配置助手 | C1 后端返修，然后 C2/C3 接线，再做 C4 集成 | #212 当前 head 的返修；已审阅设计由 backend 会话保管 | 返修 head 单独复审后再冻结 C3 接口 | 不把 `b3eb210…` 写成通过；C4 使用真实闭环 | [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212)，A0 见 [归档](peri-a0-archive.md) |
+| Agent 后续能力 | 真实 provider 与建议质量，B1 业务确认，B2 受控提交/取消，以及后续恢复和运维 | A1 闭环验收后另行定范围 | 保持为待定阶段 | 单独授权才实施；SQLite 继续是生命周期权威 | 设计仍是会话交接，未进入 main |
+| 文档治理 | 当前入口、历史记录，以及 #194/#195 的去向 | 已查询的 PR 与 SHA | 本 PR 更新入口；#194/#195 保持 open | 当前和历史可区分；本机材料不写成仓库链接 | [#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194)、[#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195) |
+| 测试与 CI 维护 | 按实际缺陷和耗时维护已有检查 | 已交付的两批精简 | 不自动开启第三批 | 不降低门槛，不增加 skip | #205、#206 已合入；#195 仍开放 |
+| 部署与发布 | 安装、升级、恢复和复现 | 真实交付需求 | 需要发布时另定范围 | 有对应验证；本次不发布 | 未授权 |
+| Workflow skills | 已交付技能的后续使用 | #199 已合入 | 按使用反馈迭代 | 显式调用边界保持 | [#199](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/199) |
+| 科学后续 | 未评估的 confirmation，以及 MNase 500-arm 短模板 | 具体科学问题和合适数据 | 有明确问题后再定批次 | 允许无结论；默认冻结单独决定 | 集成清单中的 SCI-7 记录 |
+| 长期候选 | IGV.js、真正的项目 ACL、额外执行环境、多主机或对象存储 | 独立需求 | 不作为 Peri 接入的前置条件 | SQLite 继续保留 | 无当前 PR |
+
+分工：Codex 负责设计、独立审阅和验收安排。Backend Cursor 负责 #212 以及后端和 bridge。Frontend Cursor 负责 C3 页面、组件和对应前端测试。本文件由文档维护会话更新，不实施 A1。
+
+## 历史：交付状态与后续计划（2026-11-06，#209 合入后）
+
+本节在 #210 合入前是当前入口。当时它和集成清单一起描述 #209 合入后的 main。
+现在那份清单保留为“历史：已合入 main（2026-11-06，#209 之后）”。
+#210、#211 和 A1 的状态见上方。下方集成候选记录和更早日期记录原样保留。
 
 当前 main 是 [#209](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/209)
 的 merge commit `cc06a039515d79c654e4fcf760ac4c1c630e8432`，合并时间 2026-11-07T08:53:06Z。
@@ -86,7 +140,7 @@ TF confirmation 三臂均已结束，最后一臂于 11 月 5 日 23:52 左右�
 
 ## 当前交付状态与后续计划（2026-10-30）
 
-本节是当前状态入口；[PR 收口与集成清单](current-delivery-integration.md)
+本节在写入时是状态入口；文首的 2026-11-10 一节才是现在的入口。下文按 2026-10-30 理解。[PR 收口与集成清单](current-delivery-integration.md)
 保存准确 head、检查链接、依赖顺序和验收要求。下方 2026-10-29 的计划及其他
 带日期记录均保留为历史快照，其中待授权、待复核、欠验等表述按各自记录时点
 理解，不覆盖本节的新结果，也不由新结果追认旧身份。
@@ -120,7 +174,7 @@ MNase Rep1 三臂（#198）。#198 的额外 200-arm 诊断已与原登记指标
 
 ## 后续交付计划（2026-10-29）
 
-本节是当前开发工作的状态与交付入口，区分分支交付、CI、科学验收和待合并事项，
+本节在写入时是开发工作的状态与交付入口。文首的 2026-11-10 一节才是现在的入口。下文按 2026-10-29 理解，区分分支交付、CI、科学验收和待合并事项，
 不把未合入的能力写成 main 或发行版的已交付功能。下文有日期的历史实施、失败和
 验收记录保留原文，其中“当前”按各自记录时点理解，不由新结果追认旧身份。
 
