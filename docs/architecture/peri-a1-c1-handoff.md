@@ -41,19 +41,24 @@ already create a login and an ENCODE reference. Create a user project with
 `DataRegistryService` before `POST /agent/authoring-sessions`. The API test
 client in `test/api/api_test_client.py` attaches the cookie and CSRF header.
 
-Until C2, `POST .../connection` returns 503 `BRIDGE_UNAVAILABLE`. Saving and
-`POST .../validate` still work.
+By default `POST .../connection` returns 503 `BRIDGE_UNAVAILABLE`. Saving and
+`POST .../validate` still work. The fixed Peri bridge starts only when
+`HELIXWEAVE_PERI_BINARY` points at the admitted binary and the API process is
+inside the 512MiB, swap-0, 128-task scope. The binary path is not built into
+the product.
 
 ## Not in this handoff
 
-- No native process, tool approval, or model stub is started by the API.
-- Opening a connection does not create a proposal.
+- The bridge can return one structured proposal for the approved fields. It does
+  not accept free text, and it still has no preflight, create, start, or cancel
+  tool.
 - The assistant can read only `config.threads` and `options.cores` on the ENCODE
   workflow. Other workflows report `available: false`.
 - There is no free-text question field and no preflight, create, start, or cancel
   route on these endpoints.
 - A new login can edit an unexpired draft. It cannot adopt a proposal created by
   the previous login.
+- C3 pages and the C4 browser loop are still open. This is not A1 acceptance.
 
 ## Frontend-owned paths
 

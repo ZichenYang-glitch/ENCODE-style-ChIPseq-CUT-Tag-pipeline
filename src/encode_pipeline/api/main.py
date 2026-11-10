@@ -49,6 +49,7 @@ from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
 from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.services.authoring_bridge import UnavailableAuthoringBridge
+from encode_pipeline.services.peri_runtime.owner import NativeAuthoringBridge
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
@@ -97,6 +98,24 @@ from encode_pipeline.workers.settings import (
 
 
 AUTH_SECURE_COOKIES_ENV = "ENCODE_PIPELINE_AUTH_SECURE_COOKIES"
+PERI_BINARY_ENV = "HELIXWEAVE_PERI_BINARY"
+PERI_STATE_ENV = "HELIXWEAVE_PERI_STATE"
+
+
+def _load_authoring_bridge(environ: dict[str, str], repository):
+    """Enable the fixed Peri bridge only when this process is admitted."""
+
+    raw_binary = environ.get(PERI_BINARY_ENV)
+    if not raw_binary:
+        return UnavailableAuthoringBridge()
+    raw_state = environ.get(PERI_STATE_ENV)
+    bridge = NativeAuthoringBridge(
+        binary=Path(raw_binary),
+        state_root=Path(raw_state) if raw_state else None,
+    )
+    if bridge.status().available:
+        repository.retire_foreign_epochs(bridge.owner_epoch())
+    return bridge
 
 
 def create_app(
@@ -128,6 +147,9 @@ def create_app(
         try:
             yield
         finally:
+            bridge = getattr(_app.state, "authoring_bridge", None)
+            if isinstance(bridge, NativeAuthoringBridge):
+                bridge.shutdown()
             run_queue.close()
             persistence.close()
 
@@ -265,18 +287,25 @@ def create_app(
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = validation_service
     app.state.validated_input_service = validated_input_service
+    authoring_repository = SqlAlchemyAuthoringRepository(
+        create_session_factory(persistence.engine)
+    )
+    authoring_bridge = _load_authoring_bridge(
+        settings_environment, authoring_repository
+    )
+    app.state.authoring_bridge = authoring_bridge
     app.state.authoring_service = AuthoringService(
-        repository=SqlAlchemyAuthoringRepository(
-            create_session_factory(persistence.engine)
-        ),
+        repository=authoring_repository,
         registry=registry,
         data_registry=DataRegistryService(
             repository=persistence.data_registry_repository
         ),
         validated_inputs=validated_input_service,
         snapshots=persistence.repository,
-        bridge=UnavailableAuthoringBridge(),
+        bridge=authoring_bridge,
     )
+    if isinstance(authoring_bridge, NativeAuthoringBridge):
+        authoring_bridge.bind_tool_handler(app.state.authoring_service.read_tool)
     app.state.reference_profile_service = reference_profile_service
     app.state.reference_profile_binding_service = reference_profile_binding_service
     app.state.reference_profile_resolver = reference_profile_resolver

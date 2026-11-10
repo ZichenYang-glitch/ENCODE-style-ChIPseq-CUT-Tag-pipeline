@@ -450,6 +450,34 @@ class SqlAlchemyAuthoringRepository:
             self._hook()
             return _session_record(row)
 
+    def retire_foreign_epochs(self, owner_epoch: str) -> int:
+        """Fence ready connections that do not belong to the current bridge owner."""
+
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            self._now()
+            rows = session.scalars(
+                select(AgentAuthoringSessionRow).where(
+                    AgentAuthoringSessionRow.connection_state.in_(("blocked", "ready")),
+                    or_(
+                        AgentAuthoringSessionRow.bridge_owner_epoch.is_(None),
+                        AgentAuthoringSessionRow.bridge_owner_epoch != owner_epoch,
+                    ),
+                )
+            ).all()
+            retired = 0
+            for row in rows:
+                if _fence_generation(
+                    session,
+                    row.sid,
+                    generation=row.generation,
+                    owner_epoch=row.bridge_owner_epoch,
+                    reason_code=AUTH_SESSION_ENDED,
+                ):
+                    retired += 1
+            self._hook()
+            return retired
+
     def retire_owner_epoch(self, owner_epoch: str) -> int:
         with self._session_factory.begin() as session:
             _begin_write(session)

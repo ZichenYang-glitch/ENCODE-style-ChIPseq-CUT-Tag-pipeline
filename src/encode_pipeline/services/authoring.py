@@ -392,12 +392,12 @@ class AuthoringService:
         except AuthoringRejected:
             self._abandon(request, ADMISSION_FAILED)
             raise
-        except BridgeDisconnected:
+        except BridgeDisconnected as error:
             self._abandon(request, ADMISSION_FAILED)
-            raise AuthoringRejected(ADMISSION_FAILED) from None
-        except Exception:
+            raise AuthoringRejected(ADMISSION_FAILED) from error
+        except Exception as error:
             self._abandon(request, ADMISSION_FAILED)
-            raise AuthoringRejected(ADMISSION_FAILED) from None
+            raise AuthoringRejected(ADMISSION_FAILED) from error
         return self._session_view(actor, record)
 
     def close_connection(self, actor: AuthoringActor, sid: str) -> SessionView:
