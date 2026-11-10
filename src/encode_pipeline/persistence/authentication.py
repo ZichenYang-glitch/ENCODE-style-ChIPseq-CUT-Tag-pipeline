@@ -140,6 +140,12 @@ class SqlAlchemyAuthenticationRepository:
                         active.revocation_reason = reason.value
                     session.flush()
                     revoked = len(active_rows)
+                    if active_rows:
+                        _fence_authoring_logins(
+                            session,
+                            tuple(active.session_digest for active in active_rows),
+                            revoked_time,
+                        )
                 if audit is not None:
                     insert_security_audit_event(session, audit)
         except IntegrityError as exc:
@@ -250,6 +256,7 @@ class SqlAlchemyAuthenticationRepository:
             row.revoked_at = revoked_time
             row.revocation_reason = normalized_reason.value
             session.flush()
+            _fence_authoring_logins(session, (session_digest,), revoked_time)
             if audit is not None:
                 insert_security_audit_event(session, audit)
             return True
@@ -436,6 +443,26 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _fence_authoring_logins(
+    session: Session,
+    session_digests: tuple[str, ...],
+    revoked_at: datetime | None,
+) -> None:
+    """Apply the A1 connection fence before the authentication transaction commits."""
+
+    if revoked_at is None or not session_digests:
+        return
+    from encode_pipeline.persistence.authoring import (
+        fence_authoring_connections_for_auth_sessions,
+    )
+
+    fence_authoring_connections_for_auth_sessions(
+        session,
+        session_digests,
+        revoked_at,
+    )
 
 
 def _begin_write(session: Session) -> None:

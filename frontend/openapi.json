@@ -912,6 +912,787 @@
         }
       }
     },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "List Projects",
+        "operationId": "authoringListProjects",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/samples": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "List Project Samples",
+        "operationId": "authoringListProjectSamples",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSampleListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "List Sessions",
+        "operationId": "authoringListSessions",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 36
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Create Session",
+        "operationId": "authoringCreateSession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringSessionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Get Session",
+        "operationId": "authoringGetSession",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/draft": {
+      "put": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Save Draft",
+        "operationId": "authoringSaveDraft",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringDraftWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/connection": {
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Open Connection",
+        "operationId": "authoringOpenConnection",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Close Connection",
+        "operationId": "authoringCloseConnection",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/turns": {
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Create Turn",
+        "operationId": "authoringCreateTurn",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringTurnCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringTurnResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/turns/{turn_id}": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Get Turn",
+        "operationId": "authoringGetTurn",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "turn_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Turn Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringTurnResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt": {
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Adopt Proposal",
+        "operationId": "authoringAdoptProposal",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringAdoptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringAdoptionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/reject": {
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Reject Proposal",
+        "operationId": "authoringRejectProposal",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringRejectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringTurnResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/authoring-sessions/{sid}/validate": {
+      "post": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "Validate Draft",
+        "operationId": "authoringValidateDraft",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoringValidateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringValidationResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{workflow_id}/runs": {
       "post": {
         "tags": [
@@ -3604,6 +4385,1104 @@
         ],
         "title": "AuthErrorResponse"
       },
+      "AuthoringAdoptRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "proposal_digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Proposal Digest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "proposal_digest"
+        ],
+        "title": "AuthoringAdoptRequest"
+      },
+      "AuthoringAdoptionResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "replayed": {
+            "type": "boolean",
+            "title": "Replayed"
+          },
+          "adoption_receipt": {
+            "$ref": "#/components/schemas/AuthoringReceiptResponse"
+          },
+          "draft_state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired"
+            ],
+            "title": "Draft State"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "purge_after": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Purge After"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "replayed",
+          "adoption_receipt",
+          "draft_state",
+          "draft_revision",
+          "expires_at",
+          "purge_after"
+        ],
+        "title": "AuthoringAdoptionResponse"
+      },
+      "AuthoringCapabilityResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "projection_version": {
+            "type": "string",
+            "title": "Projection Version"
+          },
+          "projection_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Digest"
+          },
+          "allowed_intents": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "explain_issues",
+                "suggest"
+              ]
+            },
+            "type": "array",
+            "title": "Allowed Intents"
+          },
+          "allowed_issue_codes": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringIssueLabelResponse"
+            },
+            "type": "array",
+            "title": "Allowed Issue Codes"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringFieldResponse"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "projection_version",
+          "allowed_intents",
+          "allowed_issue_codes",
+          "fields"
+        ],
+        "title": "AuthoringCapabilityResponse"
+      },
+      "AuthoringConnectionResponse": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "closed",
+              "blocked",
+              "ready"
+            ],
+            "title": "State"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "AuthoringConnectionResponse"
+      },
+      "AuthoringDraftDocument": {
+        "properties": {
+          "config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "object",
+            "title": "Config"
+          },
+          "samples": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
+              },
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "propertyNames": {
+                    "maxLength": 128,
+                    "minLength": 1
+                  },
+                  "type": "object",
+                  "maxProperties": 64,
+                  "minProperties": 1
+                },
+                "type": "array",
+                "maxItems": 1000,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samples"
+          },
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "type": "object",
+            "title": "Options"
+          },
+          "sample_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 37,
+              "pattern": "^smpr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "title": "Sample Revision Ids"
+          },
+          "input_selections": {
+            "items": {
+              "$ref": "#/components/schemas/InputFileRevisionSelectionRequest"
+            },
+            "type": "array",
+            "title": "Input Selections"
+          },
+          "reference_profile_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 38,
+                "pattern": "^refpr_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Profile Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "config",
+          "options",
+          "sample_revision_ids",
+          "input_selections"
+        ],
+        "title": "AuthoringDraftDocument"
+      },
+      "AuthoringDraftWriteRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "config": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "object",
+            "title": "Config"
+          },
+          "samples": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1
+              },
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "propertyNames": {
+                    "maxLength": 128,
+                    "minLength": 1
+                  },
+                  "type": "object",
+                  "maxProperties": 64,
+                  "minProperties": 1
+                },
+                "type": "array",
+                "maxItems": 1000,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Samples"
+          },
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Input"
+            },
+            "type": "object",
+            "title": "Options"
+          },
+          "sample_revision_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 37,
+              "pattern": "^smpr_[0-9a-f]{32}$"
+            },
+            "type": "array",
+            "title": "Sample Revision Ids"
+          },
+          "input_selections": {
+            "items": {
+              "$ref": "#/components/schemas/InputFileRevisionSelectionRequest"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Input Selections"
+          },
+          "reference_profile_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 38,
+                "pattern": "^refpr_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Profile Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "config"
+        ],
+        "title": "AuthoringDraftWriteRequest"
+      },
+      "AuthoringErrorResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": false,
+            "title": "Ok",
+            "default": false
+          },
+          "reason_code": {
+            "type": "string",
+            "title": "Reason Code"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason_code",
+          "issues"
+        ],
+        "title": "AuthoringErrorResponse",
+        "description": "Stable authoring failure. Issue text is fixed and path-free."
+      },
+      "AuthoringFieldConstraintResponse": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "AuthoringFieldConstraintResponse"
+      },
+      "AuthoringFieldResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/AuthoringFieldConstraintResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "label",
+          "type",
+          "constraints"
+        ],
+        "title": "AuthoringFieldResponse"
+      },
+      "AuthoringIssueLabelResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "label"
+        ],
+        "title": "AuthoringIssueLabelResponse"
+      },
+      "AuthoringPreferenceRequest": {
+        "properties": {
+          "field_token": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Field Token"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field_token",
+          "value"
+        ],
+        "title": "AuthoringPreferenceRequest"
+      },
+      "AuthoringProposalChangeResponse": {
+        "properties": {
+          "field_token": {
+            "type": "string",
+            "title": "Field Token"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          },
+          "before": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before"
+          },
+          "after": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field_token",
+          "value",
+          "before",
+          "after"
+        ],
+        "title": "AuthoringProposalChangeResponse"
+      },
+      "AuthoringProposalResponse": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringProposalChangeResponse"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "changes",
+          "reason_codes"
+        ],
+        "title": "AuthoringProposalResponse"
+      },
+      "AuthoringQuestionRequest": {
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "suggest",
+              "explain_issues"
+            ],
+            "title": "Intent"
+          },
+          "field_tokens": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Field Tokens"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringPreferenceRequest"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Preferences"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "intent",
+          "field_tokens"
+        ],
+        "title": "AuthoringQuestionRequest"
+      },
+      "AuthoringReceiptResponse": {
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^prop_[0-9a-f]{32}$",
+            "title": "Proposal Id"
+          },
+          "base_revision": {
+            "type": "integer",
+            "title": "Base Revision"
+          },
+          "result_revision": {
+            "type": "integer",
+            "title": "Result Revision"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "adopted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Adopted At"
+          },
+          "draft_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Draft Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "base_revision",
+          "result_revision",
+          "changed",
+          "adopted_at",
+          "draft_expires_at"
+        ],
+        "title": "AuthoringReceiptResponse"
+      },
+      "AuthoringRejectRequest": {
+        "properties": {
+          "proposal_digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Proposal Digest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proposal_digest"
+        ],
+        "title": "AuthoringRejectRequest"
+      },
+      "AuthoringSessionCreateRequest": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$",
+            "title": "Workflow Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "workflow_id"
+        ],
+        "title": "AuthoringSessionCreateRequest"
+      },
+      "AuthoringSessionListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringSessionSummary"
+            },
+            "type": "array",
+            "title": "Sessions"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "title": "AuthoringSessionListResponse"
+      },
+      "AuthoringSessionResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "sid": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^aas_[0-9a-f]{32}$",
+            "title": "Sid"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "draft_state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired"
+            ],
+            "title": "Draft State"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "purge_after": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Purge After"
+          },
+          "schema_digest": {
+            "type": "string",
+            "title": "Schema Digest"
+          },
+          "projection_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Digest"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthoringDraftDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authoring_capability": {
+            "$ref": "#/components/schemas/AuthoringCapabilityResponse"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/AuthoringConnectionResponse"
+          },
+          "requires_new_connection": {
+            "type": "boolean",
+            "title": "Requires New Connection"
+          },
+          "changed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sid",
+          "project_id",
+          "workflow_id",
+          "draft_state",
+          "draft_revision",
+          "expires_at",
+          "purge_after",
+          "schema_digest",
+          "draft",
+          "authoring_capability",
+          "connection",
+          "requires_new_connection"
+        ],
+        "title": "AuthoringSessionResponse"
+      },
+      "AuthoringSessionSummary": {
+        "properties": {
+          "sid": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^aas_[0-9a-f]{32}$",
+            "title": "Sid"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "draft_state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired"
+            ],
+            "title": "Draft State"
+          },
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "purge_after": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Purge After"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/AuthoringConnectionResponse"
+          },
+          "requires_new_connection": {
+            "type": "boolean",
+            "title": "Requires New Connection"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sid",
+          "project_id",
+          "workflow_id",
+          "draft_state",
+          "draft_revision",
+          "expires_at",
+          "purge_after",
+          "connection",
+          "requires_new_connection"
+        ],
+        "title": "AuthoringSessionSummary"
+      },
+      "AuthoringTurnCreateRequest": {
+        "properties": {
+          "client_turn_id": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Client Turn Id"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "question": {
+            "$ref": "#/components/schemas/AuthoringQuestionRequest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "client_turn_id",
+          "expected_revision",
+          "question"
+        ],
+        "title": "AuthoringTurnCreateRequest"
+      },
+      "AuthoringTurnResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "turn_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^atr_[0-9a-f]{32}$",
+            "title": "Turn Id"
+          },
+          "client_turn_id": {
+            "type": "string",
+            "title": "Client Turn Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "generating",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "result_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposal",
+                  "explanation"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Kind"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthoringProposalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "proposal_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "adopted",
+                  "rejected",
+                  "invalidated"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal State"
+          },
+          "adoptable": {
+            "type": "boolean",
+            "title": "Adoptable"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "proposal_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Expires At"
+          },
+          "adoption_receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthoringReceiptResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "turn_id",
+          "client_turn_id",
+          "status",
+          "adoptable"
+        ],
+        "title": "AuthoringTurnResponse"
+      },
+      "AuthoringValidateRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AuthoringValidateRequest"
+      },
+      "AuthoringValidationResponse": {
+        "properties": {
+          "draft_revision": {
+            "type": "integer",
+            "title": "Draft Revision"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "value": {
+            "type": "null",
+            "title": "Value"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidatedInputSnapshotResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "draft_revision",
+          "ok"
+        ],
+        "title": "AuthoringValidationResponse"
+      },
       "BindingMode": {
         "type": "string",
         "enum": [
@@ -3995,6 +5874,130 @@
         ],
         "title": "PrincipalResponse",
         "description": "Safe public projection of the authenticated account."
+      },
+      "ProjectListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummaryResponse"
+            },
+            "type": "array",
+            "title": "Projects"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "title": "ProjectListResponse"
+      },
+      "ProjectSampleListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSampleSummaryResponse"
+            },
+            "type": "array",
+            "title": "Samples"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "samples"
+        ],
+        "title": "ProjectSampleListResponse"
+      },
+      "ProjectSampleSummaryResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^smp_[0-9a-f]{32}$",
+            "title": "Sample Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^smpr_[0-9a-f]{32}$",
+            "title": "Sample Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "display_name",
+          "sample_revision_id"
+        ],
+        "title": "ProjectSampleSummaryResponse"
+      },
+      "ProjectSummaryResponse": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "display_name"
+        ],
+        "title": "ProjectSummaryResponse"
       },
       "QcMetricResponse": {
         "properties": {

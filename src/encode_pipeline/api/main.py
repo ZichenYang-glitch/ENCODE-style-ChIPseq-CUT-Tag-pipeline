@@ -26,7 +26,11 @@ from encode_pipeline.api.models import (
     RunResponse,
     ValidationResponse,
 )
-from encode_pipeline.api.request_limits import AuthoringRequestLimitMiddleware
+from encode_pipeline.api.request_limits import (
+    AgentAuthoringRequestLimitMiddleware,
+    AuthoringRequestLimitMiddleware,
+)
+from encode_pipeline.api.routes.authoring import authoring_error_response
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import (
     DATABASE_URL_ENV,
@@ -37,10 +41,15 @@ from encode_pipeline.persistence import (
 from encode_pipeline.persistence.authentication import (
     SqlAlchemyAuthenticationRepository,
 )
+from encode_pipeline.persistence.authoring import SqlAlchemyAuthoringRepository
+from encode_pipeline.platform.authoring import AuthoringRejected
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
+from encode_pipeline.services.authoring import AuthoringService
+from encode_pipeline.services.authoring_bridge import UnavailableAuthoringBridge
+from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -132,6 +141,7 @@ def create_app(
         AuthoringRequestLimitMiddleware,
         max_request_bytes=MAX_AUTHORING_REQUEST_BYTES,
     )
+    app.add_middleware(AgentAuthoringRequestLimitMiddleware)
 
     registry = (
         create_default_workflow_registry(environ=settings_environment)
@@ -255,6 +265,18 @@ def create_app(
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = validation_service
     app.state.validated_input_service = validated_input_service
+    app.state.authoring_service = AuthoringService(
+        repository=SqlAlchemyAuthoringRepository(
+            create_session_factory(persistence.engine)
+        ),
+        registry=registry,
+        data_registry=DataRegistryService(
+            repository=persistence.data_registry_repository
+        ),
+        validated_inputs=validated_input_service,
+        snapshots=persistence.repository,
+        bridge=UnavailableAuthoringBridge(),
+    )
     app.state.reference_profile_service = reference_profile_service
     app.state.reference_profile_binding_service = reference_profile_binding_service
     app.state.reference_profile_resolver = reference_profile_resolver
@@ -287,6 +309,7 @@ def create_app(
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(AuthApiError, _handle_auth_api_error)
+    app.add_exception_handler(AuthoringRejected, _handle_authoring_rejected)
     app.add_exception_handler(Exception, _handle_internal_server_error)
 
     return app
@@ -330,12 +353,25 @@ def _issue_from_request_validation_error(
     )
 
 
+async def _handle_authoring_rejected(
+    request: Request,
+    exc: AuthoringRejected,
+) -> JSONResponse:
+    """Return the stable authoring envelope without exception text."""
+
+    del request
+    return authoring_error_response(exc)
+
+
 async def _handle_request_validation_error(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
     """Return 400 with the PR84 API_REQUEST_INVALID envelope."""
     route = request.scope.get("route")
+    operation_id = getattr(route, "operation_id", None)
+    if isinstance(operation_id, str) and operation_id.startswith("authoring"):
+        return authoring_error_response(AuthoringRejected("INVALID_REQUEST"))
     if getattr(route, "operation_id", None) == "listArtifactPublications":
         issue = ArtifactPublicationIssueResponse(
             code="API_REQUEST_INVALID",
