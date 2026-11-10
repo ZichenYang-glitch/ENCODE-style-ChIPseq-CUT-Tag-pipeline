@@ -33,18 +33,23 @@
 - Lint [42561124779](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124779) 与 Lock Check [42561124690](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42561124690) 成功。
 - 四项条件执行 job 在这次 push 上是 skipped，不算通过。
 
-#210 head 另有一次 workflow_dispatch
-[42553090512](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42553090512)，
-attempt 1，结论 success，head 是 `6978349…`。其中 `bulk-rnaseq-real-execution` 成功。
-这份 Gate 只属于该 head，不覆盖 `b2f1586…` 或 `ff303296…`。
+#210 head 的 workflow_dispatch
+[42553090512](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42553090512)
+attempt 1 结论 success，实际运行 SHA 是 `6978349…`，其中 `bulk-rnaseq-real-execution` 成功。#210 合并提交与该 SHA 的 Git tree 同为 `07f147310de5df3c0bd5cad3fc5af95013194fd6`。相对该 Gate head，`ff303296…` 的 Bulk 实现文件、implementation manifest、qualification、`ci.yml` 和 `test/bulk_rnaseq_real_execution` 无差异，Bulk aggregate 仍是 `94b577b62f31ed53264ccb77b9f4d92d61246bca280398e79d36ff47eb481f36`。相关验收证据可以依据这些一致性检查复用。这次运行不是 `b2f1586…` 或 `ff303296…` 上新产生的 Gate run；这两个提交的 push CI 里，四项条件执行 job 仍是 skipped，不是实际执行通过。
+
+JUND 确认的三臂和登记比较已完成，见 [tf-jund-confirmation.md](sci7-public-data/tf-jund-confirmation.md)。它是相对 NR2F2 发现集的跨靶点参数检查，不是同靶点生物重复，结论仍是 no conclusion，默认未冻结。组蛋白、ATAC，以及可选的 CUT&Tag 和 MNase confirmation 按 [SCI-7 说明](sci7-public-data/README.md) 尚未执行。MNase 原登记的 500-arm 短模板指标仍未评估。
 
 [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212)
-仍是 Draft，未合入。2026-11-10 查询时 head 是
-`b3eb210b6a0a8d4712cf41fe493017cc9423a5e4`，记录的 base 是 `b2f1586…`。
-该 head 的 CI [42759504413](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504413)
-attempt 1 结论 failure；Lint 与 Lock Check 成功；四项条件执行 job skipped。
-独立审阅要求返修，backend session 正在处理。审阅报告不在本仓库。
-更新后的 head 需要单独查 CI 和复审，不能沿用 `b3eb210…` 的失败或把它写成已经修好。
+仍是 Draft，未合入。2026-11-10T07:22:22Z 查询时 head 是
+`777c679a15ed36dc2f65dff155c82cc5c59fc303`，记录的 base 是 `b2f1586…`。
+该 head 的 Lint [42774581625](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42774581625)
+与 Lock Check [42774581483](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42774581483)
+attempt 1 成功；CI [42774581593](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42774581593)
+attempt 1 当时仍在进行，没有结论。CI 即使后来通过，也不等于 C1/C2 或整个 A1 已验收，也不代替独立复审。
+旧 head `b3eb210…` 的 CI [42759504413](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42759504413)
+attempt 1 失败，以及当时的独立审阅意见，只属于那个 head。中间 head `3ae4996…` 的 CI
+[42768740923](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42768740923)
+attempt 1 也是 failure，只属于那个 head。这些失败不套用到 `777c679…`，也不表示审阅问题已经全部修复。
 
 [#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194)
 与 [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195)
