@@ -1,0 +1,75 @@
+{
+  "relative_links_checked": 68,
+  "fixed_source_links_checked": 30,
+  "untracked_whitespace_files": 53,
+  "prototype_hashes_match": 12,
+  "commands": [
+    {
+      "command": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "check",
+        "scripts/peri_a0"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "format",
+        "--check",
+        "scripts/peri_a0"
+      ],
+      "exit_code": 0,
+      "stdout": "12 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "/usr/bin/python3",
+        "-S",
+        "scripts/peri_a0/test_contract.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_arbitrary_acp_methods_and_unknown_prompt_fields_are_not_exposed (__main__.ContractTests.test_arbitrary_acp_methods_and_unknown_prompt_fields_are_not_exposed) ... ok\ntest_closed_projection_drops_free_text_even_when_named_description_or_default (__main__.ContractTests.test_closed_projection_drops_free_text_even_when_named_description_or_default) ... ok\ntest_missing_session_permission_and_no_active_turn_cannot_grant (__main__.ContractTests.test_missing_session_permission_and_no_active_turn_cannot_grant) ... ok\ntest_projection_does_not_accept_identifier_in_numeric_field (__main__.ContractTests.test_projection_does_not_accept_identifier_in_numeric_field) ... ok\ntest_scope_generation_unknown_arguments_and_closed_reject (__main__.ContractTests.test_scope_generation_unknown_arguments_and_closed_reject) ... ok\ntest_tool_requires_active_exact_single_permission (__main__.ContractTests.test_tool_requires_active_exact_single_permission) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.001s\n\nOK\n"
+    },
+    {
+      "command": [
+        "/usr/bin/python3",
+        "-m",
+        "py_compile",
+        "scripts/peri_a0/os_probe.py",
+        "scripts/peri_a0/stub.py",
+        "scripts/peri_a0/test_contract.py",
+        "scripts/peri_a0/relay.py",
+        "scripts/peri_a0/build.py",
+        "scripts/peri_a0/sandbox.py",
+        "scripts/peri_a0/cases.py",
+        "scripts/peri_a0/configuration.py",
+        "scripts/peri_a0/fixtures.py",
+        "scripts/peri_a0/observation.py",
+        "scripts/peri_a0/protocol.py",
+        "scripts/peri_a0/run.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "recorded_pids_still_present": [],
+  "errors": [],
+  "kernel": "Linux 6.6.87.2-microsoft-standard-WSL2",
+  "bubblewrap": "bubblewrap 0.9.0"
+}

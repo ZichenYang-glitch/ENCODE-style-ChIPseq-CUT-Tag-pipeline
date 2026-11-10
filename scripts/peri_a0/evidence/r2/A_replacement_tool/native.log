@@ -1,0 +1,16 @@
+2026-11-09T01:53:45.948681Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:45.953688Z  INFO peri_acp::host::stdio: ACP stdio mode starting provider=OpenAI model=a0-stub cwd=/work
+2026-11-09T01:53:45.980165Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:53:45.980196Z  INFO peri: 启动时清理孤儿插件文件完成
+2026-11-09T01:53:45.980648Z  INFO peri_acp::host::requests::session_lifecycle: ACP initialize protocol_version=1
+2026-11-09T01:53:45.987979Z  INFO peri_middlewares::hooks::loader: Reading hooks from /state/home/.claude/settings.json
+2026-11-09T01:53:45.988159Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:45.988244Z  WARN peri_middlewares::hooks::loader: Failed to read /state/home/.claude/settings.json: No such file or directory (os error 2)
+2026-11-09T01:53:45.988764Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:45.988946Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:45.989011Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:53:46.002160Z  INFO peri_acp::session::bridges: session cron bridge started session_id=01a1be02-efff-7780-9513-6fa3d0354323
+2026-11-09T01:53:46.002188Z  INFO peri_acp::host::requests::session_lifecycle: ACP session created with ThreadStore session_id=01a1be02-efff-7780-9513-6fa3d0354323
+2026-11-09T01:53:46.003678Z  WARN peri_agent::session::cron_events: cron MCP trigger read failed; retaining pending delivery error=MCP 服务器 "cron" 未找到
+2026-11-09T01:53:46.003688Z  INFO peri_acp::host::requests::config_options: Permission mode changed mode_id=default
+2026-11-09T01:53:46.004327Z  INFO peri_acp::host::requests::config_options: Permission mode changed via configOption mode=default

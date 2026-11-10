@@ -1,0 +1,12 @@
+Running as unit: hw-peri-revision-q1.scope; invocation ID: 31737e41a77b49b4ba2aa54e80a356ca
+A_unknown_mode: passed
+A_mode_error: passed
+A_mode_timeout: passed
+A_missing_tool: passed
+A_extra_tool: passed
+A_replacement_tool: passed
+A_B_permission_tools: failed
+{
+  "passed": false,
+  "all_processes_exited": true
+}

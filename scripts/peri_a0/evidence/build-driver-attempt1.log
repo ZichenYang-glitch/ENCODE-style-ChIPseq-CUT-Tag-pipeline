@@ -1,0 +1,24 @@
+install: uninstalling component 'rustc'
+install: creating uninstall script at /tmp/helixweave-peri-a0-20261109/toolchain/lib/rustlib/uninstall.sh
+install: installing component 'rustc'
+
+    rustc installed.
+
+install: uninstalling component 'cargo'
+install: creating uninstall script at /tmp/helixweave-peri-a0-20261109/toolchain/lib/rustlib/uninstall.sh
+install: installing component 'cargo'
+
+    cargo installed.
+
+install: uninstalling component 'rust-std-x86_64-unknown-linux-gnu'
+install: creating uninstall script at /tmp/helixweave-peri-a0-20261109/toolchain/lib/rustlib/uninstall.sh
+install: installing component 'rust-std-x86_64-unknown-linux-gnu'
+
+    rust std installed.
+
+Traceback (most recent call last):
+  File "/tmp/helixweave-peri-design-20261108/scripts/peri_a0/build.py", line 100, in <module>
+    main()
+  File "/tmp/helixweave-peri-design-20261108/scripts/peri_a0/build.py", line 67, in main
+    raise RuntimeError('pinned peri-cool submodule must be materialized first')
+RuntimeError: pinned peri-cool submodule must be materialized first

@@ -1,0 +1,11 @@
+{
+  "time": 1794228569.3677535,
+  "memory": {
+    "MemTotal": "197863432 kB",
+    "MemAvailable": "173767140 kB",
+    "SwapTotal": "50331648 kB",
+    "SwapFree": "42922128 kB"
+  },
+  "concurrent_compilers": [],
+  "target_lock_holders": ""
+}

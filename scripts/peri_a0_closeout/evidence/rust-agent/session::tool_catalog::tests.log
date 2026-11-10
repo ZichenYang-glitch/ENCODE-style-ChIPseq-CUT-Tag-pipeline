@@ -1,0 +1,33 @@
+    Finished `release` profile [optimized] target(s) in 0.18s
+     Running unittests src/lib.rs (/tmp/hw-peri-a0-close-20261109/build/target/release/deps/peri_agent-d8590a30dff997ed)
+
+running 14 tests
+test session::tool_catalog::tests::duplicate_required_declaration_cannot_hide_a_filtered_winner ... ok
+test session::tool_catalog::tests::complete_process_policy_rejects_unknown_and_changed_generation_before_publication ... FAILED
+test session::tool_catalog::tests::conflicting_base_aliases_are_reported_without_weakening_production_constructor ... ok
+test session::tool_catalog::tests::pool_catalog_reapplies_child_filter_on_each_generation ... ok
+test session::tool_catalog::tests::pool_catalog_rejects_missing_source_without_partial_publication ... ok
+test session::tool_catalog::tests::pool_catalog_replaces_mcp_entries_and_preserves_pinned_reason ... ok
+test session::tool_catalog::tests::raw_system_names_keep_first_source_across_refresh_and_case_collisions ... ok
+test session::tool_catalog::tests::raw_system_required_alias_collision_does_not_fail_startup ... ok
+test session::tool_catalog::tests::request_local_tool_binding_does_not_mutate_session_publisher ... ok
+test session::tool_catalog::tests::startup_commit_publishes_required_direct_tool_into_static_base ... ok
+test session::tool_catalog::tests::startup_commit_rejects_required_tool_filtered_by_policy ... ok
+test session::tool_catalog::tests::startup_commit_rejects_tool_without_static_mcp_identity ... ok
+test session::tool_catalog::tests::startup_commit_skips_alias_conflict ... ok
+test session::tool_catalog::tests::startup_commit_skips_cross_server_takeover ... ok
+
+failures:
+
+---- session::tool_catalog::tests::complete_process_policy_rejects_unknown_and_changed_generation_before_publication stdout ----
+
+thread 'session::tool_catalog::tests::complete_process_policy_rejects_unknown_and_changed_generation_before_publication' (3490523) panicked at peri-agent/src/session/tool_catalog_test.rs:591:61:
+called `Result::unwrap()` on an `Err` value: InvalidProcessPolicy
+
+
+failures:
+    session::tool_catalog::tests::complete_process_policy_rejects_unknown_and_changed_generation_before_publication
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 1484 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p peri-agent --lib`

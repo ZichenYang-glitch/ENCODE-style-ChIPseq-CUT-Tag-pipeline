@@ -1,0 +1,263 @@
+diff --git a/peri-agent/src/agent/stages/reason.rs b/peri-agent/src/agent/stages/reason.rs
+index 4525511..74e4e07 100644
+--- a/peri-agent/src/agent/stages/reason.rs
++++ b/peri-agent/src/agent/stages/reason.rs
+@@ -34,6 +34,9 @@ pub async fn run_reason(input: ReasonInput) -> AgentResult<ReasonOutput> {
+     let refreshed = match ctx.runtime.tool_catalog.refresh() {
+         Ok(snapshot) => snapshot,
+         Err(error) => {
++            if crate::session::tool_catalog::strict_process_policy() {
++                return Err(AgentError::Other(anyhow::Error::new(error)));
++            }
+             tracing::warn!(error = %error, "tool catalog refresh failed; retaining previous snapshot");
+             ctx.runtime.tool_catalog.snapshot()
+         }
+diff --git a/peri-agent/src/session/exec/stage_builder/tools.rs b/peri-agent/src/session/exec/stage_builder/tools.rs
+index 1e2833b..5e65223 100644
+--- a/peri-agent/src/session/exec/stage_builder/tools.rs
++++ b/peri-agent/src/session/exec/stage_builder/tools.rs
+@@ -71,12 +71,19 @@ pub(super) fn register_tool_catalog(
+     session_mcp_catalog: Option<Arc<dyn peri_acp_types::ports::SessionMcpCatalogPort>>,
+ ) -> Result<Arc<SessionToolCatalog>, StageBuildError> {
+     let enabled = !disabled.contains("McpMiddleware");
+-    let tool_filter = ToolFilterPolicy::with_mcp_policy(disabled, Arc::new(|_| true));
+-    let catalog = Arc::new(SessionToolCatalog::try_with_filter(
++    let tool_filter = ToolFilterPolicy::with_mcp_policy(
++        disabled,
++        crate::session::tool_catalog::process_tool_filter()?,
++    );
++    let mut catalog = SessionToolCatalog::try_with_filter(
+         session_tools.read().clone(),
+         enabled.then_some(session_mcp_catalog).flatten(),
+         tool_filter,
+-    )?);
++    )?;
++    if crate::session::tool_catalog::strict_process_policy() {
++        catalog.enforce_strict_pinning();
++    }
++    let catalog = Arc::new(catalog);
+     // 首个 before_agent 与后续 Reason 使用同一策略过滤后的视图。
+     *session_tools.write() = catalog.snapshot().tool_map();
+     Ok(catalog)
+diff --git a/peri-agent/src/session/tool_catalog.rs b/peri-agent/src/session/tool_catalog.rs
+index 65b3c45..d9b90f2 100644
+--- a/peri-agent/src/session/tool_catalog.rs
++++ b/peri-agent/src/session/tool_catalog.rs
+@@ -12,11 +12,97 @@ use peri_acp_types::{
+ 
+ use crate::tools::{BaseTool, ToolDefinition};
+ 
++/// Trusted process admission policy; deliberately independent of model/ACP settings.
++/// Unset preserves upstream behavior. Once read, policy cannot change within a process.
++#[derive(Clone, serde::Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ProcessToolPolicy {
++    version: u32,
++    tools: Vec<ProcessToolIdentity>,
++}
++
++#[derive(Clone, serde::Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ProcessToolIdentity {
++    name: String,
++    server: Option<String>,
++    wire: Option<String>,
++    namespace: Option<String>,
++    builtin: Option<String>,
++    aliases: Vec<String>,
++}
++
++impl ProcessToolPolicy {
++    fn parse(raw: &str) -> Result<Self, CatalogRefreshError> {
++        let policy: Self =
++            serde_json::from_str(raw).map_err(|_| CatalogRefreshError::InvalidProcessPolicy)?;
++        let mut names = HashSet::new();
++        if raw.len() > 16384
++            || policy.version != 1
++            || policy.tools.len() > 32
++            || policy.tools.iter().any(|entry| {
++                entry.name.is_empty()
++                    || entry.name.contains('*')
++                    || !names.insert(entry.name.to_ascii_lowercase())
++                    || entry.server.is_some() != entry.wire.is_some()
++                    || entry
++                        .aliases
++                        .iter()
++                        .any(|alias| alias.is_empty() || alias.contains('*'))
++            })
++        {
++            return Err(CatalogRefreshError::InvalidProcessPolicy);
++        }
++        Ok(policy)
++    }
++
++    fn allows(&self, tool: &dyn BaseTool) -> bool {
++        self.tools.iter().any(|entry| {
++            entry.name == tool.name()
++                && entry.server.as_deref() == tool.mcp_server_name()
++                && entry.wire.as_deref() == tool.mcp_tool_name()
++                && entry.namespace.as_deref() == tool.namespace()
++                && entry.builtin.as_deref() == tool.builtin_mcp_instance()
++                && entry
++                    .aliases
++                    .iter()
++                    .map(String::as_str)
++                    .eq(tool.aliases().iter().copied())
++        })
++    }
++}
++
++fn process_policy() -> Result<&'static Option<ProcessToolPolicy>, CatalogRefreshError> {
++    static POLICY: std::sync::OnceLock<Result<Option<ProcessToolPolicy>, CatalogRefreshError>> =
++        std::sync::OnceLock::new();
++    POLICY
++        .get_or_init(|| match std::env::var("PERI_PROCESS_TOOL_POLICY") {
++            Ok(raw) => ProcessToolPolicy::parse(&raw).map(Some),
++            Err(std::env::VarError::NotPresent) => Ok(None),
++            Err(_) => Err(CatalogRefreshError::InvalidProcessPolicy),
++        })
++        .as_ref()
++        .map_err(Clone::clone)
++}
++
++pub(crate) fn process_tool_filter() -> Result<ToolFilter, CatalogRefreshError> {
++    let policy = process_policy()?;
++    Ok(Arc::new(move |tool| {
++        policy.as_ref().is_none_or(|policy| policy.allows(tool))
++    }))
++}
++
++pub(crate) fn strict_process_policy() -> bool {
++    process_policy().map_or(true, Option::is_some)
++}
++
+ /// 会话工具过滤器检查已绑定的工具身份，避免同名来源冒充。
+ pub type ToolFilter = Arc<dyn Fn(&dyn BaseTool) -> bool + Send + Sync>;
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+ pub enum CatalogRefreshError {
++    #[error("invalid process tool policy")]
++    InvalidProcessPolicy,
+     #[error("MCP catalog tool `{tool}` has no source identity")]
+     InvalidMcpSource { tool: String },
+     #[error("tool alias conflicts with another visible tool")]
+@@ -225,6 +311,7 @@ pub struct SessionToolCatalog {
+     state: RwLock<CatalogState>,
+     capability: Option<Arc<dyn SessionMcpCatalogPort>>,
+     tool_filter: ToolFilter,
++    strict_pinning: bool,
+ }
+ 
+ impl SessionToolCatalog {
+@@ -279,9 +366,14 @@ impl SessionToolCatalog {
+             }),
+             capability,
+             tool_filter,
++            strict_pinning: false,
+         })
+     }
+ 
++    pub(crate) fn enforce_strict_pinning(&mut self) {
++        self.strict_pinning = true;
++    }
++
+     pub fn snapshot(&self) -> Arc<SessionToolCatalogSnapshot> {
+         Arc::clone(&self.state.read().published)
+     }
+@@ -400,6 +492,7 @@ impl SessionToolCatalog {
+         let current = self.snapshot();
+         let tools = working
+             .iter()
++            .filter(|(_, tool)| !self.strict_pinning || (self.tool_filter)(tool.as_ref()))
+             .map(|(name, tool)| {
+                 let source = current
+                     .tools
+@@ -641,3 +734,88 @@ mod filter_policy_parity_tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod process_policy_tests {
++    use super::*;
++    use crate::tools::ToolContext;
++    use async_trait::async_trait;
++
++    struct Fixture {
++        server: Option<&'static str>,
++    }
++    #[async_trait]
++    impl BaseTool for Fixture {
++        fn name(&self) -> &str {
++            "Allowed"
++        }
++        fn description(&self) -> &str {
++            "synthetic"
++        }
++        fn parameters(&self) -> serde_json::Value {
++            serde_json::json!({"type":"object"})
++        }
++        fn mcp_server_name(&self) -> Option<&str> {
++            self.server
++        }
++        fn mcp_tool_name(&self) -> Option<&str> {
++            self.server.map(|_| "wire")
++        }
++        async fn invoke(
++            &self,
++            _: serde_json::Value,
++            _: ToolContext<'_>,
++        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
++            panic!("not invoked")
++        }
++    }
++    fn policy() -> ProcessToolPolicy {
++        ProcessToolPolicy::parse(r#"{"version":1,"tools":[{"name":"Allowed","server":"approved","wire":"wire","namespace":null,"builtin":null,"aliases":[]}]}"#).unwrap()
++    }
++    #[test]
++    fn process_policy_rejects_unknown_version_fields_and_wildcards() {
++        for raw in [
++            r#"{"version":2,"tools":[]}"#,
++            r#"{"version":1,"tools":[],"bypass":true}"#,
++            r#"{"version":1,"tools":[{"name":"*","aliases":[]}]}"#,
++        ] {
++            assert!(ProcessToolPolicy::parse(raw).is_err());
++        }
++    }
++    #[test]
++    fn process_policy_source_and_final_pin_are_not_name_only() {
++        let good: Arc<dyn BaseTool> = Arc::new(Fixture {
++            server: Some("approved"),
++        });
++        let wrong: Arc<dyn BaseTool> = Arc::new(Fixture {
++            server: Some("other"),
++        });
++        let intrinsic: Arc<dyn BaseTool> = Arc::new(Fixture { server: None });
++        let policy = policy();
++        assert!(policy.allows(good.as_ref()));
++        assert!(!policy.allows(wrong.as_ref()));
++        assert!(!policy.allows(intrinsic.as_ref()));
++        let mut catalog = SessionToolCatalog::try_with_filter(
++            BTreeMap::from([("Allowed".into(), good.clone())]),
++            None,
++            Arc::new(move |tool| policy.allows(tool)),
++        )
++        .unwrap();
++        assert_eq!(catalog.snapshot().tools.len(), 1);
++        assert_eq!(catalog.refresh().unwrap().tools.len(), 1);
++        let replacement = BTreeMap::from([("Allowed".into(), wrong)]);
++        assert_eq!(
++            catalog.pin_working_tools(&replacement).unwrap().tools.len(),
++            1
++        );
++        catalog.enforce_strict_pinning();
++        let pin = catalog.pin_working_tools(&replacement).unwrap();
++        assert!(pin.tools.is_empty());
++        assert!(crate::tools::DirectToolInvocationResolver
++            .resolve_target("Allowed", &pin.tool_map())
++            .is_err());
++        assert!(crate::tools::DirectToolInvocationResolver
++            .resolve_target("aLlOwEd", &pin.tool_map())
++            .is_err());
++    }
++}

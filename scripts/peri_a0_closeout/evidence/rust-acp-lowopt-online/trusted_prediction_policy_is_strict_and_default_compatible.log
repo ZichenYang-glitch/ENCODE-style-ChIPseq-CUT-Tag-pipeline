@@ -1,0 +1,10 @@
+    Updating crates.io index
+error: failed to select a version for `turso_serverless`.
+    ... required by package `peri-resources v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-resources)`
+    ... which satisfies path dependency `peri-resources` (locked to 0.2.0) of package `peri-acp v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-acp)`
+versions that meet the requirements `^0.1.3` are: 0.1.3
+
+package `peri-resources` depends on `turso_serverless` with feature `wasm-fetch` but `turso_serverless` does not have that feature.
+
+
+failed to select a version for `turso_serverless` which could resolve this conflict

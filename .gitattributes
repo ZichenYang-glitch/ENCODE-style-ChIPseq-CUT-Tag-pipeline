@@ -1,0 +1,20 @@
+# Frozen Peri A0 evidence keeps its recorded bytes.
+# Only these files skip blank-at-eol and blank-at-eof. Other whitespace
+# rules stay enabled, and every maintained path keeps the default checks.
+scripts/peri_a0_closeout/evidence/acp-final/fat/rust/trusted_prediction_policy_is_strict_and_default_compatible.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/acp-final/test-driver.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/candidate-final.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/candidate-testfix.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/q2-to-closeout.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/rust-agent-testfix/session::tool_catalog::tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/rust-agent/process_policy_tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_closeout/evidence/rust-agent/tool_filter_tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/candidate-final.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/candidate-q1.patch whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests-catalog/process_policy_tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests-catalog/tool_catalog_test.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests-catalog/tool_filter_tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests-catalog2/session::tool_catalog::tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests/process_policy_tests.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests/tool_catalog_test.log whitespace=-blank-at-eol,-blank-at-eof
+scripts/peri_a0_revision/evidence/patch-tests/tool_filter_tests.log whitespace=-blank-at-eol,-blank-at-eof

@@ -1,0 +1,115 @@
+{
+  "checked_at": "2026-11-09T08:53:06.536223+00:00",
+  "scope": "delivery static checks; no scientific or full upstream suites",
+  "original_files_preserved": 53,
+  "candidate_identity_matches": true,
+  "q2_runtime_and_other_python_hashes_unchanged": [
+    "build.py",
+    "build_candidate.py",
+    "cases.py",
+    "configuration.py",
+    "fixtures.py",
+    "observation.py",
+    "os_probe.py",
+    "protocol.py",
+    "relay.py",
+    "resource_guard.py",
+    "resource_probe.py",
+    "run.py",
+    "sandbox.py",
+    "stub.py",
+    "test_contract.py",
+    "test_runtime.py"
+  ],
+  "post_q2_verification_driver_change": [
+    "verify_patch.py"
+  ],
+  "raw_q2_driver_source_saved": "verify_patch-before-zero-test-fix.py",
+  "prototype_current_sha256": {
+    "build.py": "55ec887267c947f8e75b98bc2c3c6d6f7d98bdd1c445b8b1f7a21a6dfd0101b0",
+    "build_candidate.py": "28b4fa7979be0a99a51739742bcc2bea9dfdec1c3087c1b920a8af462249102a",
+    "cases.py": "e7d32c687ef22e673b6455aaf1c66843db3123963cf12910418f858768f3be35",
+    "configuration.py": "6a5a855cab7d95fff85ffd127206aab1a4e968c70c5a44d623bbd9c1b7c65caf",
+    "fixtures.py": "62e85e0aa6e907460a5282c20b8aafd1756072ce389098d422610b7f6a741e7f",
+    "observation.py": "e2e93ab420d3213ae785502edc1cb1c448449381400abc222bb7671a51c2306b",
+    "os_probe.py": "0cb2ec7ec40913a9a5f57905ac5e689076b46b6ccf6e0870e5feec5e78ac3f18",
+    "protocol.py": "4412f68a9733b22ac206427af48e27582935702acc0fd97a29804ea5e101a2c4",
+    "relay.py": "ac0e6c62051d678f625b6124ed97da846d45b827a92ee0766f43c286411c047d",
+    "resource_guard.py": "52689c98437fd914f1ce921c3675645295b5c69a2343c5ad19811b411ceb645a",
+    "resource_probe.py": "02fee8c6e0f3646120cba19e6a5fb509ec60bd6aa9c097f0618d7e46d9d75bea",
+    "run.py": "e0a4c765fd5978f7d6f4a3aa564a8069d3e140b1493deca19a5a217159d54f96",
+    "sandbox.py": "091552c9e56920e90deb4fd85b17f87608d99f608ca32f5d2814e6151a3d1cc8",
+    "stub.py": "74e77d8857727b4abf566ac20d427d566bca2563f1c1741589602d6adfd445d0",
+    "test_contract.py": "55ab89204516e53616d925890980d10df756df3ecdfba72fffa8399949a8a610",
+    "test_runtime.py": "79ccab8832bfa1e82995c57a5020a35a580d3b3a4fe5cd20da95987400b0470a",
+    "verify_patch.py": "6fb381650589368bd41f99037d10d8c629346658d7e20c95d927827c38f99a90"
+  },
+  "q2_cases": {
+    "passed": 6,
+    "failed": 1,
+    "not_measured": 8
+  },
+  "rust_unique_tests_passed": 17,
+  "invalid_test_receipts": [
+    "patch-tests/report.json overall passed is invalid: one filter matched zero tests",
+    "patch-tests-catalog/report.json: driver NameError; no catalog coverage"
+  ],
+  "cleanup_recorded_pids_checked": 38,
+  "commands": [
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_revision",
+        "--exclude",
+        "evidence"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "format",
+        "--check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_revision",
+        "--exclude",
+        "evidence"
+      ],
+      "exit_code": 0,
+      "stdout": "17 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/tmp/helixweave-peri-design-20261108",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "-C",
+        "/tmp/helixweave-peri-a0-revision-20261109/peri-candidate",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "links": {
+    "relative": 76,
+    "fixed_commit_sources": 37
+  },
+  "full_file_whitespace_checked_source_and_markdown": 21,
+  "raw_log_and_patch_whitespace": "Original payload bytes retained; not reformatted to satisfy source whitespace checks."
+}

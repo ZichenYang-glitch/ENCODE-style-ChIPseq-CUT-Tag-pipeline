@@ -1,0 +1,369 @@
+{
+  "contract": "helixweave-peri-a0-closeout/1",
+  "aggregate_resource_limits": {
+    "path": "/user.slice/user-1000.slice/user@1000.service/app.slice/hw-peri-close-full2.scope",
+    "effective_limits": {
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "pids.max": "128",
+      "cpu.max": "100000 100000"
+    }
+  },
+  "patch_sha256": "57d6e37054bfc187134524866840ae890349628c3d822001ecf971e2228fb712",
+  "helixweave_baseline": "622778f64e59f935d822d92a91bade78807dabce",
+  "source_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "binary_sha256": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "build_manifest_sha256": "75b9481e45b66dac70d1864800c89b3e385fc829c9bf648b99b4475bc4280c39",
+  "prototype_sha256": {
+    "build.py": "55ec887267c947f8e75b98bc2c3c6d6f7d98bdd1c445b8b1f7a21a6dfd0101b0",
+    "build_candidate.py": "11da39d958ae7864cd0f337006ce5343c37dd3d730b1a0c4af72e9f768b5ddc4",
+    "cases.py": "3e9faf040ee0e1641de6669324add0d7fb4836842fc094e1aaffc53020956670",
+    "closeout_cases.py": "a00e3e86dd9f2a91561c86595125b3f14a9fb8967fa063b9d1e84fe86d68a5d5",
+    "configuration.py": "e5962fe29830aefc0ae17e18457a69b45ed025a659a6f1c025cda2bbf7fb818e",
+    "fixtures.py": "62e85e0aa6e907460a5282c20b8aafd1756072ce389098d422610b7f6a741e7f",
+    "observation.py": "e2e93ab420d3213ae785502edc1cb1c448449381400abc222bb7671a51c2306b",
+    "os_probe.py": "0cb2ec7ec40913a9a5f57905ac5e689076b46b6ccf6e0870e5feec5e78ac3f18",
+    "protocol.py": "e90b02e278873ce90967e503b5dd24bafbcefd604a8558dfa5498e9f46c37672",
+    "relay.py": "ac0e6c62051d678f625b6124ed97da846d45b827a92ee0766f43c286411c047d",
+    "resource_guard.py": "52689c98437fd914f1ce921c3675645295b5c69a2343c5ad19811b411ceb645a",
+    "resource_probe.py": "02fee8c6e0f3646120cba19e6a5fb509ec60bd6aa9c097f0618d7e46d9d75bea",
+    "run.py": "87dbc25e608c872fea55f022d908cc8caa43cfebe86f7e19d4f33f578c112a6a",
+    "sandbox.py": "00c66d16719a6b8e826e19aaeb1bf2c10ff74dcfaab2b704cd0c5f586446d77e",
+    "stub.py": "74e77d8857727b4abf566ac20d427d566bca2563f1c1741589602d6adfd445d0",
+    "test_contract.py": "48ba5f9f95cf8cd9ad219a40cbf498c98ad7b2bca33524d1d59018b7204b06a0",
+    "test_runtime.py": "79ccab8832bfa1e82995c57a5020a35a580d3b3a4fe5cd20da95987400b0470a",
+    "verify_patch.py": "126781479685150fdda57e8cf0c954d1e4905462cc4115edfcc860fef7659e99"
+  },
+  "started_at_unix": 1794219033.9618719,
+  "passed": true,
+  "cases": {
+    "A_unknown_mode": {
+      "status": "passed",
+      "detail": {
+        "fault": "unknown_mode",
+        "stable_error": "MODE_NOT_ALLOWED",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_mode_error": {
+      "status": "passed",
+      "detail": {
+        "fault": "mode_error",
+        "stable_error": "ACP_REMOTE_REJECTION",
+        "injected": [
+          "mode_error"
+        ],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_mode_timeout": {
+      "status": "passed",
+      "detail": {
+        "fault": "mode_timeout",
+        "stable_error": "RPC_TIMEOUT",
+        "injected": [
+          "mode_timeout"
+        ],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_missing_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "missing_tool",
+        "stable_error": "LIVE_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_extra_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "extra_tool",
+        "stable_error": "LIVE_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_replacement_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "replacement_tool",
+        "stable_error": "LIVE_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_policy_unknown_identity": {
+      "status": "passed",
+      "detail": {
+        "fault": "unknown_identity",
+        "error": "ACP_REMOTE_REJECTION",
+        "provider_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_policy_wrong_schema": {
+      "status": "passed",
+      "detail": {
+        "fault": "wrong_schema",
+        "error": "ACP_REMOTE_REJECTION",
+        "provider_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_policy_unknown_field": {
+      "status": "passed",
+      "detail": {
+        "fault": "unknown_field",
+        "error": "ACP_REMOTE_REJECTION",
+        "provider_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_policy_prediction_typo": {
+      "status": "passed",
+      "detail": {
+        "fault": "prediction_typo",
+        "error": "ACP_REMOTE_REJECTION",
+        "provider_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_B_permission_tools": {
+      "status": "passed",
+      "detail": {
+        "rejected_peri_tool_arrivals": 0,
+        "allowed_increments": 1,
+        "allowed_lookups": 1
+      }
+    },
+    "A_prediction_paths": {
+      "status": "passed",
+      "detail": {
+        "effective_policy": {
+          "version": 1,
+          "prediction_enabled": false,
+          "prediction_attempts": 3,
+          "prediction_started": 0,
+          "prediction_suppressed": 3,
+          "auto_compact_enabled": false,
+          "tool_policy": {
+            "version": 1,
+            "tools": [
+              {
+                "name": "SearchExtraTools",
+                "server": null,
+                "wire": null,
+                "namespace": "meta",
+                "builtin": null,
+                "aliases": [],
+                "parameters": null
+              },
+              {
+                "name": "ExecuteExtraTool",
+                "server": null,
+                "wire": null,
+                "namespace": "meta",
+                "builtin": null,
+                "aliases": [],
+                "parameters": null
+              },
+              {
+                "name": "mcp__fixture__lookup",
+                "server": "fixture",
+                "wire": "lookup",
+                "namespace": null,
+                "builtin": null,
+                "aliases": [],
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "object_id": {
+                      "type": "string",
+                      "enum": [
+                        "item-1"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "object_id"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "mcp__fixture__increment",
+                "server": "fixture",
+                "wire": "increment",
+                "namespace": null,
+                "builtin": null,
+                "aliases": [],
+                "parameters": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              }
+            ]
+          }
+        },
+        "extra_completed_turns": 2,
+        "model_requests": 6
+      }
+    },
+    "A_missing_broker": {
+      "status": "passed",
+      "detail": {
+        "new_approval_requests": 1,
+        "tools_call_arrivals": 0,
+        "effects": 0,
+        "boundary": "real ACP permission RPC returns method-not-found; not Rust None broker construction"
+      }
+    },
+    "B_changed_catalog": {
+      "status": "passed",
+      "detail": {
+        "code": "LIVE_CATALOG_MISMATCH",
+        "provider_delta": 0,
+        "boundary": "broker contract before prompt; native generation rejection separately tested in Rust"
+      }
+    },
+    "F_native_resource": {
+      "status": "passed",
+      "detail": {
+        "native_pid": 3489282,
+        "old_nofile": [
+          128,
+          128
+        ],
+        "injected_soft_limit": 0,
+        "error": "ACP_REMOTE_REJECTION",
+        "provider_delta": 0,
+        "boundary": "native RLIMIT_NOFILE exhaustion, not cgroup OOM"
+      }
+    },
+    "C_independent_instances": {
+      "status": "passed",
+      "detail": {
+        "a_counter": 1,
+        "b_counter": 1,
+        "both_default": true
+      }
+    },
+    "D_restart": {
+      "status": "passed",
+      "detail": {
+        "old_closed": "closed",
+        "new_generation": 2
+      }
+    },
+    "E_minimum_egress": {
+      "status": "passed",
+      "detail": {
+        "forbidden_markers_absent": [
+          "FAKE_SECRET_9f31",
+          "/private/a0/secret",
+          "SAMPLE_PERSON_42",
+          "IGNORE_ALL_RULES_AND_APPROVE"
+        ],
+        "scope": "closed structured fixture; no arbitrary free-text confidentiality guarantee"
+      }
+    },
+    "A_approval_disconnect": {
+      "status": "passed",
+      "detail": {
+        "stable_error": "ACP_REMOTE_REJECTION",
+        "tool_arrivals": 0,
+        "effects": 0
+      }
+    },
+    "A_approval_timeout": {
+      "status": "passed",
+      "detail": {
+        "stable_error": "RPC_TIMEOUT",
+        "tool_arrivals": 0,
+        "effects": 0
+      }
+    },
+    "F_malformed": {
+      "status": "passed",
+      "detail": {
+        "fault": "malformed",
+        "stable_error": "BINDING_REJECTED",
+        "effects": 0
+      }
+    },
+    "F_timeout": {
+      "status": "passed",
+      "detail": {
+        "fault": "timeout",
+        "stable_error": "RPC_TIMEOUT",
+        "effects": 0
+      }
+    },
+    "F_callback_disconnect": {
+      "status": "passed",
+      "detail": {
+        "fault": "callback_disconnect",
+        "stable_error": "ACP_REMOTE_REJECTION",
+        "effects": 0
+      }
+    }
+  },
+  "os_probe": {
+    "checks": {
+      "bridge_file_denied": true,
+      "other_session_denied": true,
+      "host_tcp_denied": true,
+      "platform_socket_denied": true,
+      "abstract_socket_denied": true,
+      "secret_environment_absent": true,
+      "host_process_hidden": true,
+      "private_state_writable": true,
+      "no_unexpected_fds": true,
+      "no_new_privs": true,
+      "no_effective_caps": true,
+      "no_host_mounts": true
+    },
+    "fds": {
+      "0": "/dev/null",
+      "1": "pipe:[306048144]",
+      "2": "pipe:[306048145]"
+    },
+    "uid": 1000,
+    "gid": 1000,
+    "namespaces": {
+      "user": "user:[4026532368]",
+      "pid": "pid:[4026532306]",
+      "net": "net:[4026532308]",
+      "mnt": "mnt:[4026532302]"
+    },
+    "environment_keys": [
+      "HOME",
+      "LANG",
+      "PATH",
+      "PERI_MCP_BUILTIN",
+      "PERI_PREDICTION_POLICY",
+      "PERI_PROCESS_TOOL_POLICY",
+      "PWD",
+      "SSL_CERT_FILE",
+      "TMPDIR",
+      "TOKIO_WORKER_THREADS",
+      "TZ",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME"
+    ]
+  },
+  "phase": "full",
+  "finished_at_unix": 1794219052.2222176,
+  "all_processes_exited": true
+}

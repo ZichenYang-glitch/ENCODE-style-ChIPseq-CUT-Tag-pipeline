@@ -1,0 +1,709 @@
+{
+  "instance": "7f69c992cd98444fa4cb1995c818ea01",
+  "generation": 1,
+  "state": "closed",
+  "session": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+  "argv": [
+    "/usr/bin/prlimit",
+    "--nofile=128:128",
+    "--core=0:0",
+    "--fsize=67108864:67108864",
+    "--",
+    "/usr/bin/bwrap",
+    "--unshare-all",
+    "--unshare-user",
+    "--disable-userns",
+    "--die-with-parent",
+    "--new-session",
+    "--cap-drop",
+    "ALL",
+    "--clearenv",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--dir",
+    "/work",
+    "--dir",
+    "/runtime",
+    "--ro-bind",
+    "/tmp/helixweave-peri-a0-20261109/build/target/release/peri",
+    "/runtime/peri",
+    "--ro-bind",
+    "/tmp/helixweave-peri-design-20261108/scripts/peri_a0/relay.py",
+    "/runtime/relay.py",
+    "--ro-bind",
+    "/usr/bin/python3.12",
+    "/usr/bin/python3.12",
+    "--ro-bind",
+    "/usr/lib/python3.12",
+    "/usr/lib/python3.12",
+    "--ro-bind",
+    "/lib/x86_64-linux-gnu",
+    "/lib/x86_64-linux-gnu",
+    "--ro-bind",
+    "/lib64",
+    "/lib64",
+    "--ro-bind",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "--bind",
+    "/tmp/helixweave-peri-a0-20261109/evidence/r2/A_extra_tool/instance/state",
+    "/state",
+    "--ro-bind",
+    "/tmp/helixweave-peri-a0-20261109/evidence/r2/A_extra_tool/instance/model.sock",
+    "/model.sock",
+    "--setenv",
+    "PATH",
+    "/usr/bin",
+    "--setenv",
+    "HOME",
+    "/state/home",
+    "--setenv",
+    "XDG_CONFIG_HOME",
+    "/state/config",
+    "--setenv",
+    "XDG_CACHE_HOME",
+    "/state/cache",
+    "--setenv",
+    "XDG_DATA_HOME",
+    "/state/data",
+    "--setenv",
+    "TMPDIR",
+    "/tmp",
+    "--setenv",
+    "LANG",
+    "C.UTF-8",
+    "--setenv",
+    "TZ",
+    "UTC",
+    "--setenv",
+    "PERI_MCP_BUILTIN",
+    "off",
+    "--setenv",
+    "SSL_CERT_FILE",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "--chdir",
+    "/work",
+    "--remount-ro",
+    "/",
+    "--",
+    "/usr/bin/python3.12",
+    "-I",
+    "-S",
+    "/runtime/relay.py"
+  ],
+  "ready_seconds": null,
+  "closed_seconds": 0.08589013898745179,
+  "model_requests": [],
+  "stub_failures": [],
+  "counter": 0,
+  "lookups": 0,
+  "tool_call_arrivals": 0,
+  "approvals": [],
+  "denied_callbacks": [],
+  "transport_errors": [
+    "INITIALIZATION_FAILED",
+    "CLOSED_BY_HOST"
+  ],
+  "events": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "promptCapabilities": {
+            "image": true,
+            "audio": false,
+            "embeddedContext": false
+          },
+          "mcpCapabilities": {
+            "http": true,
+            "sse": false,
+            "acp": true
+          },
+          "sessionCapabilities": {
+            "list": {},
+            "delete": {},
+            "fork": {},
+            "resume": {},
+            "close": {}
+          },
+          "auth": {},
+          "_meta": {
+            "peri.tokenStats": false,
+            "peri.skillNames": false,
+            "peri.replay": false,
+            "peri.agentEvent": false,
+            "peri.agentEventDone": false,
+            "peri.agentActivity": false,
+            "peri.oauth": false,
+            "peri.unstableEvent": false,
+            "peri.prediction": false,
+            "peri.planEntryActiveForm": false,
+            "peri.rewind": false,
+            "peri.systemReminder": false,
+            "peri.userInputQueue": false,
+            "peri.sessionWorkspaceV1": false,
+            "peri.historyPagination": false,
+            "peri.historyWindowV1": false,
+            "peri.mcpControlV1": true,
+            "peri.uiCommands": []
+          }
+        },
+        "authMethods": []
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "sessionId": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+        "modes": {
+          "currentModeId": "bypass",
+          "availableModes": [
+            {
+              "id": "default",
+              "name": "Default",
+              "description": "All sensitive tools require approval"
+            },
+            {
+              "id": "accept_edit",
+              "name": "Accept Edit",
+              "description": "Allow filesystem edits"
+            },
+            {
+              "id": "auto",
+              "name": "Auto Mode",
+              "description": "LLM decides approval"
+            },
+            {
+              "id": "bypass",
+              "name": "Bypass",
+              "description": "Allow everything"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "bypass",
+            "options": [
+              {
+                "value": "default",
+                "name": "Default"
+              },
+              {
+                "value": "accept_edit",
+                "name": "Accept Edit"
+              },
+              {
+                "value": "auto",
+                "name": "Auto Mode"
+              },
+              {
+                "value": "bypass",
+                "name": "Bypass"
+              }
+            ]
+          },
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "sonnet",
+            "options": [
+              {
+                "value": "fable",
+                "name": "fable (a0-stub)"
+              },
+              {
+                "value": "opus",
+                "name": "opus (a0-stub)"
+              },
+              {
+                "value": "sonnet",
+                "name": "sonnet (a0-stub)"
+              },
+              {
+                "value": "haiku",
+                "name": "haiku (a0-stub)"
+              }
+            ]
+          },
+          {
+            "id": "thinking_effort",
+            "name": "Thinking Effort",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": "xhigh",
+            "options": [
+              {
+                "value": "low",
+                "name": "Low"
+              },
+              {
+                "value": "medium",
+                "name": "Medium"
+              },
+              {
+                "value": "high",
+                "name": "High"
+              },
+              {
+                "value": "xhigh",
+                "name": "XHigh"
+              },
+              {
+                "value": "max",
+                "name": "Max"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "peri/unstable_event",
+      "params": {
+        "sessionId": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+        "event": "bg-task-snapshot",
+        "data": {
+          "revision": 0,
+          "source": "live",
+          "tasks": []
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "compact",
+              "description": "\u538b\u7f29\u5bf9\u8bdd\u5386\u53f2\u4ee5\u91ca\u653e\u4e0a\u4e0b\u6587\u7a7a\u95f4",
+              "_meta": {
+                "periKind": "command",
+                "periLevel": 1,
+                "periAliases": [
+                  "compress"
+                ],
+                "periArgs": {
+                  "positionals": [],
+                  "named": [],
+                  "flags": []
+                }
+              }
+            },
+            {
+              "name": "loop",
+              "description": "Control agent iteration loop",
+              "_meta": {
+                "periKind": "command",
+                "periLevel": 1,
+                "periArgs": {
+                  "positionals": [],
+                  "named": [],
+                  "flags": []
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+        "update": {
+          "sessionUpdate": "config_option_update",
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "Session Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default"
+                },
+                {
+                  "value": "accept_edit",
+                  "name": "Accept Edit"
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto Mode"
+                },
+                {
+                  "value": "bypass",
+                  "name": "Bypass"
+                }
+              ]
+            },
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "sonnet",
+              "options": [
+                {
+                  "value": "fable",
+                  "name": "fable (a0-stub)"
+                },
+                {
+                  "value": "opus",
+                  "name": "opus (a0-stub)"
+                },
+                {
+                  "value": "sonnet",
+                  "name": "sonnet (a0-stub)"
+                },
+                {
+                  "value": "haiku",
+                  "name": "haiku (a0-stub)"
+                }
+              ]
+            },
+            {
+              "id": "thinking_effort",
+              "name": "Thinking Effort",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "xhigh",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                },
+                {
+                  "value": "xhigh",
+                  "name": "XHigh"
+                },
+                {
+                  "value": "max",
+                  "name": "Max"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "mcp/message",
+      "params": {
+        "serverId": "fixture-7f69c992cd98444fa4cb1995c818ea01",
+        "requestId": "peri-1",
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "rmcp",
+              "version": "3.5.1"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": {
+                "io.mcpp/server-cache-version": {},
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {}
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "mcp/message",
+      "params": {
+        "serverId": "fixture-7f69c992cd98444fa4cb1995c818ea01",
+        "requestId": "peri-2",
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "rmcp",
+              "version": "3.5.1"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": {
+                "io.mcpp/server-cache-version": {},
+                "io.modelcontextprotocol/tasks": {}
+              }
+            },
+            "progressToken": 0
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "01a1be02-ee05-7892-bbd9-1d3e9c1d39fd",
+        "update": {
+          "sessionUpdate": "config_option_update",
+          "configOptions": [
+            {
+              "id": "mode",
+              "name": "Session Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default"
+                },
+                {
+                  "value": "accept_edit",
+                  "name": "Accept Edit"
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto Mode"
+                },
+                {
+                  "value": "bypass",
+                  "name": "Bypass"
+                }
+              ]
+            },
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "sonnet",
+              "options": [
+                {
+                  "value": "fable",
+                  "name": "fable (a0-stub)"
+                },
+                {
+                  "value": "opus",
+                  "name": "opus (a0-stub)"
+                },
+                {
+                  "value": "sonnet",
+                  "name": "sonnet (a0-stub)"
+                },
+                {
+                  "value": "haiku",
+                  "name": "haiku (a0-stub)"
+                }
+              ]
+            },
+            {
+              "id": "thinking_effort",
+              "name": "Thinking Effort",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "xhigh",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                },
+                {
+                  "value": "xhigh",
+                  "name": "XHigh"
+                },
+                {
+                  "value": "max",
+                  "name": "Max"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "result": {
+        "configOptions": [
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "default",
+            "options": [
+              {
+                "value": "default",
+                "name": "Default"
+              },
+              {
+                "value": "accept_edit",
+                "name": "Accept Edit"
+              },
+              {
+                "value": "auto",
+                "name": "Auto Mode"
+              },
+              {
+                "value": "bypass",
+                "name": "Bypass"
+              }
+            ]
+          },
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "sonnet",
+            "options": [
+              {
+                "value": "fable",
+                "name": "fable (a0-stub)"
+              },
+              {
+                "value": "opus",
+                "name": "opus (a0-stub)"
+              },
+              {
+                "value": "sonnet",
+                "name": "sonnet (a0-stub)"
+              },
+              {
+                "value": "haiku",
+                "name": "haiku (a0-stub)"
+              }
+            ]
+          },
+          {
+            "id": "thinking_effort",
+            "name": "Thinking Effort",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": "xhigh",
+            "options": [
+              {
+                "value": "low",
+                "name": "Low"
+              },
+              {
+                "value": "medium",
+                "name": "Medium"
+              },
+              {
+                "value": "high",
+                "name": "High"
+              },
+              {
+                "value": "xhigh",
+                "name": "XHigh"
+              },
+              {
+                "value": "max",
+                "name": "Max"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "result": {
+        "servers": [
+          {
+            "name": "fixture",
+            "transport": "stdio",
+            "connectionStatus": "connected",
+            "oauthStatus": "none",
+            "activeFlowId": null,
+            "toolsCount": 3,
+            "resourcesCount": 0,
+            "tools": [
+              {
+                "name": "lookup",
+                "description": "Return one synthetic object in this instance."
+              },
+              {
+                "name": "increment",
+                "description": "Increment an in-memory synthetic counter after approval."
+              },
+              {
+                "name": "extra",
+                "description": null
+              }
+            ],
+            "resources": [],
+            "subscriptions": null,
+            "version": "1",
+            "connectedAt": "2026-11-09T01:53:45.498547133+00:00",
+            "protocolVersion": "2026-07-28",
+            "errorSummary": null,
+            "url": null,
+            "control": {
+              "restart": false,
+              "stop": false,
+              "unavailableReason": "acp"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "cleanup_errors": [],
+  "resources": {
+    "interval_seconds": 0.1,
+    "samples": 5,
+    "peak_sampled_tree_rss_kib": 256,
+    "observed_pids": [
+      2700648
+    ],
+    "still_present": [],
+    "boundary": "sampled bwrap/relay/Peri descendants; excludes host stub; not an enforced memory limit"
+  },
+  "exit_code": -9
+}

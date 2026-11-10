@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.17s
+     Running unittests src/lib.rs (/tmp/hw-peri-a0-close-20261109/build/target/release/deps/peri_agent-d8590a30dff997ed)
+
+running 2 tests
+test session::tool_catalog::tool_filter_tests::test_catalog_applies_source_filter_on_initial_snapshot ... ok
+test session::tool_catalog::tool_filter_tests::test_explicit_builtin_allowlist_rejects_external_raw_impersonation ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1496 filtered out; finished in 0.00s
+

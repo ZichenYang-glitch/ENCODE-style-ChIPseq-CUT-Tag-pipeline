@@ -1,0 +1,22 @@
+{
+  "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+  "started_at_unix": 1794219622.573973,
+  "commands": [
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-acp",
+        "--lib",
+        "trusted_prediction_policy_is_strict_and_default_compatible"
+      ],
+      "exit_code": 101,
+      "passed_tests": 0
+    }
+  ],
+  "passed": false,
+  "finished_at_unix": 1794219622.9405386
+}

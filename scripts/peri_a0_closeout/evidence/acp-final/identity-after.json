@@ -1,0 +1,23 @@
+{
+  "source_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+  "cargo_lock_sha256": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "binary_sha256": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "test_source_sha256": "5fa87543e25f94b195f28e658f1232364225d25fa7e361b997a217125c777c64",
+  "wrapper_sha256": "c906c4d103eb1ab96c595717d273b372c2138431f77a9f3dd82f7bd572f6ebd3",
+  "test_executable": "/tmp/hw-peri-a0-close-20261109/build/target/release/deps/peri_acp-3aea6b0d33f2bc44",
+  "test_executable_sha256": "c483dd2556a464b77c4fe0f2f0d54903d512c071179b3e3f77c872a858b702e4",
+  "rustc_test_flags": [
+    "--crate-name peri_acp",
+    "-C lto=fat",
+    "-C codegen-units=1",
+    "-C debug-assertions=off",
+    "--test",
+    "-C metadata=1fb911d694bd1e61",
+    "-C extra-filename=-3aea6b0d33f2bc44",
+    "-C strip=debuginfo"
+  ],
+  "runtime_files_unchanged": true,
+  "f2_runtime_code_unchanged": true,
+  "native_matrix_reused_reason": "Same source patch, runtime binary, configuration/sandbox/model/tool protocol and assertions. Only test compilation resources/driver changed; no native rerun."
+}

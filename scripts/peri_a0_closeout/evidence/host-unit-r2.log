@@ -1,0 +1,11 @@
+test_arbitrary_acp_methods_and_unknown_prompt_fields_are_not_exposed (__main__.ContractTests.test_arbitrary_acp_methods_and_unknown_prompt_fields_are_not_exposed) ... ok
+test_closed_projection_drops_free_text_even_when_named_description_or_default (__main__.ContractTests.test_closed_projection_drops_free_text_even_when_named_description_or_default) ... ok
+test_missing_session_permission_and_no_active_turn_cannot_grant (__main__.ContractTests.test_missing_session_permission_and_no_active_turn_cannot_grant) ... ok
+test_projection_does_not_accept_identifier_in_numeric_field (__main__.ContractTests.test_projection_does_not_accept_identifier_in_numeric_field) ... ok
+test_scope_generation_unknown_arguments_and_closed_reject (__main__.ContractTests.test_scope_generation_unknown_arguments_and_closed_reject) ... ok
+test_tool_requires_active_exact_single_permission (__main__.ContractTests.test_tool_requires_active_exact_single_permission) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+OK

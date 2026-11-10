@@ -1,0 +1,186 @@
+{
+  "contract": "helixweave-peri-a0-revision/1",
+  "aggregate_resource_limits": {
+    "path": "/user.slice/user-1000.slice/user@1000.service/app.slice/hw-peri-revision-q2.scope",
+    "effective_limits": {
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "pids.max": "128",
+      "cpu.max": "100000 100000"
+    }
+  },
+  "patch_sha256": "af1bad255c0644c9b0bdf377294f9a5d7c83829b3cde9b9065e1092792afbfba",
+  "helixweave_baseline": "622778f64e59f935d822d92a91bade78807dabce",
+  "source_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "binary_sha256": "f715e1548bd167ed93b8e761f771d495d57fbc63aaf2d9b9d039e37c2b0cbbff",
+  "build_manifest_sha256": "5f38cbd27b8ce962a848d0ec90d87d56e458adc5837083e711ba079a1581fc61",
+  "prototype_sha256": {
+    "build.py": "55ec887267c947f8e75b98bc2c3c6d6f7d98bdd1c445b8b1f7a21a6dfd0101b0",
+    "build_candidate.py": "28b4fa7979be0a99a51739742bcc2bea9dfdec1c3087c1b920a8af462249102a",
+    "cases.py": "e7d32c687ef22e673b6455aaf1c66843db3123963cf12910418f858768f3be35",
+    "configuration.py": "6a5a855cab7d95fff85ffd127206aab1a4e968c70c5a44d623bbd9c1b7c65caf",
+    "fixtures.py": "62e85e0aa6e907460a5282c20b8aafd1756072ce389098d422610b7f6a741e7f",
+    "observation.py": "e2e93ab420d3213ae785502edc1cb1c448449381400abc222bb7671a51c2306b",
+    "os_probe.py": "0cb2ec7ec40913a9a5f57905ac5e689076b46b6ccf6e0870e5feec5e78ac3f18",
+    "protocol.py": "4412f68a9733b22ac206427af48e27582935702acc0fd97a29804ea5e101a2c4",
+    "relay.py": "ac0e6c62051d678f625b6124ed97da846d45b827a92ee0766f43c286411c047d",
+    "resource_guard.py": "52689c98437fd914f1ce921c3675645295b5c69a2343c5ad19811b411ceb645a",
+    "resource_probe.py": "02fee8c6e0f3646120cba19e6a5fb509ec60bd6aa9c097f0618d7e46d9d75bea",
+    "run.py": "e0a4c765fd5978f7d6f4a3aa564a8069d3e140b1493deca19a5a217159d54f96",
+    "sandbox.py": "091552c9e56920e90deb4fd85b17f87608d99f608ca32f5d2814e6151a3d1cc8",
+    "stub.py": "74e77d8857727b4abf566ac20d427d566bca2563f1c1741589602d6adfd445d0",
+    "test_contract.py": "55ab89204516e53616d925890980d10df756df3ecdfba72fffa8399949a8a610",
+    "test_runtime.py": "79ccab8832bfa1e82995c57a5020a35a580d3b3a4fe5cd20da95987400b0470a",
+    "verify_patch.py": "dcb648abcc84ba84c49480a40571641cf71652ac9fbc132c626b2741be702577"
+  },
+  "started_at_unix": 1794213637.7156386,
+  "passed": false,
+  "cases": {
+    "A_unknown_mode": {
+      "status": "passed",
+      "detail": {
+        "fault": "unknown_mode",
+        "stable_error": "MODE_NOT_ALLOWED",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_mode_error": {
+      "status": "passed",
+      "detail": {
+        "fault": "mode_error",
+        "stable_error": "ACP_REMOTE_REJECTION",
+        "injected": [
+          "mode_error"
+        ],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_mode_timeout": {
+      "status": "passed",
+      "detail": {
+        "fault": "mode_timeout",
+        "stable_error": "RPC_TIMEOUT",
+        "injected": [
+          "mode_timeout"
+        ],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_missing_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "missing_tool",
+        "stable_error": "TOOL_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_extra_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "extra_tool",
+        "stable_error": "TOOL_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_replacement_tool": {
+      "status": "passed",
+      "detail": {
+        "fault": "replacement_tool",
+        "stable_error": "TOOL_CATALOG_MISMATCH",
+        "injected": [],
+        "model_requests": 0,
+        "tool_arrivals": 0
+      }
+    },
+    "A_B_permission_tools": {
+      "status": "failed",
+      "error": "Rejected: ACP_REMOTE_REJECTION"
+    },
+    "C_independent_instances": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "D_restart": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "E_minimum_egress": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "A_approval_disconnect": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "A_approval_timeout": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "F_malformed": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "F_timeout": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    },
+    "F_callback_disconnect": {
+      "status": "not_measured",
+      "reason": "Qualification-only invocation; separate full run required"
+    }
+  },
+  "os_probe": {
+    "checks": {
+      "bridge_file_denied": true,
+      "other_session_denied": true,
+      "host_tcp_denied": true,
+      "platform_socket_denied": true,
+      "abstract_socket_denied": true,
+      "secret_environment_absent": true,
+      "host_process_hidden": true,
+      "private_state_writable": true,
+      "no_unexpected_fds": true,
+      "no_new_privs": true,
+      "no_effective_caps": true,
+      "no_host_mounts": true
+    },
+    "fds": {
+      "0": "/dev/null",
+      "1": "pipe:[304794986]",
+      "2": "pipe:[304794987]"
+    },
+    "uid": 1000,
+    "gid": 1000,
+    "namespaces": {
+      "user": "user:[4026532368]",
+      "pid": "pid:[4026532306]",
+      "net": "net:[4026532308]",
+      "mnt": "mnt:[4026532302]"
+    },
+    "environment_keys": [
+      "HOME",
+      "LANG",
+      "PATH",
+      "PERI_MCP_BUILTIN",
+      "PERI_PROCESS_TOOL_POLICY",
+      "PWD",
+      "SSL_CERT_FILE",
+      "TMPDIR",
+      "TOKIO_WORKER_THREADS",
+      "TZ",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME"
+    ]
+  },
+  "finished_at_unix": 1794213642.415942,
+  "all_processes_exited": true
+}
