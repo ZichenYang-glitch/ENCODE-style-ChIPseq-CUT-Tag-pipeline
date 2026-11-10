@@ -10,6 +10,8 @@ import struct
 import threading
 import time
 
+import pytest
+
 from encode_pipeline.services.peri_runtime import isolation, owner as owner_module
 from encode_pipeline.services.peri_runtime import session as session_module
 from encode_pipeline.services.peri_runtime.identity import (
@@ -30,12 +32,18 @@ from encode_pipeline.services.peri_runtime.policy import (
     SYNTHETIC_API_KEY,
     process_policy,
 )
-from encode_pipeline.services.peri_runtime.relay import Relay, forward
+from encode_pipeline.services.peri_runtime.relay import MAX_BYTES, Relay, forward
+from encode_pipeline.services.peri_runtime.socket_server import (
+    OwnerServer,
+    RemoteAuthoringBridge,
+    main as owner_main,
+)
 from encode_pipeline.services.peri_runtime.session import NativeSession
 from encode_pipeline.services.peri_runtime.stub import ModelStub
 from encode_pipeline.services.authoring_bridge import (
     BridgeDisconnected,
     BridgeSessionRequest,
+    BridgeStatus,
     BridgeTurnRequest,
 )
 
@@ -439,3 +447,176 @@ def test_limits_and_relay_and_spawn_guard(tmp_path: Path, monkeypatch) -> None:
         assert "systemd user session" in str(error)
     else:
         raise AssertionError("spawn proceeded without a user session")
+
+
+def _serve_line(path: Path, body: bytes) -> None:
+    ready = threading.Event()
+
+    def run() -> None:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(path))
+        server.listen(1)
+        ready.set()
+        connection, _address = server.accept()
+        connection.recv(65536)
+        if body:
+            connection.sendall(body)
+        connection.close()
+        server.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    assert ready.wait(2)
+
+
+def test_owner_entry_client_errors_and_relay_budget(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("HELIXWEAVE_PERI_BINARY", raising=False)
+    monkeypatch.delenv("HELIXWEAVE_PERI_OWNER_SOCKET", raising=False)
+    with pytest.raises(SystemExit) as missing:
+        owner_main()
+    assert missing.value.code == 2
+
+    monkeypatch.setenv("HELIXWEAVE_PERI_BINARY", str(tmp_path / "not-peri"))
+    monkeypatch.setenv("HELIXWEAVE_PERI_OWNER_SOCKET", str(tmp_path / "owner.sock"))
+    monkeypatch.setenv(
+        "ENCODE_PIPELINE_DATABASE_URL",
+        f"sqlite:///{tmp_path / 'owner.db'}",
+    )
+    (tmp_path / "not-peri").write_bytes(b"not-the-fixed-runtime")
+    with pytest.raises(SystemExit) as rejected:
+        owner_main()
+    assert rejected.value.code == 1
+
+    remote = RemoteAuthoringBridge(tmp_path / "missing.sock")
+    assert remote.status().available is False
+    with pytest.raises(BridgeDisconnected):
+        remote.owner_epoch()
+
+    refused = tmp_path / "refused.sock"
+    _serve_line(refused, b"not-json\n")
+    with pytest.raises(BridgeDisconnected):
+        RemoteAuthoringBridge(refused).owner_epoch()
+    unavailable = tmp_path / "unavailable.sock"
+    _serve_line(unavailable, b'{"ok": true, "available": false}\n')
+    assert RemoteAuthoringBridge(unavailable).status().available is False
+    denied = tmp_path / "denied.sock"
+    _serve_line(denied, b'{"ok": false}\n')
+    with pytest.raises(BridgeDisconnected):
+        RemoteAuthoringBridge(denied).admit(
+            BridgeSessionRequest(
+                sid="aas_" + "ab" * 16,
+                generation=1,
+                owner_epoch="epoch",
+                capability_token="token",
+                schema_digest="a" * 64,
+                projection_digest="b" * 64,
+            )
+        )
+    empty = tmp_path / "empty.sock"
+    _serve_line(empty, b'{"ok": true, "answer": ""}\n')
+    with pytest.raises(BridgeDisconnected):
+        RemoteAuthoringBridge(empty).execute_turn(
+            BridgeTurnRequest(
+                sid="aas_" + "ab" * 16,
+                turn_id="atr_" + "cd" * 16,
+                generation=1,
+                instance_id="instance01",
+                owner_epoch="epoch",
+                capability_token="token",
+                question={},
+                issue_codes=(),
+                schema_digest="a" * 64,
+                projection_digest="b" * 64,
+                base_revision=0,
+            )
+        )
+    closed = tmp_path / "closed.sock"
+    _serve_line(closed, b"")
+    RemoteAuthoringBridge(closed).close(
+        BridgeSessionRequest(
+            sid="aas_" + "ab" * 16,
+            generation=1,
+            owner_epoch="epoch",
+            capability_token="token",
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+        )
+    )
+    counted = tmp_path / "counted.sock"
+    _serve_line(counted, b'{"ok": true}\n')
+    assert RemoteAuthoringBridge(counted).drop_authorizations(("c" * 64,)) == 0
+
+    class HandleBridge:
+        def status(self) -> BridgeStatus:
+            return BridgeStatus(available=False, reason_code="BRIDGE_UNAVAILABLE")
+
+        def owner_epoch(self) -> str:
+            raise BridgeDisconnected
+
+        def admit(self, request: BridgeSessionRequest):
+            del request
+            raise BridgeDisconnected
+
+    server = OwnerServer(HandleBridge(), object(), tmp_path / "handle.sock")
+    assert server.handle({"method": "status"})["available"] is False
+    assert server.handle({"method": "open", "owner_epoch": "old"})["error"] == (
+        "unavailable"
+    )
+
+    class ReadyBridge(HandleBridge):
+        def owner_epoch(self) -> str:
+            return "current"
+
+    ready = OwnerServer(ReadyBridge(), object(), tmp_path / "ready.sock")
+    assert ready.handle({"method": "drop_auth"})["error"] == "invalid_request"
+    assert ready.handle({"method": "sweep"}) == {"ok": True, "closed": 0}
+    assert ready.handle({"method": "unknown"})["error"] == "unknown_method"
+    assert ready.handle({"method": "turn", "owner_epoch": "other"})["error"] == (
+        "epoch_rejected"
+    )
+    assert ready.handle({"method": "open", "owner_epoch": "current"})["error"] == (
+        "disconnected"
+    )
+
+    budget_path = tmp_path / "budget.sock"
+    budget = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    budget.bind(str(budget_path))
+    budget.listen(1)
+    left, right = socket.socketpair()
+    outcome: list[str] = []
+
+    def overrun() -> None:
+        outcome.append(forward(left, str(budget_path), idle=1, total=3))
+
+    worker = threading.Thread(target=overrun)
+    worker.start()
+    accepted, _address = budget.accept()
+
+    def drain() -> None:
+        while True:
+            try:
+                if not accepted.recv(65536):
+                    return
+            except OSError:
+                return
+
+    threading.Thread(target=drain, daemon=True).start()
+    try:
+        right.sendall(b"x" * (MAX_BYTES + 1))
+    except OSError:
+        pass
+    worker.join(4)
+    assert outcome == ["byte_budget"]
+    right.close()
+    accepted.close()
+    budget.close()
+
+    idle_path = tmp_path / "idle.sock"
+    idle_upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    idle_upstream.bind(str(idle_path))
+    idle_upstream.listen(1)
+    quiet_left, quiet_right = socket.socketpair()
+    assert forward(quiet_left, str(idle_path), idle=0.05, total=0.2) == "deadline"
+    quiet_right.close()
+    idle_upstream.close()
