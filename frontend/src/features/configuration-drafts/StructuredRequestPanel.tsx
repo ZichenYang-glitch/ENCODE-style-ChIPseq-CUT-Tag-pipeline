@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
 import { writeBlockReason } from './actionGate';
@@ -37,6 +37,29 @@ export function StructuredRequestPanel({
   const [flags, setFlags] = useState<Record<string, boolean>>({});
   const [issueCode, setIssueCode] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!capability?.available) {
+      setIntent(null);
+      setIssueCode(null);
+      setSelected((current) => (current.size === 0 ? current : new Set()));
+      return;
+    }
+    const intents: readonly SuggestionIntent[] = capability.intents;
+    const issueCodes = new Set(capability.issues.map((issue) => issue.code));
+    const fieldTokens = new Set(capability.fields.map((field) => field.token));
+    setIntent((current) =>
+      current !== null && intents.includes(current) ? current : null,
+    );
+    setIssueCode((current) =>
+      current !== null && issueCodes.has(current) ? current : null,
+    );
+    setSelected((current) => {
+      const next = new Set([...current].filter((token) => fieldTokens.has(token)));
+      if (next.size === current.size) return current;
+      return next;
+    });
+  }, [capability]);
 
   if (!capability || !capability.available) {
     return (
@@ -78,7 +101,9 @@ export function StructuredRequestPanel({
     if (blockReason !== null || !intent || !onRequest) return;
     const question = buildQuestion({
       intent,
-      fields: capability?.fields ?? [],
+      allowedIntents: capability?.available ? capability.intents : [],
+      fields: capability?.available ? capability.fields : [],
+      issues: capability?.available ? capability.issues : [],
       selected,
       numbers,
       texts,
@@ -303,15 +328,21 @@ function requestBlockReason(input: {
 
 function buildQuestion(input: {
   intent: SuggestionIntent;
+  allowedIntents: readonly SuggestionIntent[];
   fields: readonly CapabilityField[];
+  issues: readonly { code: string }[];
   selected: ReadonlySet<string>;
   numbers: Record<string, string>;
   texts: Record<string, string>;
   flags: Record<string, boolean>;
   issueCode: string | null;
 }): { ok: true; value: StructuredQuestion } | { ok: false; message: string } {
+  if (!input.allowedIntents.includes(input.intent)) {
+    return { ok: false, message: 'Choose a request type from the current list.' };
+  }
   if (input.intent === 'explain_issues') {
-    if (!input.issueCode) {
+    const allowedIssues = new Set(input.issues.map((issue) => issue.code));
+    if (!input.issueCode || !allowedIssues.has(input.issueCode)) {
       return { ok: false, message: 'Choose a declared validation issue.' };
     }
     return {
@@ -324,21 +355,25 @@ function buildQuestion(input: {
       },
     };
   }
-  const chosen = input.fields.filter((field) => input.selected.has(field.token));
+  const fieldsByToken = new Map(input.fields.map((field) => [field.token, field]));
+  const chosen = [...input.selected].flatMap((token) => {
+    const field = fieldsByToken.get(token);
+    return field ? [field] : [];
+  });
   if (chosen.length === 0) {
     return { ok: false, message: 'Select a declared suggestion field.' };
   }
   const preferences: { fieldToken: string; value: string | number | boolean }[] = [];
   for (const field of chosen) {
     const parsed = readPreference(field, input);
-    if (parsed === 'invalid') {
+    if (parsed.state === 'invalid') {
       return {
         ok: false,
         message: `Enter a valid preferred value for ${field.label}.`,
       };
     }
-    if (parsed !== 'omit') {
-      preferences.push({ fieldToken: field.token, value: parsed });
+    if (parsed.state === 'value') {
+      preferences.push({ fieldToken: field.token, value: parsed.value });
     }
   }
   return {
@@ -352,6 +387,11 @@ function buildQuestion(input: {
   };
 }
 
+type PreferenceParse =
+  | { state: 'value'; value: string | number | boolean }
+  | { state: 'omit' }
+  | { state: 'invalid' };
+
 function readPreference(
   field: CapabilityField,
   input: {
@@ -359,18 +399,24 @@ function readPreference(
     texts: Record<string, string>;
     flags: Record<string, boolean>;
   },
-): string | number | boolean | 'omit' | 'invalid' {
-  if (field.type === 'boolean') return input.flags[field.token] ?? false;
+): PreferenceParse {
+  if (field.type === 'boolean') {
+    return { state: 'value', value: input.flags[field.token] ?? false };
+  }
   if (field.type === 'string') {
     const text = input.texts[field.token] ?? '';
-    return text === '' ? 'omit' : text;
+    return text === '' ? { state: 'omit' } : { state: 'value', value: text };
   }
   const raw = (input.numbers[field.token] ?? '').trim();
-  if (raw === '') return 'omit';
+  if (raw === '') return { state: 'omit' };
   const numeric = Number(raw);
-  if (!Number.isFinite(numeric)) return 'invalid';
-  if (field.type === 'integer' && !Number.isInteger(numeric)) return 'invalid';
-  if (typeof field.minimum === 'number' && numeric < field.minimum) return 'invalid';
-  if (typeof field.maximum === 'number' && numeric > field.maximum) return 'invalid';
-  return numeric;
+  if (!Number.isFinite(numeric)) return { state: 'invalid' };
+  if (field.type === 'integer' && !Number.isInteger(numeric)) return { state: 'invalid' };
+  if (typeof field.minimum === 'number' && numeric < field.minimum) {
+    return { state: 'invalid' };
+  }
+  if (typeof field.maximum === 'number' && numeric > field.maximum) {
+    return { state: 'invalid' };
+  }
+  return { state: 'value', value: numeric };
 }

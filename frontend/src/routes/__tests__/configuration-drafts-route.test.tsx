@@ -27,7 +27,19 @@ vi.mock('../../api/generated/runs/runs', () => ({
 }));
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: () => <textarea aria-label="Advanced config YAML" />,
+  default: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (text: string) => void;
+  }) => (
+    <textarea
+      aria-label="Advanced config YAML"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }));
 
 beforeAll(async () => {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { StructuredRequestPanel } from './StructuredRequestPanel';
@@ -104,6 +104,79 @@ describe('structured suggestion request', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Request suggestion' })).not.toBeInTheDocument();
     expect(document.querySelector('textarea, input[type="file"]')).toBeNull();
+  });
+
+  it('keeps the strings omit and invalid as preference values', async () => {
+    const onRequest = renderRequest({
+      capability: {
+        available: true,
+        unavailableReason: null,
+        intents: ['suggest'],
+        fields: [{ token: 'resource.label', label: 'Example label', type: 'string' }],
+        issues: [],
+      },
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Suggest values' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Example label' }));
+    const preference = screen.getByRole('textbox', { name: 'Preferred value' });
+    await user.type(preference, 'omit');
+    await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
+    expect(onRequest).toHaveBeenLastCalledWith({
+      intent: 'suggest',
+      fieldTokens: ['resource.label'],
+      preferences: [{ fieldToken: 'resource.label', value: 'omit' }],
+      issueCode: null,
+    });
+    await user.clear(preference);
+    await user.type(preference, 'invalid');
+    await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
+    expect(onRequest).toHaveBeenLastCalledWith({
+      intent: 'suggest',
+      fieldTokens: ['resource.label'],
+      preferences: [{ fieldToken: 'resource.label', value: 'invalid' }],
+      issueCode: null,
+    });
+  });
+
+  it('clears a request type removed by the current capability', async () => {
+    const onRequest = vi.fn();
+    const initial = createCapabilityFixture();
+    const { rerender } = render(
+      <StructuredRequestPanel
+        capability={initial}
+        connectionAvailable
+        draftExpired={false}
+        writesEnabled
+        dirty={false}
+        requestStatus="idle"
+        onRequest={onRequest}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Explain a validation issue' }));
+    await user.click(
+      screen.getByRole('radio', { name: 'Example needs a sample selection.' }),
+    );
+    rerender(
+      <StructuredRequestPanel
+        capability={{ ...initial, intents: ['suggest'], issues: [] }}
+        connectionAvailable
+        draftExpired={false}
+        writesEnabled
+        dirty={false}
+        requestStatus="idle"
+        onRequest={onRequest}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('radio', { name: 'Explain a validation issue' }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Request suggestion' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
+    expect(onRequest).not.toHaveBeenCalled();
   });
 
   it('explains a workflow with no suggestion fields', () => {

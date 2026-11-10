@@ -110,6 +110,24 @@ describe('proposal review', () => {
     }
   });
 
+  it('points both actions at the rendered shared explanation', () => {
+    render(
+      <ProposalReview
+        proposal={createPendingProposal()}
+        writesEnabled={false}
+        dirty={false}
+      />,
+    );
+    const adopt = screen.getByRole('button', { name: 'Adopt suggestion' });
+    const reject = screen.getByRole('button', { name: 'Reject suggestion' });
+    const descriptionId = adopt.getAttribute('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    expect(reject).toHaveAttribute('aria-describedby', descriptionId);
+    expect(document.getElementById(descriptionId ?? '')).toHaveTextContent(
+      /reviewed configuration-draft interface/i,
+    );
+  });
+
   it('shows an adopted suggestion only when the server state says so', () => {
     render(
       <ProposalReview

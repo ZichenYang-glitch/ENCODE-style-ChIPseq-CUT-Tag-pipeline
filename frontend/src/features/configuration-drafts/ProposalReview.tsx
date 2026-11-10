@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
 import { adoptBlockReason, rejectBlockReason } from './actionGate';
@@ -32,6 +33,9 @@ export function ProposalReview({
   const adoptReason = adoptBlockReason({ writesEnabled, dirty, proposal });
   const rejectReason = rejectBlockReason({ writesEnabled, dirty, proposal });
   const refreshDisabled = proposal.state !== 'unconfirmed' || !onRefresh;
+  const adoptDescriptionId = useId();
+  const rejectDescriptionId = useId();
+  const sharedReason = adoptReason !== null && adoptReason === rejectReason;
   return (
     <Panel title="Suggested changes">
       <div className="space-y-3">
@@ -79,7 +83,7 @@ export function ProposalReview({
             type="button"
             variant="primary"
             disabled={adoptReason !== null || !onAdopt}
-            aria-describedby={adoptReason !== null ? 'adopt-suggestion-reason' : undefined}
+            aria-describedby={adoptReason !== null ? adoptDescriptionId : undefined}
             onClick={() => {
               if (adoptReason !== null) return;
               onAdopt?.();
@@ -92,7 +96,11 @@ export function ProposalReview({
             variant="danger"
             disabled={rejectReason !== null || !onReject}
             aria-describedby={
-              rejectReason !== null ? 'reject-suggestion-reason' : undefined
+              rejectReason === null
+                ? undefined
+                : sharedReason
+                  ? adoptDescriptionId
+                  : rejectDescriptionId
             }
             onClick={() => {
               if (rejectReason !== null) return;
@@ -111,12 +119,12 @@ export function ProposalReview({
           </Button>
         </div>
         {adoptReason !== null && (
-          <p id="adopt-suggestion-reason" className="text-xs text-[var(--color-text-muted)]">
+          <p id={adoptDescriptionId} className="text-xs text-[var(--color-text-muted)]">
             {adoptReason}
           </p>
         )}
-        {rejectReason !== null && rejectReason !== adoptReason && (
-          <p id="reject-suggestion-reason" className="text-xs text-[var(--color-text-muted)]">
+        {rejectReason !== null && !sharedReason && (
+          <p id={rejectDescriptionId} className="text-xs text-[var(--color-text-muted)]">
             {rejectReason}
           </p>
         )}
