@@ -26,6 +26,21 @@ from encode_pipeline.services.peri_runtime.session import NativeRejected, Native
 ToolDispatch = Callable[..., dict[str, object]]
 
 
+def _tool_denied() -> dict[str, object]:
+    return {
+        "contract_version": "hw-a1/1",
+        "data": None,
+        "issues": [
+            {
+                "code": "SCOPE_DENIED",
+                "retry_class": "fatal",
+                "severity": "error",
+            }
+        ],
+        "ok": False,
+    }
+
+
 class NativeAuthoringBridge:
     """Explicitly enabled Peri bridge. A failed admission leaves manual editing usable."""
 
@@ -306,19 +321,10 @@ class NativeAuthoringBridge:
             else ""
         )
         if handler is None or not isinstance(request, BridgeTurnRequest) or not token:
-            return {
-                "contract_version": "hw-a1/1",
-                "data": None,
-                "issues": [
-                    {
-                        "code": "SCOPE_DENIED",
-                        "retry_class": "fatal",
-                        "severity": "error",
-                    }
-                ],
-                "ok": False,
-            }
-        return handler(
+            return _tool_denied()
+        if not self._accepts_forwarding(request):
+            return _tool_denied()
+        result = handler(
             sid=request.sid,
             turn_id=request.turn_id,
             generation=request.generation,
@@ -327,6 +333,9 @@ class NativeAuthoringBridge:
             capability_token=token,
             name=name,
         )
+        if not self._accepts_forwarding(request):
+            return _tool_denied()
+        return result
 
     def _close_locked(self, sid: str) -> None:
         session = self._sessions.pop(sid, None)

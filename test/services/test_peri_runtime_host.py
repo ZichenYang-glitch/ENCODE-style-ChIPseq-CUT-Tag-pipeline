@@ -862,6 +862,46 @@ def test_dead_endpoint_is_replaced_after_the_lock(tmp_path: Path) -> None:
     assert not path.exists()
 
 
+def test_owner_monitor_retries_a_pending_fence(tmp_path: Path) -> None:
+    attempts = {"n": 0}
+
+    class Bridge:
+        def suppress_forwarding(self, request: BridgeSessionRequest) -> None:
+            del request
+
+        def close(self, request: BridgeSessionRequest) -> None:
+            del request
+
+    class Repo:
+        def fail_connection(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError("temporary")
+
+    server = OwnerServer(Bridge(), Repo(), tmp_path / "unused.sock")
+    server.abandon_caller(
+        {
+            "method": "turn",
+            "sid": "aas_x",
+            "generation": 3,
+            "owner_epoch": "current",
+        }
+    )
+    assert server.pending_abandon_count() == 1
+    waits: list[float] = []
+
+    def wait(seconds: float) -> bool:
+        waits.append(seconds)
+        return len(waits) > 1
+
+    server._stop.wait = wait
+    server._monitor_loop()
+    assert waits == [server._monitor_interval, server._monitor_interval]
+    assert attempts["n"] == 2
+    assert server.pending_abandon_count() == 0
+
+
 def test_control_channel_failures_do_not_escape(tmp_path: Path) -> None:
     events: list[str] = []
 
@@ -890,7 +930,8 @@ def test_control_channel_failures_do_not_escape(tmp_path: Path) -> None:
     server.abandon_caller({"method": "status"})
     server.abandon_caller({"method": "turn", "sid": "aas_x", "generation": 3})
     server.abandon_caller({"method": "turn", "sid": "aas_x", "generation": 3})
-    assert events == ["stop", "fence", "close"]
+    assert events == ["stop", "fence", "close", "stop", "fence", "close"]
+    assert server.pending_abandon_count() == 1
     responses: list[bytes] = []
     server.finish_request(None, b"not-json", responses.append)
     server.finish_request(None, b"[]", responses.append)

@@ -37,6 +37,14 @@ class OwnerEndpointBusy(RuntimeError):
     """Another live owner already holds this endpoint."""
 
 
+class _AbandonedCall:
+    """One caller-loss fence that is in progress, waiting, or already durable."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.state = "in_progress"
+
+
 class RemoteAuthoringBridge:
     """API-side client. A missing owner is unavailable, not a spawned native."""
 
@@ -138,7 +146,8 @@ class OwnerServer:
         self._lock_file = None
         self._owns_endpoint = False
         self._socket_inode: int | None = None
-        self._abandoned: set[tuple[str, str, str]] = set()
+        self._monitor_interval = _MONITOR_SECONDS
+        self._abandoned: dict[tuple[str, str, str], _AbandonedCall] = {}
         self._abandon_lock = threading.Lock()
         self.retired = 0
 
@@ -229,10 +238,35 @@ class OwnerServer:
         sid = str(payload.get("sid") or "")
         generation = str(payload.get("generation") or "")
         key = (str(payload.get("method")), sid, generation)
+        work = self._claim_abandon(key, payload)
+        if work is None:
+            return
+        self._run_abandon(key, work)
+
+    def _claim_abandon(
+        self,
+        key: tuple[str, str, str],
+        payload: dict[str, Any],
+    ) -> _AbandonedCall | None:
         with self._abandon_lock:
-            if key in self._abandoned:
-                return
-            self._abandoned.add(key)
+            current = self._abandoned.get(key)
+            if current is None:
+                current = _AbandonedCall(payload)
+                self._abandoned[key] = current
+                return current
+            if current.state == "pending":
+                current.state = "in_progress"
+                return current
+            return None
+
+    def _run_abandon(
+        self,
+        key: tuple[str, str, str],
+        work: _AbandonedCall,
+    ) -> None:
+        payload = work.payload
+        sid = str(payload.get("sid") or "")
+        generation = str(payload.get("generation") or "")
         instance = payload.get("instance_id")
         request = BridgeSessionRequest(
             sid=sid,
@@ -243,12 +277,13 @@ class OwnerServer:
             projection_digest=str(payload.get("projection_digest") or ""),
             instance_id=None if instance in {None, ""} else str(instance),
         )
+        failed = False
         stop = getattr(self._bridge, "suppress_forwarding", None)
         if stop is not None:
             try:
                 stop(request)
             except Exception:
-                pass
+                failed = True
         fail = getattr(self._repository, "fail_connection", None)
         if fail is not None and sid and generation:
             try:
@@ -259,11 +294,14 @@ class OwnerServer:
                     reason_code=CONNECTION_LOST,
                 )
             except Exception:
-                pass
+                failed = True
         try:
             self._bridge.close(request)
         except Exception:
-            return
+            failed = True
+        with self._abandon_lock:
+            if self._abandoned.get(key) is work:
+                work.state = "pending" if failed else "done"
 
     def finish_request(self, connection: socket.socket, raw: bytes, writer) -> None:
         try:
@@ -346,8 +384,31 @@ class OwnerServer:
             return {"ok": False, "error": "disconnected"}
         return {"ok": False, "error": "unknown_method"}
 
+    def pending_abandon_count(self) -> int:
+        with self._abandon_lock:
+            return sum(
+                1 for work in self._abandoned.values() if work.state == "pending"
+            )
+
+    def retry_abandoned(self) -> int:
+        """Retry persistent fences that have not succeeded. Caller loss is enough."""
+
+        with self._abandon_lock:
+            claimed = []
+            for key, work in self._abandoned.items():
+                if work.state == "pending":
+                    work.state = "in_progress"
+                    claimed.append((key, work))
+        for key, work in claimed:
+            self._run_abandon(key, work)
+        return len(claimed)
+
     def _monitor_loop(self) -> None:
-        while not self._stop.wait(_MONITOR_SECONDS):
+        while not self._stop.wait(self._monitor_interval):
+            try:
+                self.retry_abandoned()
+            except Exception:
+                pass
             try:
                 self.sweep()
             except Exception:

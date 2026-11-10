@@ -1181,6 +1181,297 @@ def test_broken_response_write_fences_before_completion(stack):
     _assert_late_completion_rejected(stack, sid, turn_id)
 
 
+def _live_generating(stack, tmp_path, monkeypatch, client_turn_id: str):
+    monkeypatch.setattr(owner_module, "binary_matches", lambda _path: True)
+    monkeypatch.setattr(owner_module, "isolation_paths_exist", lambda: True)
+    monkeypatch.setattr(owner_module, "NativeSession", _IdleNative)
+    bridge = NativeAuthoringBridge(
+        binary=tmp_path / "peri",
+        state_root=tmp_path / "state",
+        repository=stack.repository,
+    )
+    service = AuthoringService(
+        repository=stack.repository,
+        registry=stack.service._registry,
+        data_registry=stack.service._data,
+        validated_inputs=SimpleNamespace(),
+        snapshots=SimpleNamespace(),
+        bridge=bridge,
+        clock=stack.clock,
+    )
+    created = service.create_session(
+        stack.actor,
+        project_id=stack.project_id,
+        workflow_id=WORKFLOW,
+    )
+    opened = service.open_connection(stack.actor, created.sid)
+    assert opened.connection_state == "ready"
+    current = stack.repository.get_session(stack.actor, created.sid)
+    turn, _replayed = stack.repository.start_turn(
+        stack.actor,
+        created.sid,
+        client_turn_id=client_turn_id,
+        request_digest="ef" * 32,
+        question={
+            "intent": "suggest",
+            "field_tokens": ["config.threads"],
+            "preferences": [],
+        },
+        expected_revision=current.revision,
+        schema_digest=current.schema_digest,
+        projection_digest=current.projection_digest or "",
+        owner_epoch=current.bridge_owner_epoch or "",
+    )
+    assert turn.status == "generating"
+    live = BridgeTurnRequest(
+        sid=created.sid,
+        turn_id=turn.turn_id,
+        generation=current.generation,
+        instance_id=current.instance_id or "",
+        owner_epoch=current.bridge_owner_epoch or "",
+        capability_token="",
+        question={},
+        issue_codes=(),
+        schema_digest=current.schema_digest,
+        projection_digest=current.projection_digest or "",
+        base_revision=current.revision,
+    )
+    native = bridge._sessions[created.sid]
+    native.turn_context = live
+    return service, bridge, current, turn, live, native
+
+
+def _stop_request(current, *, generation=None, instance_id=None):
+    return BridgeSessionRequest(
+        sid=current.sid,
+        generation=current.generation if generation is None else generation,
+        owner_epoch=current.bridge_owner_epoch or "",
+        capability_token="",
+        schema_digest=current.schema_digest,
+        projection_digest=current.projection_digest or "",
+        instance_id=current.instance_id if instance_id is None else instance_id,
+    )
+
+
+def test_stopped_forwarding_rejects_tool_dispatch_before_the_fence(
+    stack, tmp_path, monkeypatch
+):
+    service, bridge, current, _turn, live, native = _live_generating(
+        stack, tmp_path, monkeypatch, "forward-stop"
+    )
+    calls: list[str] = []
+    original = service.read_tool
+
+    def counting(**kwargs):
+        calls.append(kwargs["name"])
+        return original(**kwargs)
+
+    bridge.bind_tool_handler(counting)
+    assert bridge._egress_allowed(live) is True
+    assert bridge._dispatch("get_authoring_schema", {}, native)["ok"] is True
+    bridge.suppress_forwarding(
+        _stop_request(current, generation=current.generation + 9)
+    )
+    bridge.suppress_forwarding(_stop_request(current, instance_id="other-instance"))
+    assert bridge._dispatch("get_draft_summary", {}, native)["ok"] is True
+    assert calls == ["get_authoring_schema", "get_draft_summary"]
+    calls.clear()
+    bridge.suppress_forwarding(_stop_request(current))
+    assert bridge._egress_allowed(live) is False
+    denied_schema = bridge._dispatch("get_authoring_schema", {}, native)
+    denied_summary = bridge._dispatch("get_draft_summary", {}, native)
+    assert denied_schema["ok"] is False and denied_schema["data"] is None
+    assert denied_summary["ok"] is False and denied_summary["data"] is None
+    assert calls == []
+    assert (
+        stack.repository.get_session(stack.actor, current.sid).connection_state
+        == "ready"
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+    raced: list[dict[str, object]] = []
+
+    def blocking(**_kwargs):
+        calls.append("raced")
+        started.set()
+        assert release.wait(2)
+        return {
+            "ok": True,
+            "contract_version": "hw-a1/1",
+            "data": {"secret": True},
+            "issues": [],
+        }
+
+    native.forwarding = True
+    bridge.bind_tool_handler(blocking)
+    worker = threading.Thread(
+        target=lambda: raced.append(
+            bridge._dispatch("get_authoring_schema", {}, native)
+        )
+    )
+    worker.start()
+    assert started.wait(2)
+    bridge.suppress_forwarding(_stop_request(current))
+    release.set()
+    worker.join(2)
+    assert raced[0]["ok"] is False
+    assert raced[0]["data"] is None
+    assert calls == ["raced"]
+
+
+def test_failed_fence_stays_pending_until_the_owner_retries(
+    stack, tmp_path, monkeypatch
+):
+    _service, bridge, current, turn, live, native = _live_generating(
+        stack, tmp_path, monkeypatch, "fence-retry"
+    )
+    calls: list[str] = []
+    bridge.bind_tool_handler(lambda **_kwargs: calls.append("tool") or {"ok": True})
+    original_fail = stack.repository.fail_connection
+    original_close = bridge.close
+    attempts = {"fail": 0, "close": 0}
+
+    def fail(*args, **kwargs):
+        attempts["fail"] += 1
+        if attempts["fail"] == 1:
+            raise RuntimeError("temporary database failure")
+        return original_fail(*args, **kwargs)
+
+    def close(request):
+        attempts["close"] += 1
+        if attempts["close"] == 1:
+            raise RuntimeError("temporary close failure")
+        return original_close(request)
+
+    stack.repository.fail_connection = fail
+    bridge.close = close
+    server = OwnerServer(bridge, stack.repository, tmp_path / "owner.sock")
+    payload = {
+        "method": "turn",
+        "sid": current.sid,
+        "generation": current.generation,
+        "instance_id": current.instance_id,
+        "owner_epoch": current.bridge_owner_epoch,
+        "schema_digest": current.schema_digest,
+        "projection_digest": current.projection_digest or "",
+    }
+    server.abandon_caller(payload)
+    assert server.pending_abandon_count() == 1
+    assert attempts == {"fail": 1, "close": 1}
+    record = stack.repository.get_session(stack.actor, current.sid)
+    stored = stack.repository.peek_turn(current.sid, turn.turn_id)
+    assert record.connection_state == "ready"
+    assert stored is not None and stored.status == "generating"
+    assert record.generation == current.generation
+    assert bridge._egress_allowed(live) is False
+    assert bridge._dispatch("get_authoring_schema", {}, native)["data"] is None
+    assert bridge._dispatch("get_draft_summary", {}, native)["data"] is None
+    assert calls == []
+    server.retry_abandoned()
+    assert attempts["fail"] == 2
+    assert server.pending_abandon_count() == 0
+    record = stack.repository.get_session(stack.actor, current.sid)
+    stored = stack.repository.peek_turn(current.sid, turn.turn_id)
+    assert record.connection_state == "closed"
+    assert record.generation == current.generation + 1
+    assert stored is not None and stored.status == "failed"
+    server.abandon_caller(payload)
+    assert attempts["fail"] == 2
+    assert (
+        stack.repository.get_session(stack.actor, current.sid).connection_state
+        == "closed"
+    )
+
+
+def test_abandoned_retry_does_not_close_a_newer_connection(
+    stack, tmp_path, monkeypatch
+):
+    _service, bridge, current, turn, _live, native = _live_generating(
+        stack, tmp_path, monkeypatch, "old-generation"
+    )
+    original_fail = stack.repository.fail_connection
+    original_close = bridge.close
+    attempts = {"fail": 0}
+
+    def fail(*args, **kwargs):
+        attempts["fail"] += 1
+        if attempts["fail"] == 1:
+            raise RuntimeError("temporary database failure")
+        return original_fail(*args, **kwargs)
+
+    def close(request):
+        if attempts["fail"] == 1:
+            raise RuntimeError("temporary close failure")
+        return original_close(request)
+
+    stack.repository.fail_connection = fail
+    bridge.close = close
+    server = OwnerServer(bridge, stack.repository, tmp_path / "owner-new.sock")
+    server.abandon_caller(
+        {
+            "method": "turn",
+            "sid": current.sid,
+            "generation": current.generation,
+            "instance_id": current.instance_id,
+            "owner_epoch": current.bridge_owner_epoch,
+            "schema_digest": current.schema_digest,
+            "projection_digest": current.projection_digest or "",
+        }
+    )
+    assert server.pending_abandon_count() == 1
+    original_fail(
+        current.sid,
+        generation=current.generation,
+        owner_epoch=current.bridge_owner_epoch or "",
+        reason_code=CONNECTION_LOST,
+    )
+    claim = stack.repository.open_connection(
+        stack.actor,
+        current.sid,
+        owner_epoch=current.bridge_owner_epoch or "",
+        projection_digest=current.projection_digest or "",
+    )
+    ready = stack.repository.mark_connection_ready(
+        stack.actor,
+        current.sid,
+        generation=claim.record.generation,
+        instance_id="instance02",
+        owner_epoch=current.bridge_owner_epoch or "",
+    )
+    native.service_generation = ready.generation
+    native.instance = "instance02"
+    native.state = "ready"
+    native.forwarding = True
+    fresh, _replayed = stack.repository.start_turn(
+        stack.actor,
+        current.sid,
+        client_turn_id="reconnected",
+        request_digest="ab" * 32,
+        question={
+            "intent": "suggest",
+            "field_tokens": ["options.cores"],
+            "preferences": [],
+        },
+        expected_revision=ready.revision,
+        schema_digest=ready.schema_digest,
+        projection_digest=ready.projection_digest or "",
+        owner_epoch=ready.bridge_owner_epoch or "",
+    )
+    assert server.retry_abandoned() == 1
+    record = stack.repository.get_session(stack.actor, current.sid)
+    assert record.connection_state == "ready"
+    assert record.generation == ready.generation
+    assert record.instance_id == "instance02"
+    assert native.state == "ready"
+    assert native.service_generation == ready.generation
+    renewed = stack.repository.peek_turn(current.sid, fresh.turn_id)
+    previous = stack.repository.peek_turn(current.sid, turn.turn_id)
+    assert renewed is not None and renewed.status == "generating"
+    assert previous is not None and previous.status == "failed"
+    assert server.pending_abandon_count() == 0
+
+
 def test_control_timeout_fences_before_the_turn_finishes(stack):
     sid, turn_id, payload = _generating(stack)
     bridge = _BlockingBridge(stack.bridge.epoch)
