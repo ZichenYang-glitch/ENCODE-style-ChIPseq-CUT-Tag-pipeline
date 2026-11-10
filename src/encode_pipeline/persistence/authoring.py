@@ -459,12 +459,17 @@ class SqlAlchemyAuthoringRepository:
             closed_generation = None
             closed_instance_id = None
             closed_owner_epoch = None
-            if (
+            same_generation = (
                 row.connection_state in {"blocked", "ready"}
                 and row.generation == expected_generation
-                and row.instance_id == expected_instance_id
                 and row.bridge_owner_epoch == expected_owner_epoch
-            ):
+            )
+            actual_instance = row.instance_id
+            instance_matches = expected_instance_id is None or actual_instance in {
+                None,
+                expected_instance_id,
+            }
+            if same_generation and instance_matches:
                 applied = _fence_generation(
                     session,
                     sid,
@@ -474,7 +479,7 @@ class SqlAlchemyAuthoringRepository:
                 )
                 if applied:
                     closed_generation = expected_generation
-                    closed_instance_id = expected_instance_id
+                    closed_instance_id = actual_instance
                     closed_owner_epoch = expected_owner_epoch
                 session.refresh(row)
             self._hook()

@@ -55,6 +55,12 @@ A completed proposal response includes `proposal_digest`. Adopt and reject send
 that value back. An explanation has `explanation.reason_codes`, no
 `proposal_id`, and `adoptable: false`. There is no free-text explanation field.
 
+The capability token is handed to the owner once at admission and is not an
+API, worker, or browser field. A later turn from any authorized API worker
+sends an empty token; the owner checks the stored token. Loss or timeout of an
+in-flight open or turn is fenced by the owner, then the matching native is
+closed. A normal end-of-response socket close does not fence the session.
+
 ## Not in this handoff
 
 - The bridge can return one structured proposal or explanation for the approved

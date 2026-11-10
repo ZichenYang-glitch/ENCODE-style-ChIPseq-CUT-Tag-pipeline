@@ -176,7 +176,6 @@ class AuthoringService:
         self._snapshots = snapshots
         self._bridge = bridge if bridge is not None else UnavailableAuthoringBridge()
         self._clock = clock
-        self._capability_tokens: dict[tuple[str, int], str] = {}
 
     def list_projects(
         self,
@@ -369,7 +368,6 @@ class AuthoringService:
         )
         if claim.reused or claim.capability_token is None:
             return self._session_view(actor, claim.record)
-        self._capability_tokens[(sid, claim.record.generation)] = claim.capability_token
         request = BridgeSessionRequest(
             sid=sid,
             generation=claim.record.generation,
@@ -415,7 +413,6 @@ class AuthoringService:
             expected_owner_epoch=before.bridge_owner_epoch,
         )
         if closed.applied and closed.closed_generation is not None:
-            self._capability_tokens.pop((sid, closed.closed_generation), None)
             self._bridge.close(
                 BridgeSessionRequest(
                     sid=sid,
@@ -490,7 +487,7 @@ class AuthoringService:
             generation=turn.generation,
             instance_id=turn.instance_id,
             owner_epoch=turn.bridge_owner_epoch,
-            capability_token=self._capability_tokens.get((sid, turn.generation), ""),
+            capability_token="",
             question=dict(question),
             issue_codes=issue_codes,
             schema_digest=schema_digest,
@@ -1151,7 +1148,6 @@ class AuthoringService:
             return "", None, None
 
     def _abandon(self, request: BridgeSessionRequest, reason_code: str) -> None:
-        self._capability_tokens.pop((request.sid, request.generation), None)
         self._repository.fail_connection(
             request.sid,
             generation=request.generation,

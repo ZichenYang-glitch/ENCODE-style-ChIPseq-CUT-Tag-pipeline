@@ -88,6 +88,7 @@ class NativeSession:
         self.closed_resources = False
         self.turn_context: object | None = None
         self.authorization_check: Callable[[], bool] | None = None
+        self.qualification_egress = False
         self.last_tool_ok = False
         self.last_tool_payload: dict[str, object] | None = None
         self.tool_payloads: tuple[dict[str, object], ...] = ()
@@ -135,6 +136,7 @@ class NativeSession:
     def invalidate(self, code: str) -> None:
         with self.gate:
             self.state = "closed"
+            self.qualification_egress = False
             self.approve = False
             self.grants.clear()
             self.active_turn = False
@@ -497,30 +499,34 @@ class NativeSession:
             if self.stub.requests or self.handler_calls or self.tool_arrivals:
                 raise NativeRejected("PRE_READY_ACTIVITY")
             before = self.verify_runtime()
-            self.stub.script(
-                (
-                    "SearchExtraTools",
-                    {"query": "select:mcp__helixweave_a1__get_authoring_schema"},
-                ),
-                (
-                    "ExecuteExtraTool",
+            self.qualification_egress = True
+            try:
+                self.stub.script(
+                    (
+                        "SearchExtraTools",
+                        {"query": "select:mcp__helixweave_a1__get_authoring_schema"},
+                    ),
+                    (
+                        "ExecuteExtraTool",
+                        {
+                            "tool_name": "mcp__helixweave_a1__get_authoring_schema",
+                            "params": {},
+                        },
+                    ),
+                    "synthetic qualification complete",
+                )
+                self.rpc(
+                    "session/prompt",
                     {
-                        "tool_name": "mcp__helixweave_a1__get_authoring_schema",
-                        "params": {},
+                        "sessionId": self.session_id,
+                        "prompt": [
+                            {"type": "text", "text": "A1 synthetic qualification only"}
+                        ],
                     },
-                ),
-                "synthetic qualification complete",
-            )
-            self.rpc(
-                "session/prompt",
-                {
-                    "sessionId": self.session_id,
-                    "prompt": [
-                        {"type": "text", "text": "A1 synthetic qualification only"}
-                    ],
-                },
-                timeout=timeout,
-            )
+                    timeout=timeout,
+                )
+            finally:
+                self.qualification_egress = False
             if (
                 self.stub.failures
                 or not self.approvals
@@ -575,9 +581,12 @@ class NativeSession:
             time.sleep(0.05)
 
     def _egress_allowed(self) -> bool:
-        if self.state != "ready":
-            return True
-        check = self.authorization_check
+        with self.gate:
+            if self.state == "blocked" and self.qualification_egress:
+                return True
+            if self.state != "ready":
+                return False
+            check = self.authorization_check
         if check is None:
             return False
         try:

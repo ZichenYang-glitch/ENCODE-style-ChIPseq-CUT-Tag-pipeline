@@ -86,6 +86,8 @@ class NativeAuthoringBridge:
             session.bound_sid = request.sid
             session.user_id = request.user_id
             session.auth_session_digest = request.auth_session_digest
+            session.capability_token = request.capability_token
+            session.forwarding = True
             self._sessions[request.sid] = session
         try:
             session.initialize()
@@ -99,6 +101,8 @@ class NativeAuthoringBridge:
 
     def execute_turn(self, request: BridgeTurnRequest) -> str:
         session = self._live(request)
+        if not self._accepts_forwarding(request):
+            raise BridgeDisconnected
         answer = _proposal_text(request)
         session.turn_context = request
         session.authorization_check = lambda: self._egress_allowed(request)
@@ -111,17 +115,33 @@ class NativeAuthoringBridge:
                     sid=request.sid,
                     generation=request.generation,
                     owner_epoch=request.owner_epoch,
-                    capability_token=request.capability_token,
+                    capability_token="",
                     schema_digest=request.schema_digest,
                     projection_digest=request.projection_digest,
+                    instance_id=request.instance_id,
                 )
             )
             raise BridgeDisconnected from None
         finally:
             session.turn_context = None
-        if not text:
+        if not self._accepts_forwarding(request) or not text:
             raise BridgeDisconnected
         return text
+
+    def suppress_forwarding(self, request: BridgeSessionRequest) -> None:
+        """Stop model and tool egress for one live generation before it is fenced."""
+
+        with self._lock:
+            session = self._sessions.get(request.sid)
+            if session is None or session.service_generation != request.generation:
+                return
+            if (
+                request.instance_id is not None
+                and session.instance != request.instance_id
+            ):
+                return
+            session.forwarding = False
+            session.authorization_check = lambda: False
 
     def close(self, request: BridgeSessionRequest) -> None:
         with self._lock:
@@ -194,9 +214,37 @@ class NativeAuthoringBridge:
             else list(session.stub.failures),
         }
 
+    def _stored_capability_token(self, request: BridgeTurnRequest) -> str:
+        with self._lock:
+            session = self._sessions.get(request.sid)
+            if (
+                session is None
+                or session.service_generation != request.generation
+                or session.instance != request.instance_id
+                or session.state != "ready"
+            ):
+                return ""
+            token = getattr(session, "capability_token", "")
+        return token if isinstance(token, str) else ""
+
+    def _accepts_forwarding(self, request: BridgeTurnRequest) -> bool:
+        with self._lock:
+            session = self._sessions.get(request.sid)
+            if (
+                session is None
+                or session.service_generation != request.generation
+                or session.instance != request.instance_id
+                or session.state != "ready"
+            ):
+                return False
+            return getattr(session, "forwarding", True) is not False
+
     def _egress_allowed(self, request: BridgeTurnRequest) -> bool:
+        if not self._accepts_forwarding(request):
+            return False
+        token = self._stored_capability_token(request)
         checker = getattr(self._repository, "tool_read_state", None)
-        if checker is None:
+        if checker is None or not token:
             return False
         reason, _record, _turn = checker(
             sid=request.sid,
@@ -204,7 +252,7 @@ class NativeAuthoringBridge:
             generation=request.generation,
             instance_id=request.instance_id,
             owner_epoch=request.owner_epoch,
-            capability_digest=sha256_text(request.capability_token),
+            capability_digest=sha256_text(token),
         )
         return reason == "ok"
 
@@ -252,7 +300,12 @@ class NativeAuthoringBridge:
         del arguments
         request = session.turn_context
         handler = self._handler
-        if handler is None or not isinstance(request, BridgeTurnRequest):
+        token = (
+            self._stored_capability_token(request)
+            if isinstance(request, BridgeTurnRequest)
+            else ""
+        )
+        if handler is None or not isinstance(request, BridgeTurnRequest) or not token:
             return {
                 "contract_version": "hw-a1/1",
                 "data": None,
@@ -271,7 +324,7 @@ class NativeAuthoringBridge:
             generation=request.generation,
             instance_id=request.instance_id,
             owner_epoch=request.owner_epoch,
-            capability_token=request.capability_token,
+            capability_token=token,
             name=name,
         )
 

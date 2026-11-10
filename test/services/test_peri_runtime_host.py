@@ -34,8 +34,10 @@ from encode_pipeline.services.peri_runtime.policy import (
 )
 from encode_pipeline.services.peri_runtime.relay import MAX_BYTES, Relay, forward
 from encode_pipeline.services.peri_runtime.socket_server import (
+    OwnerEndpointBusy,
     OwnerServer,
     RemoteAuthoringBridge,
+    _watch_caller,
     main as owner_main,
 )
 from encode_pipeline.services.peri_runtime.session import NativeSession
@@ -620,3 +622,345 @@ def test_owner_entry_client_errors_and_relay_budget(
     assert forward(quiet_left, str(idle_path), idle=0.05, total=0.2) == "deadline"
     quiet_right.close()
     idle_upstream.close()
+
+
+def test_closed_state_rejects_model_egress_before_the_body_is_read(
+    tmp_path: Path,
+) -> None:
+    session = NativeSession.__new__(NativeSession)
+    session.gate = threading.RLock()
+    session.state = "blocked"
+    session.qualification_egress = True
+    session.authorization_check = lambda: False
+    assert session._egress_allowed() is True
+    session.qualification_egress = False
+    assert session._egress_allowed() is False
+    session.state = "ready"
+    session.authorization_check = lambda: False
+    assert session._egress_allowed() is False
+    session.authorization_check = lambda: True
+    assert session._egress_allowed() is True
+    session.authorization_check = None
+    assert session._egress_allowed() is False
+    session.state = "ready"
+
+    def explode() -> bool:
+        raise RuntimeError("checker")
+
+    session.authorization_check = explode
+    assert session._egress_allowed() is False
+    session.authorization_check = lambda: True
+    session.process = None
+    session.approve = True
+    session.grants = set()
+    session.active_turn = True
+    session.errors = []
+    session.invalidate("CLOSED")
+    assert session.state == "closed"
+    assert session.qualification_egress is False
+    assert session._egress_allowed() is False
+    session.qualification_egress = True
+    session.invalidate("CLOSED_AGAIN")
+    assert session.errors == ["CLOSED", "CLOSED_AGAIN"]
+    assert session._egress_allowed() is False
+    session.state = "unknown"
+    assert session._egress_allowed() is False
+    late: list[bool] = []
+
+    def check() -> None:
+        late.append(session._egress_allowed())
+
+    threads = [threading.Thread(target=check) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert late == [False, False, False, False]
+
+    stub = ModelStub(tmp_path / "model.sock")
+    try:
+        stub.authorize = session._egress_allowed
+        stub.script("should-not-run")
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(stub.path))
+        secret = "business-request-marker"
+        body = json.dumps({"secret": secret, "tools": []}).encode()
+        client.sendall(
+            (
+                "POST /v1/chat/completions HTTP/1.1\r\n"
+                f"Authorization: Bearer {SYNTHETIC_API_KEY}\r\n"
+                f"Content-Length: {len(body)}\r\n"
+                "\r\n"
+            ).encode()
+            + body
+        )
+        client.recv(4096)
+        client.close()
+        recorded = json.dumps(stub.requests)
+        assert secret not in recorded
+        assert "authorization_revoked" in stub.failures
+        assert stub.responses
+    finally:
+        stub.close()
+
+
+def test_second_owner_cannot_replace_a_live_endpoint(tmp_path: Path) -> None:
+    class QuietBridge:
+        def __init__(self, epoch: str) -> None:
+            self.epoch = epoch
+
+        def status(self) -> BridgeStatus:
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self) -> str:
+            return self.epoch
+
+        def shutdown(self) -> None:
+            return None
+
+    class FenceRepo:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def retire_foreign_epochs(self, epoch: str) -> int:
+            self.calls.append(epoch)
+            return 0
+
+    first_repo = FenceRepo()
+    first = OwnerServer(
+        QuietBridge("owner-one"),
+        first_repo,
+        tmp_path / "owner.sock",
+    )
+    first.start()
+    with pytest.raises(OwnerEndpointBusy):
+        first.start()
+    assert first_repo.calls == ["owner-one"]
+    try:
+        second_repo = FenceRepo()
+        second = OwnerServer(
+            QuietBridge("owner-two"),
+            second_repo,
+            tmp_path / "owner.sock",
+        )
+        with pytest.raises(OwnerEndpointBusy):
+            second.start()
+        assert second_repo.calls == []
+        assert first_repo.calls == ["owner-one"]
+        assert RemoteAuthoringBridge(tmp_path / "owner.sock").owner_epoch() == (
+            "owner-one"
+        )
+        assert not second._owns_endpoint
+    finally:
+        first.shutdown()
+    assert not (tmp_path / "owner.sock").exists()
+
+
+def test_old_owner_shutdown_does_not_unlink_a_replacement_endpoint(
+    tmp_path: Path,
+) -> None:
+    class QuietBridge:
+        def __init__(self, epoch: str) -> None:
+            self.epoch = epoch
+
+        def status(self) -> BridgeStatus:
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self) -> str:
+            return self.epoch
+
+        def shutdown(self) -> None:
+            return None
+
+    class FenceRepo:
+        def retire_foreign_epochs(self, epoch: str) -> int:
+            del epoch
+            return 0
+
+    path = tmp_path / "owner.sock"
+    first = OwnerServer(QuietBridge("owner-one"), FenceRepo(), path)
+    first.start()
+    first_inode = first._socket_inode
+    assert first._lock_file is not None
+    first._lock_file.close()
+    second = OwnerServer(QuietBridge("owner-two"), FenceRepo(), path)
+    second.start()
+    try:
+        assert second._socket_inode != first_inode
+        first.shutdown()
+        assert path.exists()
+        assert RemoteAuthoringBridge(path).owner_epoch() == "owner-two"
+    finally:
+        second.shutdown()
+
+
+def test_failed_owner_start_releases_the_endpoint(tmp_path: Path) -> None:
+    class QuietBridge:
+        def status(self) -> BridgeStatus:
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self) -> str:
+            return "owner-two"
+
+    class Boom:
+        def retire_foreign_epochs(self, epoch: str) -> int:
+            del epoch
+            raise RuntimeError("fence failed")
+
+    class FenceRepo:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def retire_foreign_epochs(self, epoch: str) -> int:
+            self.calls.append(epoch)
+            return 0
+
+    path = tmp_path / "owner.sock"
+    failed = OwnerServer(QuietBridge(), Boom(), path)
+    with pytest.raises(RuntimeError, match="fence failed"):
+        failed.start()
+    assert failed._owns_endpoint is False
+    assert not path.exists()
+    repo = FenceRepo()
+    server = OwnerServer(QuietBridge(), repo, path)
+    server.start()
+    try:
+        assert repo.calls == ["owner-two"]
+        assert RemoteAuthoringBridge(path).owner_epoch() == "owner-two"
+    finally:
+        server.shutdown()
+
+
+def test_dead_endpoint_is_replaced_after_the_lock(tmp_path: Path) -> None:
+    class QuietBridge:
+        def status(self) -> BridgeStatus:
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self) -> str:
+            return "owner-new"
+
+    class FenceRepo:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def retire_foreign_epochs(self, epoch: str) -> int:
+            self.calls.append(epoch)
+            return 0
+
+    path = tmp_path / "owner.sock"
+    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    stale.bind(str(path))
+    stale.close()
+    repo = FenceRepo()
+    server = OwnerServer(QuietBridge(), repo, path)
+    server.start()
+    try:
+        assert repo.calls == ["owner-new"]
+        assert RemoteAuthoringBridge(path).owner_epoch() == "owner-new"
+    finally:
+        server.shutdown()
+    assert not path.exists()
+
+
+def test_control_channel_failures_do_not_escape(tmp_path: Path) -> None:
+    events: list[str] = []
+
+    class Bridge:
+        def owner_epoch(self) -> str:
+            return "current"
+
+        def suppress_forwarding(self, request: BridgeSessionRequest) -> None:
+            del request
+            events.append("stop")
+            raise RuntimeError("stop")
+
+        def close(self, request: BridgeSessionRequest) -> None:
+            del request
+            events.append("close")
+            raise RuntimeError("close")
+
+    class Repo:
+        def fail_connection(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+            events.append("fence")
+            raise RuntimeError("fence")
+
+    server = OwnerServer(Bridge(), Repo(), tmp_path / "unused.sock")
+    server.shutdown()
+    server.abandon_caller({"method": "status"})
+    server.abandon_caller({"method": "turn", "sid": "aas_x", "generation": 3})
+    server.abandon_caller({"method": "turn", "sid": "aas_x", "generation": 3})
+    assert events == ["stop", "fence", "close"]
+    responses: list[bytes] = []
+    server.finish_request(None, b"not-json", responses.append)
+    server.finish_request(None, b"[]", responses.append)
+    assert len(responses) == 2
+    assert all(b"unknown_method" in item for item in responses)
+
+    client, peer = socket.socketpair()
+    try:
+        peer.sendall(b"x")
+
+        class BrokenPeek:
+            def fileno(self) -> int:
+                return client.fileno()
+
+            def recv(self, *_args: object) -> bytes:
+                raise OSError("lost")
+
+        lost = threading.Event()
+        finished = threading.Event()
+        abandoned: list[str] = []
+
+        class Marker:
+            def abandon_caller(self, payload: dict[str, object]) -> None:
+                abandoned.append(str(payload["method"]))
+
+        _watch_caller(
+            BrokenPeek(),
+            lost,
+            finished,
+            Marker(),
+            {"method": "turn"},
+            time.monotonic() + 1,
+        )
+        assert lost.is_set()
+        assert abandoned == ["turn"]
+
+        class WouldBlock:
+            def fileno(self) -> int:
+                return client.fileno()
+
+            def recv(self, *_args: object) -> bytes:
+                finished.set()
+                raise BlockingIOError
+
+        blocked = threading.Event()
+        _watch_caller(
+            WouldBlock(),
+            blocked,
+            finished,
+            Marker(),
+            {"method": "turn"},
+            time.monotonic() + 1,
+        )
+        assert not blocked.is_set()
+    finally:
+        client.close()
+        peer.close()
+
+    quiet_client, quiet_peer = socket.socketpair()
+    try:
+        quiet_lost = threading.Event()
+        _watch_caller(
+            quiet_client,
+            quiet_lost,
+            threading.Event(),
+            Marker(),
+            {"method": "open"},
+            time.monotonic() + 0.02,
+        )
+        assert quiet_lost.is_set()
+    finally:
+        quiet_client.close()
+        quiet_peer.close()

@@ -1,20 +1,24 @@
 """One bridge owner and the narrow API connection to it.
 
 API workers do not spawn Peri. They send open, turn, and close to the owner
-over a private Unix socket. The owner fences foreign epochs before it listens.
+over a private Unix socket. The owner takes the endpoint lock before it fences
+foreign epochs or listens.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from pathlib import Path
+import select
 import socket
 import socketserver
 import threading
+import time
 from typing import Any
 
-from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE
+from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE, CONNECTION_LOST
 from encode_pipeline.services.authoring_bridge import (
     BridgeAdmission,
     BridgeDisconnected,
@@ -25,6 +29,12 @@ from encode_pipeline.services.authoring_bridge import (
 
 
 _MONITOR_SECONDS = 5.0
+_CONTROL_TIMEOUT_SECONDS = 180.0
+_LONG_CONTROL_METHODS = frozenset({"open", "turn"})
+
+
+class OwnerEndpointBusy(RuntimeError):
+    """Another live owner already holds this endpoint."""
 
 
 class RemoteAuthoringBridge:
@@ -114,37 +124,51 @@ class OwnerServer:
         socket_path: Path,
         *,
         before_listen: Any = None,
+        control_timeout: float = _CONTROL_TIMEOUT_SECONDS,
     ) -> None:
         self._bridge = bridge
         self._repository = repository
         self._path = socket_path
         self._before_listen = before_listen
+        self._control_timeout = control_timeout
         self._server: socketserver.UnixStreamServer | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._monitor: threading.Thread | None = None
+        self._lock_file = None
+        self._owns_endpoint = False
+        self._socket_inode: int | None = None
+        self._abandoned: set[tuple[str, str, str]] = set()
+        self._abandon_lock = threading.Lock()
         self.retired = 0
 
     def start(self) -> None:
-        epoch = self._bridge.owner_epoch()
-        self.retired = int(self._repository.retire_foreign_epochs(epoch))
-        if self._before_listen is not None:
-            self._before_listen()
-        if self._path.exists():
-            self._path.unlink()
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._server = socketserver.ThreadingUnixStreamServer(
-            str(self._path),
-            _handler(self),
-        )
-        os.chmod(self._path, 0o600)
-        self._thread = threading.Thread(
-            target=self._server.serve_forever,
-            daemon=True,
-        )
-        self._thread.start()
-        self._monitor = threading.Thread(target=self._monitor_loop, daemon=True)
-        self._monitor.start()
+        if self._owns_endpoint:
+            raise OwnerEndpointBusy(str(self._path))
+        self._acquire_endpoint()
+        try:
+            epoch = self._bridge.owner_epoch()
+            self.retired = int(self._repository.retire_foreign_epochs(epoch))
+            if self._before_listen is not None:
+                self._before_listen()
+            if self._path.exists():
+                self._path.unlink()
+            self._server = socketserver.ThreadingUnixStreamServer(
+                str(self._path),
+                _handler(self),
+            )
+            os.chmod(self._path, 0o600)
+            self._socket_inode = self._path.stat().st_ino
+            self._thread = threading.Thread(
+                target=self._server.serve_forever,
+                daemon=True,
+            )
+            self._thread.start()
+            self._monitor = threading.Thread(target=self._monitor_loop, daemon=True)
+            self._monitor.start()
+        except Exception:
+            self._release_endpoint()
+            raise
 
     def sweep(self) -> int:
         sweeper = getattr(self._bridge, "sweep", None)
@@ -157,11 +181,121 @@ class OwnerServer:
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
+            self._server = None
         closer = getattr(self._bridge, "shutdown", None)
         if closer is not None:
             closer()
-        if self._path.exists():
-            self._path.unlink()
+        self._release_endpoint()
+
+    def _acquire_endpoint(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = Path(str(self._path) + ".lock")
+        lock_file = lock_path.open("a+")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock_file.close()
+            raise OwnerEndpointBusy(str(self._path)) from None
+        self._lock_file = lock_file
+        self._owns_endpoint = True
+
+    def _release_endpoint(self) -> None:
+        if not self._owns_endpoint:
+            return
+        inode = self._socket_inode
+        if inode is not None and self._path.exists():
+            try:
+                current = self._path.stat().st_ino
+            except OSError:
+                current = None
+            if current == inode:
+                self._path.unlink()
+        lock_file = self._lock_file
+        self._owns_endpoint = False
+        self._socket_inode = None
+        self._lock_file = None
+        if lock_file is not None and not lock_file.closed:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            lock_file.close()
+
+    def abandon_caller(self, payload: dict[str, Any]) -> None:
+        """Fence one in-flight control call after its API caller disappears."""
+
+        if payload.get("method") not in _LONG_CONTROL_METHODS:
+            return
+        sid = str(payload.get("sid") or "")
+        generation = str(payload.get("generation") or "")
+        key = (str(payload.get("method")), sid, generation)
+        with self._abandon_lock:
+            if key in self._abandoned:
+                return
+            self._abandoned.add(key)
+        instance = payload.get("instance_id")
+        request = BridgeSessionRequest(
+            sid=sid,
+            generation=int(generation or "0"),
+            owner_epoch=str(payload.get("owner_epoch") or ""),
+            capability_token="",
+            schema_digest=str(payload.get("schema_digest") or ""),
+            projection_digest=str(payload.get("projection_digest") or ""),
+            instance_id=None if instance in {None, ""} else str(instance),
+        )
+        stop = getattr(self._bridge, "suppress_forwarding", None)
+        if stop is not None:
+            try:
+                stop(request)
+            except Exception:
+                pass
+        fail = getattr(self._repository, "fail_connection", None)
+        if fail is not None and sid and generation:
+            try:
+                fail(
+                    sid,
+                    generation=int(generation),
+                    owner_epoch=request.owner_epoch,
+                    reason_code=CONNECTION_LOST,
+                )
+            except Exception:
+                pass
+        try:
+            self._bridge.close(request)
+        except Exception:
+            return
+
+    def finish_request(self, connection: socket.socket, raw: bytes, writer) -> None:
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        method = payload.get("method")
+        lost = threading.Event()
+        finished = threading.Event()
+        if method in _LONG_CONTROL_METHODS:
+            deadline = time.monotonic() + self._control_timeout
+            watcher = threading.Thread(
+                target=_watch_caller,
+                args=(connection, lost, finished, self, payload, deadline),
+                daemon=True,
+            )
+            watcher.start()
+        try:
+            response = self.handle(payload)
+        finally:
+            finished.set()
+        if lost.is_set():
+            self.abandon_caller(payload)
+            return
+        body = json.dumps(response, sort_keys=True).encode() + b"\n"
+        try:
+            writer(body)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            if method in _LONG_CONTROL_METHODS:
+                self.abandon_caller(payload)
 
     def handle(self, payload: dict[str, Any]) -> dict[str, Any]:
         method = payload.get("method")
@@ -220,18 +354,49 @@ class OwnerServer:
                 continue
 
 
+def _watch_caller(
+    connection,
+    lost: threading.Event,
+    finished: threading.Event,
+    owner,
+    payload,
+    deadline: float,
+) -> None:
+    while not finished.is_set():
+        if time.monotonic() >= deadline:
+            lost.set()
+            owner.abandon_caller(payload)
+            return
+        remaining = min(0.05, max(0.0, deadline - time.monotonic()))
+        readable, _writable, _errors = select.select([connection], [], [], remaining)
+        if finished.is_set():
+            return
+        if not readable:
+            continue
+        try:
+            peeked = connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+        except BlockingIOError:
+            continue
+        except OSError:
+            lost.set()
+            owner.abandon_caller(payload)
+            return
+        if peeked == b"":
+            lost.set()
+            owner.abandon_caller(payload)
+            return
+
+
 def _handler(owner: OwnerServer) -> type[socketserver.StreamRequestHandler]:
     class Handler(socketserver.StreamRequestHandler):
         def handle(self) -> None:
             raw = self.rfile.readline(65536)
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError):
-                payload = {}
-            if not isinstance(payload, dict):
-                payload = {}
-            response = owner.handle(payload)
-            self.wfile.write(json.dumps(response, sort_keys=True).encode() + b"\n")
+
+            def send(body: bytes) -> None:
+                self.wfile.write(body)
+                self.wfile.flush()
+
+            owner.finish_request(self.connection, raw, send)
 
     return Handler
 
