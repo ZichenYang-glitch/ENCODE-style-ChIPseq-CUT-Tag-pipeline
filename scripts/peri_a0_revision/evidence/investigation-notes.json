@@ -1,0 +1,19 @@
+{
+  "catalog_driver_attempt2": {
+    "status": "invalid",
+    "observed_exit_code": 1,
+    "observed_error": "NameError: name 'patterns' is not defined. Did you mean: 'pattern'?",
+    "cause": "multiline replacement failed to introduce patterns; fixed before catalog-only final verification",
+    "raw_partial_report": "patch-tests-catalog/report.json"
+  },
+  "rustfmt_initial_launch": {
+    "observed_exit_code": 127,
+    "observed_error": "error while loading shared libraries: librustc_driver-999a121de2f042be.so: cannot open shared object file: No such file or directory",
+    "resolution": "task-command LD_LIBRARY_PATH points to pinned toolchain/lib; no global change"
+  },
+  "resource_probe_initial": {
+    "observed_exit_code": 143,
+    "reason": "systemd scope OOMPolicy=stop; external Result=oom-kill evidence, not completed in-process JSON"
+  },
+  "raw_evidence_policy": "Task-root originals retained. These notes distinguish observed tool-return diagnostics from raw experiment records."
+}

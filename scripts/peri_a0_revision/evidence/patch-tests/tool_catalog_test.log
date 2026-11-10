@@ -1,0 +1,7 @@
+    Finished `release` profile [optimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/helixweave-peri-a0-revision-20261109/build/target/release/deps/peri_agent-d8590a30dff997ed)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1497 filtered out; finished in 0.00s
+

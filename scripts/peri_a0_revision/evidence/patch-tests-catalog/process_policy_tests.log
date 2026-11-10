@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.12s
+     Running unittests src/lib.rs (/tmp/helixweave-peri-a0-revision-20261109/build/target/release/deps/peri_agent-d8590a30dff997ed)
+
+running 2 tests
+test session::tool_catalog::process_policy_tests::process_policy_rejects_unknown_version_fields_and_wildcards ... ok
+test session::tool_catalog::process_policy_tests::process_policy_source_and_final_pin_are_not_name_only ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1495 filtered out; finished in 0.00s
+

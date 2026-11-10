@@ -1,0 +1,40 @@
+{
+  "environment": {
+    "PATH": "/tmp/helixweave-peri-a0-20261109/toolchain/bin:/usr/bin:/bin",
+    "HOME": "/tmp/hw-peri-a0-close-20261109/build-home",
+    "CARGO_HOME": "/tmp/hw-peri-a0-close-20261109/cargo-home",
+    "CARGO_TARGET_DIR": "/tmp/hw-peri-a0-close-20261109/build/target",
+    "CARGO_BUILD_JOBS": "4",
+    "LANG": "C.UTF-8",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "url.ssh://git@github.com/.insteadOf",
+    "GIT_CONFIG_VALUE_0": "https://github.com/",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+    "CARGO_NET_OFFLINE": "true"
+  },
+  "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+  "started_at_unix": 1794220044.2113814,
+  "commands": [
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-acp",
+        "--lib",
+        "trusted_prediction_policy_is_strict_and_default_compatible",
+        "--config",
+        "profile.release.package.peri-acp.opt-level=0"
+      ],
+      "exit_code": 101,
+      "passed_tests": 0
+    }
+  ],
+  "passed": false,
+  "finished_at_unix": 1794220044.3760831
+}

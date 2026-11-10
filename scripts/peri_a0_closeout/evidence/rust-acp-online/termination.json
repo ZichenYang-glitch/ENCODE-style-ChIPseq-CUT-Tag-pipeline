@@ -1,0 +1,11 @@
+{
+  "exec_exit_code": 143,
+  "systemd_unit": "hw-peri-close-rust-acp2.scope",
+  "Result": "oom-kill",
+  "ActiveState": "failed",
+  "SubState": "failed",
+  "ControlGroup": "",
+  "MemoryMax": 4294967296,
+  "test_started": false,
+  "note": "Scope OOM stopped driver before its finally/report; raw log retained. This is test compilation, not a native runtime scenario."
+}

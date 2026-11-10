@@ -1,0 +1,11 @@
+{
+  "changed_diff_sections": [
+    "a/peri-agent/src/session/tool_catalog_test.rs b/peri-agent/src/session/tool_catalog_test.rs"
+  ],
+  "reason": "Test fixture lacked wire identity; parser correctly rejected before generation assertions. Test-only implementation supplies mcp_tool_name.",
+  "production_diff_unchanged": true,
+  "binary_sha256_unchanged": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "original_binary_archive": "/tmp/hw-peri-a0-close-20261109/artifacts/initial/peri",
+  "first_build_seconds": 543.9561486244202,
+  "testfix_build_seconds": 0.8522655963897705
+}

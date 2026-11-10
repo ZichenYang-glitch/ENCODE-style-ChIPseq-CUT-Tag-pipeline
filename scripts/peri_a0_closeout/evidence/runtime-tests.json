@@ -1,0 +1,12 @@
+{
+  "command": "systemd-run --user --scope --unit=hw-peri-close-transport --property=MemoryMax=512M --property=MemorySwapMax=0 --property=CPUQuota=100% --property=TasksMax=128 /usr/bin/python3 -S /tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout/test_runtime.py",
+  "exit_code": 0,
+  "unittest_summary": "Ran 4 tests in 0.944s; OK",
+  "tests": [
+    "test_connection_cap_and_close",
+    "test_disconnect_closes_forwarder",
+    "test_idle_absolute_and_write_backpressure_deadlines",
+    "test_stub_rejects_oversized_body_and_closes"
+  ],
+  "source": "recorded exec tool output; no raw log file was redirected"
+}

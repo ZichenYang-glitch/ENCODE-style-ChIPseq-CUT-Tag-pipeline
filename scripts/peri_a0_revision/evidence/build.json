@@ -1,0 +1,62 @@
+{
+  "source_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "local_patch": "diff --git a/peri-agent/src/agent/stages/reason.rs b/peri-agent/src/agent/stages/reason.rs\nindex 4525511..74e4e07 100644\n--- a/peri-agent/src/agent/stages/reason.rs\n+++ b/peri-agent/src/agent/stages/reason.rs\n@@ -34,6 +34,9 @@ pub async fn run_reason(input: ReasonInput) -> AgentResult<ReasonOutput> {\n     let refreshed = match ctx.runtime.tool_catalog.refresh() {\n         Ok(snapshot) => snapshot,\n         Err(error) => {\n+            if crate::session::tool_catalog::strict_process_policy() {\n+                return Err(AgentError::Other(anyhow::Error::new(error)));\n+            }\n             tracing::warn!(error = %error, \"tool catalog refresh failed; retaining previous snapshot\");\n             ctx.runtime.tool_catalog.snapshot()\n         }\ndiff --git a/peri-agent/src/session/exec/stage_builder/tools.rs b/peri-agent/src/session/exec/stage_builder/tools.rs\nindex 1e2833b..1710eec 100644\n--- a/peri-agent/src/session/exec/stage_builder/tools.rs\n+++ b/peri-agent/src/session/exec/stage_builder/tools.rs\n@@ -71,7 +71,7 @@ pub(super) fn register_tool_catalog(\n     session_mcp_catalog: Option<Arc<dyn peri_acp_types::ports::SessionMcpCatalogPort>>,\n ) -> Result<Arc<SessionToolCatalog>, StageBuildError> {\n     let enabled = !disabled.contains(\"McpMiddleware\");\n-    let tool_filter = ToolFilterPolicy::with_mcp_policy(disabled, Arc::new(|_| true));\n+    let tool_filter = ToolFilterPolicy::with_mcp_policy(disabled, crate::session::tool_catalog::process_tool_filter()?);\n     let catalog = Arc::new(SessionToolCatalog::try_with_filter(\n         session_tools.read().clone(),\n         enabled.then_some(session_mcp_catalog).flatten(),\ndiff --git a/peri-agent/src/session/tool_catalog.rs b/peri-agent/src/session/tool_catalog.rs\nindex 65b3c45..9a268f8 100644\n--- a/peri-agent/src/session/tool_catalog.rs\n+++ b/peri-agent/src/session/tool_catalog.rs\n@@ -12,11 +12,81 @@ use peri_acp_types::{\n \n use crate::tools::{BaseTool, ToolDefinition};\n \n+/// Trusted process admission policy; deliberately independent of model/ACP settings.\n+/// Unset preserves upstream behavior. Once read, policy cannot change within a process.\n+#[derive(Clone, serde::Deserialize)]\n+#[serde(deny_unknown_fields)]\n+struct ProcessToolPolicy {\n+    version: u32,\n+    tools: Vec<ProcessToolIdentity>,\n+}\n+\n+#[derive(Clone, serde::Deserialize)]\n+#[serde(deny_unknown_fields)]\n+struct ProcessToolIdentity {\n+    name: String,\n+    server: Option<String>,\n+    wire: Option<String>,\n+    namespace: Option<String>,\n+    builtin: Option<String>,\n+    aliases: Vec<String>,\n+}\n+\n+impl ProcessToolPolicy {\n+    fn parse(raw: &str) -> Result<Self, CatalogRefreshError> {\n+        let policy: Self = serde_json::from_str(raw)\n+            .map_err(|_| CatalogRefreshError::InvalidProcessPolicy)?;\n+        let mut names = HashSet::new();\n+        if raw.len() > 16384 || policy.version != 1 || policy.tools.len() > 32\n+            || policy.tools.iter().any(|entry| {\n+                entry.name.is_empty() || entry.name.contains('*')\n+                    || !names.insert(entry.name.to_ascii_lowercase())\n+                    || entry.server.is_some() != entry.wire.is_some()\n+                    || entry.aliases.iter().any(|alias| alias.is_empty() || alias.contains('*'))\n+            }) {\n+            return Err(CatalogRefreshError::InvalidProcessPolicy);\n+        }\n+        Ok(policy)\n+    }\n+\n+    fn allows(&self, tool: &dyn BaseTool) -> bool {\n+        self.tools.iter().any(|entry| {\n+            entry.name == tool.name()\n+                && entry.server.as_deref() == tool.mcp_server_name()\n+                && entry.wire.as_deref() == tool.mcp_tool_name()\n+                && entry.namespace.as_deref() == tool.namespace()\n+                && entry.builtin.as_deref() == tool.builtin_mcp_instance()\n+                && entry.aliases.iter().map(String::as_str).eq(tool.aliases().iter().copied())\n+        })\n+    }\n+}\n+\n+fn process_policy() -> Result<&'static Option<ProcessToolPolicy>, CatalogRefreshError> {\n+    static POLICY: std::sync::OnceLock<Result<Option<ProcessToolPolicy>, CatalogRefreshError>> =\n+        std::sync::OnceLock::new();\n+    POLICY.get_or_init(|| match std::env::var(\"PERI_PROCESS_TOOL_POLICY\") {\n+        Ok(raw) => ProcessToolPolicy::parse(&raw).map(Some),\n+        Err(std::env::VarError::NotPresent) => Ok(None),\n+        Err(_) => Err(CatalogRefreshError::InvalidProcessPolicy),\n+    }).as_ref().map_err(Clone::clone)\n+}\n+\n+pub(crate) fn process_tool_filter() -> Result<ToolFilter, CatalogRefreshError> {\n+    let policy = process_policy()?;\n+    Ok(Arc::new(move |tool| policy.as_ref().is_none_or(|policy| policy.allows(tool))))\n+}\n+\n+pub(crate) fn strict_process_policy() -> bool {\n+    process_policy().map_or(true, Option::is_some)\n+}\n+\n /// \u4f1a\u8bdd\u5de5\u5177\u8fc7\u6ee4\u5668\u68c0\u67e5\u5df2\u7ed1\u5b9a\u7684\u5de5\u5177\u8eab\u4efd\uff0c\u907f\u514d\u540c\u540d\u6765\u6e90\u5192\u5145\u3002\n pub type ToolFilter = Arc<dyn Fn(&dyn BaseTool) -> bool + Send + Sync>;\n \n #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]\n pub enum CatalogRefreshError {\n+    #[error(\"invalid process tool policy\")]\n+    InvalidProcessPolicy,\n     #[error(\"MCP catalog tool `{tool}` has no source identity\")]\n     InvalidMcpSource { tool: String },\n     #[error(\"tool alias conflicts with another visible tool\")]\n@@ -400,6 +470,7 @@ impl SessionToolCatalog {\n         let current = self.snapshot();\n         let tools = working\n             .iter()\n+            .filter(|(_, tool)| (self.tool_filter)(tool.as_ref()))\n             .map(|(name, tool)| {\n                 let source = current\n                     .tools\n@@ -641,3 +712,52 @@ mod filter_policy_parity_tests {\n         );\n     }\n }\n+\n+#[cfg(test)]\n+mod process_policy_tests {\n+    use super::*;\n+    use async_trait::async_trait;\n+    use crate::tools::ToolContext;\n+\n+    struct Fixture { server: Option<&'static str> }\n+    #[async_trait]\n+    impl BaseTool for Fixture {\n+        fn name(&self) -> &str { \"Allowed\" }\n+        fn description(&self) -> &str { \"synthetic\" }\n+        fn parameters(&self) -> serde_json::Value { serde_json::json!({\"type\":\"object\"}) }\n+        fn mcp_server_name(&self) -> Option<&str> { self.server }\n+        fn mcp_tool_name(&self) -> Option<&str> { self.server.map(|_| \"wire\") }\n+        async fn invoke(&self, _: serde_json::Value, _: ToolContext<'_>)\n+            -> Result<String, Box<dyn std::error::Error + Send + Sync>> { panic!(\"not invoked\") }\n+    }\n+    fn policy() -> ProcessToolPolicy {\n+        ProcessToolPolicy::parse(r#\"{\"version\":1,\"tools\":[{\"name\":\"Allowed\",\"server\":\"approved\",\"wire\":\"wire\",\"namespace\":null,\"builtin\":null,\"aliases\":[]}]}\"#).unwrap()\n+    }\n+    #[test]\n+    fn process_policy_rejects_unknown_version_fields_and_wildcards() {\n+        for raw in [r#\"{\"version\":2,\"tools\":[]}\"#, r#\"{\"version\":1,\"tools\":[],\"bypass\":true}\"#,\n+            r#\"{\"version\":1,\"tools\":[{\"name\":\"*\",\"aliases\":[]}]}\"#] {\n+            assert!(ProcessToolPolicy::parse(raw).is_err());\n+        }\n+    }\n+    #[test]\n+    fn process_policy_source_and_final_pin_are_not_name_only() {\n+        let good: Arc<dyn BaseTool> = Arc::new(Fixture { server: Some(\"approved\") });\n+        let wrong: Arc<dyn BaseTool> = Arc::new(Fixture { server: Some(\"other\") });\n+        let intrinsic: Arc<dyn BaseTool> = Arc::new(Fixture { server: None });\n+        let policy = policy();\n+        assert!(policy.allows(good.as_ref()));\n+        assert!(!policy.allows(wrong.as_ref()));\n+        assert!(!policy.allows(intrinsic.as_ref()));\n+        let catalog = SessionToolCatalog::try_with_filter(\n+            BTreeMap::from([(\"Allowed\".into(), good.clone())]), None,\n+            Arc::new(move |tool| policy.allows(tool)),\n+        ).unwrap();\n+        assert_eq!(catalog.snapshot().tools.len(), 1);\n+        assert_eq!(catalog.refresh().unwrap().tools.len(), 1);\n+        let pin = catalog.pin_working_tools(&BTreeMap::from([(\"Allowed\".into(), wrong)])).unwrap();\n+        assert!(pin.tools.is_empty());\n+        assert!(crate::tools::DirectToolInvocationResolver.resolve_target(\"Allowed\", &pin.tool_map()).is_err());\n+        assert!(crate::tools::DirectToolInvocationResolver.resolve_target(\"aLlOwEd\", &pin.tool_map()).is_err());\n+    }\n+}\n",
+  "rust_version": "1.99.0",
+  "toolchain_packages": [
+    {
+      "name": "rustc",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5"
+    },
+    {
+      "name": "cargo",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "d7674918d28093097614cd9728b6ca60db9ea3038f640f0bd1e9a4188c7568ce"
+    },
+    {
+      "name": "rust-std",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933"
+    }
+  ],
+  "command": [
+    "./scripts/cargo-rmcp-patched.sh",
+    "build",
+    "--locked",
+    "-p",
+    "peri-tui",
+    "--release",
+    "--bin",
+    "peri"
+  ],
+  "environment": {
+    "PATH": "/tmp/helixweave-peri-a0-20261109/toolchain/bin:/usr/bin:/bin",
+    "HOME": "/tmp/helixweave-peri-a0-revision-20261109/build-home",
+    "CARGO_HOME": "/tmp/helixweave-peri-a0-revision-20261109/cargo-home",
+    "CARGO_TARGET_DIR": "/tmp/helixweave-peri-a0-revision-20261109/build/target",
+    "CARGO_BUILD_JOBS": "4",
+    "LANG": "C.UTF-8",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "url.ssh://git@github.com/.insteadOf",
+    "GIT_CONFIG_VALUE_0": "https://github.com/",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+    "CARGO_NET_OFFLINE": "true"
+  },
+  "cargo_lock_before": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "started_at_unix": 1794212796.8110895,
+  "rustc_vv": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+  "submodule_gitlink": "160000 commit bde51da766476241c5c8de360b9ef0931a89ed54\tperi-cool",
+  "binary": "/tmp/helixweave-peri-a0-revision-20261109/build/target/release/peri",
+  "binary_sha256": "cf6644fe2a67ad9ad9c377230cd997855fc34246e22ce420a14946f97c43a6a6",
+  "success": true,
+  "cargo_lock_after": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "finished_at_unix": 1794213111.5529842,
+  "patch_sha256": "6128b910c7ac25c3062bfc38521995f624e4849dce62b34c32060b4b7c282917",
+  "cache_copy_from": "/tmp/helixweave-peri-a0-20261109",
+  "toolchain_reused_read_only": "/tmp/helixweave-peri-a0-20261109/toolchain",
+  "exit_code": 0
+}

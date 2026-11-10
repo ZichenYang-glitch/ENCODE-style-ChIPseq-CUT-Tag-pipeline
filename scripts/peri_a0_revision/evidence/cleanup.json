@@ -1,0 +1,58 @@
+{
+  "checked_at": "2026-11-09T08:46:16.272766+00:00",
+  "recorded_pids_still_present": [],
+  "recorded_pids_checked": 38,
+  "model_socket_paths_remaining": [],
+  "scopes": {
+    "hw-peri-revision-build.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-transport.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-limits.scope": {
+      "exit_code": 0,
+      "properties": "Result=oom-kill\nControlGroup=\nActiveState=failed\nSubState=failed",
+      "stderr": ""
+    },
+    "hw-peri-revision-pids-cpu.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-q1.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-final-build.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-q2.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-patch-tests.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-catalog-tests.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    },
+    "hw-peri-revision-catalog-tests2.scope": {
+      "exit_code": 0,
+      "properties": "Result=success\nControlGroup=\nActiveState=inactive\nSubState=dead",
+      "stderr": ""
+    }
+  }
+}

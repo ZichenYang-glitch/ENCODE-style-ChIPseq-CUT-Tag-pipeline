@@ -1,0 +1,107 @@
+{
+  "reviewed_at": "2026-11-09T06:54:02.534513+00:00",
+  "kind": "static_handoff_review_not_a_new_experiment",
+  "reviewer": "Codex",
+  "conclusion": "A0 investigation delivered; fixed native ACP/reverse-MCP configuration fails admission; A1 not authorized",
+  "helixweave": {
+    "experimental_and_worktree_commit": "622778f64e59f935d822d92a91bade78807dabce",
+    "remote_main_read_only_verified_this_turn": "b2f15868c6f74ab8764a73ae6fe4394f67304475",
+    "main_changed_paths": [
+      "src/encode_pipeline/contracts/nfcore_rnaseq/default-execution-qualification-1.1.0.json",
+      "src/encode_pipeline/contracts/nfcore_rnaseq/execution-implementation-manifest-1.0.0.json",
+      "src/encode_pipeline/workers/timeouts.py",
+      "test/workers/test_nested_horse_cleanup.py"
+    ],
+    "prototype_migrated": false,
+    "new_experimental_runs": 0
+  },
+  "peri": {
+    "commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+    "source_clean": true,
+    "peri_cool_commit": "bde51da766476241c5c8de360b9ef0931a89ed54",
+    "binary_sha256": "ecb4eb1394c67db2c57bc74373f194d52c6342e3be425ed0980b665ec29d626f",
+    "binary_bytes": 36121008,
+    "build_manifest_sha256": "4546511d8e0a65e82144e7f0f2e51be11729a425500f9250b3eacf2d3e3c0621",
+    "cargo_lock_sha256": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+    "local_patch": "",
+    "prototype_hashes_match_r2": 12
+  },
+  "preserved_evidence": {
+    "original_index_verified_before_edits_count": 38,
+    "unchanged_files_excluding_results_summary": [
+      "build-attempt1.json",
+      "build-driver-attempt1.log",
+      "build.json",
+      "checks.json",
+      "host-unit.log",
+      "native-build-attempt1.log",
+      "native-build.log",
+      "r1/A_B_permission_tools/evidence.json",
+      "r1/A_B_permission_tools/native.log",
+      "r1/A_extra_tool/evidence.json",
+      "r1/A_extra_tool/native.log",
+      "r1/A_missing_tool/evidence.json",
+      "r1/A_missing_tool/native.log",
+      "r1/A_mode_error/evidence.json",
+      "r1/A_mode_error/native.log",
+      "r1/A_mode_timeout/evidence.json",
+      "r1/A_mode_timeout/native.log",
+      "r1/A_replacement_tool/evidence.json",
+      "r1/A_replacement_tool/native.log",
+      "r1/A_unknown_mode/evidence.json",
+      "r1/report.json",
+      "r2/A_B_permission_tools/evidence.json",
+      "r2/A_B_permission_tools/native.log.json",
+      "r2/A_extra_tool/evidence.json",
+      "r2/A_extra_tool/native.log",
+      "r2/A_missing_tool/evidence.json",
+      "r2/A_missing_tool/native.log",
+      "r2/A_mode_error/evidence.json",
+      "r2/A_mode_error/native.log",
+      "r2/A_mode_timeout/evidence.json",
+      "r2/A_mode_timeout/native.log",
+      "r2/A_replacement_tool/evidence.json",
+      "r2/A_replacement_tool/native.log",
+      "r2/A_unknown_mode/evidence.json",
+      "r2/report.json",
+      "run1-driver.log",
+      "run2-driver.log"
+    ],
+    "original_r1_invalid_passes_not_reclassified_in_raw_data": true,
+    "original_checks_json_preserved": true
+  },
+  "r2_summary": {
+    "cases": {
+      "passed": 6,
+      "failed": 1,
+      "not_measured": 8
+    },
+    "os_assertions_passed": 12,
+    "actual_file_read_attempts": 2,
+    "actual_connect_attempts": 3,
+    "os_limits": "Specified synthetic targets only; no_host_mounts checks /home and /run absence, not a full mount audit; no exhaustive external network attempt tracing",
+    "extra_direct_tool": "ReadContextArchive",
+    "unexpected_deferred_advertisements": [
+      "DiscoverMCP",
+      "mcp_read_resource"
+    ],
+    "expected_meta_tools": [
+      "SearchExtraTools",
+      "ExecuteExtraTool"
+    ],
+    "ready_reached": false
+  },
+  "cleanup": {
+    "r2_all_processes_exited": true,
+    "previous_checks_recorded_pids_still_present": [],
+    "review_started_runtime_processes": 0,
+    "scope": "Original experiment termination/observed descendants and listener cleanup evidence retained; this static review did not scan or stop unrelated host processes. Build, cache, synthetic state and logs retained."
+  },
+  "checks": {
+    "relative_links_checked": 72,
+    "fixed_commit_source_links_checked": 31,
+    "modified_markdown_full_file_whitespace_checks": 4,
+    "git_diff_check_exit_code": 0,
+    "python_unchanged_so_prior_lint_format_and_host_test_evidence_retained": true
+  }
+}

@@ -1,0 +1,14 @@
+2026-11-09T01:53:43.430372Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:43.435378Z  INFO peri_acp::host::stdio: ACP stdio mode starting provider=OpenAI model=a0-stub cwd=/work
+2026-11-09T01:53:43.461525Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:53:43.461535Z  INFO peri: 启动时清理孤儿插件文件完成
+2026-11-09T01:53:43.462086Z  INFO peri_acp::host::requests::session_lifecycle: ACP initialize protocol_version=1
+2026-11-09T01:53:43.469614Z  INFO peri_middlewares::hooks::loader: Reading hooks from /state/home/.claude/settings.json
+2026-11-09T01:53:43.469829Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:43.469973Z  WARN peri_middlewares::hooks::loader: Failed to read /state/home/.claude/settings.json: No such file or directory (os error 2)
+2026-11-09T01:53:43.470543Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:43.470729Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:53:43.470795Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:53:43.483654Z  INFO peri_acp::session::bridges: session cron bridge started session_id=01a1be02-e628-7200-9dbd-bbb372dd1daf
+2026-11-09T01:53:43.483686Z  INFO peri_acp::host::requests::session_lifecycle: ACP session created with ThreadStore session_id=01a1be02-e628-7200-9dbd-bbb372dd1daf
+2026-11-09T01:53:43.484623Z  WARN peri_agent::session::cron_events: cron MCP trigger read failed; retaining pending delivery error=MCP 服务器 "cron" 未找到

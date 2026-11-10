@@ -1,0 +1,14 @@
+{
+  "cases": 23,
+  "instances": 25,
+  "provider_requests": 128,
+  "startup_seconds": {
+    "n": 15,
+    "min": 0.14023929694667459,
+    "max": 0.2648758969735354
+  },
+  "peak_sampled_tree_rss_kib": 52480,
+  "all_effective_policy_receipts_prediction_started_zero": true,
+  "all_instance_cleanup_errors_empty": true,
+  "note": "100ms bwrap/relay/native tree RSS sampling excludes host stub; not aggregate memory or capacity measurement"
+}

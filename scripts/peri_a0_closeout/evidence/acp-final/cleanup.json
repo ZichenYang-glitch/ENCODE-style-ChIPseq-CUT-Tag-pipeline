@@ -1,0 +1,23 @@
+{
+  "checked_at_unix": 1794228864.3354497,
+  "scope": "hw-peri-acp-final-fat.scope",
+  "properties": {
+    "Result": "success",
+    "ControlGroup": "",
+    "ActiveState": "inactive",
+    "SubState": "dead"
+  },
+  "observed_pids": [
+    3655280,
+    3655290,
+    3655317,
+    3657052,
+    3657053,
+    3657054
+  ],
+  "still_present": [],
+  "task_sockets": [],
+  "target_lock_holders": "",
+  "nonlto_scope_started": false,
+  "passed": true
+}

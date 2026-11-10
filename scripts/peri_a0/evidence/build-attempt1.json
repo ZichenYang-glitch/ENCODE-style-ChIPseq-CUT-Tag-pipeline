@@ -1,0 +1,50 @@
+{
+  "source_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "local_patch": "",
+  "rust_version": "1.99.0",
+  "toolchain_packages": [
+    {
+      "name": "rustc",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5"
+    },
+    {
+      "name": "cargo",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/cargo-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "d7674918d28093097614cd9728b6ca60db9ea3038f640f0bd1e9a4188c7568ce"
+    },
+    {
+      "name": "rust-std",
+      "url": "https://static.rust-lang.org/dist/2026-10-01/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933"
+    }
+  ],
+  "command": [
+    "./scripts/cargo-rmcp-patched.sh",
+    "build",
+    "--locked",
+    "-p",
+    "peri-tui",
+    "--release",
+    "--bin",
+    "peri"
+  ],
+  "environment": {
+    "PATH": "/tmp/helixweave-peri-a0-20261109/toolchain/bin:/usr/bin:/bin",
+    "HOME": "/tmp/helixweave-peri-a0-20261109/build-home",
+    "CARGO_HOME": "/tmp/helixweave-peri-a0-20261109/cargo-home",
+    "CARGO_TARGET_DIR": "/tmp/helixweave-peri-a0-20261109/build/target",
+    "CARGO_BUILD_JOBS": "4",
+    "LANG": "C.UTF-8",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1"
+  },
+  "cargo_lock_before": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "started_at_unix": 1794188671.1589699,
+  "rustc_vv": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+  "submodule_gitlink": "160000 commit bde51da766476241c5c8de360b9ef0931a89ed54\tperi-cool",
+  "success": false,
+  "cargo_lock_after": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "finished_at_unix": 1794188680.2701426
+}

@@ -1,0 +1,50 @@
+{
+  "patch_sha256": "57d6e37054bfc187134524866840ae890349628c3d822001ecf971e2228fb712",
+  "started_at_unix": 1794218827.281728,
+  "commands": [
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-agent",
+        "--lib",
+        "process_policy_tests"
+      ],
+      "exit_code": 0,
+      "passed_tests": 2
+    },
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-agent",
+        "--lib",
+        "tool_filter_tests"
+      ],
+      "exit_code": 0,
+      "passed_tests": 2
+    },
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-agent",
+        "--lib",
+        "session::tool_catalog::tests"
+      ],
+      "exit_code": 101,
+      "passed_tests": 0
+    }
+  ],
+  "passed": false,
+  "finished_at_unix": 1794219080.1594734
+}

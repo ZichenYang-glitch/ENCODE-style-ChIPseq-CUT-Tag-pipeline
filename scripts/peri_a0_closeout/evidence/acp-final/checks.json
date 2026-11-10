@@ -1,0 +1,75 @@
+{
+  "passed": true,
+  "historical_files_in_inventory": 348,
+  "historical_files_unchanged": 346,
+  "authorized_driver_and_readme_changes": [
+    "scripts/peri_a0_closeout/verify_patch.py",
+    "scripts/peri_a0_closeout/README.md"
+  ],
+  "original_195_evidence_checksums": "passed, unchanged",
+  "old_RESULTS_and_SHA256SUMS": "unchanged; new conclusion appended separately",
+  "production_source_lock_test_assertions_binary": "unchanged, see identity-after.json",
+  "final_test_driver_sha256": "e2be713206f3ddae905f845c98e7cb55f4833363a3463eec4b292152d0440e66",
+  "native_matrix_rerun": false,
+  "commands": [
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout/verify_patch.py"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "format",
+        "--check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout/verify_patch.py"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": "1 file already formatted\n"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/tmp/hw-peri-a0-close-20261109/peri",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "relative_links": "passed",
+  "full_modified_source_and_document_whitespace": "passed",
+  "cleanup": true,
+  "single_test": {
+    "name": "host::prediction::tests::trusted_prediction_policy_is_strict_and_default_compatible",
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "exit_code": 0
+  },
+  "not_run": [
+    "native matrix repeat",
+    "non-LTO fallback",
+    "full product CI",
+    "science workflows",
+    "Protected Bulk Gate",
+    "real models or platform writes"
+  ]
+}

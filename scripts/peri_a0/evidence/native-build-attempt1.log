@@ -1,0 +1,34 @@
+patching file src/handler/server.rs
+patching file src/model.rs
+patching file src/service.rs
+patching file src/service/client.rs
+patching file src/service/server.rs
+patching file src/transport.rs
+patching file tests/test_message_schema/client_json_rpc_message_schema.json
+patching file tests/test_message_schema/server_json_rpc_message_schema.json
+patching file tests/test_subscriptions.rs
+patching file tests/test_subscriptions_model.rs
+patching file src/client/legacy/connect/dns.rs
+patching file Cargo.toml
+patching file http.rs
+patching file lib.rs
+patching file session.rs
+    Updating git repository `https://github.com/guybedford/mio`
+error: failed to load source for dependency `mio`
+
+Caused by:
+  unable to update https://github.com/guybedford/mio?tag=1.2.3-cf.emscripten#0788dbb6
+
+Caused by:
+  failed to clone into: /tmp/helixweave-peri-a0-20261109/cargo-home/git/db/mio-851a4ad7cbe7970b
+
+Caused by:
+  revision 0788dbb67883cb6191503af999471def54e3fb77 not found
+
+Caused by:
+  network failure seems to have happened
+  if a proxy or similar is necessary `net.git-fetch-with-cli` may help here
+  https://doc.rust-lang.org/cargo/reference/config.html#netgit-fetch-with-cli
+
+Caused by:
+  SSL error: unknown error; class=Ssl (16)

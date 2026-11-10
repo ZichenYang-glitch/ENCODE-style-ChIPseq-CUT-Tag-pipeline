@@ -1,0 +1,10 @@
+Running as unit: hw-peri-revision-transport.scope; invocation ID: 82c8393b0e184262916df8780b628bac
+test_connection_cap_and_close (__main__.RuntimeTests.test_connection_cap_and_close) ... ok
+test_disconnect_closes_forwarder (__main__.RuntimeTests.test_disconnect_closes_forwarder) ... ok
+test_idle_absolute_and_write_backpressure_deadlines (__main__.RuntimeTests.test_idle_absolute_and_write_backpressure_deadlines) ... ok
+test_stub_rejects_oversized_body_and_closes (__main__.RuntimeTests.test_stub_rejects_oversized_body_and_closes) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.937s
+
+OK

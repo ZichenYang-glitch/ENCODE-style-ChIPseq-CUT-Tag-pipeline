@@ -1,0 +1,360 @@
+--- a/peri-acp/src/host/prediction.rs
++++ b/peri-acp/src/host/prediction.rs
+@@ -5,6 +5,52 @@
+ use peri_acp_types::event_data::PredictionAction;
+ 
+ use super::{notify, prediction_projection, task_scope, AcpServerConfig, SharedSessions};
++
++use std::sync::{
++    atomic::{AtomicU64, Ordering},
++    OnceLock,
++};
++static PREDICTION_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
++static PREDICTION_STARTED: AtomicU64 = AtomicU64::new(0);
++static PREDICTION_SUPPRESSED: AtomicU64 = AtomicU64::new(0);
++
++fn parse_prediction_policy(raw: Option<&str>) -> Result<bool, &'static str> {
++    match raw {
++        None => Ok(true),
++        Some("off") => Ok(false),
++        _ => Err("invalid PERI_PREDICTION_POLICY"),
++    }
++}
++
++pub(super) fn prediction_enabled() -> Result<bool, &'static str> {
++    static POLICY: OnceLock<Result<bool, &'static str>> = OnceLock::new();
++    *POLICY.get_or_init(|| match std::env::var("PERI_PREDICTION_POLICY") {
++        Ok(raw) => parse_prediction_policy(Some(&raw)),
++        Err(std::env::VarError::NotPresent) => parse_prediction_policy(None),
++        Err(_) => Err("invalid PERI_PREDICTION_POLICY"),
++    })
++}
++
++pub(super) fn policy_facts(
++    cfg: &AcpServerConfig,
++) -> Result<serde_json::Value, crate::transport::types::AcpError> {
++    let enabled = prediction_enabled()
++        .map_err(|message| crate::transport::types::AcpError::new(-32603, message))?;
++    let tools = peri_agent::session::tool_catalog::process_tool_policy_facts()
++        .map_err(|error| crate::transport::types::AcpError::new(-32603, error.to_string()))?;
++    let compact = cfg
++        .peri_config
++        .read()
++        .config
++        .compact
++        .clone()
++        .unwrap_or_default();
++    Ok(serde_json::json!({"version":1,"prediction_enabled":enabled,
++        "prediction_attempts":PREDICTION_ATTEMPTS.load(Ordering::SeqCst),
++        "prediction_started":PREDICTION_STARTED.load(Ordering::SeqCst),
++        "prediction_suppressed":PREDICTION_SUPPRESSED.load(Ordering::SeqCst),
++        "auto_compact_enabled":compact.auto_compact_enabled,"tool_policy":tools}))
++}
+ 
+ pub(super) fn spawn_prediction(
+     transport: &Arc<dyn crate::transport::AcpTransport>,
+@@ -12,6 +58,19 @@
+     sessions: &SharedSessions,
+     cfg: &AcpServerConfig,
+ ) {
++    PREDICTION_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
++    match prediction_enabled() {
++        Ok(false) => {
++            PREDICTION_SUPPRESSED.fetch_add(1, Ordering::SeqCst);
++            return;
++        }
++        Err(error) => {
++            tracing::error!(error, "prediction policy rejected");
++            return;
++        }
++        Ok(true) => {}
++    }
++    PREDICTION_STARTED.fetch_add(1, Ordering::SeqCst);
+     let pred_transport = Arc::clone(transport);
+     let pred_session_id = prompt_session_id.to_string();
+     let pred_provider = cfg.provider.clone();
+--- a/peri-acp/src/host/prediction_test.rs
++++ b/peri-acp/src/host/prediction_test.rs
+@@ -37,3 +37,12 @@
+     let guard = lock_or_shutdown(&sessions, &CancellationToken::new()).await;
+     assert_eq!(*guard.expect("未关停时应取到锁"), 7);
+ }
++
++#[test]
++fn trusted_prediction_policy_is_strict_and_default_compatible() {
++    assert_eq!(super::parse_prediction_policy(None), Ok(true));
++    assert_eq!(super::parse_prediction_policy(Some("off")), Ok(false));
++    for value in ["", "false", "on", "OFF", "typo"] {
++        assert!(super::parse_prediction_policy(Some(value)).is_err());
++    }
++}
+--- a/peri-acp/src/host/requests.rs
++++ b/peri-acp/src/host/requests.rs
+@@ -73,6 +73,12 @@
+         .get("sessionId")
+         .or_else(|| params.get("session_id"))
+         .and_then(Value::as_str);
++    if method == "peri/host_policy" {
++        if params.as_object().is_none_or(|p| !p.is_empty()) {
++            return Err(AcpError::new(-32602, "host policy is read-only"));
++        }
++        return super::prediction::policy_facts(cfg);
++    }
+     if method == "peri/mcp/control" {
+         let prepared = mcp_control::prepare(params, &connection, sessions)?;
+         return mcp_control::execute(prepared).await;
+--- a/peri-acp/src/host/stdio/mod.rs
++++ b/peri-acp/src/host/stdio/mod.rs
+@@ -104,6 +104,8 @@
+ /// （cli 白名单文件，见 `peri-tui/src/main.rs`）构造后经 [`StdioInput`] 注入；
+ /// ACP 层只持端口接口（3.0 批 2 波 2，§0 依赖方向）。
+ pub async fn run_acp_stdio(input: StdioInput) -> anyhow::Result<()> {
++    super::prediction::prediction_enabled().map_err(anyhow::Error::msg)?;
++    peri_agent::session::tool_catalog::process_tool_policy_facts()?;
+     let _telemetry = peri_agent::telemetry::init_tracing("peri-acp");
+     // ACP 模式下 panic 必须落日志：客户端（编辑器/IDE）读日志文件而非宿主
+     // stderr，默认 hook 的输出对客户端不可见。装在 `init_tracing` **之后**——
+--- a/peri-agent/src/session/exec/stage_builder/tools.rs
++++ b/peri-agent/src/session/exec/stage_builder/tools.rs
+@@ -81,7 +81,7 @@
+         tool_filter,
+     )?;
+     if crate::session::tool_catalog::strict_process_policy() {
+-        catalog.enforce_strict_pinning();
++        catalog.enforce_strict_pinning()?;
+     }
+     let catalog = Arc::new(catalog);
+     // 首个 before_agent 与后续 Reason 使用同一策略过滤后的视图。
+--- a/peri-agent/src/session/tool_catalog.rs
++++ b/peri-agent/src/session/tool_catalog.rs
+@@ -14,14 +14,14 @@
+ 
+ /// Trusted process admission policy; deliberately independent of model/ACP settings.
+ /// Unset preserves upstream behavior. Once read, policy cannot change within a process.
+-#[derive(Clone, serde::Deserialize)]
++#[derive(Clone, serde::Deserialize, serde::Serialize)]
+ #[serde(deny_unknown_fields)]
+ struct ProcessToolPolicy {
+     version: u32,
+     tools: Vec<ProcessToolIdentity>,
+ }
+ 
+-#[derive(Clone, serde::Deserialize)]
++#[derive(Clone, serde::Deserialize, serde::Serialize)]
+ #[serde(deny_unknown_fields)]
+ struct ProcessToolIdentity {
+     name: String,
+@@ -30,10 +30,14 @@
+     namespace: Option<String>,
+     builtin: Option<String>,
+     aliases: Vec<String>,
++    parameters: Option<serde_json::Value>,
+ }
+ 
+ impl ProcessToolPolicy {
+     fn parse(raw: &str) -> Result<Self, CatalogRefreshError> {
++        if raw.len() > 16384 {
++            return Err(CatalogRefreshError::InvalidProcessPolicy);
++        }
+         let policy: Self =
+             serde_json::from_str(raw).map_err(|_| CatalogRefreshError::InvalidProcessPolicy)?;
+         let mut names = HashSet::new();
+@@ -56,6 +60,28 @@
+         Ok(policy)
+     }
+ 
++    fn verify_complete(
++        &self,
++        snapshot: &SessionToolCatalogSnapshot,
++    ) -> Result<(), CatalogRefreshError> {
++        for entry in &self.tools {
++            let single = Self {
++                version: self.version,
++                tools: vec![entry.clone()],
++            };
++            if !snapshot
++                .tools
++                .values()
++                .any(|item| single.allows(item.tool.as_ref()))
++            {
++                return Err(CatalogRefreshError::RequiredPolicyIdentityUnavailable {
++                    name: entry.name.clone(),
++                });
++            }
++        }
++        Ok(())
++    }
++
+     fn allows(&self, tool: &dyn BaseTool) -> bool {
+         self.tools.iter().any(|entry| {
+             entry.name == tool.name()
+@@ -63,6 +89,10 @@
+                 && entry.wire.as_deref() == tool.mcp_tool_name()
+                 && entry.namespace.as_deref() == tool.namespace()
+                 && entry.builtin.as_deref() == tool.builtin_mcp_instance()
++                && entry
++                    .parameters
++                    .as_ref()
++                    .is_none_or(|schema| *schema == tool.parameters())
+                 && entry
+                     .aliases
+                     .iter()
+@@ -85,6 +115,10 @@
+         .map_err(Clone::clone)
+ }
+ 
++pub fn process_tool_policy_facts() -> Result<serde_json::Value, CatalogRefreshError> {
++    Ok(serde_json::to_value(process_policy()?).expect("policy serialization"))
++}
++
+ pub(crate) fn process_tool_filter() -> Result<ToolFilter, CatalogRefreshError> {
+     let policy = process_policy()?;
+     Ok(Arc::new(move |tool| {
+@@ -103,6 +137,8 @@
+ pub enum CatalogRefreshError {
+     #[error("invalid process tool policy")]
+     InvalidProcessPolicy,
++    #[error("required process tool identity `{name}` is unavailable")]
++    RequiredPolicyIdentityUnavailable { name: String },
+     #[error("MCP catalog tool `{tool}` has no source identity")]
+     InvalidMcpSource { tool: String },
+     #[error("tool alias conflicts with another visible tool")]
+@@ -312,6 +348,7 @@
+     capability: Option<Arc<dyn SessionMcpCatalogPort>>,
+     tool_filter: ToolFilter,
+     strict_pinning: bool,
++    required_policy: Option<ProcessToolPolicy>,
+ }
+ 
+ impl SessionToolCatalog {
+@@ -367,11 +404,23 @@
+             capability,
+             tool_filter,
+             strict_pinning: false,
++            required_policy: None,
+         })
+     }
+ 
+-    pub(crate) fn enforce_strict_pinning(&mut self) {
++    pub(crate) fn enforce_strict_pinning(&mut self) -> Result<(), CatalogRefreshError> {
+         self.strict_pinning = true;
++        self.required_policy = process_policy()?.clone();
++        self.verify_complete(&self.snapshot())
++    }
++
++    fn verify_complete(
++        &self,
++        snapshot: &SessionToolCatalogSnapshot,
++    ) -> Result<(), CatalogRefreshError> {
++        self.required_policy
++            .as_ref()
++            .map_or(Ok(()), |policy| policy.verify_complete(snapshot))
+     }
+ 
+     pub fn snapshot(&self) -> Arc<SessionToolCatalogSnapshot> {
+@@ -395,6 +444,7 @@
+             capability.as_deref(),
+             self.tool_filter.as_ref(),
+         )?);
++        self.verify_complete(&next)?;
+         state.published = Arc::clone(&next);
+         Ok(next)
+     }
+@@ -477,7 +527,9 @@
+                 });
+             }
+         }
++        self.verify_complete(&next)?;
+         state.base_tools = next_base;
++        self.verify_complete(&next)?;
+         state.published = Arc::clone(&next);
+         Ok(next)
+     }
+@@ -508,7 +560,9 @@
+                 )
+             })
+             .collect();
+-        finalize(current.generation, tools).map(Arc::new)
++        let pinned = Arc::new(finalize(current.generation, tools)?);
++        self.verify_complete(&pinned)?;
++        Ok(pinned)
+     }
+ }
+ 
+@@ -808,7 +862,7 @@
+             catalog.pin_working_tools(&replacement).unwrap().tools.len(),
+             1
+         );
+-        catalog.enforce_strict_pinning();
++        catalog.enforce_strict_pinning().unwrap();
+         let pin = catalog.pin_working_tools(&replacement).unwrap();
+         assert!(pin.tools.is_empty());
+         assert!(crate::tools::DirectToolInvocationResolver
+--- a/peri-agent/src/session/tool_catalog_test.rs
++++ b/peri-agent/src/session/tool_catalog_test.rs
+@@ -159,6 +159,10 @@
+ 
+     fn mcp_server_name(&self) -> Option<&str> {
+         self.server.as_deref()
++    }
++
++    fn mcp_tool_name(&self) -> Option<&str> {
++        self.name.rsplit("__").next()
+     }
+ 
+     fn is_direct(&self) -> bool {
+@@ -577,3 +581,54 @@
+     ));
+     assert!(catalog.snapshot().tools.is_empty());
+ }
++
++#[test]
++fn complete_process_policy_rejects_unknown_and_changed_generation_before_publication() {
++    let tool: Arc<dyn BaseTool> = Arc::new(BridgeTool::bridge("mcp__docs__lookup", "docs"));
++    let source = Arc::new(MutableCapability(parking_lot::RwLock::new(Arc::new(
++        SessionMcpCatalogSnapshot {
++            generation: 1,
++            tools: vec![tool.clone()],
++        },
++    ))));
++    let raw = serde_json::json!({"version":1,"tools":[{"name":tool.name(),"server":tool.mcp_server_name(),"wire":tool.mcp_tool_name(),"namespace":tool.namespace(),"builtin":null,"aliases":[],"parameters":tool.parameters()}]});
++    let policy = ProcessToolPolicy::parse(&raw.to_string()).unwrap();
++    let filter = policy.clone();
++    let mut catalog = SessionToolCatalog::try_with_filter(
++        BTreeMap::new(),
++        Some(source.clone()),
++        Arc::new(move |tool| filter.allows(tool)),
++    )
++    .unwrap();
++    catalog.strict_pinning = true;
++    catalog.required_policy = Some(policy.clone());
++    catalog.verify_complete(&catalog.snapshot()).unwrap();
++    let mut unknown = raw.clone();
++    unknown["tools"][0]["name"] = json!("does-not-exist");
++    assert!(ProcessToolPolicy::parse(&unknown.to_string())
++        .unwrap()
++        .verify_complete(&catalog.snapshot())
++        .is_err());
++    source.publish(SessionMcpCatalogSnapshot {
++        generation: 2,
++        tools: vec![],
++    });
++    assert!(matches!(
++        catalog.refresh(),
++        Err(CatalogRefreshError::RequiredPolicyIdentityUnavailable { .. })
++    ));
++    assert_eq!(catalog.snapshot().generation, 1);
++    source.publish(SessionMcpCatalogSnapshot {
++        generation: 3,
++        tools: vec![Arc::new(BridgeTool::bridge("mcp__docs__lookup", "other"))],
++    });
++    assert!(catalog.refresh().is_err());
++    assert_eq!(catalog.snapshot().generation, 1);
++    assert!(catalog.pin_working_tools(&BTreeMap::new()).is_err());
++    let mut wrong_schema = raw.clone();
++    wrong_schema["tools"][0]["parameters"] = json!({"type":"integer"});
++    assert!(ProcessToolPolicy::parse(&wrong_schema.to_string())
++        .unwrap()
++        .verify_complete(&catalog.snapshot())
++        .is_err());
++}

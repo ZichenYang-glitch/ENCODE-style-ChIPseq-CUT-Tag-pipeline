@@ -1,0 +1,86 @@
+{
+  "environment": {
+    "PATH": "/tmp/helixweave-peri-a0-20261109/toolchain/bin:/usr/bin:/bin",
+    "HOME": "/tmp/hw-peri-a0-close-20261109/build-home",
+    "CARGO_HOME": "/tmp/hw-peri-a0-close-20261109/cargo-home",
+    "CARGO_TARGET_DIR": "/tmp/hw-peri-a0-close-20261109/build/target",
+    "CARGO_BUILD_JOBS": "1",
+    "LANG": "C.UTF-8",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "url.ssh://git@github.com/.insteadOf",
+    "GIT_CONFIG_VALUE_0": "https://github.com/",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+    "CARGO_NET_OFFLINE": "true"
+  },
+  "environment_diff": {
+    "CARGO_BUILD_JOBS": "1"
+  },
+  "profile": {
+    "name": "release",
+    "inherited_lto": "fat",
+    "inherited_codegen_units": 1,
+    "test_crate_opt_level": 0,
+    "lto_override": null
+  },
+  "resources_before": {
+    "path": "/user.slice/user-1000.slice/user@1000.service/app.slice/hw-peri-acp-final-fat.scope",
+    "memory.max": "8589934592",
+    "memory.swap.max": "0",
+    "memory.peak": "11833344",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "pids.max": "512",
+    "pids.peak": "9",
+    "cpu.max": "400000 100000",
+    "cpu.stat": "usage_usec 33574\nuser_usec 19185\nsystem_usec 14389\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0"
+  },
+  "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+  "started_at_unix": 1794228665.4918044,
+  "commands": [
+    {
+      "argv": [
+        "./scripts/cargo-rmcp-patched.sh",
+        "--config",
+        "profile.release.package.peri-acp.opt-level=0",
+        "test",
+        "-vv",
+        "--locked",
+        "--release",
+        "-p",
+        "peri-acp",
+        "--lib",
+        "trusted_prediction_policy_is_strict_and_default_compatible"
+      ],
+      "exit_code": 0,
+      "passed_tests": 1
+    }
+  ],
+  "passed": true,
+  "planned_command": [
+    "./scripts/cargo-rmcp-patched.sh",
+    "--config",
+    "profile.release.package.peri-acp.opt-level=0",
+    "test",
+    "-vv",
+    "--locked",
+    "--release",
+    "-p",
+    "peri-acp",
+    "--lib",
+    "trusted_prediction_policy_is_strict_and_default_compatible"
+  ],
+  "finished_at_unix": 1794228759.5674832,
+  "resources_after": {
+    "path": "/user.slice/user-1000.slice/user@1000.service/app.slice/hw-peri-acp-final-fat.scope",
+    "memory.max": "8589934592",
+    "memory.swap.max": "0",
+    "memory.peak": "6741385216",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "pids.max": "512",
+    "pids.peak": "27",
+    "cpu.max": "400000 100000",
+    "cpu.stat": "usage_usec 93977373\nuser_usec 86383080\nsystem_usec 7594292\nnr_periods 941\nnr_throttled 1\nthrottled_usec 619946\nnr_bursts 0\nburst_usec 0"
+  }
+}

@@ -1,0 +1,13 @@
+   Compiling peri-agent v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/peri-agent)
+   Compiling peri-mcp-common v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/common)
+   Compiling peri-controller v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/peri-controller)
+   Compiling peri-mcp-workspace v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/workspace)
+   Compiling peri-mcp-monitor v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/monitor)
+   Compiling peri-mcp-artifact v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/artifact)
+   Compiling peri-mcp-cron v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/cron)
+   Compiling peri-mcp-web v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/web)
+   Compiling peri-mcp-workflow v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/mcp-packages/workflow)
+   Compiling peri-middlewares v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/peri-middlewares)
+   Compiling peri-acp v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/peri-acp)
+   Compiling peri-tui v0.2.0 (/tmp/helixweave-peri-a0-revision-20261109/peri-candidate/peri-tui)
+    Finished `release` profile [optimized] target(s) in 3m 42s

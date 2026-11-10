@@ -1,0 +1,9 @@
+Result=oom-kill
+OOMPolicy=stop
+ControlGroup=
+CPUQuotaPerSecUSec=200ms
+MemoryMax=67108864
+MemorySwapMax=0
+TasksMax=16
+ActiveState=failed
+SubState=failed

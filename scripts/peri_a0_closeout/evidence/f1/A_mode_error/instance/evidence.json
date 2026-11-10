@@ -1,0 +1,555 @@
+{
+  "effective_policy_receipts": [
+    {
+      "version": 1,
+      "prediction_enabled": false,
+      "prediction_attempts": 0,
+      "prediction_started": 0,
+      "prediction_suppressed": 0,
+      "auto_compact_enabled": false,
+      "tool_policy": {
+        "version": 1,
+        "tools": [
+          {
+            "name": "SearchExtraTools",
+            "server": null,
+            "wire": null,
+            "namespace": "meta",
+            "builtin": null,
+            "aliases": [],
+            "parameters": null
+          },
+          {
+            "name": "ExecuteExtraTool",
+            "server": null,
+            "wire": null,
+            "namespace": "meta",
+            "builtin": null,
+            "aliases": [],
+            "parameters": null
+          },
+          {
+            "name": "mcp__fixture__lookup",
+            "server": "fixture",
+            "wire": "lookup",
+            "namespace": null,
+            "builtin": null,
+            "aliases": [],
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "object_id": {
+                  "type": "string",
+                  "enum": [
+                    "item-1"
+                  ]
+                }
+              },
+              "required": [
+                "object_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "mcp__fixture__increment",
+            "server": "fixture",
+            "wire": "increment",
+            "namespace": null,
+            "builtin": null,
+            "aliases": [],
+            "parameters": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "instance": "1bf23ffddf3046d18829fa307441cace",
+  "generation": 1,
+  "state": "closed",
+  "session": "01a1bfc7-dac2-7981-8daa-56f19964b9ad",
+  "argv": [
+    "/usr/bin/prlimit",
+    "--nofile=128:128",
+    "--core=0:0",
+    "--fsize=16777216:16777216",
+    "--",
+    "/usr/bin/bwrap",
+    "--unshare-all",
+    "--unshare-user",
+    "--disable-userns",
+    "--die-with-parent",
+    "--new-session",
+    "--cap-drop",
+    "ALL",
+    "--clearenv",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--dir",
+    "/work",
+    "--dir",
+    "/runtime",
+    "--ro-bind",
+    "/tmp/hw-peri-a0-close-20261109/build/target/release/peri",
+    "/runtime/peri",
+    "--ro-bind",
+    "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout/relay.py",
+    "/runtime/relay.py",
+    "--ro-bind",
+    "/usr/bin/python3.12",
+    "/usr/bin/python3.12",
+    "--ro-bind",
+    "/usr/lib/python3.12",
+    "/usr/lib/python3.12",
+    "--ro-bind",
+    "/lib/x86_64-linux-gnu",
+    "/lib/x86_64-linux-gnu",
+    "--ro-bind",
+    "/lib64",
+    "/lib64",
+    "--ro-bind",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "--bind",
+    "/tmp/hw-peri-a0-close-20261109/evidence/f1/A_mode_error/instance/state",
+    "/state",
+    "--ro-bind",
+    "/tmp/hw-peri-a0-close-20261109/evidence/f1/A_mode_error/instance/model.sock",
+    "/model.sock",
+    "--setenv",
+    "PATH",
+    "/usr/bin",
+    "--setenv",
+    "HOME",
+    "/state/home",
+    "--setenv",
+    "XDG_CONFIG_HOME",
+    "/state/config",
+    "--setenv",
+    "XDG_CACHE_HOME",
+    "/state/cache",
+    "--setenv",
+    "XDG_DATA_HOME",
+    "/state/data",
+    "--setenv",
+    "TMPDIR",
+    "/tmp",
+    "--setenv",
+    "LANG",
+    "C.UTF-8",
+    "--setenv",
+    "TZ",
+    "UTC",
+    "--setenv",
+    "PERI_MCP_BUILTIN",
+    "off",
+    "--setenv",
+    "SSL_CERT_FILE",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "--chdir",
+    "/work",
+    "--setenv",
+    "PERI_PROCESS_TOOL_POLICY",
+    "{\"version\": 1, \"tools\": [{\"name\": \"SearchExtraTools\", \"server\": null, \"wire\": null, \"namespace\": \"meta\", \"builtin\": null, \"aliases\": [], \"parameters\": null}, {\"name\": \"ExecuteExtraTool\", \"server\": null, \"wire\": null, \"namespace\": \"meta\", \"builtin\": null, \"aliases\": [], \"parameters\": null}, {\"name\": \"mcp__fixture__lookup\", \"server\": \"fixture\", \"wire\": \"lookup\", \"namespace\": null, \"builtin\": null, \"aliases\": [], \"parameters\": {\"type\": \"object\", \"properties\": {\"object_id\": {\"type\": \"string\", \"enum\": [\"item-1\"]}}, \"required\": [\"object_id\"], \"additionalProperties\": false}}, {\"name\": \"mcp__fixture__increment\", \"server\": \"fixture\", \"wire\": \"increment\", \"namespace\": null, \"builtin\": null, \"aliases\": [], \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}]}",
+    "--setenv",
+    "PERI_PREDICTION_POLICY",
+    "off",
+    "--setenv",
+    "TOKIO_WORKER_THREADS",
+    "2",
+    "--remount-ro",
+    "/",
+    "--",
+    "/usr/bin/python3.12",
+    "-I",
+    "-S",
+    "/runtime/relay.py"
+  ],
+  "ready_seconds": null,
+  "closed_seconds": 0.11861803312785923,
+  "model_requests": [],
+  "stub_failures": [],
+  "counter": 0,
+  "lookups": 0,
+  "tool_call_arrivals": 0,
+  "approvals": [],
+  "denied_callbacks": [
+    "binding"
+  ],
+  "transport_errors": [
+    "RPC_FAILURE",
+    "INITIALIZATION_FAILED",
+    "CLOSED_BY_HOST"
+  ],
+  "events": [
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "protocolVersion": 1,
+        "agentCapabilities": {
+          "loadSession": true,
+          "promptCapabilities": {
+            "image": true,
+            "audio": false,
+            "embeddedContext": false
+          },
+          "mcpCapabilities": {
+            "http": true,
+            "sse": false,
+            "acp": true
+          },
+          "sessionCapabilities": {
+            "list": {},
+            "delete": {},
+            "fork": {},
+            "resume": {},
+            "close": {}
+          },
+          "auth": {},
+          "_meta": {
+            "peri.tokenStats": false,
+            "peri.skillNames": false,
+            "peri.replay": false,
+            "peri.agentEvent": false,
+            "peri.agentEventDone": false,
+            "peri.agentActivity": false,
+            "peri.oauth": false,
+            "peri.unstableEvent": false,
+            "peri.prediction": false,
+            "peri.planEntryActiveForm": false,
+            "peri.rewind": false,
+            "peri.systemReminder": false,
+            "peri.userInputQueue": false,
+            "peri.sessionWorkspaceV1": false,
+            "peri.historyPagination": false,
+            "peri.historyWindowV1": false,
+            "peri.mcpControlV1": true,
+            "peri.uiCommands": []
+          }
+        },
+        "authMethods": []
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "version": 1,
+        "prediction_enabled": false,
+        "prediction_attempts": 0,
+        "prediction_started": 0,
+        "prediction_suppressed": 0,
+        "auto_compact_enabled": false,
+        "tool_policy": {
+          "version": 1,
+          "tools": [
+            {
+              "name": "SearchExtraTools",
+              "server": null,
+              "wire": null,
+              "namespace": "meta",
+              "builtin": null,
+              "aliases": [],
+              "parameters": null
+            },
+            {
+              "name": "ExecuteExtraTool",
+              "server": null,
+              "wire": null,
+              "namespace": "meta",
+              "builtin": null,
+              "aliases": [],
+              "parameters": null
+            },
+            {
+              "name": "mcp__fixture__lookup",
+              "server": "fixture",
+              "wire": "lookup",
+              "namespace": null,
+              "builtin": null,
+              "aliases": [],
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "object_id": {
+                    "type": "string",
+                    "enum": [
+                      "item-1"
+                    ]
+                  }
+                },
+                "required": [
+                  "object_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "mcp__fixture__increment",
+              "server": "fixture",
+              "wire": "increment",
+              "namespace": null,
+              "builtin": null,
+              "aliases": [],
+              "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "result": {
+        "sessionId": "01a1bfc7-dac2-7981-8daa-56f19964b9ad",
+        "modes": {
+          "currentModeId": "bypass",
+          "availableModes": [
+            {
+              "id": "default",
+              "name": "Default",
+              "description": "All sensitive tools require approval"
+            },
+            {
+              "id": "accept_edit",
+              "name": "Accept Edit",
+              "description": "Allow filesystem edits"
+            },
+            {
+              "id": "auto",
+              "name": "Auto Mode",
+              "description": "LLM decides approval"
+            },
+            {
+              "id": "bypass",
+              "name": "Bypass",
+              "description": "Allow everything"
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "mode",
+            "name": "Session Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": "bypass",
+            "options": [
+              {
+                "value": "default",
+                "name": "Default"
+              },
+              {
+                "value": "accept_edit",
+                "name": "Accept Edit"
+              },
+              {
+                "value": "auto",
+                "name": "Auto Mode"
+              },
+              {
+                "value": "bypass",
+                "name": "Bypass"
+              }
+            ]
+          },
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "sonnet",
+            "options": [
+              {
+                "value": "fable",
+                "name": "fable (a0-stub)"
+              },
+              {
+                "value": "opus",
+                "name": "opus (a0-stub)"
+              },
+              {
+                "value": "sonnet",
+                "name": "sonnet (a0-stub)"
+              },
+              {
+                "value": "haiku",
+                "name": "haiku (a0-stub)"
+              }
+            ]
+          },
+          {
+            "id": "thinking_effort",
+            "name": "Thinking Effort",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": "xhigh",
+            "options": [
+              {
+                "value": "low",
+                "name": "Low"
+              },
+              {
+                "value": "medium",
+                "name": "Medium"
+              },
+              {
+                "value": "high",
+                "name": "High"
+              },
+              {
+                "value": "xhigh",
+                "name": "XHigh"
+              },
+              {
+                "value": "max",
+                "name": "Max"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "peri/unstable_event",
+      "params": {
+        "sessionId": "01a1bfc7-dac2-7981-8daa-56f19964b9ad",
+        "event": "bg-task-snapshot",
+        "data": {
+          "revision": 0,
+          "source": "live",
+          "tasks": []
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "01a1bfc7-dac2-7981-8daa-56f19964b9ad",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "compact",
+              "description": "\u538b\u7f29\u5bf9\u8bdd\u5386\u53f2\u4ee5\u91ca\u653e\u4e0a\u4e0b\u6587\u7a7a\u95f4",
+              "_meta": {
+                "periKind": "command",
+                "periLevel": 1,
+                "periAliases": [
+                  "compress"
+                ],
+                "periArgs": {
+                  "positionals": [],
+                  "named": [],
+                  "flags": []
+                }
+              }
+            },
+            {
+              "name": "loop",
+              "description": "Control agent iteration loop",
+              "_meta": {
+                "periKind": "command",
+                "periLevel": 1,
+                "periArgs": {
+                  "positionals": [],
+                  "named": [],
+                  "flags": []
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "error": {
+        "code": -32602,
+        "message": "session not found"
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "mcp/message",
+      "params": {
+        "serverId": "fixture-1bf23ffddf3046d18829fa307441cace",
+        "requestId": "peri-1",
+        "method": "server/discover",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "rmcp",
+              "version": "3.5.1"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": {
+                "io.mcpp/server-cache-version": {},
+                "io.modelcontextprotocol/tasks": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "mcp/message",
+      "params": {
+        "serverId": "fixture-1bf23ffddf3046d18829fa307441cace",
+        "requestId": "peri-2",
+        "method": "tools/list",
+        "params": {
+          "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              "name": "rmcp",
+              "version": "3.5.1"
+            },
+            "io.modelcontextprotocol/clientCapabilities": {
+              "extensions": {
+                "io.mcpp/server-cache-version": {},
+                "io.modelcontextprotocol/tasks": {}
+              }
+            },
+            "progressToken": 0
+          }
+        }
+      }
+    }
+  ],
+  "cleanup_errors": [],
+  "resources": {
+    "interval_seconds": 0.1,
+    "samples": 5,
+    "peak_sampled_tree_rss_kib": 42496,
+    "observed_pids": [
+      3485067,
+      3485070,
+      3485071,
+      3485073
+    ],
+    "still_present": [],
+    "boundary": "sampled bwrap/relay/Peri descendants; excludes host stub; not an enforced memory limit"
+  },
+  "exit_code": -9
+}

@@ -1,0 +1,393 @@
+       Fresh unicode-ident v1.0.24
+       Fresh proc-macro2 v1.0.107
+       Fresh quote v1.0.47
+       Fresh syn v3.0.3
+       Fresh syn v2.0.119
+       Fresh synstructure v0.13.2
+       Fresh zerofrom-derive v0.1.7
+       Fresh serde_derive v1.0.229
+       Fresh libc v0.2.189
+       Fresh yoke-derive v0.8.2
+       Fresh zerovec-derive v0.11.3
+       Fresh displaydoc v0.2.7
+       Fresh jobserver v0.1.35
+       Fresh find-msvc-tools v0.1.10
+       Fresh shlex v2.0.1
+       Fresh cc v1.4.2
+       Fresh errno v0.3.14
+       Fresh tracing-attributes v0.1.31
+       Fresh autocfg v1.5.1
+       Fresh signal-hook-registry v1.4.8
+       Fresh tokio-macros v2.7.2
+       Fresh pkg-config v0.3.33
+       Fresh futures-macro v0.3.34
+       Fresh version_check v0.9.5
+       Fresh thiserror-impl v2.0.20
+       Fresh http v1.5.0
+       Fresh bitflags v2.13.1
+       Fresh cmake v0.1.58
+       Fresh dunce v1.0.5
+       Fresh fs_extra v1.3.0
+warning: aws-lc-sys@0.44.0: Environment Variable found 'CARGO_ENCODED_RUSTFLAGS': ''
+warning: aws-lc-sys@0.44.0: Emitting configuration: cargo:rustc-cfg=universal
+warning: aws-lc-sys@0.44.0: Building with: CC
+warning: aws-lc-sys@0.44.0: Symbol Prefix: Some("aws_lc_0_44_0")
+warning: aws-lc-sys@0.44.0: Target platform: 'x86_64-unknown-linux-gnu'
+warning: aws-lc-sys@0.44.0: Compilation of 'c11.c' succeeded - Ok(["/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out/out-c11/7dfda64fdf5a526c-c11.o"]).
+warning: aws-lc-sys@0.44.0: Using flag: -ffile-prefix-map=/tmp/hw-peri-a0-close-20261109/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/aws-lc-sys-0.44.0=
+warning: aws-lc-sys@0.44.0: Size-optimized AWS-LC build enabled. Applying OPENSSL_SMALL and disabling AVX-512 assembly.
+warning: aws-lc-sys@0.44.0: Compilation of 'stdalign_check.c' succeeded - Ok(["/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out/out-stdalign_check/7dfda64fdf5a526c-stdalign_check.o"]).
+warning: aws-lc-sys@0.44.0: Compilation of 'builtin_swap_check.c' succeeded - Ok(["/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out/out-builtin_swap_check/7dfda64fdf5a526c-builtin_swap_check.o"]).
+warning: aws-lc-sys@0.44.0: Compilation of 'linux_random_h.c' succeeded - Ok(["/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out/out-linux_random_h/7dfda64fdf5a526c-linux_random_h.o"]).
+       Fresh http-body v1.1.0
+       Fresh strsim v0.11.1
+       Fresh ident_case v1.0.1
+       Fresh simd-adler32 v0.3.10
+       Fresh iana-time-zone v0.1.65
+       Fresh zeroize v1.9.0
+       Fresh chrono v0.4.45
+       Fresh httparse v1.10.1
+       Fresh tokio-util v0.7.19
+       Fresh adler2 v2.0.1
+       Fresh tower-service v0.3.3
+       Fresh miniz_oxide v0.8.9
+       Fresh crc32fast v1.5.0
+       Fresh rustls-pki-types v1.15.1
+       Fresh aws-lc-sys v0.44.0
+       Fresh zerofrom v0.1.8
+       Fresh encoding_rs v0.8.35
+       Fresh untrusted v0.9.0
+       Fresh atomic-waker v1.1.2
+       Fresh stable_deref_trait v1.2.1
+       Fresh alloc-no-stdlib v2.0.4
+       Fresh try-lock v0.2.5
+       Fresh want v0.3.1
+       Fresh h2 v0.4.15
+       Fresh alloc-stdlib v0.2.4
+       Fresh yoke v0.8.3
+       Fresh aws-lc-rs v1.18.0
+       Fresh flate2 v1.1.9
+       Fresh http-body-util v0.1.4
+       Fresh httpdate v1.0.3
+       Fresh hyper v1.11.0
+       Fresh rustls-webpki v0.103.14
+       Fresh brotli-decompressor v5.0.3
+       Fresh sync_wrapper v1.0.2
+       Fresh tower-layer v0.3.3
+       Fresh ipnet v2.12.1
+       Fresh rand_core v0.10.1
+       Fresh ryu v1.0.23
+       Fresh subtle v2.6.1
+       Fresh base64 v0.23.1
+       Fresh hyper-util v0.1.21 (/tmp/hw-peri-a0-close-20261109/peri/target/peri-hyper-util-patches/3d042c521173735e747c9481371bd3197d4b2b7dc405006f5e51bd4493434c3b/hyper-util-0.1.21)
+       Fresh rustls v0.23.43
+       Fresh brotli v8.0.4
+       Fresh zerovec v0.11.6
+       Fresh compression-core v0.4.32
+       Fresh compression-codecs v0.4.38
+       Fresh serde_core v1.0.229
+       Fresh getrandom v0.4.3
+       Fresh serde_urlencoded v0.7.1
+       Fresh tower v0.5.3
+       Fresh futures v0.3.34
+       Fresh openssl-probe v0.2.1
+       Fresh memchr v2.8.3
+       Fresh mime v0.3.17
+       Fresh rustls-native-certs v0.8.4
+       Fresh zerocopy v0.8.56
+       Fresh async-compression v0.4.43
+       Fresh tokio-rustls v0.26.4
+       Fresh aho-corasick v1.1.5
+       Fresh cpufeatures v0.3.0
+       Fresh regex-syntax v0.8.11
+       Fresh regex-automata v0.4.18
+       Fresh zmij v1.0.23
+       Fresh hyper-rustls v0.27.9
+       Fresh tower-http v0.6.11
+       Fresh ppv-lite86 v0.2.21
+       Fresh rustls-platform-verifier v0.7.0
+       Fresh tinystr v0.8.3
+       Fresh itoa v1.0.18
+       Fresh linux-raw-sys v0.12.1
+       Fresh litemap v0.8.2
+       Fresh writeable v0.6.3
+       Fresh smallvec v1.15.2
+       Fresh icu_locale_core v2.2.0
+       Fresh rustix v1.1.4
+       Fresh serde_json v1.0.151
+       Fresh reqwest v0.13.4
+       Fresh potential_utf v0.1.5
+       Fresh zerotrie v0.2.4
+       Fresh hybrid-array v0.4.14
+       Fresh vcpkg v0.2.15
+       Fresh pin-project-lite v0.2.17
+       Fresh utf8_iter v1.0.4
+       Fresh futures-core v0.3.34
+       Fresh icu_collections v2.2.0
+       Fresh icu_provider v2.2.0
+       Fresh chacha20 v0.10.1
+       Fresh peri-time v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-time)
+       Fresh heck v0.5.0
+       Fresh typenum v1.20.1
+       Fresh scopeguard v1.2.0
+       Fresh lock_api v0.4.14
+       Fresh generic-array v0.14.7
+       Fresh icu_normalizer_data v2.2.0
+       Fresh icu_properties_data v2.2.0
+       Fresh rand v0.10.2
+       Fresh block-buffer v0.12.1
+       Fresh crypto-common v0.2.2
+       Fresh uuid v1.24.0
+       Fresh async-trait v0.1.92
+       Fresh const-oid v0.10.2
+       Fresh cfg-if v1.0.4
+       Fresh futures-sink v0.3.34
+       Fresh digest v0.11.3
+       Fresh libc v0.2.190 (https://github.com/rust-lang/libc?branch=libc-0.2#7b0ab552)
+       Fresh icu_properties v2.2.0
+       Fresh icu_normalizer v2.2.0
+       Fresh anyhow v1.0.104
+       Fresh getrandom v0.2.17
+       Fresh thiserror-impl v1.0.69
+       Fresh serde_derive_internals v0.30.0
+       Fresh ref-cast-impl v1.0.26
+       Fresh equivalent v1.0.2
+       Fresh ref-cast v1.0.26
+       Fresh schemars_derive v1.2.2
+       Fresh thiserror v1.0.69
+       Fresh parking_lot_core v0.9.12
+       Fresh idna_adapter v1.2.2
+       Fresh mio v1.2.3 (https://github.com/guybedford/mio?tag=1.2.3-cf.emscripten#0788dbb6)
+       Fresh sha2 v0.11.1
+       Fresh block-buffer v0.10.4
+       Fresh crypto-common v0.1.7
+       Fresh socket2 v0.6.5
+       Fresh fastrand v2.5.0
+       Fresh slab v0.4.12
+       Fresh bytes v1.12.1
+       Fresh once_cell v1.21.4
+       Fresh futures-io v0.3.34
+       Fresh option-ext v0.2.0
+       Fresh percent-encoding v2.3.2
+       Fresh cfg_aliases v0.2.2
+       Fresh futures-task v0.3.34
+       Fresh dyn-clone v1.0.20
+       Fresh schemars v1.2.2
+       Fresh futures-util v0.3.34
+       Fresh form_urlencoded v1.2.2
+       Fresh dirs-sys v0.5.0
+       Fresh tracing-core v0.1.36
+       Fresh tokio v1.53.1 (https://github.com/guybedford/tokio?tag=1.53.1-cf.emscripten#7227f2d7)
+       Fresh serde v1.0.229
+       Fresh digest v0.10.7
+       Fresh idna v1.1.0
+       Fresh parking_lot v0.12.5
+       Fresh crossbeam-utils v0.8.22
+       Fresh rand_core v0.6.4
+       Fresh peri-model v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-model)
+       Fresh darling_core v0.24.0
+       Fresh parking v2.2.1
+       Fresh hashbrown v0.17.1
+       Fresh cpufeatures v0.2.17
+       Fresh log v0.4.33
+       Fresh tracing v0.1.44
+       Fresh sha2 v0.10.9
+       Fresh indexmap v2.14.0
+       Fresh darling_macro v0.24.0
+       Fresh peri-acp-types v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-acp-types)
+       Fresh rand_chacha v0.3.1
+       Fresh url v2.5.8
+       Fresh num-traits v0.2.19
+       Fresh tokio-stream v0.1.19
+       Fresh thiserror v2.0.20
+       Fresh serde_path_to_error v0.1.20
+       Fresh base64 v0.22.1
+       Fresh foldhash v0.2.0
+       Fresh allocator-api2 v0.2.21
+       Fresh hashbrown v0.16.1
+       Fresh nix v0.31.3
+       Fresh rand v0.8.7
+       Fresh darling v0.24.0
+       Fresh getrandom v0.3.4
+       Fresh futures-executor v0.3.34
+       Fresh futures-channel v0.3.34
+       Fresh either v1.17.0
+       Fresh crc-catalog v2.5.0
+       Fresh crc v3.4.0
+       Fresh rand_core v0.9.5
+       Fresh rmcp-macros v3.5.1
+       Fresh oauth2 v5.0.0
+       Fresh process-wrap v10.0.1
+       Fresh hashlink v0.11.1
+       Fresh dirs v7.0.0
+       Fresh event-listener v5.4.2
+       Fresh tempfile v3.27.0
+       Fresh crossbeam-queue v0.3.13
+       Fresh sse-stream v0.2.5
+       Fresh futures-intrusive v0.5.0
+       Fresh spin v0.9.9
+       Fresh dotenvy v0.15.7
+       Fresh hashbrown v0.14.5
+       Fresh pastey v0.2.3
+       Fresh rmcp v3.5.1 (/tmp/hw-peri-a0-close-20261109/peri/target/peri-rmcp-patches/ca55db49234cafe52dda79d7f50f83f20d1562a27d86fa49c826a883c05e6dfd/rmcp-3.5.1)
+       Fresh sqlx-macros-core v0.9.0
+       Fresh dashmap v6.2.1
+       Fresh flume v0.12.0
+       Fresh sqlx-core v0.9.0
+       Fresh rand_chacha v0.9.0
+       Fresh libsqlite3-sys v0.30.1
+       Fresh peri-process v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-process)
+       Fresh atoi v2.0.0
+       Fresh thread_local v1.1.10
+       Fresh lazy_static v1.5.0
+       Fresh sharded-slab v0.1.7
+       Fresh sqlx-sqlite v0.9.0
+       Fresh peri-js-runtime v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-js-runtime)
+       Fresh rand v0.9.5
+       Fresh sqlx-macros v0.9.0
+       Fresh fs4 v1.1.0
+       Fresh matchers v0.2.0
+       Fresh sha1 v0.10.7
+       Fresh tracing-serde v0.2.0
+       Fresh tracing-log v0.2.0
+       Fresh nu-ansi-term v0.50.3
+       Fresh time-core v0.1.9
+       Fresh deranged v0.5.8
+       Fresh powerfmt v0.2.0
+       Fresh num-conv v0.2.2
+       Fresh time v0.3.55
+       Fresh tracing-subscriber v0.3.23
+       Fresh sqlx v0.9.0
+       Fresh peri-workflow v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-workflow)
+       Fresh turso_serverless v0.1.3 (/tmp/hw-peri-a0-close-20261109/peri/target/peri-turso-patches/2414daf40205bd6c8cbe81cd77db3bfcf62f47925572c873efec7abb4d085946/turso_serverless-0.1.3)
+       Fresh crossbeam-channel v0.5.16
+       Fresh data-encoding v2.11.1
+       Fresh symlink v0.1.0
+       Fresh tracing-appender v0.2.5
+       Fresh tungstenite v0.29.0
+       Fresh peri-resources v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-resources)
+       Fresh sysinfo v0.39.6
+       Fresh unsafe-libyaml-norway v0.2.15
+       Fresh serde_norway v0.9.42
+       Fresh peri-agent v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-agent)
+       Fresh tokio-tungstenite v0.29.0
+       Fresh bstr v1.13.1
+       Fresh axum-core v0.5.6
+       Fresh matchit v0.8.4
+       Fresh fnv v1.0.7
+       Fresh darling_core v0.20.11
+       Fresh axum v0.8.9
+       Fresh peri-mcp-core v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-mcp-core)
+       Fresh peri-mcp-common v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/common)
+       Fresh darling_macro v0.20.11
+       Fresh darling_core v0.23.0
+       Fresh darling_macro v0.23.0
+       Fresh darling v0.20.11
+       Fresh grep-matcher v0.1.9
+       Fresh unicode-segmentation v1.13.3
+       Fresh convert_case v0.10.0
+       Fresh derive_builder_core v0.20.2
+       Fresh darling v0.23.0
+       Fresh globset v0.4.20
+       Fresh encoding_rs_io v0.1.8
+       Fresh memmap2 v0.9.11
+       Fresh termcolor v1.4.1
+       Fresh foldhash v0.1.5
+       Fresh same-file v1.0.6
+       Fresh unicode-xid v0.2.6
+       Fresh derive_more-impl v2.1.1
+       Fresh walkdir v2.5.0
+       Fresh hashbrown v0.15.5
+       Fresh grep-searcher v0.1.17
+       Fresh serde_with_macros v3.22.0
+       Fresh derive_builder_macro v0.20.2
+       Fresh crossbeam-epoch v0.9.20
+       Fresh strum_macros v0.28.0
+       Fresh strum_macros v0.27.2
+       Fresh fdeflate v0.3.7
+       Fresh miette-derive v5.10.0
+       Fresh quick-error v2.0.1
+       Fresh pxfm v0.1.30
+       Fresh unicode-width v0.1.14
+       Fresh zune-core v0.5.3
+       Fresh byteorder-lite v0.1.0
+       Fresh image-webp v0.2.4
+       Fresh zune-jpeg v0.5.15
+       Fresh miette v5.10.0
+       Fresh moxcms v0.8.1
+       Fresh png v0.18.1
+       Fresh strum v0.27.2
+       Fresh strum v0.28.0
+       Fresh crossbeam-deque v0.8.7
+       Fresh derive_builder v0.20.2
+       Fresh serde_with v3.22.0
+       Fresh grep-printer v0.3.1
+       Fresh hashlink v0.10.0
+       Fresh derive_more v2.1.1
+       Fresh grep-cli v0.1.12
+       Fresh grep-regex v0.1.14
+       Fresh peri-mcp-config v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/config)
+       Fresh regex v1.13.1
+       Fresh sha-1 v0.10.1
+       Fresh pin-project-internal v1.1.13
+       Fresh base64 v0.21.7
+       Fresh arraydeque v0.5.1
+       Fresh unicase v2.9.0
+       Fresh bytemuck v1.25.2
+       Fresh pulldown-cmark-escape v0.11.0
+       Fresh xxhash-rust v0.8.18
+       Fresh hex v0.4.3
+       Fresh ssri v9.2.0
+       Fresh pulldown-cmark v0.13.4
+       Fresh image v0.25.10
+       Fresh yaml-rust2 v0.10.4
+       Fresh pin-project v1.1.13
+       Fresh peri-config v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-config)
+       Fresh grep v0.4.1
+       Fresh agent-client-protocol-schema v1.12.0
+       Fresh croner v4.0.1
+       Fresh ignore v0.4.33
+       Fresh ring v0.17.14
+       Fresh fuzzy-matcher v0.3.7
+       Fresh dirs v6.0.0
+       Fresh futures-lite v2.6.1
+       Fresh xattr v1.6.1
+       Fresh reflink-copy v0.1.30
+       Fresh filetime v0.2.29
+       Fresh fixedbitset v0.5.7
+       Fresh glob v0.3.4
+       Fresh peri-mcp-workspace v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/workspace)
+       Fresh futures-concurrency v7.7.1
+       Fresh tar v0.4.46
+       Fresh cacache v13.1.0
+       Fresh shellexpand v3.1.2
+       Fresh peri-mcp-credentials v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/credentials)
+       Fresh peri-mcp-cron v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/cron)
+       Fresh gray_matter v0.3.2
+       Fresh peri-mcp-artifact v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/artifact)
+       Fresh peri-mcp-monitor v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/monitor)
+       Fresh peri-mcp-web v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/web)
+       Fresh peri-mcp-workflow v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/mcp-packages/workflow)
+       Fresh langfuse-client v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/langfuse-client)
+       Fresh peri-runtime v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-runtime)
+       Fresh assert-json-diff v2.0.2
+       Fresh serial_test_derive v4.0.1
+       Fresh agent-client-protocol-derive v3.5.0
+       Fresh similar v2.7.0
+       Fresh colored v3.1.1
+       Fresh rustc-hash v2.1.3
+       Fresh agent-client-protocol v3.5.0
+       Fresh mockito v1.7.2
+       Fresh serial_test v4.0.1
+       Fresh peri-controller v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-controller)
+       Fresh peri-middlewares v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-middlewares)
+   Compiling peri-acp v0.2.0 (/tmp/hw-peri-a0-close-20261109/peri/peri-acp)
+     Running `CARGO=/tmp/helixweave-peri-a0-20261109/toolchain/bin/cargo CARGO_CRATE_NAME=peri_acp CARGO_MANIFEST_DIR=/tmp/hw-peri-a0-close-20261109/peri/peri-acp CARGO_MANIFEST_PATH=/tmp/hw-peri-a0-close-20261109/peri/peri-acp/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='ACP Agent service layer — Session management, Agent construction, Middleware chain, Transport abstraction' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE='' CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=peri-acp CARGO_PKG_README='' CARGO_PKG_REPOSITORY='' CARGO_PKG_RUST_VERSION=1.95 CARGO_PKG_VERSION=0.2.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=2 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' CARGO_PRIMARY_PACKAGE=1 LD_LIBRARY_PATH=/tmp/hw-peri-a0-close-20261109/build/target/release/deps rustc --crate-name peri_acp --edition=2021 peri-acp/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C lto=fat -C codegen-units=1 -C debug-assertions=off --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=1fb911d694bd1e61 -C extra-filename=-3aea6b0d33f2bc44 --out-dir /tmp/hw-peri-a0-close-20261109/build/target/release/deps -C strip=debuginfo -L dependency=/tmp/hw-peri-a0-close-20261109/build/target/release/deps --extern agent_client_protocol=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libagent_client_protocol-4fff6a7a09a3348d.rlib --extern agent_client_protocol_schema=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libagent_client_protocol_schema-e61dc8db22c7e80d.rlib --extern anyhow=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libanyhow-ed4fe8c73c4c30d4.rlib --extern async_trait=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libasync_trait-713cb4b37782c9d8.so --extern chrono=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libchrono-dedb919460940b03.rlib --extern dashmap=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libdashmap-f193308a540bd667.rlib --extern dirs=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libdirs-35d6255cdb3f5a0a.rlib --extern futures=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libfutures-5dbf1f1d96fbcb38.rlib --extern langfuse_client=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/liblangfuse_client-3f907ad2015ac7f3.rlib --extern mockito=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libmockito-54c799286120c33f.rlib --extern parking_lot=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libparking_lot-77f76d682d743de3.rlib --extern peri_acp_types=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_acp_types-608154579b25befb.rlib --extern peri_agent=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_agent-5259fd86217b7d57.rlib --extern peri_config=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_config-01bbb0672affd025.rlib --extern peri_controller=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_controller-52221d247ba6471a.rlib --extern peri_mcp_common=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_mcp_common-982974b5812f2752.rlib --extern peri_mcp_credentials=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_mcp_credentials-b82afbfd556b7f7d.rlib --extern peri_mcp_cron=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_mcp_cron-79556dc7a5f21bd5.rlib --extern peri_mcp_workflow=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_mcp_workflow-fcb588de015793ea.rlib --extern peri_mcp_workspace=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_mcp_workspace-867980f1d31c1795.rlib --extern peri_middlewares=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_middlewares-c9fabd926f2056c0.rlib --extern peri_model=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_model-792c1f81fee84cc0.rlib --extern peri_process=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_process-f2b1c195a545e54c.rlib --extern peri_resources=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_resources-20c23e3736b818d4.rlib --extern peri_time=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_time-ae7a44c2a5a25bde.rlib --extern peri_workflow=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libperi_workflow-3a1232b4eb74556f.rlib --extern rmcp=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/librmcp-2bd2b27b7b188868.rlib --extern serde=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libserde-667a11e9c8aa100f.rlib --extern serde_json=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libserde_json-9ba3bb060de81aec.rlib --extern serial_test=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libserial_test-ba59be9ef6fe1678.rlib --extern sha2=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libsha2-3b4a045fe4c74590.rlib --extern sqlx=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libsqlx-8acf7825a824f8ff.rlib --extern tempfile=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libtempfile-a1c1ee62a0abe485.rlib --extern thiserror=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libthiserror-c58d4a7b1959ce62.rlib --extern tokio=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libtokio-b67e00a2497fb8db.rlib --extern tokio_util=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libtokio_util-aa54bdb4a5804243.rlib --extern tracing=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libtracing-bca973cd8b44d32d.rlib --extern tracing_subscriber=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libtracing_subscriber-6651539aeed273c7.rlib --extern url=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/liburl-fdd35ea119ef0a87.rlib --extern uuid=/tmp/hw-peri-a0-close-20261109/build/target/release/deps/libuuid-99e6248751782483.rlib -L native=/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out -L native=/tmp/hw-peri-a0-close-20261109/build/target/release/build/libsqlite3-sys-6a61f75ffe427fb3/out -L native=/tmp/hw-peri-a0-close-20261109/build/target/release/build/ring-fabe91d0f09b8b07/out`
+    Finished `release` profile [optimized] target(s) in 1m 33s
+     Running `CARGO=/tmp/helixweave-peri-a0-20261109/toolchain/bin/cargo CARGO_MANIFEST_DIR=/tmp/hw-peri-a0-close-20261109/peri/peri-acp CARGO_MANIFEST_PATH=/tmp/hw-peri-a0-close-20261109/peri/peri-acp/Cargo.toml CARGO_PKG_AUTHORS='' CARGO_PKG_DESCRIPTION='ACP Agent service layer — Session management, Agent construction, Middleware chain, Transport abstraction' CARGO_PKG_HOMEPAGE='' CARGO_PKG_LICENSE='' CARGO_PKG_LICENSE_FILE='' CARGO_PKG_NAME=peri-acp CARGO_PKG_README='' CARGO_PKG_REPOSITORY='' CARGO_PKG_RUST_VERSION=1.95 CARGO_PKG_VERSION=0.2.0 CARGO_PKG_VERSION_MAJOR=0 CARGO_PKG_VERSION_MINOR=2 CARGO_PKG_VERSION_PATCH=0 CARGO_PKG_VERSION_PRE='' LD_LIBRARY_PATH='/tmp/hw-peri-a0-close-20261109/build/target/release/build/aws-lc-sys-ebdeb89b5d5d0cd7/out:/tmp/hw-peri-a0-close-20261109/build/target/release/build/libsqlite3-sys-5bf66b1b042264ed/out:/tmp/hw-peri-a0-close-20261109/build/target/release/build/libsqlite3-sys-6a61f75ffe427fb3/out:/tmp/hw-peri-a0-close-20261109/build/target/release/build/ring-fabe91d0f09b8b07/out:/tmp/hw-peri-a0-close-20261109/build/target/release:/tmp/hw-peri-a0-close-20261109/build/target/release/deps:/tmp/helixweave-peri-a0-20261109/toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib' /tmp/hw-peri-a0-close-20261109/build/target/release/deps/peri_acp-3aea6b0d33f2bc44 trusted_prediction_policy_is_strict_and_default_compatible`
+
+running 1 test
+test host::prediction::tests::trusted_prediction_policy_is_strict_and_default_compatible ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1219 filtered out; finished in 0.00s
+

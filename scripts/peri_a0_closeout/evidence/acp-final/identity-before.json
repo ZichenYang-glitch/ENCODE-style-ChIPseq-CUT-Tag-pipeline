@@ -1,0 +1,13 @@
+{
+  "helixweave_head": "622778f64e59f935d822d92a91bade78807dabce",
+  "peri_head": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+  "cargo_lock_sha256": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "binary_sha256": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "test_source_sha256": "5fa87543e25f94b195f28e658f1232364225d25fa7e361b997a217125c777c64",
+  "wrapper_sha256": "c906c4d103eb1ab96c595717d273b372c2138431f77a9f3dd82f7bd572f6ebd3",
+  "prior_file_count": 348,
+  "rustc_vv": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+  "source_status": " M peri-acp/src/host/prediction.rs\n M peri-acp/src/host/prediction_test.rs\n M peri-acp/src/host/requests.rs\n M peri-acp/src/host/stdio/mod.rs\n M peri-agent/src/agent/stages/reason.rs\n M peri-agent/src/session/exec/stage_builder/tools.rs\n M peri-agent/src/session/tool_catalog.rs\n M peri-agent/src/session/tool_catalog_test.rs\n"
+}

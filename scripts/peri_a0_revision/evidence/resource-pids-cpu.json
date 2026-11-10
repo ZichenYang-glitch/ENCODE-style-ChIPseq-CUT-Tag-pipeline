@@ -1,0 +1,28 @@
+{
+  "limits": {
+    "path": "/user.slice/user-1000.slice/user@1000.service/app.slice/hw-peri-revision-pids-cpu.scope",
+    "effective_limits": {
+      "memory.max": "67108864",
+      "memory.swap.max": "0",
+      "pids.max": "16",
+      "cpu.max": "20000 100000"
+    }
+  },
+  "passed": true,
+  "memory": {
+    "not_repeated": true,
+    "evidence": "resource-oom-systemd.txt: first scope stopped with Result=oom-kill"
+  },
+  "pids": {
+    "rejected": true,
+    "children_started": 15,
+    "before": "max 0\n",
+    "after": "max 1\n"
+  },
+  "cpu": {
+    "before": "usage_usec 27403\nuser_usec 10961\nsystem_usec 16442\nnr_periods 3\nnr_throttled 2\nthrottled_usec 245557\nnr_bursts 0\nburst_usec 0\n",
+    "after": "usage_usec 171172\nuser_usec 151421\nsystem_usec 19750\nnr_periods 10\nnr_throttled 9\nthrottled_usec 801739\nnr_bursts 0\nburst_usec 0\n"
+  },
+  "memory_peak_bytes": "12963840",
+  "children_reaped": true
+}

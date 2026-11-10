@@ -1,0 +1,13 @@
+2026-11-09T01:52:10.403384Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:52:10.408767Z  INFO peri_acp::host::stdio: ACP stdio mode starting provider=OpenAI model=a0-stub cwd=/work
+2026-11-09T01:52:10.462585Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:52:10.462645Z  INFO peri: 启动时清理孤儿插件文件完成
+2026-11-09T01:52:10.463146Z  INFO peri_acp::host::requests::session_lifecycle: ACP initialize protocol_version=1
+2026-11-09T01:52:10.470213Z  INFO peri_middlewares::hooks::loader: Reading hooks from /state/home/.claude/settings.json
+2026-11-09T01:52:10.470386Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:52:10.470488Z  WARN peri_middlewares::hooks::loader: Failed to read /state/home/.claude/settings.json: No such file or directory (os error 2)
+2026-11-09T01:52:10.470984Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:52:10.471164Z  WARN peri_mcp_config::server: configuration operation failed diagnostic=No such file or directory (os error 2)
+2026-11-09T01:52:10.471226Z  INFO peri_acp::host::assemble: Hook groups assembled for ACP host groups=0 total_hooks=0
+2026-11-09T01:52:10.471501Z ERROR peri_acp::host::stdio: thread panicked at 'Client::new(): reqwest::Error { kind: Builder, source: General("No CA certificates were loaded from the system") }'
+  at /tmp/helixweave-peri-a0-20261109/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/reqwest-0.13.4/src/async_impl/client.rs:2507:38

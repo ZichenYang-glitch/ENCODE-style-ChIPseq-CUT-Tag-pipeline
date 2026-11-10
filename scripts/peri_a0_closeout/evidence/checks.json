@@ -1,0 +1,113 @@
+{
+  "passed": true,
+  "scope": "static checks and identity; not an overall A0 pass",
+  "helixweave_head": "622778f64e59f935d822d92a91bade78807dabce",
+  "branch": "agent/peri-integration-design-20261108",
+  "peri_head": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+  "old_materials_verified": 133,
+  "old_materials_changed": [],
+  "binary_sha256": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "cargo_lock_sha256": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+  "full_patch_matches_build": true,
+  "post_f2_changed_prototype_files": [
+    "build_candidate.py",
+    "verify_patch.py"
+  ],
+  "final_prototype_sha256": {
+    "build.py": "55ec887267c947f8e75b98bc2c3c6d6f7d98bdd1c445b8b1f7a21a6dfd0101b0",
+    "build_candidate.py": "5fa6900ede2ae4494e9671645e38cbff9d4c3b7658f1a7bbe83381bdce9f1639",
+    "cases.py": "3e9faf040ee0e1641de6669324add0d7fb4836842fc094e1aaffc53020956670",
+    "closeout_cases.py": "a00e3e86dd9f2a91561c86595125b3f14a9fb8967fa063b9d1e84fe86d68a5d5",
+    "configuration.py": "e5962fe29830aefc0ae17e18457a69b45ed025a659a6f1c025cda2bbf7fb818e",
+    "fixtures.py": "62e85e0aa6e907460a5282c20b8aafd1756072ce389098d422610b7f6a741e7f",
+    "observation.py": "e2e93ab420d3213ae785502edc1cb1c448449381400abc222bb7671a51c2306b",
+    "os_probe.py": "0cb2ec7ec40913a9a5f57905ac5e689076b46b6ccf6e0870e5feec5e78ac3f18",
+    "protocol.py": "e90b02e278873ce90967e503b5dd24bafbcefd604a8558dfa5498e9f46c37672",
+    "relay.py": "ac0e6c62051d678f625b6124ed97da846d45b827a92ee0766f43c286411c047d",
+    "resource_guard.py": "52689c98437fd914f1ce921c3675645295b5c69a2343c5ad19811b411ceb645a",
+    "resource_probe.py": "02fee8c6e0f3646120cba19e6a5fb509ec60bd6aa9c097f0618d7e46d9d75bea",
+    "run.py": "87dbc25e608c872fea55f022d908cc8caa43cfebe86f7e19d4f33f578c112a6a",
+    "sandbox.py": "00c66d16719a6b8e826e19aaeb1bf2c10ff74dcfaab2b704cd0c5f586446d77e",
+    "stub.py": "74e77d8857727b4abf566ac20d427d566bca2563f1c1741589602d6adfd445d0",
+    "test_contract.py": "48ba5f9f95cf8cd9ad219a40cbf498c98ad7b2bca33524d1d59018b7204b06a0",
+    "test_runtime.py": "79ccab8832bfa1e82995c57a5020a35a580d3b3a4fe5cd20da95987400b0470a",
+    "verify_patch.py": "942dfab1f46676acfadc2d5594e4a3a0a27a19ff455b2857621b8d14b2fb5069"
+  },
+  "commands": [
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": "All checks passed!\n"
+    },
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-20261109/lint/ruff-0.15.21.data/scripts/ruff",
+        "format",
+        "--check",
+        "/tmp/helixweave-peri-design-20261108/scripts/peri_a0_closeout"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": "18 files already formatted\n"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/tmp/helixweave-peri-design-20261108",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/tmp/hw-peri-a0-close-20261109/peri",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "argv": [
+        "/tmp/helixweave-peri-a0-revision-20261109/format-tool/rustfmt-1.99.0-x86_64-unknown-linux-gnu/rustfmt-preview/bin/rustfmt",
+        "--check",
+        "--edition",
+        "2021",
+        "--config",
+        "skip_children=true",
+        "peri-acp/src/host/prediction.rs",
+        "peri-acp/src/host/prediction_test.rs",
+        "peri-acp/src/host/requests.rs",
+        "peri-acp/src/host/stdio/mod.rs",
+        "peri-agent/src/agent/stages/reason.rs",
+        "peri-agent/src/session/exec/stage_builder/tools.rs",
+        "peri-agent/src/session/tool_catalog.rs",
+        "peri-agent/src/session/tool_catalog_test.rs"
+      ],
+      "cwd": "/tmp/hw-peri-a0-close-20261109/peri",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "relative_links": "passed",
+  "full_untracked_source_whitespace": "passed",
+  "rustfmt": "passed",
+  "native_matrix": "23 passed",
+  "rust_tests": "18 distinct passed; ACP new test not executed (compilation OOM)",
+  "host_tests": "7 contract + 4 transport passed",
+  "not_run": [
+    "full CI",
+    "scientific tests",
+    "real-model/platform tests",
+    "Bulk Gate"
+  ],
+  "cleanup": true
+}
