@@ -25,6 +25,7 @@ from encode_pipeline.services.peri_runtime.identity import (
     WIRE_TOOLS,
 )
 from encode_pipeline.services.peri_runtime.isolation import spawn
+from encode_pipeline.services.peri_runtime.limits import cgroup_root_for_pid, stop_scope
 from encode_pipeline.services.peri_runtime.policy import TOOLS, process_policy, settings
 from encode_pipeline.services.peri_runtime.stub import ModelStub
 
@@ -86,12 +87,24 @@ class NativeSession:
         self.argv: list[str] | None = None
         self.closed_resources = False
         self.turn_context: object | None = None
+        self.authorization_check: Callable[[], bool] | None = None
+        self.last_tool_ok = False
+        self.last_tool_payload: dict[str, object] | None = None
+        self.tool_payloads: tuple[dict[str, object], ...] = ()
+        self.auth_session_digest = ""
+        self.user_id = ""
+        self.bound_sid = ""
+        self.native_pid: int | None = None
+        self.leader_pid: int | None = None
+        self.scope_unit: str | None = None
+        self.scope_cgroup: str | None = None
         directory.mkdir(parents=True, exist_ok=False)
         self.socket_dir = Path(tempfile.mkdtemp(prefix="hw-peri-sock-"))
         try:
             self.log = (directory / "stderr.log").open("wb")
             self.stub = ModelStub(self.socket_dir / "model.sock")
             self.stub.on_catalog_failure = self.invalidate
+            self.stub.authorize = self._egress_allowed
             self.process = spawn(
                 binary,
                 directory / "state",
@@ -100,6 +113,15 @@ class NativeSession:
                 policy=self.policy,
                 prediction="off",
             )
+            self.native_pid = getattr(self.process, "peri_native_pid", None)
+            self.leader_pid = self.process.pid
+            self.scope_unit = getattr(self.process, "peri_scope_unit", None)
+            root = (
+                None
+                if self.native_pid is None
+                else cgroup_root_for_pid(self.native_pid)
+            )
+            self.scope_cgroup = None if root is None else str(root)
             self.argv = list(self.process.args)
             payload = json.dumps(settings()).encode()
             os.set_blocking(self.process.stdin.fileno(), False)
@@ -364,12 +386,16 @@ class NativeSession:
         try:
             payload = self.tool_handler(str(name), arguments, self)
         except Exception:
+            self.last_tool_ok = False
+            self.last_tool_payload = None
             self.denied_callbacks.append("tool_handler_failed")
             return {
                 "result": {
                     "error": {"code": -32603, "message": "tool request rejected"}
                 }
             }
+        self.last_tool_payload = payload if isinstance(payload, dict) else None
+        self.last_tool_ok = isinstance(payload, dict) and payload.get("ok") is True
         return {
             "result": {
                 "result": {
@@ -548,15 +574,36 @@ class NativeSession:
                 raise NativeRejected("DISCOVERY_TIMEOUT")
             time.sleep(0.05)
 
+    def _egress_allowed(self) -> bool:
+        if self.state != "ready":
+            return True
+        check = self.authorization_check
+        if check is None:
+            return False
+        try:
+            return bool(check())
+        except Exception:
+            return False
+
     def run_authoring_turn(self, final_text: str) -> str:
-        """Ask the stub to read both tools, then return its final answer text."""
+        """Read both tools. A failed tool does not return the preset answer."""
 
         if self.stub is None:
             raise NativeRejected("STUB_CLOSED")
+        self.last_tool_ok = False
         self._script_tool("get_authoring_schema", "schema read")
         self.prompt("Read the approved authoring schema.")
+        schema_payload = self.last_tool_payload
+        if not self.last_tool_ok or schema_payload is None:
+            raise NativeRejected("TOOL_REJECTED")
+        self.last_tool_ok = False
         self._script_tool("get_draft_summary", final_text)
-        return self.prompt("Read the approved draft projection.")
+        text = self.prompt("Read the approved draft projection.")
+        draft_payload = self.last_tool_payload
+        if not self.last_tool_ok or draft_payload is None:
+            raise NativeRejected("TOOL_REJECTED")
+        self.tool_payloads = (schema_payload, draft_payload)
+        return text
 
     def _script_tool(self, wire_name: str, closing_text: str) -> None:
         assert self.stub is not None
@@ -600,6 +647,7 @@ class NativeSession:
     def close(self) -> None:
         if self.closed_resources:
             return
+        stop_scope(self.scope_unit)
         self.invalidate("CLOSED_BY_HOST")
         if self.process is not None:
             try:
@@ -626,6 +674,8 @@ class NativeSession:
 
     @property
     def pid(self) -> int | None:
+        if self.native_pid is not None:
+            return self.native_pid
         if self.process is None:
             return None
         return self.process.pid

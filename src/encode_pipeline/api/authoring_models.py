@@ -222,6 +222,12 @@ class AuthoringProposalResponse(BaseModel):
     reason_codes: list[str]
 
 
+class AuthoringExplanationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason_codes: list[str] = Field(max_length=16)
+
+
 class AuthoringReceiptResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -244,6 +250,12 @@ class AuthoringTurnResponse(BaseModel):
     result_kind: Literal["proposal", "explanation"] | None = None
     proposal_id: str | None = None
     proposal: AuthoringProposalResponse | None = None
+    proposal_digest: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        max_length=64,
+    )
+    explanation: AuthoringExplanationResponse | None = None
     proposal_state: Literal["pending", "adopted", "rejected", "invalidated"] | None = (
         None
     )

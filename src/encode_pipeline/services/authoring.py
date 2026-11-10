@@ -23,6 +23,7 @@ from encode_pipeline.persistence.authoring import (
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.authoring import (
     ADMISSION_FAILED,
+    AUTH_SESSION_ENDED,
     AUTHENTICATION_REQUIRED,
     AuthoringActor,
     AuthoringField,
@@ -121,6 +122,8 @@ class TurnView:
     reason_code: str | None
     proposal_expires_at: datetime | None
     receipt: dict[str, Any] | None
+    proposal_digest: str | None = None
+    explanation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -374,6 +377,8 @@ class AuthoringService:
             capability_token=claim.capability_token,
             schema_digest=schema_digest,
             projection_digest=projection_digest,
+            auth_session_digest=actor.session_digest,
+            user_id=actor.user_id,
         )
         try:
             admission = self._bridge.admit(request)
@@ -402,20 +407,27 @@ class AuthoringService:
 
     def close_connection(self, actor: AuthoringActor, sid: str) -> SessionView:
         before = self._repository.get_session(actor, sid)
-        record = self._repository.close_connection(actor, sid)
-        self._capability_tokens.pop((sid, before.generation), None)
-        if before.generation != record.generation and before.instance_id is not None:
+        closed = self._repository.close_connection(
+            actor,
+            sid,
+            expected_generation=before.generation,
+            expected_instance_id=before.instance_id,
+            expected_owner_epoch=before.bridge_owner_epoch,
+        )
+        if closed.applied and closed.closed_generation is not None:
+            self._capability_tokens.pop((sid, closed.closed_generation), None)
             self._bridge.close(
                 BridgeSessionRequest(
                     sid=sid,
-                    generation=before.generation,
-                    owner_epoch=before.bridge_owner_epoch or "",
+                    generation=closed.closed_generation,
+                    owner_epoch=closed.closed_owner_epoch or "",
                     capability_token="",
                     schema_digest=before.schema_digest,
                     projection_digest=before.projection_digest or "",
+                    instance_id=closed.closed_instance_id,
                 )
             )
-        return self._session_view(actor, record)
+        return self._session_view(actor, closed.record)
 
     def start_turn(
         self,
@@ -507,7 +519,14 @@ class AuthoringService:
                 record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
                 return self._turn_view(actor, record, failed)
             raise
-        completed = self._repository.complete_turn(actor, turn.turn_id, completion)
+        live_schema, live_projection, _live_fields = self._identity(current.workflow_id)
+        completed = self._repository.complete_turn(
+            actor,
+            turn.turn_id,
+            completion,
+            live_schema_digest=live_schema,
+            live_projection_digest=live_projection or "",
+        )
         record = self._repository.get_session(actor, sid)
         return self._turn_view(actor, record, completed)
 
@@ -526,11 +545,26 @@ class AuthoringService:
     ) -> AdoptionView:
         request_digest = adopt_request_digest(expected_revision, proposal_digest_value)
         current, turn = self._repository.get_proposal(actor, sid, proposal_id)
+        if turn.decision == "adopted":
+            result = self._repository.adopt(
+                actor,
+                sid,
+                proposal_id,
+                expected_revision=expected_revision,
+                proposal_digest_value=proposal_digest_value,
+                request_digest=request_digest,
+                content=None,
+                content_digest=None,
+                changed=None,
+                live_schema_digest=turn.schema_digest,
+                live_projection_digest=turn.projection_digest,
+            )
+            return self._adoption_view(result.record, result.turn, result.replayed)
         content = None
         content_changed = None
         digest = None
-        if turn.decision == "pending" and turn.proposal is not None:
-            fields = self._fields_for(current.workflow_id)
+        schema_digest, projection_digest, fields = self._identity(current.workflow_id)
+        if turn.decision == "pending" and turn.proposal is not None and fields:
             content = apply_field_changes(
                 current.content,
                 [
@@ -554,6 +588,8 @@ class AuthoringService:
             content=content,
             content_digest=digest,
             changed=content_changed,
+            live_schema_digest=schema_digest,
+            live_projection_digest=projection_digest or "",
         )
         return self._adoption_view(result.record, result.turn, result.replayed)
 
@@ -626,7 +662,7 @@ class AuthoringService:
                 "reference_profile_revision_id"
             ],
         )
-        schema_digest, _projection, _fields = self._identity(record.workflow_id)
+        schema_digest, projection_digest, _fields = self._identity(record.workflow_id)
         public = [_public_issue(issue) for issue in result.issues]
         codes = tuple(
             issue.code for issue in result.issues if issue.code in explainable_codes()
@@ -637,6 +673,7 @@ class AuthoringService:
             sid,
             expected_revision=expected_revision,
             schema_digest=schema_digest,
+            projection_digest=projection_digest,
             snapshot_id=snapshot_id if result.is_success else None,
             issue_codes=codes,
             issues=public,
@@ -656,31 +693,42 @@ class AuthoringService:
     ) -> dict[str, Any]:
         """Read-only tool body used by the bridge. Failures do not adopt."""
 
-        record = self._repository.peek_session(sid)
-        turn = self._repository.peek_turn(sid, turn_id)
-        if record is None or turn is None:
-            return tool_envelope(ok=False, data=None, issues=[tool_issue(SCOPE_DENIED)])
-        if (
-            record.connection_capability_digest != sha256_text(capability_token)
-            or record.generation != generation
-            or turn.generation != generation
-            or record.instance_id != instance_id
-            or record.bridge_owner_epoch != owner_epoch
-            or record.connection_state != "ready"
-        ):
-            return tool_envelope(ok=False, data=None, issues=[tool_issue(SCOPE_DENIED)])
-        if record.revision != turn.base_revision:
-            self._repository.fail_turn(
-                turn.turn_id,
-                generation=turn.generation,
-                reason_code=STALE_DRAFT,
+        reason, record, turn = self._repository.tool_read_state(
+            sid=sid,
+            turn_id=turn_id,
+            generation=generation,
+            instance_id=instance_id,
+            owner_epoch=owner_epoch,
+            capability_digest=sha256_text(capability_token),
+        )
+        if reason != "ok" or record is None or turn is None:
+            if reason in {AUTH_SESSION_ENDED, DRAFT_EXPIRED, STALE_DRAFT} and (
+                turn is not None
+            ):
+                self._repository.fail_turn(
+                    turn.turn_id,
+                    generation=turn.generation,
+                    reason_code=reason,
+                )
+            envelope_code = (
+                STALE_DRAFT
+                if reason == STALE_DRAFT
+                else CAPABILITY_CHANGED
+                if reason == CAPABILITY_CHANGED
+                else SCOPE_DENIED
             )
-            return tool_envelope(ok=False, data=None, issues=[tool_issue(STALE_DRAFT)])
+            return tool_envelope(
+                ok=False,
+                data=None,
+                issues=[tool_issue(envelope_code)],
+            )
         schema_digest, projection_digest, fields = self._identity(record.workflow_id)
         if (
             fields is None
             or projection_digest != record.projection_digest
+            or projection_digest != turn.projection_digest
             or schema_digest != record.schema_digest
+            or schema_digest != turn.schema_digest
         ):
             self._repository.fail_connection(
                 sid,
@@ -693,11 +741,12 @@ class AuthoringService:
                 data=None,
                 issues=[tool_issue(CAPABILITY_CHANGED)],
             )
+        projected = list(fields.values())
         if name == "get_authoring_schema":
             return tool_envelope(
                 ok=True,
                 data={
-                    "fields": [field.public_dict() for field in fields],
+                    "fields": [field.public_dict() for field in projected],
                     "projection_digest": projection_digest,
                     "schema_digest": schema_digest,
                     "workflow_id": record.workflow_id,
@@ -708,7 +757,9 @@ class AuthoringService:
         return tool_envelope(
             ok=True,
             data={
-                "fields": [projected_field(record.content, field) for field in fields],
+                "fields": [
+                    projected_field(record.content, field) for field in projected
+                ],
                 "issue_codes": list(record.validation_issue_codes),
                 "projection_digest": projection_digest,
                 "revision": record.revision,
@@ -769,7 +820,13 @@ class AuthoringService:
                 changes=[],
                 reason_codes=list(reasons),
             )
-            return TurnCompletion("explanation", digest, None, None, None)
+            return TurnCompletion(
+                "explanation",
+                digest,
+                None,
+                {"reason_codes": list(reasons)},
+                None,
+            )
         updated = apply_field_changes(record.content, normalized_changes, fields)
         presented = []
         for change in normalized_changes:
@@ -924,7 +981,16 @@ class AuthoringService:
         receipt = None
         if turn.decision == "adopted":
             receipt = _receipt(turn)
-        proposal = None if hide or turn.proposal is None else dict(turn.proposal)
+        proposal = None
+        explanation = None
+        visible_digest = None
+        if not hide and turn.result_kind == "explanation" and turn.proposal:
+            codes = turn.proposal.get("reason_codes")
+            if isinstance(codes, list):
+                explanation = {"reason_codes": [str(code) for code in codes]}
+        elif not hide and turn.proposal is not None and turn.result_kind == "proposal":
+            proposal = dict(turn.proposal)
+            visible_digest = turn.proposal_digest
         return TurnView(
             turn_id=turn.turn_id,
             client_turn_id=turn.client_turn_id,
@@ -938,6 +1004,8 @@ class AuthoringService:
             reason_code=reason,
             proposal_expires_at=None if hide else turn.proposal_expires_at,
             receipt=receipt,
+            proposal_digest=visible_digest,
+            explanation=explanation,
         )
 
     def _adoption_view(
@@ -978,6 +1046,12 @@ class AuthoringService:
             return False, DRAFT_EXPIRED
         if turn.proposal_expires_at is None or now >= turn.proposal_expires_at:
             return False, PROPOSAL_EXPIRED
+        live_schema, live_projection, _fields = self._safe_identity(record.workflow_id)
+        if (
+            live_schema != turn.schema_digest
+            or live_projection != turn.projection_digest
+        ):
+            return False, PROPOSAL_INVALIDATED
         if actor.session_digest != turn.originating_auth_session_ref:
             return False, PROPOSAL_INVALIDATED
         if not self._repository.login_is_live(
@@ -1007,16 +1081,26 @@ class AuthoringService:
             or record.last_validated_revision != record.revision
         ):
             return None
-        schema_digest, _projection, _fields = self._identity(record.workflow_id)
-        if schema_digest != record.schema_digest:
+        schema_digest, projection_digest, _fields = self._identity(record.workflow_id)
+        if (
+            record.validated_schema_digest != schema_digest
+            or record.validated_projection_digest != projection_digest
+        ):
             return None
         try:
+            adapter = self._registry.get(record.workflow_id)
+            schema = adapter.schema()
             snapshot = self._snapshots.get_validated_input_snapshot(
                 record.last_snapshot_id
             )
-        except KeyError:
+        except (AttributeError, KeyError, LookupError, TypeError, ValueError):
             return None
-        if snapshot.workflow_id != record.workflow_id:
+        if (
+            snapshot.workflow_id != record.workflow_id
+            or snapshot.schema_version != schema.schema_version
+            or snapshot.schema_dialect != schema.schema_dialect
+            or snapshot.adapter_version != adapter.metadata.version
+        ):
             return None
         if utc_now(self._clock) >= snapshot.expires_at:
             return None

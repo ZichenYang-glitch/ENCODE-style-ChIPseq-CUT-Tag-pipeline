@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import json
 from pathlib import Path
 import shutil
@@ -10,7 +10,7 @@ from secrets import token_hex
 import tempfile
 import threading
 
-from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE
+from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE, sha256_text
 from encode_pipeline.services.authoring_bridge import (
     BridgeAdmission,
     BridgeDisconnected,
@@ -20,7 +20,6 @@ from encode_pipeline.services.authoring_bridge import (
 )
 from encode_pipeline.services.peri_runtime.identity import binary_matches
 from encode_pipeline.services.peri_runtime.isolation import isolation_paths_exist
-from encode_pipeline.services.peri_runtime.limits import cgroup_is_qualified
 from encode_pipeline.services.peri_runtime.session import NativeRejected, NativeSession
 
 
@@ -30,8 +29,15 @@ ToolDispatch = Callable[..., dict[str, object]]
 class NativeAuthoringBridge:
     """Explicitly enabled Peri bridge. A failed admission leaves manual editing usable."""
 
-    def __init__(self, *, binary: Path, state_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        binary: Path,
+        state_root: Path | None = None,
+        repository: object | None = None,
+    ) -> None:
         self._binary = binary
+        self._repository = repository
         self._epoch = token_hex(16)
         self._lock = threading.Lock()
         self._sessions: dict[str, NativeSession] = {}
@@ -40,15 +46,13 @@ class NativeAuthoringBridge:
         self._owned_root = state_root is None
         self._root = state_root or Path(tempfile.mkdtemp(prefix="helixweave-peri-"))
         self._root.mkdir(parents=True, exist_ok=True)
-        self._available = (
-            binary_matches(binary) and isolation_paths_exist() and cgroup_is_qualified()
-        )
+        self._available = binary_matches(binary) and isolation_paths_exist()
 
     def bind_tool_handler(self, handler: ToolDispatch) -> None:
         self._handler = handler
 
     def status(self) -> BridgeStatus:
-        if self._available and cgroup_is_qualified():
+        if self._available:
             return BridgeStatus(available=True)
         return BridgeStatus(available=False, reason_code=BRIDGE_UNAVAILABLE)
 
@@ -58,7 +62,7 @@ class NativeAuthoringBridge:
         return self._epoch
 
     def admit(self, request: BridgeSessionRequest) -> BridgeAdmission:
-        if not self.status().available:
+        if not self.status().available or request.owner_epoch != self._epoch:
             raise BridgeDisconnected
         with self._lock:
             current = self._sessions.get(request.sid)
@@ -79,6 +83,9 @@ class NativeAuthoringBridge:
                 service_generation=request.generation,
                 tool_handler=self._dispatch,
             )
+            session.bound_sid = request.sid
+            session.user_id = request.user_id
+            session.auth_session_digest = request.auth_session_digest
             self._sessions[request.sid] = session
         try:
             session.initialize()
@@ -94,6 +101,7 @@ class NativeAuthoringBridge:
         session = self._live(request)
         answer = _proposal_text(request)
         session.turn_context = request
+        session.authorization_check = lambda: self._egress_allowed(request)
         try:
             text = session.run_authoring_turn(answer)
         except (NativeRejected, OSError):
@@ -120,7 +128,43 @@ class NativeAuthoringBridge:
             current = self._sessions.get(request.sid)
             if current is None or current.service_generation != request.generation:
                 return
+            if request.owner_epoch != self._epoch:
+                return
+            if (
+                request.instance_id is not None
+                and current.instance != request.instance_id
+            ):
+                return
             self._close_locked(request.sid)
+
+    def drop_authorizations(self, digests: Sequence[str]) -> int:
+        wanted = {digest for digest in digests if digest}
+        if not wanted:
+            return 0
+        with self._lock:
+            matched = [
+                sid
+                for sid, session in self._sessions.items()
+                if session.auth_session_digest in wanted
+            ]
+            for sid in matched:
+                self._close_locked(sid)
+        return len(matched)
+
+    def sweep(self, allowed: Callable[[NativeSession], bool] | None = None) -> int:
+        checker = self._session_allowed if allowed is None else allowed
+        with self._lock:
+            stale = []
+            for sid, session in self._sessions.items():
+                try:
+                    keep = checker(session)
+                except Exception:
+                    keep = False
+                if not keep:
+                    stale.append(sid)
+            for sid in stale:
+                self._close_locked(sid)
+        return len(stale)
 
     def diagnostics(self, sid: str) -> dict[str, object]:
         session = self._sessions.get(sid)
@@ -137,10 +181,54 @@ class NativeAuthoringBridge:
             "denied_callbacks": list(session.denied_callbacks),
             "argv": session.argv,
             "model_requests": 0 if session.stub is None else len(session.stub.requests),
+            "provider_requests": []
+            if session.stub is None
+            else list(session.stub.requests),
+            "tool_payloads": list(session.tool_payloads),
+            "native_pid": session.native_pid,
+            "leader_pid": session.leader_pid,
+            "scope_unit": session.scope_unit,
+            "scope_cgroup": session.scope_cgroup,
             "stub_failures": []
             if session.stub is None
             else list(session.stub.failures),
         }
+
+    def _egress_allowed(self, request: BridgeTurnRequest) -> bool:
+        checker = getattr(self._repository, "tool_read_state", None)
+        if checker is None:
+            return False
+        reason, _record, _turn = checker(
+            sid=request.sid,
+            turn_id=request.turn_id,
+            generation=request.generation,
+            instance_id=request.instance_id,
+            owner_epoch=request.owner_epoch,
+            capability_digest=sha256_text(request.capability_token),
+        )
+        return reason == "ok"
+
+    def _session_allowed(self, session: NativeSession) -> bool:
+        if not session.user_id or not session.auth_session_digest:
+            return False
+        if session.state == "blocked":
+            live = getattr(self._repository, "login_is_live", None)
+            return bool(
+                live is not None and live(session.user_id, session.auth_session_digest)
+            )
+        checker = getattr(self._repository, "connection_still_authorized", None)
+        if checker is None or not session.bound_sid:
+            return False
+        return bool(
+            checker(
+                sid=session.bound_sid,
+                generation=session.service_generation,
+                instance_id=session.instance,
+                owner_epoch=self._epoch,
+                user_id=session.user_id,
+                auth_session_digest=session.auth_session_digest,
+            )
+        )
 
     def _live(self, request: BridgeTurnRequest) -> NativeSession:
         with self._lock:
@@ -235,15 +323,17 @@ def _proposal_text(request: BridgeTurnRequest) -> str:
     ):
         changes = [{"field_token": token, "value": value}]
         kind = "proposal"
+        reason_codes: list[str] = []
     else:
         changes = []
         kind = "explanation"
+        reason_codes = [code for code in request.issue_codes if isinstance(code, str)]
     return json.dumps(
         {
             "base_revision": request.base_revision,
             "changes": changes,
             "kind": kind,
-            "reason_codes": [],
+            "reason_codes": reason_codes,
             "schema_digest": request.schema_digest,
         },
         separators=(",", ":"),

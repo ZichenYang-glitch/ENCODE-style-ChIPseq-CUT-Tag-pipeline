@@ -36,6 +36,8 @@ def upgrade() -> None:
         sa.Column("last_validated_revision", sa.Integer(), nullable=True),
         sa.Column("validation_issue_codes", sa.JSON(), nullable=True),
         sa.Column("validation_issues", sa.JSON(), nullable=True),
+        sa.Column("validated_schema_digest", sa.String(length=64), nullable=True),
+        sa.Column("validated_projection_digest", sa.String(length=64), nullable=True),
         sa.Column("connection_state", sa.String(length=16), nullable=False),
         sa.Column("connection_reason_code", sa.String(length=64), nullable=True),
         sa.Column("originating_auth_session_ref", sa.String(length=64), nullable=True),
@@ -55,6 +57,18 @@ def upgrade() -> None:
             "projection_digest IS NULL OR (length(projection_digest) = 64 "
             "AND projection_digest NOT GLOB '*[^0-9a-f]*')",
             name="ck_agent_authoring_sessions_projection_digest",
+        ),
+        sa.CheckConstraint(
+            "validated_schema_digest IS NULL OR "
+            "(length(validated_schema_digest) = 64 AND "
+            "validated_schema_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_schema",
+        ),
+        sa.CheckConstraint(
+            "validated_projection_digest IS NULL OR "
+            "(length(validated_projection_digest) = 64 AND "
+            "validated_projection_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_projection",
         ),
         sa.CheckConstraint(
             "length(draft_digest) = 64 AND draft_digest NOT GLOB '*[^0-9a-f]*'",

@@ -253,6 +253,17 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/auth/accounts/{user_id}/status",
             "/api/v1/auth/accounts/{user_id}/password",
             "/api/v1/auth/accounts/{user_id}/sessions/revoke",
+            "/api/v1/projects",
+            "/api/v1/projects/{project_id}/samples",
+            "/api/v1/agent/authoring-sessions",
+            "/api/v1/agent/authoring-sessions/{sid}",
+            "/api/v1/agent/authoring-sessions/{sid}/draft",
+            "/api/v1/agent/authoring-sessions/{sid}/connection",
+            "/api/v1/agent/authoring-sessions/{sid}/turns",
+            "/api/v1/agent/authoring-sessions/{sid}/turns/{turn_id}",
+            "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
+            "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/reject",
+            "/api/v1/agent/authoring-sessions/{sid}/validate",
         }:
             assert not inspect.iscoroutinefunction(endpoint), endpoint
         else:

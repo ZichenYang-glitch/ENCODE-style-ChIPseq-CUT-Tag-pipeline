@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 import http.server
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ class ModelStub:
         self.lock = threading.Lock()
         self.stopping = threading.Event()
         self.on_catalog_failure = None
+        self.authorize: Callable[[], bool] | None = None
         owner = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -82,6 +84,8 @@ class ModelStub:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 0 < length <= 262144:
                         raise ValueError("request_size")
+                    if owner.authorize is not None and not owner.authorize():
+                        raise ValueError("authorization_revoked")
                     body = json.loads(self.rfile.read(length))
                     self.record["body"] = body
                     if isinstance(body, dict) and "tools" not in body:

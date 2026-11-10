@@ -39,6 +39,26 @@ class SqlAlchemyAuthenticationRepository:
         if not isinstance(session_factory, sessionmaker):
             raise ValueError("session_factory must be a SQLAlchemy sessionmaker")
         self._session_factory = session_factory
+        self._authoring_revocation_listeners: list[
+            Callable[[tuple[str, ...]], None]
+        ] = []
+
+    def add_authoring_revocation_listener(
+        self,
+        listener: Callable[[tuple[str, ...]], None],
+    ) -> None:
+        """Notify after a committed login fence. Failure here cannot reopen it."""
+
+        self._authoring_revocation_listeners.append(listener)
+
+    def _notify_authoring_revocation(self, digests: tuple[str, ...]) -> None:
+        if not digests:
+            return
+        for listener in tuple(self._authoring_revocation_listeners):
+            try:
+                listener(digests)
+            except Exception:
+                continue
 
     def create_account(
         self,
@@ -119,6 +139,7 @@ class SqlAlchemyAuthenticationRepository:
             else None
         )
         revoked_time = _write_time(revoked_at) if revoked_at is not None else None
+        fenced: tuple[str, ...] = ()
         try:
             with self._session_factory.begin() as session:
                 _begin_write(session)
@@ -141,9 +162,10 @@ class SqlAlchemyAuthenticationRepository:
                     session.flush()
                     revoked = len(active_rows)
                     if active_rows:
+                        fenced = tuple(active.session_digest for active in active_rows)
                         _fence_authoring_logins(
                             session,
-                            tuple(active.session_digest for active in active_rows),
+                            fenced,
                             revoked_time,
                         )
                 if audit is not None:
@@ -152,6 +174,7 @@ class SqlAlchemyAuthenticationRepository:
             raise AuthenticationAccountConflictError(
                 "user account state conflicted"
             ) from exc
+        self._notify_authoring_revocation(fenced)
         return revoked
 
     def create_session(
@@ -259,7 +282,8 @@ class SqlAlchemyAuthenticationRepository:
             _fence_authoring_logins(session, (session_digest,), revoked_time)
             if audit is not None:
                 insert_security_audit_event(session, audit)
-            return True
+        self._notify_authoring_revocation((session_digest,))
+        return True
 
     def list_security_audit_events(
         self,

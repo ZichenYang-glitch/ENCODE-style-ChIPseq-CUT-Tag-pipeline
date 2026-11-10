@@ -13,6 +13,7 @@ from encode_pipeline.api.authoring_models import (
     AuthoringDraftDocument,
     AuthoringDraftWriteRequest,
     AuthoringErrorResponse,
+    AuthoringExplanationResponse,
     AuthoringProposalResponse,
     AuthoringReceiptResponse,
     AuthoringRejectRequest,
@@ -33,6 +34,7 @@ from encode_pipeline.api.dependencies import require_authoring_actor
 from encode_pipeline.api.models import (
     IssueResponse,
     ValidatedInputSnapshotResponse,
+    ValidationResponse,
 )
 from encode_pipeline.platform.authoring import AuthoringActor, AuthoringRejected
 from encode_pipeline.services.authoring import (
@@ -44,6 +46,8 @@ from encode_pipeline.services.authoring import (
 )
 from encode_pipeline.services.validated_inputs import ValidatedInputService
 
+
+_INTERNAL_ERROR = {500: {"model": ValidationResponse}}
 
 projects_router = APIRouter(prefix="/projects", tags=["authoring"])
 router = APIRouter(prefix="/agent/authoring-sessions", tags=["authoring"])
@@ -61,6 +65,7 @@ def get_validated_inputs(request: Request) -> ValidatedInputService:
     "",
     response_model=ProjectListResponse,
     operation_id="authoringListProjects",
+    responses=_INTERNAL_ERROR,
 )
 def list_projects(
     actor: AuthoringActor = Depends(require_authoring_actor),
@@ -82,6 +87,7 @@ def list_projects(
     "/{project_id}/samples",
     response_model=ProjectSampleListResponse,
     operation_id="authoringListProjectSamples",
+    responses=_INTERNAL_ERROR,
 )
 def list_project_samples(
     project_id: str,
@@ -109,6 +115,7 @@ def list_project_samples(
     "",
     response_model=AuthoringSessionListResponse,
     operation_id="authoringListSessions",
+    responses=_INTERNAL_ERROR,
 )
 def list_sessions(
     actor: AuthoringActor = Depends(require_authoring_actor),
@@ -135,6 +142,7 @@ def list_sessions(
     "",
     response_model=AuthoringSessionResponse,
     operation_id="authoringCreateSession",
+    responses=_INTERNAL_ERROR,
 )
 def create_session(
     body: AuthoringSessionCreateRequest,
@@ -154,6 +162,7 @@ def create_session(
     "/{sid}",
     response_model=AuthoringSessionResponse,
     operation_id="authoringGetSession",
+    responses=_INTERNAL_ERROR,
 )
 def get_session(
     sid: str,
@@ -167,6 +176,7 @@ def get_session(
     "/{sid}/draft",
     response_model=AuthoringSessionResponse,
     operation_id="authoringSaveDraft",
+    responses=_INTERNAL_ERROR,
 )
 def save_draft(
     sid: str,
@@ -188,6 +198,7 @@ def save_draft(
     "/{sid}/connection",
     response_model=AuthoringSessionResponse,
     operation_id="authoringOpenConnection",
+    responses=_INTERNAL_ERROR,
 )
 def open_connection(
     sid: str,
@@ -201,6 +212,7 @@ def open_connection(
     "/{sid}/connection",
     response_model=AuthoringSessionResponse,
     operation_id="authoringCloseConnection",
+    responses=_INTERNAL_ERROR,
 )
 def close_connection(
     sid: str,
@@ -214,6 +226,7 @@ def close_connection(
     "/{sid}/turns",
     response_model=AuthoringTurnResponse,
     operation_id="authoringCreateTurn",
+    responses=_INTERNAL_ERROR,
 )
 def create_turn(
     sid: str,
@@ -236,6 +249,7 @@ def create_turn(
     "/{sid}/turns/{turn_id}",
     response_model=AuthoringTurnResponse,
     operation_id="authoringGetTurn",
+    responses=_INTERNAL_ERROR,
 )
 def get_turn(
     sid: str,
@@ -250,6 +264,7 @@ def get_turn(
     "/{sid}/proposals/{proposal_id}/adopt",
     response_model=AuthoringAdoptionResponse,
     operation_id="authoringAdoptProposal",
+    responses=_INTERNAL_ERROR,
 )
 def adopt_proposal(
     sid: str,
@@ -273,6 +288,7 @@ def adopt_proposal(
     "/{sid}/proposals/{proposal_id}/reject",
     response_model=AuthoringTurnResponse,
     operation_id="authoringRejectProposal",
+    responses=_INTERNAL_ERROR,
 )
 def reject_proposal(
     sid: str,
@@ -371,6 +387,9 @@ def _turn(view: TurnView) -> AuthoringTurnResponse:
     proposal = None
     if view.proposal is not None:
         proposal = AuthoringProposalResponse.model_validate(view.proposal)
+    explanation = None
+    if view.explanation is not None:
+        explanation = AuthoringExplanationResponse.model_validate(view.explanation)
     receipt = None
     if view.receipt is not None:
         receipt = AuthoringReceiptResponse.model_validate(view.receipt)
@@ -382,6 +401,8 @@ def _turn(view: TurnView) -> AuthoringTurnResponse:
         result_kind=view.result_kind,  # type: ignore[arg-type]
         proposal_id=view.proposal_id,
         proposal=proposal,
+        proposal_digest=view.proposal_digest,
+        explanation=explanation,
         proposal_state=view.proposal_state,  # type: ignore[arg-type]
         adoptable=view.adoptable,
         reason_code=view.reason_code,

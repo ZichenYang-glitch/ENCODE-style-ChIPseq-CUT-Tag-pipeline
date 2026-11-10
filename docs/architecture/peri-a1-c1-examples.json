@@ -62,6 +62,43 @@
       "preferences": [{"field_token": "config.threads", "value": 4}]
     }
   },
+  "turn_response": {
+    "ok": true,
+    "turn_id": "atr_0123456789abcdef0123456789abcdef",
+    "client_turn_id": "composer-1",
+    "status": "completed",
+    "failure_reason": null,
+    "result_kind": "proposal",
+    "proposal_id": "prop_0123456789abcdef0123456789abcdef",
+    "proposal": {
+      "changes": [],
+      "reason_codes": []
+    },
+    "proposal_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "explanation": null,
+    "proposal_state": "pending",
+    "adoptable": true,
+    "reason_code": null,
+    "proposal_expires_at": "2026-11-10T10:30:00Z",
+    "adoption_receipt": null
+  },
+  "explanation_response": {
+    "ok": true,
+    "turn_id": "atr_0123456789abcdef0123456789abcdef",
+    "client_turn_id": "composer-2",
+    "status": "completed",
+    "failure_reason": null,
+    "result_kind": "explanation",
+    "proposal_id": null,
+    "proposal": null,
+    "proposal_digest": null,
+    "explanation": {"reason_codes": ["ENCODE_OPTIONS_INVALID"]},
+    "proposal_state": null,
+    "adoptable": false,
+    "reason_code": null,
+    "proposal_expires_at": null,
+    "adoption_receipt": null
+  },
   "adopt_request": {
     "expected_revision": 4,
     "proposal_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

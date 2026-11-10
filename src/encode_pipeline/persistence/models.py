@@ -2182,6 +2182,18 @@ class AgentAuthoringSessionRow(Base):
             name="ck_agent_authoring_sessions_projection_digest",
         ),
         CheckConstraint(
+            "validated_schema_digest IS NULL OR "
+            "(length(validated_schema_digest) = 64 AND "
+            "validated_schema_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_schema",
+        ),
+        CheckConstraint(
+            "validated_projection_digest IS NULL OR "
+            "(length(validated_projection_digest) = 64 AND "
+            "validated_projection_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_projection",
+        ),
+        CheckConstraint(
             "length(draft_digest) = 64 AND draft_digest NOT GLOB '*[^0-9a-f]*'",
             name="ck_agent_authoring_sessions_draft_digest",
         ),
@@ -2262,6 +2274,8 @@ class AgentAuthoringSessionRow(Base):
     last_validated_revision: Mapped[int | None] = mapped_column(Integer)
     validation_issue_codes: Mapped[list[str] | None] = mapped_column(JSON)
     validation_issues: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    validated_schema_digest: Mapped[str | None] = mapped_column(String(64))
+    validated_projection_digest: Mapped[str | None] = mapped_column(String(64))
     connection_state: Mapped[str] = mapped_column(String(16), nullable=False)
     connection_reason_code: Mapped[str | None] = mapped_column(String(64))
     originating_auth_session_ref: Mapped[str | None] = mapped_column(String(64))

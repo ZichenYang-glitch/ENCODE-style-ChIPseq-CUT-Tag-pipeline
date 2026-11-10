@@ -1,7 +1,10 @@
 # A1 C1 handoff
 
-Status: backend contract for the restricted authoring loop. This is not A1
-acceptance. C2 bridge admission, C3 pages, and C4 integration are still open.
+Status: C1 and C2 are implemented on this branch and are back with Codex for
+review. The public turn response now includes the server `proposal_digest` and,
+for an explanation, `explanation.reason_codes`. Do not recompute the digest in
+the frontend. This handoff is not a frozen C3 contract until that review
+finishes, and it is not C4 or A1 acceptance.
 
 Base: `b2f15868c6f74ab8764a73ae6fe4394f67304475` (`origin/main` on 2026-11-10).
 Branch: `agent/peri-a1-authoring`.
@@ -42,16 +45,21 @@ already create a login and an ENCODE reference. Create a user project with
 client in `test/api/api_test_client.py` attaches the cookie and CSRF header.
 
 By default `POST .../connection` returns 503 `BRIDGE_UNAVAILABLE`. Saving and
-`POST .../validate` still work. The fixed Peri bridge starts only when
-`HELIXWEAVE_PERI_BINARY` points at the admitted binary and the API process is
-inside the 512MiB, swap-0, 128-task scope. The binary path is not built into
-the product.
+`POST .../validate` still work. One owner process admits the fixed Peri binary
+from `HELIXWEAVE_PERI_BINARY` and listens on `HELIXWEAVE_PERI_OWNER_SOCKET`.
+API workers only set the socket variable. Each native runs in its own 512MiB,
+swap-0, 128-task scope; the API process is not placed in that scope. The
+binary path is not built into the product.
+
+A completed proposal response includes `proposal_digest`. Adopt and reject send
+that value back. An explanation has `explanation.reason_codes`, no
+`proposal_id`, and `adoptable: false`. There is no free-text explanation field.
 
 ## Not in this handoff
 
-- The bridge can return one structured proposal for the approved fields. It does
-  not accept free text, and it still has no preflight, create, start, or cancel
-  tool.
+- The bridge can return one structured proposal or explanation for the approved
+  fields. It does not accept free text, and it still has no preflight, create,
+  start, or cancel tool.
 - The assistant can read only `config.threads` and `options.cores` on the ENCODE
   workflow. Other workflows report `available: false`.
 - There is no free-text question field and no preflight, create, start, or cancel

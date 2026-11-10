@@ -42,6 +42,7 @@ from encode_pipeline.platform.authoring import (
     PROPOSAL_EXPIRED,
     PROPOSAL_INVALIDATED,
     PROPOSAL_TTL,
+    SCOPE_DENIED,
     STALE_DRAFT,
     TURN_REQUEST_CONFLICT,
     TURN_RESULT_CONFLICT,
@@ -76,6 +77,8 @@ class AuthoringSessionRecord:
     last_validated_revision: int | None
     validation_issue_codes: tuple[str, ...]
     validation_issues: tuple[dict[str, Any], ...]
+    validated_schema_digest: str | None
+    validated_projection_digest: str | None
     connection_state: str
     connection_reason_code: str | None
     originating_auth_session_ref: str | None
@@ -131,6 +134,15 @@ class ConnectionClaim:
     record: AuthoringSessionRecord
     reused: bool
     capability_token: str | None
+
+
+@dataclass(frozen=True)
+class ConnectionCloseResult:
+    record: AuthoringSessionRecord
+    applied: bool
+    closed_generation: int | None
+    closed_instance_id: str | None
+    closed_owner_epoch: str | None
 
 
 @dataclass(frozen=True)
@@ -340,6 +352,7 @@ class SqlAlchemyAuthoringRepository:
             if schema_changed:
                 row.schema_digest = schema_digest
                 row.projection_digest = projection_digest
+                _clear_validation(row)
                 if not changed:
                     _invalidate_pending(session, sid, PROPOSAL_INVALIDATED)
             session.flush()
@@ -433,22 +446,45 @@ class SqlAlchemyAuthoringRepository:
         self,
         actor: AuthoringActor,
         sid: str,
-    ) -> AuthoringSessionRecord:
+        *,
+        expected_generation: int,
+        expected_instance_id: str | None,
+        expected_owner_epoch: str | None,
+    ) -> ConnectionCloseResult:
         with self._session_factory.begin() as session:
             _begin_write(session)
             now = self._now()
             row = self._owned(session, actor, sid, now, allow_expired=True)
-            if row.connection_state != "closed":
-                _fence_generation(
+            applied = False
+            closed_generation = None
+            closed_instance_id = None
+            closed_owner_epoch = None
+            if (
+                row.connection_state in {"blocked", "ready"}
+                and row.generation == expected_generation
+                and row.instance_id == expected_instance_id
+                and row.bridge_owner_epoch == expected_owner_epoch
+            ):
+                applied = _fence_generation(
                     session,
                     sid,
-                    generation=row.generation,
-                    owner_epoch=row.bridge_owner_epoch,
+                    generation=expected_generation,
+                    owner_epoch=expected_owner_epoch,
                     reason_code=CLOSED_BY_OWNER,
                 )
+                if applied:
+                    closed_generation = expected_generation
+                    closed_instance_id = expected_instance_id
+                    closed_owner_epoch = expected_owner_epoch
                 session.refresh(row)
             self._hook()
-            return _session_record(row)
+            return ConnectionCloseResult(
+                _session_record(row),
+                applied,
+                closed_generation,
+                closed_instance_id,
+                closed_owner_epoch,
+            )
 
     def retire_foreign_epochs(self, owner_epoch: str) -> int:
         """Fence ready connections that do not belong to the current bridge owner."""
@@ -572,6 +608,9 @@ class SqlAlchemyAuthoringRepository:
         actor: AuthoringActor,
         turn_id: str,
         completion: TurnCompletion,
+        *,
+        live_schema_digest: str,
+        live_projection_digest: str,
     ) -> AuthoringTurnRecord:
         with self._session_factory.begin() as session:
             _begin_write(session)
@@ -593,7 +632,15 @@ class SqlAlchemyAuthoringRepository:
                     self._hook()
                     return _turn_record(turn)
                 raise AuthoringRejected(TURN_RESULT_CONFLICT)
-            failure = self._completion_failure(session, row, turn, actor, now)
+            failure = self._completion_failure(
+                session,
+                row,
+                turn,
+                actor,
+                now,
+                live_schema_digest=live_schema_digest,
+                live_projection_digest=live_projection_digest,
+            )
             if failure is not None:
                 turn.status = "failed"
                 turn.failure_reason = failure
@@ -691,6 +738,93 @@ class SqlAlchemyAuthoringRepository:
             self._hook()
             return _session_record(row)
 
+    def connection_still_authorized(
+        self,
+        *,
+        sid: str,
+        generation: int,
+        instance_id: str,
+        owner_epoch: str,
+        user_id: str,
+        auth_session_digest: str,
+    ) -> bool:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            now = self._now()
+            row = session.get(AgentAuthoringSessionRow, sid)
+            self._hook()
+            if row is None or _as_utc(row.purge_after) <= now:
+                return False
+            if (
+                row.connection_state != "ready"
+                or row.generation != generation
+                or row.instance_id != instance_id
+                or row.bridge_owner_epoch != owner_epoch
+                or row.owner_user_id != user_id
+                or row.originating_auth_session_ref != auth_session_digest
+                or _as_utc(row.draft_expires_at) <= now
+            ):
+                return False
+            return _auth_live(
+                session, auth_session_digest, user_id, now
+            ) and _project_visible(session, row.project_id)
+
+    def tool_read_state(
+        self,
+        *,
+        sid: str,
+        turn_id: str,
+        generation: int,
+        instance_id: str,
+        owner_epoch: str,
+        capability_digest: str,
+    ) -> tuple[str, AuthoringSessionRecord | None, AuthoringTurnRecord | None]:
+        """Authorize one tool read inside a single write transaction."""
+
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            now = self._now()
+            row = session.get(AgentAuthoringSessionRow, sid)
+            turn = session.get(AgentAuthoringTurnRow, turn_id)
+            self._hook()
+            if (
+                row is None
+                or turn is None
+                or turn.sid != sid
+                or _as_utc(row.purge_after) <= now
+            ):
+                return SCOPE_DENIED, None, None
+            bound = (
+                row.connection_capability_digest == capability_digest
+                and row.connection_state == "ready"
+                and row.generation == generation
+                and turn.generation == generation
+                and row.instance_id == instance_id
+                and turn.instance_id == instance_id
+                and row.bridge_owner_epoch == owner_epoch
+                and turn.bridge_owner_epoch == owner_epoch
+                and row.originating_auth_session_ref
+                == turn.originating_auth_session_ref
+            )
+            if not bound or turn.status != "generating":
+                return SCOPE_DENIED, None, None
+            record = _session_record(row)
+            turn_record = _turn_record(turn)
+            if not _auth_live(
+                session,
+                turn.originating_auth_session_ref,
+                row.owner_user_id,
+                now,
+            ):
+                return AUTH_SESSION_ENDED, record, turn_record
+            if not _project_visible(session, row.project_id):
+                return SCOPE_DENIED, record, turn_record
+            if _as_utc(row.draft_expires_at) <= now:
+                return DRAFT_EXPIRED, record, turn_record
+            if row.draft_revision != turn.base_revision:
+                return STALE_DRAFT, record, turn_record
+            return "ok", record, turn_record
+
     def peek_turn(self, sid: str, turn_id: str) -> AuthoringTurnRecord | None:
         with self._session_factory.begin() as session:
             _begin_write(session)
@@ -728,6 +862,8 @@ class SqlAlchemyAuthoringRepository:
         content: Mapping[str, Any] | None,
         content_digest: str | None,
         changed: bool | None,
+        live_schema_digest: str,
+        live_projection_digest: str,
     ) -> AdoptionResult:
         with self._session_factory.begin() as session:
             _begin_write(session)
@@ -773,7 +909,15 @@ class SqlAlchemyAuthoringRepository:
                 or _as_utc(turn.proposal_expires_at) <= now
             ):
                 raise AuthoringRejected(PROPOSAL_EXPIRED)
-            if not self._proposal_binding_ok(session, row, turn, actor, now):
+            if not self._proposal_binding_ok(
+                session,
+                row,
+                turn,
+                actor,
+                now,
+                live_schema_digest=live_schema_digest,
+                live_projection_digest=live_projection_digest,
+            ):
                 raise AuthoringRejected(PROPOSAL_INVALIDATED)
             if row.draft_revision != turn.base_revision or (
                 expected_revision != turn.base_revision
@@ -926,6 +1070,7 @@ class SqlAlchemyAuthoringRepository:
         *,
         expected_revision: int,
         schema_digest: str,
+        projection_digest: str | None,
         snapshot_id: str | None,
         issue_codes: Sequence[str],
         issues: Sequence[Mapping[str, Any]],
@@ -942,6 +1087,8 @@ class SqlAlchemyAuthoringRepository:
             row.last_validated_revision = expected_revision
             row.validation_issue_codes = list(issue_codes)
             row.validation_issues = [dict(issue) for issue in issues]
+            row.validated_schema_digest = schema_digest
+            row.validated_projection_digest = projection_digest
             session.flush()
             self._hook()
             return _session_record(row)
@@ -1008,7 +1155,18 @@ class SqlAlchemyAuthoringRepository:
         actor: AuthoringActor,
         now: datetime,
     ) -> bool:
-        return self._completion_failure(session, row, turn, actor, now) is None
+        return (
+            self._completion_failure(
+                session,
+                row,
+                turn,
+                actor,
+                now,
+                live_schema_digest=turn.schema_digest,
+                live_projection_digest=turn.projection_digest,
+            )
+            is None
+        )
 
     def _completion_failure(
         self,
@@ -1017,6 +1175,9 @@ class SqlAlchemyAuthoringRepository:
         turn: AgentAuthoringTurnRow,
         actor: AuthoringActor,
         now: datetime,
+        *,
+        live_schema_digest: str,
+        live_projection_digest: str,
     ) -> str | None:
         if actor.session_digest != turn.originating_auth_session_ref:
             return AUTHENTICATION_REQUIRED
@@ -1041,7 +1202,9 @@ class SqlAlchemyAuthoringRepository:
         if row.draft_revision != turn.base_revision:
             return STALE_DRAFT
         if (
-            row.schema_digest != turn.schema_digest
+            live_schema_digest != turn.schema_digest
+            or live_projection_digest != turn.projection_digest
+            or row.schema_digest != turn.schema_digest
             or row.projection_digest != turn.projection_digest
         ):
             return CAPABILITY_CHANGED
@@ -1054,13 +1217,18 @@ class SqlAlchemyAuthoringRepository:
         turn: AgentAuthoringTurnRow,
         actor: AuthoringActor,
         now: datetime,
+        *,
+        live_schema_digest: str,
+        live_projection_digest: str,
     ) -> bool:
         if actor.session_digest != turn.originating_auth_session_ref:
             return False
         if not _auth_live(session, actor.session_digest, actor.user_id, now):
             return False
         if (
-            row.schema_digest != turn.schema_digest
+            live_schema_digest != turn.schema_digest
+            or live_projection_digest != turn.projection_digest
+            or row.schema_digest != turn.schema_digest
             or row.projection_digest != turn.projection_digest
         ):
             return False
@@ -1229,6 +1397,8 @@ def _clear_validation(row: AgentAuthoringSessionRow) -> None:
     row.last_validated_revision = None
     row.validation_issue_codes = None
     row.validation_issues = None
+    row.validated_schema_digest = None
+    row.validated_projection_digest = None
 
 
 def _project_visible(session: Session, project_id: str) -> bool:
@@ -1305,6 +1475,8 @@ def _session_record(row: AgentAuthoringSessionRow) -> AuthoringSessionRecord:
         last_validated_revision=row.last_validated_revision,
         validation_issue_codes=tuple(str(code) for code in codes),
         validation_issues=issues,
+        validated_schema_digest=row.validated_schema_digest,
+        validated_projection_digest=row.validated_projection_digest,
         connection_state=row.connection_state,
         connection_reason_code=row.connection_reason_code,
         originating_auth_session_ref=row.originating_auth_session_ref,

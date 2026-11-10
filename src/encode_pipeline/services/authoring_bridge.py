@@ -32,6 +32,9 @@ class BridgeSessionRequest:
     capability_token: str
     schema_digest: str
     projection_digest: str
+    auth_session_digest: str = ""
+    user_id: str = ""
+    instance_id: str | None = None
 
 
 @dataclass(frozen=True)

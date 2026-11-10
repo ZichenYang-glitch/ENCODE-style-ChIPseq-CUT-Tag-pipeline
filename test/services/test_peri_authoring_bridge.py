@@ -39,13 +39,37 @@ from encode_pipeline.services.defaults import (
     create_default_workflow_registry,
 )
 from encode_pipeline.services.peri_runtime.identity import binary_matches
-from encode_pipeline.services.peri_runtime.limits import cgroup_is_qualified
+from encode_pipeline.services.peri_runtime.limits import (
+    cgroup_path_is_qualified,
+    cgroup_root_for_pid,
+    stop_scope,
+)
 from encode_pipeline.services.peri_runtime.owner import NativeAuthoringBridge
 from encode_pipeline.services.validated_inputs import ValidatedInputService
 
 
-FIXED_BINARY = Path("/tmp/hw-peri-a0-close-20261109/build/target/release/peri")
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+
+
+def _provider_contains_tool_result(requests: object) -> bool:
+    if isinstance(requests, str):
+        return '"ok": true' in requests or '"ok":true' in requests
+    if isinstance(requests, dict):
+        return any(_provider_contains_tool_result(item) for item in requests.values())
+    if isinstance(requests, list):
+        return any(_provider_contains_tool_result(item) for item in requests)
+    return False
+
+
+def _pinned_binary() -> Path:
+    raw = os.environ.get("HELIXWEAVE_PERI_BINARY", "")
+    binary = Path(raw) if raw else None
+    if binary is None or not binary_matches(binary):
+        pytest.fail(
+            "HELIXWEAVE_PERI_BINARY must point at the pinned Peri binary",
+            pytrace=False,
+        )
+    return binary
 
 
 def test_unverified_binary_stays_unavailable(tmp_path: Path) -> None:
@@ -56,13 +80,11 @@ def test_unverified_binary_stays_unavailable(tmp_path: Path) -> None:
     assert bridge.status().available is False
 
 
-@pytest.mark.skipif(
-    not binary_matches(FIXED_BINARY) or not cgroup_is_qualified(),
-    reason="fixed Peri binary and the 512MiB runtime scope are required",
-)
+@pytest.mark.platform_real_execution
 def test_fixed_native_reads_two_tools_and_rejects_an_old_generation(
     tmp_path: Path,
 ) -> None:
+    fixed_binary = _pinned_binary()
     database_url = f"sqlite:///{tmp_path / 'authoring.db'}"
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
@@ -99,7 +121,11 @@ def test_fixed_native_reads_two_tools_and_rejects_an_old_generation(
         clock=clock,
     )
     state_root = Path(tempfile.mkdtemp(prefix="hw-a1-native-"))
-    bridge = NativeAuthoringBridge(binary=FIXED_BINARY, state_root=state_root)
+    bridge = NativeAuthoringBridge(
+        binary=fixed_binary,
+        state_root=state_root,
+        repository=authoring_repository,
+    )
     service = AuthoringService(
         repository=authoring_repository,
         registry=registry,
@@ -149,6 +175,24 @@ def test_fixed_native_reads_two_tools_and_rejects_an_old_generation(
         after = bridge.diagnostics(created.sid)
         assert after["tool_arrivals"] >= 2
         assert after["handler_calls"] >= 2
+        assert "tool_handler_failed" not in after["denied_callbacks"]
+        payloads = after["tool_payloads"]
+        assert [item["ok"] for item in payloads] == [True, True]
+        assert any(
+            field.get("token") == "config.threads"
+            for field in payloads[0]["data"]["fields"]
+        )
+        assert any(
+            field.get("token") == "config.threads"
+            for field in payloads[1]["data"]["fields"]
+        )
+        provider_bodies = json.dumps(after["provider_requests"])
+        assert "config.threads" in provider_bodies
+        assert _provider_contains_tool_result(after["provider_requests"])
+        native_root = cgroup_root_for_pid(int(after["native_pid"]))
+        assert native_root is not None and cgroup_path_is_qualified(native_root)
+        assert native_root != cgroup_root_for_pid(os.getpid())
+        assert bridge.sweep() == 0
         first_pid = after["pid"]
 
         other = service.create_session(
@@ -186,10 +230,42 @@ def test_fixed_native_reads_two_tools_and_rejects_an_old_generation(
                 )
             )
         assert bridge.diagnostics(other.sid)["handler_calls"] == second["handler_calls"]
-        provider_bodies = json.dumps(bridge._sessions[created.sid].stub.requests)
         assert "Maximum CPU cores" not in provider_bodies
         assert project.project_id not in provider_bodies
-        os.killpg(int(second["pid"]), signal.SIGKILL)
+        original_read = authoring_repository.tool_read_state
+
+        def deny_egress(**kwargs):
+            del kwargs
+            return "AUTH_SESSION_ENDED", None, None
+
+        authoring_repository.tool_read_state = deny_egress
+        denied = service.start_turn(
+            actor,
+            created.sid,
+            client_turn_id="turn-denied",
+            expected_revision=0,
+            question={
+                "intent": "suggest",
+                "field_tokens": ["config.threads"],
+                "preferences": [{"field_token": "config.threads", "value": 2}],
+            },
+        )
+        authoring_repository.tool_read_state = original_read
+        assert denied.status == "failed"
+        assert denied.proposal_id is None
+        denied_diag = bridge.closure_notes.get(
+            created.sid, bridge.diagnostics(created.sid)
+        )
+        assert denied_diag["handler_calls"] == after["handler_calls"]
+        assert "authorization_revoked" in denied_diag["stub_failures"]
+        stop_scope(str(second["scope_unit"]))
+        for pid in (second.get("leader_pid"), second.get("native_pid")):
+            if not isinstance(pid, int):
+                continue
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         disconnected = service.start_turn(
             actor,
             other.sid,

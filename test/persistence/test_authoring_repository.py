@@ -295,7 +295,13 @@ def test_logout_before_completion_discards_the_answer(
         SessionRevocationReason.LOGOUT,
     )
     with pytest.raises(AuthoringRejected) as captured:
-        repository.complete_turn(actor, turn.turn_id, _proposal(turn))
+        repository.complete_turn(
+            actor,
+            turn.turn_id,
+            _proposal(turn),
+            live_schema_digest=turn.schema_digest,
+            live_projection_digest=turn.projection_digest,
+        )
     stored = repository.peek_turn(turn.sid, turn.turn_id)
 
     assert captured.value.reason_code == AUTHENTICATION_REQUIRED
@@ -309,7 +315,13 @@ def test_completion_before_logout_stays_historical_but_not_adoptable(
     repository, auth_repository, actor, project_id, clock
 ):
     turn = _ready_turn(repository, actor, project_id)
-    completed = repository.complete_turn(actor, turn.turn_id, _proposal(turn))
+    completed = repository.complete_turn(
+        actor,
+        turn.turn_id,
+        _proposal(turn),
+        live_schema_digest=turn.schema_digest,
+        live_projection_digest=turn.projection_digest,
+    )
     assert completed.decision == "pending"
     assert auth_repository.revoke_session(
         actor.session_digest,
@@ -333,6 +345,8 @@ def test_completion_before_logout_stays_historical_but_not_adoptable(
             content=empty_draft_content(),
             content_digest=draft_digest(empty_draft_content()),
             changed=False,
+            live_schema_digest=turn.schema_digest,
+            live_projection_digest=turn.projection_digest,
         )
     assert captured.value.reason_code == AUTHENTICATION_REQUIRED
 
@@ -341,7 +355,13 @@ def test_repeated_adopt_returns_the_original_receipt(
     repository, actor, project_id, clock
 ):
     turn = _ready_turn(repository, actor, project_id)
-    completed = repository.complete_turn(actor, turn.turn_id, _proposal(turn))
+    completed = repository.complete_turn(
+        actor,
+        turn.turn_id,
+        _proposal(turn),
+        live_schema_digest=turn.schema_digest,
+        live_projection_digest=turn.projection_digest,
+    )
     content = empty_draft_content()
     content["options"] = {"cores": 4}
     first = repository.adopt(
@@ -354,6 +374,8 @@ def test_repeated_adopt_returns_the_original_receipt(
         content=content,
         content_digest=draft_digest(content),
         changed=True,
+        live_schema_digest=turn.schema_digest,
+        live_projection_digest=turn.projection_digest,
     )
     clock.now = NOW + timedelta(minutes=45)
     second = repository.adopt(
@@ -366,6 +388,8 @@ def test_repeated_adopt_returns_the_original_receipt(
         content=None,
         content_digest=None,
         changed=None,
+        live_schema_digest="e" * 64,
+        live_projection_digest="f" * 64,
     )
 
     assert first.replayed is False

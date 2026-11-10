@@ -48,8 +48,9 @@ from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
 from encode_pipeline.services.authoring import AuthoringService
+from encode_pipeline.api.authoring_models import AuthoringValidationResponse
 from encode_pipeline.services.authoring_bridge import UnavailableAuthoringBridge
-from encode_pipeline.services.peri_runtime.owner import NativeAuthoringBridge
+from encode_pipeline.services.peri_runtime.socket_server import RemoteAuthoringBridge
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
@@ -98,24 +99,16 @@ from encode_pipeline.workers.settings import (
 
 
 AUTH_SECURE_COOKIES_ENV = "ENCODE_PIPELINE_AUTH_SECURE_COOKIES"
-PERI_BINARY_ENV = "HELIXWEAVE_PERI_BINARY"
-PERI_STATE_ENV = "HELIXWEAVE_PERI_STATE"
+PERI_OWNER_SOCKET_ENV = "HELIXWEAVE_PERI_OWNER_SOCKET"
 
 
-def _load_authoring_bridge(environ: dict[str, str], repository):
-    """Enable the fixed Peri bridge only when this process is admitted."""
+def _load_authoring_bridge(environ: dict[str, str]):
+    """Connect to the single owner. This process does not spawn natives."""
 
-    raw_binary = environ.get(PERI_BINARY_ENV)
-    if not raw_binary:
+    raw_socket = environ.get(PERI_OWNER_SOCKET_ENV)
+    if not raw_socket:
         return UnavailableAuthoringBridge()
-    raw_state = environ.get(PERI_STATE_ENV)
-    bridge = NativeAuthoringBridge(
-        binary=Path(raw_binary),
-        state_root=Path(raw_state) if raw_state else None,
-    )
-    if bridge.status().available:
-        repository.retire_foreign_epochs(bridge.owner_epoch())
-    return bridge
+    return RemoteAuthoringBridge(Path(raw_socket))
 
 
 def create_app(
@@ -147,9 +140,6 @@ def create_app(
         try:
             yield
         finally:
-            bridge = getattr(_app.state, "authoring_bridge", None)
-            if isinstance(bridge, NativeAuthoringBridge):
-                bridge.shutdown()
             run_queue.close()
             persistence.close()
 
@@ -290,9 +280,7 @@ def create_app(
     authoring_repository = SqlAlchemyAuthoringRepository(
         create_session_factory(persistence.engine)
     )
-    authoring_bridge = _load_authoring_bridge(
-        settings_environment, authoring_repository
-    )
+    authoring_bridge = _load_authoring_bridge(settings_environment)
     app.state.authoring_bridge = authoring_bridge
     app.state.authoring_service = AuthoringService(
         repository=authoring_repository,
@@ -304,8 +292,13 @@ def create_app(
         snapshots=persistence.repository,
         bridge=authoring_bridge,
     )
-    if isinstance(authoring_bridge, NativeAuthoringBridge):
-        authoring_bridge.bind_tool_handler(app.state.authoring_service.read_tool)
+
+    def _drop_authoring_natives(digests: tuple[str, ...]) -> None:
+        drop = getattr(app.state.authoring_bridge, "drop_authorizations", None)
+        if drop is not None:
+            drop(digests)
+
+    authentication_repository.add_authoring_revocation_listener(_drop_authoring_natives)
     app.state.reference_profile_service = reference_profile_service
     app.state.reference_profile_binding_service = reference_profile_binding_service
     app.state.reference_profile_resolver = reference_profile_resolver
@@ -731,6 +724,26 @@ async def _handle_internal_server_error(
             status_code=500,
             content=body.model_dump(mode="json", exclude_none=True),
         )
+    if getattr(route, "operation_id", None) == "authoringValidateDraft":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="An internal server error occurred.",
+            severity="error",
+            path=None,
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = AuthoringValidationResponse(
+            draft_revision=0,
+            ok=False,
+            workflow_id=None,
+            value=None,
+            snapshot=None,
+            issues=[IssueResponse.model_validate(issue.to_dict())],
+        )
+        return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
     workflow_id = request.path_params.get("workflow_id")
     issue = Issue(
         code="INTERNAL_SERVER_ERROR",

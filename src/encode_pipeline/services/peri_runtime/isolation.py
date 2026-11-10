@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
+from uuid import uuid4
 
+from encode_pipeline.services.peri_runtime.limits import (
+    qualified_native_pid,
+    stop_scope,
+)
 from encode_pipeline.services.peri_runtime.policy import process_policy
 
 
 BWRAP = Path("/usr/bin/bwrap")
 PRLIMIT = Path("/usr/bin/prlimit")
+SYSTEMD_RUN = Path("/usr/bin/systemd-run")
 PYTHON = Path("/usr/bin/python3.12")
 PYTHON_LIB = Path("/usr/lib/python3.12")
 LIB_DIR = Path("/lib/x86_64-linux-gnu")
@@ -25,6 +32,7 @@ def isolation_paths_exist() -> bool:
         for path in (
             BWRAP,
             PRLIMIT,
+            SYSTEMD_RUN,
             PYTHON,
             PYTHON_LIB,
             LIB_DIR,
@@ -153,8 +161,27 @@ def spawn(
 ) -> subprocess.Popen[bytes]:
     for name in ("home", "config", "cache", "data"):
         (state / name).mkdir(parents=True, exist_ok=True)
-    return subprocess.Popen(
+    unit = f"hw-peri-a1-{uuid4().hex[:12]}"
+    scope_env = {
+        key: os.environ[key]
+        for key in ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+        if os.environ.get(key)
+    }
+    if len(scope_env) != 2:
+        raise OSError("systemd user session is required for the native scope")
+    process = subprocess.Popen(
         [
+            str(SYSTEMD_RUN),
+            "--user",
+            "--scope",
+            "--collect",
+            "--quiet",
+            f"--unit={unit}",
+            "--property=MemoryMax=512M",
+            "--property=MemorySwapMax=0",
+            "--property=CPUQuota=100%",
+            "--property=TasksMax=128",
+            "--",
             str(PRLIMIT),
             "--nofile=128:128",
             "--core=0:0",
@@ -166,6 +193,16 @@ def spawn(
         stdout=subprocess.PIPE,
         stderr=stderr,
         close_fds=True,
-        env={},
+        env=scope_env,
         start_new_session=True,
     )
+    try:
+        native_pid = qualified_native_pid(unit, process.pid)
+    except OSError:
+        stop_scope(unit)
+        if process.poll() is None:
+            process.kill()
+        raise
+    process.peri_scope_unit = unit  # type: ignore[attr-defined]
+    process.peri_native_pid = native_pid  # type: ignore[attr-defined]
+    return process

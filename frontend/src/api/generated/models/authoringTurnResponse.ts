@@ -10,6 +10,8 @@ import type { AuthoringTurnResponseFailureReason } from './authoringTurnResponse
 import type { AuthoringTurnResponseResultKind } from './authoringTurnResponseResultKind';
 import type { AuthoringTurnResponseProposalId } from './authoringTurnResponseProposalId';
 import type { AuthoringTurnResponseProposal } from './authoringTurnResponseProposal';
+import type { AuthoringTurnResponseProposalDigest } from './authoringTurnResponseProposalDigest';
+import type { AuthoringTurnResponseExplanation } from './authoringTurnResponseExplanation';
 import type { AuthoringTurnResponseProposalState } from './authoringTurnResponseProposalState';
 import type { AuthoringTurnResponseReasonCode } from './authoringTurnResponseReasonCode';
 import type { AuthoringTurnResponseProposalExpiresAt } from './authoringTurnResponseProposalExpiresAt';
@@ -28,6 +30,8 @@ export interface AuthoringTurnResponse {
   result_kind?: AuthoringTurnResponseResultKind;
   proposal_id?: AuthoringTurnResponseProposalId;
   proposal?: AuthoringTurnResponseProposal;
+  proposal_digest?: AuthoringTurnResponseProposalDigest;
+  explanation?: AuthoringTurnResponseExplanation;
   proposal_state?: AuthoringTurnResponseProposalState;
   adoptable: boolean;
   reason_code?: AuthoringTurnResponseReasonCode;

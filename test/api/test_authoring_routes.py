@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
+from encode_pipeline.services.authoring_bridge import BridgeAdmission, BridgeStatus
 from encode_pipeline.services.data_registry import DataRegistryService, SampleImportSpec
 from api_test_client import ApiTestClient
 
@@ -182,6 +185,107 @@ def test_validate_uses_the_real_service_for_failure_null_and_managed_rejection(
         assert (
             authoring_only.json()["issues"][0]["code"] == "REFERENCE_PROFILE_REQUIRED"
         )
+
+
+def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
+    class Bridge:
+        def status(self):
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self):
+            return "api-owner"
+
+        def admit(self, request):
+            del request
+            return BridgeAdmission(instance_id="instance01", state="ready")
+
+        def execute_turn(self, request):
+            value = 4 if request.question["intent"] == "suggest" else None
+            if value is None:
+                body = {
+                    "base_revision": request.base_revision,
+                    "changes": [],
+                    "kind": "explanation",
+                    "reason_codes": [],
+                    "schema_digest": request.schema_digest,
+                }
+            else:
+                body = {
+                    "base_revision": request.base_revision,
+                    "changes": [{"field_token": "config.threads", "value": value}],
+                    "kind": "proposal",
+                    "reason_codes": [],
+                    "schema_digest": request.schema_digest,
+                }
+            return json.dumps(body, separators=(",", ":"), sort_keys=True)
+
+        def close(self, request):
+            del request
+
+    app = reference_ready_app
+    app.state.authoring_service._bridge = Bridge()
+    project = _registry(app).create_project("Digest")
+    with ApiTestClient(app) as client:
+        created = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
+        )
+        assert created.status_code == 200, created.text
+        sid = created.json()["sid"]
+        opened = client.post(f"/api/v1/agent/authoring-sessions/{sid}/connection")
+        assert opened.status_code == 200, opened.text
+        suggested = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns",
+            json={
+                "client_turn_id": "suggest-1",
+                "expected_revision": 0,
+                "question": {
+                    "intent": "suggest",
+                    "field_tokens": ["config.threads"],
+                    "preferences": [{"field_token": "config.threads", "value": 4}],
+                },
+            },
+        )
+        assert suggested.status_code == 200, suggested.text
+        body = suggested.json()
+        digest = body["proposal_digest"]
+        proposal_id = body["proposal_id"]
+        assert body["adoptable"] is True
+        assert digest and "proposal_digest" not in body["proposal"]
+        adopted = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
+            json={"expected_revision": 0, "proposal_digest": digest},
+        )
+        assert adopted.status_code == 200, adopted.text
+        assert adopted.json()["replayed"] is False
+        replayed = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
+            json={"expected_revision": 0, "proposal_digest": digest},
+        )
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.json()["replayed"] is True
+        assert replayed.json()["adoption_receipt"] == adopted.json()["adoption_receipt"]
+        again = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns",
+            json={
+                "client_turn_id": "suggest-2",
+                "expected_revision": adopted.json()["draft_revision"],
+                "question": {
+                    "intent": "suggest",
+                    "field_tokens": ["options.cores"],
+                    "preferences": [{"field_token": "options.cores", "value": 2}],
+                },
+            },
+        )
+        assert again.status_code == 200, again.text
+        rejected = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/proposals/"
+            f"{again.json()['proposal_id']}/reject",
+            json={"proposal_digest": again.json()["proposal_digest"]},
+        )
+        assert rejected.status_code == 200, rejected.text
+        assert rejected.json()["proposal_state"] == "rejected"
+        assert rejected.json()["adoptable"] is False
 
 
 def _session_factory(app):
