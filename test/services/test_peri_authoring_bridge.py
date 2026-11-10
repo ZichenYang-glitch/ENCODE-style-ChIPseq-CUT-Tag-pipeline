@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import os
 from pathlib import Path
 import shutil
+import signal
 import tempfile
 
 import pytest
@@ -183,6 +186,25 @@ def test_fixed_native_reads_two_tools_and_rejects_an_old_generation(
                 )
             )
         assert bridge.diagnostics(other.sid)["handler_calls"] == second["handler_calls"]
+        provider_bodies = json.dumps(bridge._sessions[created.sid].stub.requests)
+        assert "Maximum CPU cores" not in provider_bodies
+        assert project.project_id not in provider_bodies
+        os.killpg(int(second["pid"]), signal.SIGKILL)
+        disconnected = service.start_turn(
+            actor,
+            other.sid,
+            client_turn_id="turn-disconnected",
+            expected_revision=0,
+            question={
+                "intent": "suggest",
+                "field_tokens": ["config.threads"],
+                "preferences": [{"field_token": "config.threads", "value": 2}],
+            },
+        )
+        assert disconnected.status == "failed", bridge.closure_notes
+        assert disconnected.proposal_id is None
+        observed = bridge.closure_notes.get(other.sid, bridge.diagnostics(other.sid))
+        assert observed["handler_calls"] == 0
     finally:
         bridge.shutdown()
         shutil.rmtree(state_root, ignore_errors=True)
