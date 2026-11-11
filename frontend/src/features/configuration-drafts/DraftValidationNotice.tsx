@@ -37,6 +37,10 @@ export function DraftValidationNotice({
         {validation.status === 'snapshot' && (
           <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
             <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Snapshot</dt>
+              <dd>{validation.snapshotId ?? 'Not reported'}</dd>
+            </div>
+            <div>
               <dt className="text-xs text-[var(--color-text-muted)]">Draft revision</dt>
               <dd>{validation.revisionLabel ?? 'Not reported'}</dd>
             </div>

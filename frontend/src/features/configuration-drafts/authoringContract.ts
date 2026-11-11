@@ -364,13 +364,24 @@ function proposalChanges(
   });
 }
 
-export function explanationView(turn: AuthoringTurnResponse): ExplanationView | null {
+export function explanationView(
+  turn: AuthoringTurnResponse,
+  capability: AuthoringCapabilityView | null,
+): ExplanationView | null {
   const codes = turn.explanation?.reason_codes;
   if (!codes || turn.result_kind !== 'explanation') return null;
+  const labels = new Map(
+    (capability?.issues ?? []).map((issue) => [issue.code, issue.label]),
+  );
   return {
     contentAvailable: codes.length > 0,
-    labels: codes.map((code) => reasonCopy(code)),
+    labels: codes.map((code) => approvedExplanationLabel(labels.get(code))),
   };
+}
+
+function approvedExplanationLabel(label: string | undefined): string {
+  if (label && label.trim() && !/[/\\]|\n|traceback/i.test(label)) return label;
+  return 'This explanation is not in the current catalog.';
 }
 
 export function validationView(input: {
@@ -442,6 +453,7 @@ function validationSuccessView(response: AuthoringValidationResponse): DraftVali
   if (response.snapshot) {
     return {
       status: 'snapshot',
+      snapshotId: response.snapshot.snapshot_id,
       revisionLabel: `Revision ${response.draft_revision}`,
       expiresLabel: formatServerTimestamp(response.snapshot.expires_at),
     };

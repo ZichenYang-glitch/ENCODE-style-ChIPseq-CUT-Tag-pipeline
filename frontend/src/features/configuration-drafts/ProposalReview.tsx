@@ -14,6 +14,7 @@ interface ProposalReviewProps {
   onAdopt?: () => void;
   onReject?: () => void;
   onRefresh?: () => void;
+  operationPending?: boolean;
 }
 
 export function ProposalReview({
@@ -24,6 +25,7 @@ export function ProposalReview({
   onAdopt,
   onReject,
   onRefresh,
+  operationPending = false,
 }: ProposalReviewProps) {
   if (!proposal) {
     return (
@@ -94,7 +96,7 @@ export function ProposalReview({
           <Button
             type="button"
             variant="primary"
-            disabled={adoptReason !== null || !onAdopt}
+            disabled={adoptReason !== null || !onAdopt || operationPending}
             aria-describedby={adoptReason !== null ? adoptDescriptionId : undefined}
             onClick={() => {
               if (adoptReason !== null) return;
@@ -106,7 +108,7 @@ export function ProposalReview({
           <Button
             type="button"
             variant="danger"
-            disabled={rejectReason !== null || !onReject}
+            disabled={rejectReason !== null || !onReject || operationPending}
             aria-describedby={
               rejectReason === null
                 ? undefined

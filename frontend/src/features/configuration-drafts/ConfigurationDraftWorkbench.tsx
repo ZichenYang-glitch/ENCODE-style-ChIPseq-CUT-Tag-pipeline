@@ -68,6 +68,10 @@ export interface ConfigurationDraftWorkbenchProps {
   onReject?: () => void;
   onRefreshProposal?: () => void;
   onValidate?: () => void;
+  operationPending?: boolean;
+  externalPrompt?: boolean;
+  onExternalDiscard?: () => void;
+  onExternalCancel?: () => void;
 }
 
 export function ConfigurationDraftWorkbench({
@@ -112,14 +116,19 @@ export function ConfigurationDraftWorkbench({
   onReject,
   onRefreshProposal,
   onValidate,
+  operationPending = false,
+  externalPrompt = false,
+  onExternalDiscard,
+  onExternalCancel,
 }: ConfigurationDraftWorkbenchProps) {
   const [dirty, setDirty] = useState(false);
   const [discardEpoch, setDiscardEpoch] = useState(0);
   const [localNotice, setLocalNotice] = useState<string | null>(null);
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [prompt, setPrompt] = useState<
-    { kind: 'leave' } | { kind: 'select'; sid: string } | null
+    { kind: 'leave' } | { kind: 'select'; sid: string } | { kind: 'external' } | null
   >(null);
+  const [editorCanSave, setEditorCanSave] = useState(false);
   const dirtyRef = useRef(false);
   const documentRef = useRef<EditorDocument | null>(null);
   const allowNavigation = useRef(false);
@@ -174,9 +183,23 @@ export function ConfigurationDraftWorkbench({
     documentRef.current = document;
   }, []);
 
+  useEffect(() => {
+    if (externalPrompt) {
+      setPrompt((current) => current ?? { kind: 'external' });
+      return;
+    }
+    setPrompt((current) => (current?.kind === 'external' ? null : current));
+  }, [externalPrompt]);
+
+  function isEditorDocument(value: unknown): value is EditorDocument {
+    if (value == null || typeof value !== 'object') return false;
+    if ('nativeEvent' in value || 'currentTarget' in value) return false;
+    return 'config' in value && 'options' in value;
+  }
+
   function requestSave(document?: EditorDocument) {
-    const payload = document ?? documentRef.current;
-    if (!writesEnabled || !onSave || !payload) return;
+    const payload = isEditorDocument(document) ? document : documentRef.current;
+    if (!editorCanSave || !onSave || !payload) return;
     onSave(payload);
     setSaveAttempted(true);
   }
@@ -195,6 +218,7 @@ export function ConfigurationDraftWorkbench({
     setLocalNotice('Unsaved edits discarded.');
     onDiscarded?.();
     setPrompt(null);
+    if (current?.kind === 'external') onExternalDiscard?.();
     if (current?.kind === 'select') onSelectDraft?.(current.sid);
     if (blocker.state === 'blocked') {
       allowNavigation.current = true;
@@ -203,8 +227,10 @@ export function ConfigurationDraftWorkbench({
   }
 
   function cancelPrompt() {
+    const current = prompt;
     setPrompt(null);
     setSaveAttempted(false);
+    if (current?.kind === 'external') onExternalCancel?.();
     if (blocker.state === 'blocked') blocker.reset();
   }
 
@@ -307,6 +333,7 @@ export function ConfigurationDraftWorkbench({
                 managedInputs={managedInputs}
                 onDirtyChange={noteDirty}
                 onDocumentChange={noteDocument}
+                onSaveEnabledChange={setEditorCanSave}
                 onSave={onSave ? requestSave : undefined}
                 onDiscard={discardLocal}
               />
@@ -324,6 +351,7 @@ export function ConfigurationDraftWorkbench({
             unavailableMessage={saveUnavailableReason}
             dirty={dirty}
             requestStatus={requestStatus}
+            operationPending={operationPending}
             onRequest={onRequest}
             onCheckRequest={onCheckRequest}
           />
@@ -335,6 +363,7 @@ export function ConfigurationDraftWorkbench({
             onAdopt={onAdopt}
             onReject={onReject}
             onRefresh={onRefreshProposal}
+            operationPending={operationPending}
           />
           <ExplanationNotice explanation={explanation} />
           <DraftValidationNotice
@@ -349,10 +378,14 @@ export function ConfigurationDraftWorkbench({
       </div>
       <UnsavedEditsDialog
         open={prompt !== null}
-        writesEnabled={writesEnabled && onSave !== undefined}
-        unavailableMessage={saveUnavailableReason}
+        writesEnabled={editorCanSave}
+        unavailableMessage={
+          writesEnabled
+            ? 'Fix the editor errors before saving. These edits are kept.'
+            : saveUnavailableReason
+        }
         saveAttempted={saveAttempted}
-        onSave={requestSave}
+        onSave={() => requestSave()}
         onDiscard={discardAndContinue}
         onCancel={cancelPrompt}
       />

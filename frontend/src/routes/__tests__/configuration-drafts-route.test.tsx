@@ -15,16 +15,56 @@ const generatedMocks = vi.hoisted(() => ({
   createRun: vi.fn(),
   getWorkflowSchema: vi.fn(),
   validateWorkflow: vi.fn(),
+  listCompatibleReferenceProfiles: vi.fn(),
+  openConnection: vi.fn(),
+  createSession: vi.fn(),
+  saveDraft: vi.fn(),
+  validateDraft: vi.fn(),
+  listProjects: vi.fn(),
+  listSessions: vi.fn(),
+  listSamples: vi.fn(),
 }));
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
   getWorkflowSchema: generatedMocks.getWorkflowSchema,
   validateWorkflow: generatedMocks.validateWorkflow,
+  listCompatibleReferenceProfiles: generatedMocks.listCompatibleReferenceProfiles,
 }));
 
 vi.mock('../../api/generated/runs/runs', () => ({
   createRun: generatedMocks.createRun,
 }));
+
+vi.mock('../../api/generated/authoring/authoring', () => ({
+  authoringListProjects: generatedMocks.listProjects,
+  authoringListProjectSamples: generatedMocks.listSamples,
+  authoringListSessions: generatedMocks.listSessions,
+  authoringCreateSession: generatedMocks.createSession,
+  authoringGetSession: vi.fn(),
+  authoringSaveDraft: generatedMocks.saveDraft,
+  authoringOpenConnection: generatedMocks.openConnection,
+  authoringCloseConnection: vi.fn(),
+  authoringCreateTurn: vi.fn(),
+  authoringGetTurn: vi.fn(),
+  authoringAdoptProposal: vi.fn(),
+  authoringRejectProposal: vi.fn(),
+  authoringValidateDraft: generatedMocks.validateDraft,
+}));
+
+vi.mock('../../api/authClient', async () => {
+  const actual = await vi.importActual<typeof import('../../api/authClient')>(
+    '../../api/authClient',
+  );
+  return {
+    ...actual,
+    fetchSessionState: vi.fn(async () => ({
+      ok: true,
+      setup_required: false,
+      authenticated: true,
+      principal: { user_id: 'user-1', username: 'ada', role: 'admin' },
+    })),
+  };
+});
 
 vi.mock('@uiw/react-codemirror', () => ({
   default: ({
@@ -54,11 +94,24 @@ describe('configuration drafts route', () => {
       schema: createDraftEditorContract(),
       issues: [],
     });
+    generatedMocks.listCompatibleReferenceProfiles.mockResolvedValue({
+      ok: true,
+      workflow_id: WORKFLOW_ID,
+      profiles: [],
+      issues: [],
+    });
+    generatedMocks.listProjects.mockResolvedValue({ ok: true, projects: [] });
+    generatedMocks.listSessions.mockResolvedValue({ ok: true, sessions: [] });
+    generatedMocks.listSamples.mockResolvedValue({ ok: true, samples: [] });
     generatedMocks.validateWorkflow.mockReset();
     generatedMocks.createRun.mockReset();
+    generatedMocks.openConnection.mockReset();
+    generatedMocks.createSession.mockReset();
+    generatedMocks.saveDraft.mockReset();
+    generatedMocks.validateDraft.mockReset();
   });
 
-  it('prepares the draft page without calling save, validation, or run APIs', async () => {
+  it('opens the wired draft page without connecting or starting a run', async () => {
     const user = userEvent.setup();
     const { router } = renderWithRouter(appRoutes, {
       initialEntries: [`/workflows/${WORKFLOW_ID}`],
@@ -72,24 +125,23 @@ describe('configuration drafts route', () => {
       `/workflows/${WORKFLOW_ID}/configuration-drafts`,
     );
     expect(
-      await screen.findByRole('heading', { name: 'Configuration drafts' }),
+      await screen.findByRole('heading', { level: 1, name: 'Configuration drafts' }),
     ).toBeInTheDocument();
     expect(
       screen.getByText('ENCODE-style ChIP-seq/CUT&Tag/ATAC/MNase'),
     ).toBeInTheDocument();
-    expect(screen.getByText('Project list is not connected yet.')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Project' })).toBeInTheDocument();
+    expect(screen.getByText(/no projects are available/i)).toBeInTheDocument();
+    expect(screen.queryByText(/draft list is not connected yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reviewed configuration-draft interface/i)).not.toBeInTheDocument();
     expect(screen.getByText('Assistant not connected')).toBeInTheDocument();
-    expect(screen.getByText(/draft list is not connected yet/i)).toBeInTheDocument();
     expect(screen.getAllByText(/does not start a run/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Connect assistant' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Validate draft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'New draft' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Adopt suggestion' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /create run|preflight|start run/i })).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: 'Suggestion request' }).closest('section')?.querySelector(
-        'textarea, input[type="file"]',
-      ),
-    ).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
 
     const limit = await screen.findByLabelText('Local limit');
     expect(limit).toHaveValue(1);
@@ -101,6 +153,10 @@ describe('configuration drafts route', () => {
     await waitFor(() => {
       expect(validateWorkflow).not.toHaveBeenCalled();
       expect(createRun).not.toHaveBeenCalled();
+      expect(generatedMocks.openConnection).not.toHaveBeenCalled();
+      expect(generatedMocks.createSession).not.toHaveBeenCalled();
+      expect(generatedMocks.saveDraft).not.toHaveBeenCalled();
+      expect(generatedMocks.validateDraft).not.toHaveBeenCalled();
     });
     expect(getWorkflowSchema).toHaveBeenCalledWith(WORKFLOW_ID);
   });

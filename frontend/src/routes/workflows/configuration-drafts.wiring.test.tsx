@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -176,10 +176,14 @@ describe('configuration draft API wiring', () => {
     await openDraft(SID);
     await connectReady();
     await user.click(screen.getByRole('radio', { name: 'Explain a validation issue' }));
-    await user.click(screen.getByRole('radio', { name: 'Select a sample revision.' }));
+    expect(screen.getByText('Select a sample revision.')).toBeInTheDocument();
     authoring.createTurn.mockResolvedValueOnce(explanationTurn());
     await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
-    expect(await screen.findByText(/at least one sample revision/i)).toBeInTheDocument();
+    expect(
+      within(await screen.findByRole('list', { name: 'Explanation reasons' })).getByText(
+        'Select a sample revision.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Adopt suggestion' })).not.toBeInTheDocument();
     const explainBody = authoring.createTurn.mock.calls[0]?.[1] as AuthoringTurnCreateRequest;
     expect(explainBody.question).toEqual({
@@ -323,6 +327,163 @@ describe('configuration draft API wiring', () => {
     await user.click(screen.getByRole('button', { name: /revision 2/ }));
     expect(await screen.findByText(/not available/i)).toBeInTheDocument();
     expect(screen.queryByText(/raw missing text/i)).not.toBeInTheDocument();
+  });
+
+  it('discards back to the saved draft instead of the pre-save value', async () => {
+    const user = userEvent.setup();
+    authoring.saveDraft.mockImplementation(async (_sid: string, body: { expected_revision: number; config: { limit: number } }) =>
+      draftSession(SID, { limit: body.config.limit }, { draft_revision: body.expected_revision + 1 }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await editLimit(user, '5');
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await waitFor(() => {
+      expect(screen.queryByText('You have unsaved edits. They are not saved, adopted, or validated.')).not.toBeInTheDocument();
+    });
+    await editLimit(user, '6');
+    await user.click(screen.getByRole('button', { name: 'Discard edits' }));
+    expect(await screen.findByLabelText('Local limit')).toHaveValue(5);
+    expect(authoring.saveDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the original suggestion id when a second click arrives before the response', async () => {
+    const user = userEvent.setup();
+    const bodies: AuthoringTurnCreateRequest[] = [];
+    let failFirst: () => void = () => undefined;
+    authoring.createTurn.mockImplementation((_sid: string, body: AuthoringTurnCreateRequest) => {
+      bodies.push(structuredClone(body));
+      return new Promise((resolve, reject) => {
+        if (bodies.length === 1) failFirst = () => reject(new TypeError('lost'));
+        else resolve(proposalTurn());
+      });
+    });
+    renderPage();
+    await openDraft(SID);
+    await connectReady();
+    await user.click(screen.getByRole('radio', { name: 'Suggest values' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Example limit' }));
+    const request = screen.getByRole('button', { name: 'Request suggestion' });
+    await user.click(request);
+    await user.click(request);
+    failFirst();
+    await user.click(await screen.findByRole('button', { name: 'Check this request' }));
+    await screen.findByRole('button', { name: 'Adopt suggestion' });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]?.client_turn_id).toBe(bodies[0]?.client_turn_id);
+    expect(bodies[1]?.question).toEqual(bodies[0]?.question);
+  });
+
+  it('replays an in-flight adoption instead of a later reject click', async () => {
+    const user = userEvent.setup();
+    let failAdopt: () => void = () => undefined;
+    authoring.adopt.mockImplementation(
+      () => new Promise((_resolve, reject) => {
+        failAdopt = () => reject(new TypeError('lost'));
+      }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await connectReady();
+    await user.click(screen.getByRole('radio', { name: 'Suggest values' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Example limit' }));
+    authoring.createTurn.mockResolvedValueOnce(proposalTurn());
+    await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
+    await user.click(await screen.findByRole('button', { name: 'Adopt suggestion' }));
+    await user.click(screen.getByRole('button', { name: 'Reject suggestion' }));
+    failAdopt();
+    authoring.adopt.mockResolvedValueOnce({
+      ok: true,
+      replayed: true,
+      adoption_receipt: {
+        proposal_id: PROPOSAL,
+        base_revision: 1,
+        result_revision: 2,
+        changed: true,
+        adopted_at: '2026-11-10T00:00:00Z',
+        draft_expires_at: '2026-11-17T00:00:00Z',
+      },
+      draft_state: 'active',
+      draft_revision: 2,
+      expires_at: '2026-11-17T00:00:00Z',
+      purge_after: '2026-11-24T00:00:00Z',
+    });
+    authoring.getTurn.mockResolvedValue({ ...proposalTurn(), proposal_state: 'adopted', adoptable: false });
+    await user.click(await screen.findByRole('button', { name: 'Refresh server status' }));
+    await waitFor(() => expect(authoring.adopt).toHaveBeenCalledTimes(2));
+    expect(authoring.reject).not.toHaveBeenCalled();
+  });
+
+  it('saves from the leave dialog without treating the click as the document', async () => {
+    const user = userEvent.setup();
+    authoring.saveDraft.mockImplementation(async (_sid: string, body: { config: { limit: number }; expected_revision: number }) =>
+      draftSession(SID, { limit: body.config.limit }, { draft_revision: body.expected_revision + 1 }),
+    );
+    const view = renderWithRouter(
+      [
+        { path: '/workflows/:workflowId/configuration-drafts', element: <DraftRoute /> },
+        { path: '/elsewhere', element: <p>Elsewhere</p> },
+      ],
+      { initialEntries: [`/workflows/${WORKFLOW_ID}/configuration-drafts`] },
+    );
+    await openDraft(SID);
+    await editLimit(user, '5');
+    await view.router.navigate('/elsewhere');
+    const dialog = await screen.findByText(/cancel keeps the edits/i);
+    await user.click(dialog.parentElement!.querySelector('button') as HTMLButtonElement);
+    await waitFor(() => expect(authoring.saveDraft).toHaveBeenCalledTimes(1));
+    expect(authoring.saveDraft.mock.calls[0]?.[1]).toMatchObject({
+      expected_revision: 1,
+      config: { limit: 5 },
+    });
+    expect(view.router.state.location.pathname).toBe(
+      `/workflows/${WORKFLOW_ID}/configuration-drafts`,
+    );
+    expect(screen.queryByText(/cannot be sent/i)).not.toBeInTheDocument();
+  });
+
+  it('asks before a project change discards unsaved edits', async () => {
+    const user = userEvent.setup();
+    const beta = `prj_${'d'.repeat(32)}`;
+    authoring.listProjects.mockResolvedValue({
+      ok: true,
+      projects: [
+        { project_id: PROJECT, display_name: 'Alpha project' },
+        { project_id: beta, display_name: 'Beta project' },
+      ],
+    });
+    renderPage();
+    await openDraft(SID);
+    await editLimit(user, '5');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), beta);
+    expect(await screen.findByText(/cancel keeps the edits/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('combobox', { name: 'Project' })).toHaveValue(PROJECT);
+    expect(screen.getByLabelText('Local limit')).toHaveValue(5);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), beta);
+    const dialog = await screen.findByText(/cancel keeps the edits/i);
+    await user.click(
+      within(dialog.parentElement as HTMLElement).getByRole('button', { name: 'Discard edits' }),
+    );
+    expect(screen.getByRole('combobox', { name: 'Project' })).toHaveValue(beta);
+  });
+
+  it('does not leave the next draft stuck while an old connection finishes', async () => {
+    const user = userEvent.setup();
+    let finish: (value: unknown) => void = () => undefined;
+    authoring.openConnection.mockImplementation(
+      () => new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await user.click(screen.getByRole('button', { name: 'Connect assistant' }));
+    expect(screen.getByRole('button', { name: 'Connect assistant' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /revision 2/ }));
+    finish(draftSession(SID, { limit: 4 }, { connection: { state: 'ready' }, requires_new_connection: false }));
+    expect(await screen.findByLabelText('Local limit')).toHaveValue(8);
+    expect(screen.getByRole('button', { name: 'Connect assistant' })).toBeEnabled();
   });
 });
 

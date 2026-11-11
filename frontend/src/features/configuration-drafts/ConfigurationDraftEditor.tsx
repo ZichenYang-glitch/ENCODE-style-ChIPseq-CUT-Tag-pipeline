@@ -25,6 +25,7 @@ interface ConfigurationDraftEditorProps {
   managedInputs?: ReactNode;
   onDirtyChange: (dirty: boolean) => void;
   onDocumentChange?: (document: EditorDocument) => void;
+  onSaveEnabledChange?: (enabled: boolean) => void;
   onSave?: (document: EditorDocument) => void;
   onDiscard: () => void;
 }
@@ -45,6 +46,7 @@ export function ConfigurationDraftEditor({
   managedInputs = null,
   onDirtyChange,
   onDocumentChange,
+  onSaveEnabledChange,
   onSave,
   onDiscard,
 }: ConfigurationDraftEditorProps) {
@@ -131,6 +133,7 @@ export function ConfigurationDraftEditor({
         managedInputs={managedInputs}
         onDirtyChange={noteDirty}
         onDocumentChange={onDocumentChange}
+        onSaveEnabledChange={onSaveEnabledChange}
         onSave={onSave}
         onDiscard={discardEdits}
       />
@@ -149,6 +152,7 @@ function DraftEditorSession({
   managedInputs,
   onDirtyChange,
   onDocumentChange,
+  onSaveEnabledChange,
   onSave,
   onDiscard,
 }: {
@@ -162,6 +166,7 @@ function DraftEditorSession({
   managedInputs: ReactNode;
   onDirtyChange: (dirty: boolean) => void;
   onDocumentChange?: (document: EditorDocument) => void;
+  onSaveEnabledChange?: (enabled: boolean) => void;
   onSave?: (document: EditorDocument) => void;
   onDiscard: () => void;
 }) {
@@ -184,6 +189,10 @@ function DraftEditorSession({
     saveBlockedReason === null &&
     writesEnabled &&
     onSave !== undefined;
+
+  useEffect(() => {
+    onSaveEnabledChange?.(saveEnabled);
+  }, [onSaveEnabledChange, saveEnabled]);
 
   useEffect(() => {
     if (interacted.current) return;

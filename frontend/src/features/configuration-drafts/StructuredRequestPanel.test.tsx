@@ -61,20 +61,19 @@ describe('structured suggestion request', () => {
     });
   });
 
-  it('explains an issue without adopting it', async () => {
+  it('explains stored issues without asking for one to adopt', async () => {
     const onRequest = renderRequest();
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: 'Explain a validation issue' }));
     expect(screen.queryByRole('checkbox', { name: 'Example limit' })).not.toBeInTheDocument();
-    await user.click(
-      screen.getByRole('radio', { name: 'Example needs a sample selection.' }),
-    );
+    expect(screen.queryByRole('radio', { name: 'Example needs a sample selection.' })).not.toBeInTheDocument();
+    expect(screen.getByText('Example needs a sample selection.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Request suggestion' }));
     expect(onRequest).toHaveBeenCalledWith({
       intent: 'explain_issues',
       fieldTokens: [],
       preferences: [],
-      issueCode: 'EXAMPLE_ISSUE',
+      issueCode: null,
     });
     expect(screen.queryByRole('button', { name: 'Adopt suggestion' })).not.toBeInTheDocument();
   });
@@ -155,9 +154,6 @@ describe('structured suggestion request', () => {
     );
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: 'Explain a validation issue' }));
-    await user.click(
-      screen.getByRole('radio', { name: 'Example needs a sample selection.' }),
-    );
     rerender(
       <StructuredRequestPanel
         capability={{ ...initial, intents: ['suggest'], issues: [] }}

@@ -95,6 +95,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     | null
   >(null);
   const busy = useRef(false);
+  const operationGeneration = useRef(0);
   const selectedSidRef = useRef<string | null>(null);
 
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -120,6 +121,9 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   const [storedValidation, setStoredValidation] = useState<StoredValidation | null>(null);
   const [validationOverride, setValidationOverride] = useState<DraftValidationView | null>(null);
   const [creating, setCreating] = useState(false);
+  const [operationPending, setOperationPending] = useState(false);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [pendingCreate, setPendingCreate] = useState(false);
   selectedSidRef.current = selectedSid;
 
   const cursor = cursors[cursors.length - 1] ?? null;
@@ -174,7 +178,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       authoringListSessions({
         project_id: projectId,
         workflow_id: workflowId,
-        cursor,
+        ...(typeof cursor === 'string' ? { cursor } : {}),
         limit: PAGE_LIMIT,
       }),
     enabled: userId !== null && projectId !== null,
@@ -276,6 +280,55 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     return ['authoring-session', userId, sid] as const;
   }
 
+  function claimOperation(): number | null {
+    if (busy.current) return null;
+    busy.current = true;
+    setOperationPending(true);
+    return operationGeneration.current;
+  }
+
+  function releaseOperation(generation: number) {
+    if (generation !== operationGeneration.current) return;
+    busy.current = false;
+    setOperationPending(false);
+  }
+
+  function abandonOperation() {
+    operationGeneration.current += 1;
+    busy.current = false;
+    setOperationPending(false);
+    setConnectPending(false);
+  }
+
+  function confirmSavedDraft(
+    saved: AuthoringSessionResponse,
+    sent: string,
+    sentSamples: readonly string[],
+    sentReference: string | null,
+  ) {
+    if (!saved.draft) return;
+    setConfirmedSnapshot(sent);
+    setSeedRevision(saved.draft_revision);
+    setSeed({ config: saved.draft.config, options: saved.draft.options });
+    setSampleIds((current) =>
+      sameMembers(current, sentSamples)
+        ? [...(saved.draft?.sample_revision_ids ?? [])]
+        : current,
+    );
+    setReferenceId((current) =>
+      current === sentReference
+        ? (saved.draft?.reference_profile_revision_id ?? null)
+        : current,
+    );
+    preservedRef.current = {
+      samples: saved.draft.samples ?? null,
+      selections: saved.draft.input_selections ?? [],
+    };
+    setRemoteConflict(false);
+    setNotice(null);
+    rememberSession(saved);
+  }
+
   function rememberSession(next: AuthoringSessionResponse) {
     preservedRef.current = {
       samples: next.draft?.samples ?? null,
@@ -348,19 +401,16 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     const captured = scope.current;
     const sid = selectedSid;
     const sent = stableDocumentSnapshot(document.config, document.options);
+    const sentSamples = [...sampleIds];
+    const sentReference = referenceId;
     const previousRevision = seedRevision;
-    busy.current = true;
+    const generation = claimOperation();
+    if (generation === null) return;
     try {
       const saved = await authoringSaveDraft(sid, body);
       if (!stillCurrent(captured, sid)) return;
       if (serverDocumentSnapshot(saved.draft) === sent) {
-        setConfirmedSnapshot(sent);
-        setSeedRevision(saved.draft_revision);
-        setSampleIds([...(saved.draft?.sample_revision_ids ?? sampleIds)]);
-        setReferenceId(saved.draft?.reference_profile_revision_id ?? null);
-        setRemoteConflict(false);
-        setNotice(null);
-        rememberSession(saved);
+        confirmSavedDraft(saved, sent, sentSamples, sentReference);
         return;
       }
       setRemoteConflict(true);
@@ -370,7 +420,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       if (!stillCurrent(captured, sid)) return;
       const failure = classifyAuthoringError(error);
       if (failure.kind === 'network') {
-        await recoverSave(captured, sid, previousRevision, sent);
+        await recoverSave(captured, sid, previousRevision, sent, sentSamples, sentReference);
         return;
       }
       if (failure.kind === 'stale') {
@@ -381,7 +431,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       }
       setNotice(failure.message);
     } finally {
-      busy.current = false;
+      releaseOperation(generation);
     }
   }
 
@@ -390,16 +440,15 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     sid: string,
     previousRevision: number,
     sent: string,
+    sentSamples: readonly string[],
+    sentReference: string | null,
   ) {
     try {
       const recovered = await authoringGetSession(sid);
       if (!stillCurrent(captured, sid)) return;
       const snapshot = serverDocumentSnapshot(recovered.draft);
       if (snapshot === sent && recovered.draft_revision !== previousRevision) {
-        setConfirmedSnapshot(sent);
-        setSeedRevision(recovered.draft_revision);
-        setNotice(null);
-        rememberSession(recovered);
+        confirmSavedDraft(recovered, sent, sentSamples, sentReference);
         return;
       }
       if (recovered.draft_revision === previousRevision) {
@@ -417,11 +466,12 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }
 
   async function connect() {
-    if (!draftOpen || !selectedSid || connectPending || busy.current) return;
+    if (!draftOpen || !selectedSid || connectPending) return;
+    const generation = claimOperation();
+    if (generation === null) return;
     const captured = scope.current;
     const sid = selectedSid;
     setConnectPending(true);
-    busy.current = true;
     try {
       const opened = await authoringOpenConnection(sid);
       if (!stillCurrent(captured, sid)) return;
@@ -437,16 +487,17 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         await queryClient.invalidateQueries({ queryKey: sessionKey(sid) });
       }
     } finally {
-      if (captured === scope.current) setConnectPending(false);
-      busy.current = false;
+      if (generation === operationGeneration.current) setConnectPending(false);
+      releaseOperation(generation);
     }
   }
 
   async function closeConnection() {
-    if (!selectedSid || busy.current) return;
+    if (!selectedSid) return;
+    const generation = claimOperation();
+    if (generation === null) return;
     const captured = scope.current;
     const sid = selectedSid;
-    busy.current = true;
     try {
       const closed = await authoringCloseConnection(sid);
       if (!stillCurrent(captured, sid)) return;
@@ -456,16 +507,22 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     } catch (error) {
       if (stillCurrent(captured, sid)) setNotice(classifyAuthoringError(error).message);
     } finally {
-      busy.current = false;
+      releaseOperation(generation);
     }
   }
 
   async function requestSuggestion(question: StructuredQuestion) {
-    if (!draftOpen || !session || !capability || seedRevision === null || !selectedSid) return;
     if (requestStatus === 'unconfirmed') return;
+    const generation = claimOperation();
+    if (generation === null) return;
+    if (!draftOpen || !session || !capability || seedRevision === null || !selectedSid) {
+      releaseOperation(generation);
+      return;
+    }
     const built = questionRequest(question, capability);
     if (!built.ok) {
       setNotice(built.message);
+      releaseOperation(generation);
       return;
     }
     const notes = [
@@ -476,13 +533,15 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     setNotice(notes.length > 0 ? notes.join(' ') : null);
     const body = turnCreateBody(newClientTurnId(), seedRevision, built.value.question);
     pendingTurn.current = body;
-    await sendTurn(body, turnScope(session, userId ?? ''));
+    try {
+      await sendTurn(body, turnScope(session, userId ?? ''));
+    } finally {
+      releaseOperation(generation);
+    }
   }
 
   async function sendTurn(body: AuthoringTurnCreateRequest, requested: TurnScope) {
-    if (busy.current) return;
     const captured = scope.current;
-    busy.current = true;
     try {
       const result = await authoringCreateTurn(requested.sid, body);
       if (captured !== scope.current) return;
@@ -502,31 +561,38 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         setTurn(null);
         await queryClient.invalidateQueries({ queryKey: sessionKey(requested.sid) });
       }
-    } finally {
-      busy.current = false;
     }
   }
 
   async function checkRequest() {
     if (!session || !selectedSid) return;
-    if (turn?.turn_id && (turn.status === 'generating' || requestStatus === 'unconfirmed') && !pendingTurn.current) {
-      const captured = scope.current;
-      const requested = turnScope(session, userId ?? '');
-      try {
-        const fresh = await authoringGetTurn(selectedSid, turn.turn_id);
-        if (captured !== scope.current) return;
-        applyTurn(fresh, requested);
-      } catch (error) {
-        if (captured === scope.current) setNotice(classifyAuthoringError(error).message);
+    const generation = claimOperation();
+    if (generation === null) return;
+    try {
+      if (turn?.turn_id && (turn.status === 'generating' || requestStatus === 'unconfirmed') && !pendingTurn.current) {
+        const captured = scope.current;
+        const requested = turnScope(session, userId ?? '');
+        try {
+          const fresh = await authoringGetTurn(selectedSid, turn.turn_id);
+          if (captured !== scope.current) return;
+          applyTurn(fresh, requested);
+        } catch (error) {
+          if (captured === scope.current) setNotice(classifyAuthoringError(error).message);
+        }
+        return;
       }
-      return;
+      if (!pendingTurn.current) return;
+      await sendTurn(pendingTurn.current, turnScope(session, userId ?? ''));
+    } finally {
+      releaseOperation(generation);
     }
-    if (!pendingTurn.current) return;
-    await sendTurn(pendingTurn.current, turnScope(session, userId ?? ''));
   }
 
   async function adopt() {
+    const generation = claimOperation();
+    if (generation === null) return;
     if (!turn?.proposal_id || typeof turn.proposal_digest !== 'string' || seedRevision === null || !selectedSid) {
+      releaseOperation(generation);
       return;
     }
     const body: AuthoringAdoptRequest = {
@@ -534,23 +600,35 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       proposal_digest: turn.proposal_digest,
     };
     pendingDecision.current = { kind: 'adopt', proposalId: turn.proposal_id, body };
-    await sendDecision();
+    try {
+      await sendDecision();
+    } finally {
+      releaseOperation(generation);
+    }
   }
 
   async function reject() {
-    if (!turn?.proposal_id || typeof turn.proposal_digest !== 'string' || !selectedSid) return;
+    const generation = claimOperation();
+    if (generation === null) return;
+    if (!turn?.proposal_id || typeof turn.proposal_digest !== 'string' || !selectedSid) {
+      releaseOperation(generation);
+      return;
+    }
     const body: AuthoringRejectRequest = { proposal_digest: turn.proposal_digest };
     pendingDecision.current = { kind: 'reject', proposalId: turn.proposal_id, body };
-    await sendDecision();
+    try {
+      await sendDecision();
+    } finally {
+      releaseOperation(generation);
+    }
   }
 
   async function sendDecision() {
     const pending = pendingDecision.current;
-    if (!pending || !selectedSid || !session || busy.current) return;
+    if (!pending || !selectedSid || !session) return;
     const captured = scope.current;
     const sid = selectedSid;
     const requested = turnScope(session, userId ?? '');
-    busy.current = true;
     try {
       if (pending.kind === 'adopt') {
         await authoringAdoptProposal(sid, pending.proposalId, pending.body);
@@ -609,25 +687,29 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       if (failure.kind === 'stale') setRemoteConflict(true);
       pendingDecision.current = null;
       setNotice(failure.message);
-    } finally {
-      busy.current = false;
     }
   }
 
   async function refreshProposal() {
-    if (pendingDecision.current) {
-      await sendDecision();
-      return;
-    }
-    if (!turn?.turn_id || !session || !selectedSid) return;
-    const captured = scope.current;
-    const requested = turnScope(session, userId ?? '');
+    const generation = claimOperation();
+    if (generation === null) return;
     try {
-      const fresh = await authoringGetTurn(selectedSid, turn.turn_id);
-      if (captured !== scope.current) return;
-      applyTurn(fresh, requested);
-    } catch (error) {
-      if (captured === scope.current) setNotice(classifyAuthoringError(error).message);
+      if (pendingDecision.current) {
+        await sendDecision();
+        return;
+      }
+      if (!turn?.turn_id || !session || !selectedSid) return;
+      const captured = scope.current;
+      const requested = turnScope(session, userId ?? '');
+      try {
+        const fresh = await authoringGetTurn(selectedSid, turn.turn_id);
+        if (captured !== scope.current) return;
+        applyTurn(fresh, requested);
+      } catch (error) {
+        if (captured === scope.current) setNotice(classifyAuthoringError(error).message);
+      }
+    } finally {
+      releaseOperation(generation);
     }
   }
 
@@ -746,15 +828,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
             id="configuration-draft-project"
             className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm sm:h-9"
             value={projectId ?? ''}
-            onChange={(event) => {
-              scope.current += 1;
-              setProjectId(event.target.value || null);
-              setCursors([null]);
-              setSelectedSid(null);
-              setExtraSamples([]);
-              setTurn(null);
-              setStoredValidation(null);
-            }}
+            onChange={(event) => requestProject(event.target.value)}
           >
             {projects.length === 0 ? (
               <option value="">No projects yet</option>
@@ -771,7 +845,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
           type="button"
           variant="primary"
           disabled={!projectId || creating}
-          onClick={() => void createDraft()}
+          onClick={() => requestCreate()}
         >
           New draft
         </Button>
@@ -824,7 +898,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         connection={connection}
         capability={capability}
         proposal={proposal}
-        explanation={turn ? explanationView(turn) : null}
+        explanation={turn ? explanationView(turn, capability) : null}
         validation={draftOpen || storedValidation || validationOverride ? validation : { status: 'idle' }}
         requestStatus={requestStatus}
         writesEnabled={writesEnabled}
@@ -903,11 +977,59 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         onReject={() => void reject()}
         onRefreshProposal={() => void refreshProposal()}
         onValidate={() => void validateDraft()}
+        operationPending={operationPending}
+        externalPrompt={pendingProjectId !== null || pendingCreate}
+        onExternalDiscard={confirmExternalNavigation}
+        onExternalCancel={() => {
+          setPendingProjectId(null);
+          setPendingCreate(false);
+        }}
       />
     </div>
   );
 
+  function requestProject(nextProjectId: string) {
+    if (!nextProjectId || nextProjectId === projectId) return;
+    if (dirty) {
+      setPendingProjectId(nextProjectId);
+      return;
+    }
+    applyProject(nextProjectId);
+  }
+
+  function requestCreate() {
+    if (dirty) {
+      setPendingCreate(true);
+      return;
+    }
+    void createDraft();
+  }
+
+  function confirmExternalNavigation() {
+    const nextProject = pendingProjectId;
+    const create = pendingCreate;
+    setPendingProjectId(null);
+    setPendingCreate(false);
+    if (nextProject) applyProject(nextProject);
+    if (create) void createDraft();
+  }
+
+  function applyProject(nextProjectId: string) {
+    abandonOperation();
+    scope.current += 1;
+    setProjectId(nextProjectId);
+    setCursors([null]);
+    setSelectedSid(null);
+    setExtraSamples([]);
+    setTurn(null);
+    setStoredValidation(null);
+    setValidationOverride(null);
+    pendingTurn.current = null;
+    pendingDecision.current = null;
+  }
+
   function selectDraft(sid: string) {
+    abandonOperation();
     scope.current += 1;
     setSelectedSid(sid);
     setSeed(null);

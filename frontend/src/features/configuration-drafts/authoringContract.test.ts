@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/fetcher';
-import type { AuthoringTurnResponse } from '../../api/generated/models';
+import type { AuthoringTurnResponse, AuthoringValidationResponse } from '../../api/generated/models';
 import {
   capabilityView,
   classifyAuthoringError,
@@ -143,18 +143,29 @@ describe('authoring contract mapping', () => {
     expect(proposal?.changes[1]?.recognized).toBe(false);
     expect(JSON.stringify(proposal)).not.toContain(digest);
 
-    const explanation = explanationView(turn({
-      result_kind: 'explanation',
-      adoptable: false,
-      explanation: { reason_codes: ['SAMPLE_SELECTION_REQUIRED', 'not-a-public-code'] },
-    }));
+    const explanation = explanationView(
+      turn({
+        result_kind: 'explanation',
+        adoptable: false,
+        explanation: { reason_codes: ['SAMPLE_SELECTION_REQUIRED', 'not-a-public-code'] },
+      }),
+      {
+        ...capability!,
+        issues: [
+          {
+            code: 'SAMPLE_SELECTION_REQUIRED',
+            label: 'Select at least one sample revision before validation.',
+          },
+        ],
+      },
+    );
     expect(proposalView(turn({
       result_kind: 'explanation',
       adoptable: false,
       explanation: { reason_codes: ['SAMPLE_SELECTION_REQUIRED'] },
     }), capability)).toBeNull();
     expect(explanation?.labels[0]).toMatch(/sample revision/i);
-    expect(explanation?.labels[1]).toBe('The request was not accepted.');
+    expect(explanation?.labels[1]).toBe('This explanation is not in the current catalog.');
     expect(explanation?.labels.join(' ')).not.toMatch(/not-a-public-code/);
   });
 
@@ -163,6 +174,34 @@ describe('authoring contract mapping', () => {
     expect(turnResponseIsCurrent(scope, { ...scope, sid: 'aas_' + 'e'.repeat(32) })).toBe(false);
     expect(turnResponseIsCurrent(scope, { ...scope, projectionDigest: 'f'.repeat(64) })).toBe(false);
     expect(turnResponseIsCurrent(scope, { ...scope, userId: 'user-2' })).toBe(false);
+  });
+
+  it('labels an approved validation explanation without echoing an unknown code', () => {
+    const view = explanationView(
+      turn({
+        result_kind: 'explanation',
+        adoptable: false,
+        explanation: {
+          reason_codes: ['ENCODE_OPTIONS_INVALID', 'REFERENCE_PROFILE_REQUIRED', 'Traceback: secret'],
+        },
+      }),
+      {
+        available: true,
+        unavailableReason: null,
+        intents: ['explain_issues'],
+        fields: [],
+        issues: [
+          { code: 'ENCODE_OPTIONS_INVALID', label: 'Options do not match the workflow.' },
+          { code: 'REFERENCE_PROFILE_REQUIRED', label: 'A reference profile revision is required.' },
+        ],
+      },
+    );
+    expect(view?.labels).toEqual([
+      'Options do not match the workflow.',
+      'A reference profile revision is required.',
+      'This explanation is not in the current catalog.',
+    ]);
+    expect(view?.labels.join(' ')).not.toMatch(/Traceback|secret/);
   });
 
   it('binds validation to the revision and schema that were checked', () => {
@@ -192,6 +231,28 @@ describe('authoring contract mapping', () => {
       schemaDigest: scope.schemaDigest,
       dirty: true,
     }).status).toBe('stale');
+  });
+
+  it('keeps the real snapshot id, revision, and expiry from a successful validation', () => {
+    const snapshotId = `vsnap_${'a'.repeat(32)}`;
+    const stored = validationFromResponse(
+      {
+        draft_revision: 4,
+        ok: true,
+        snapshot: {
+          snapshot_id: snapshotId,
+          expires_at: '2026-11-17T00:00:00Z',
+        } as NonNullable<AuthoringValidationResponse['snapshot']>,
+      },
+      scope.schemaDigest,
+    );
+    expect(stored.view).toMatchObject({
+      status: 'snapshot',
+      snapshotId,
+      revisionLabel: 'Revision 4',
+    });
+    expect(stored.view.expiresLabel).toMatch(/2026/);
+    expect(stored.view.snapshotId).not.toMatch(/generated|placeholder/i);
   });
 
   it('separates validation business failures from transport failures', () => {

@@ -18,6 +18,7 @@ interface StructuredRequestPanelProps {
   unavailableMessage?: string;
   dirty: boolean;
   requestStatus: SuggestionRequestStatus;
+  operationPending?: boolean;
   onRequest?: (question: StructuredQuestion) => void;
   onCheckRequest?: () => void;
 }
@@ -30,6 +31,7 @@ export function StructuredRequestPanel({
   unavailableMessage,
   dirty,
   requestStatus,
+  operationPending = false,
   onRequest,
   onCheckRequest,
 }: StructuredRequestPanelProps) {
@@ -39,24 +41,18 @@ export function StructuredRequestPanel({
   const [numbers, setNumbers] = useState<Record<string, string>>({});
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
-  const [issueCode, setIssueCode] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!capability?.available) {
       setIntent(null);
-      setIssueCode(null);
       setSelected((current) => (current.size === 0 ? current : new Set()));
       return;
     }
     const intents: readonly SuggestionIntent[] = capability.intents;
-    const issueCodes = new Set(capability.issues.map((issue) => issue.code));
     const fieldTokens = new Set(capability.fields.map((field) => field.token));
     setIntent((current) =>
       current !== null && intents.includes(current) ? current : null,
-    );
-    setIssueCode((current) =>
-      current !== null && issueCodes.has(current) ? current : null,
     );
     setSelected((current) => {
       const next = new Set([...current].filter((token) => fieldTokens.has(token)));
@@ -108,12 +104,10 @@ export function StructuredRequestPanel({
       intent,
       allowedIntents: capability?.available ? capability.intents : [],
       fields: capability?.available ? capability.fields : [],
-      issues: capability?.available ? capability.issues : [],
       selected,
       numbers,
       texts,
       flags,
-      issueCode,
     });
     if (!question.ok) {
       setFormError(question.message);
@@ -174,27 +168,22 @@ export function StructuredRequestPanel({
           </fieldset>
         )}
         {intent === 'explain_issues' && (
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium">Validation issue</legend>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Validation issues</p>
             <p className="text-xs text-[var(--color-text-muted)]">
-              These labels come from the current catalog. The request sends the
-              explain intent. It does not send a separate issue code.
+              The server explains the validation issues stored for this draft.
+              This request does not choose a separate issue.
             </p>
-            {capability.issues.length === 0 && (
+            {capability.issues.length === 0 ? (
               <p role="status">No explainable validation issues were declared.</p>
+            ) : (
+              <ul className="list-disc space-y-1 pl-5 text-sm">
+                {capability.issues.map((issue) => (
+                  <li key={issue.code}>{issue.label}</li>
+                ))}
+              </ul>
             )}
-            {capability.issues.map((issue) => (
-              <label key={issue.code} className="flex min-h-11 items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name={`${baseId}-issue`}
-                  checked={issueCode === issue.code}
-                  onChange={() => setIssueCode(issue.code)}
-                />
-                {issue.label}
-              </label>
-            ))}
-          </fieldset>
+          </div>
         )}
         {requestStatus === 'unconfirmed' && (
           <div className="space-y-2">
@@ -219,7 +208,7 @@ export function StructuredRequestPanel({
         <Button
           type="submit"
           variant="primary"
-          disabled={blockReason !== null || intent === null}
+          disabled={blockReason !== null || intent === null || operationPending}
           aria-describedby={
             blockReason !== null ? `${baseId}-request-reason` : undefined
           }
@@ -351,28 +340,22 @@ function buildQuestion(input: {
   intent: SuggestionIntent;
   allowedIntents: readonly SuggestionIntent[];
   fields: readonly CapabilityField[];
-  issues: readonly { code: string }[];
   selected: ReadonlySet<string>;
   numbers: Record<string, string>;
   texts: Record<string, string>;
   flags: Record<string, boolean>;
-  issueCode: string | null;
 }): { ok: true; value: StructuredQuestion } | { ok: false; message: string } {
   if (!input.allowedIntents.includes(input.intent)) {
     return { ok: false, message: 'Choose a request type from the current list.' };
   }
   if (input.intent === 'explain_issues') {
-    const allowedIssues = new Set(input.issues.map((issue) => issue.code));
-    if (!input.issueCode || !allowedIssues.has(input.issueCode)) {
-      return { ok: false, message: 'Choose a declared validation issue.' };
-    }
     return {
       ok: true,
       value: {
         intent: input.intent,
         fieldTokens: [],
         preferences: [],
-        issueCode: input.issueCode,
+        issueCode: null,
       },
     };
   }

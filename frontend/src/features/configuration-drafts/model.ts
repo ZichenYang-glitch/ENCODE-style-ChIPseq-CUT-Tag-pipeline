@@ -112,6 +112,7 @@ export type DraftValidationStatus =
 export interface DraftValidationView {
   status: DraftValidationStatus;
   summary?: string;
+  snapshotId?: string;
   revisionLabel?: string;
   expiresLabel?: string;
 }
