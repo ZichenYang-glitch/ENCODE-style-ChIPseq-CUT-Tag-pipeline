@@ -1,8 +1,9 @@
 # A1 C1 handoff
 
 Status: C1 and C2 remain on this branch. C3-C1 adds discovery of adopted
-receipts and is back with Codex for review. The public contract is no longer
-byte-identical to `f671cdacdb4be07af3b89e19fb8431b3c35e7e72`. The turn response
+receipts and is back with Codex for review. The contract commit is
+`b9ceca73fe163c3362bfcd22f8ffec02c03e3703`. It is not byte-identical to
+`f671cdacdb4be07af3b89e19fb8431b3c35e7e72`. The turn response
 still includes the server `proposal_digest` and, for an explanation,
 `explanation.reason_codes`. Do not recompute the digest in the frontend. This
 handoff is not a frozen C3 contract, and it is not C4 or A1 acceptance.
