@@ -84,6 +84,84 @@ export function stableDocumentSnapshot(config: unknown, options: unknown): strin
   return stableJson({ config, options });
 }
 
+export interface CanonicalDraftContent {
+  config?: unknown;
+  options?: unknown;
+  samples?: unknown;
+  sample_revision_ids?: readonly string[] | null;
+  reference_profile_revision_id?: string | null;
+  input_selections?: ReadonlyArray<{
+    input_file_revision_ids?: readonly string[] | null;
+    input_use_key: string;
+    occurrence: number;
+  }> | null;
+}
+
+/**
+ * Compare the draft document the server already normalizes.
+ * Object key order is ignored. Array order is kept. This is not a success receipt.
+ */
+export function canonicalDraftSnapshot(content: CanonicalDraftContent): string {
+  return stableJson({
+    config: content.config ?? {},
+    input_selections: [...(content.input_selections ?? [])].map((item) => ({
+      input_file_revision_ids: [...(item.input_file_revision_ids ?? [])],
+      input_use_key: item.input_use_key,
+      occurrence: item.occurrence,
+    })),
+    options: content.options ?? {},
+    reference_profile_revision_id: content.reference_profile_revision_id ?? null,
+    sample_revision_ids: [...(content.sample_revision_ids ?? [])],
+    samples: content.samples ?? null,
+  });
+}
+
+export type DraftSaveDisposition = 'confirmed' | 'unconfirmed' | 'conflict';
+
+export function draftSaveDisposition(input: {
+  sent: CanonicalDraftContent;
+  observed: CanonicalDraftContent | null | undefined;
+  previousRevision: number;
+  observedRevision: number;
+  acknowledged: boolean;
+}): DraftSaveDisposition {
+  if (!input.observed) return 'unconfirmed';
+  const sameDocument =
+    canonicalDraftSnapshot(input.sent) === canonicalDraftSnapshot(input.observed);
+  if (!sameDocument) {
+    if (input.acknowledged || input.observedRevision !== input.previousRevision) {
+      return 'conflict';
+    }
+    return 'unconfirmed';
+  }
+  if (!input.acknowledged && input.observedRevision === input.previousRevision) {
+    return 'unconfirmed';
+  }
+  return 'confirmed';
+}
+
+export const MISSING_WORKFLOW_SAMPLE_ROWS =
+  'This draft has no workflow sample rows. Checked project sample revisions are not FASTQ bindings, and this page cannot add file paths. A snapshot needs sample rows the server already holds.';
+
+export function workflowSampleRowsAbsent(samples: unknown): boolean {
+  if (samples == null) return true;
+  if (Array.isArray(samples)) return samples.length === 0;
+  return false;
+}
+
+export function withMissingWorkflowSampleContext(
+  summary: string,
+  issues: readonly { code: string }[],
+  samples: unknown,
+): string {
+  if (!workflowSampleRowsAbsent(samples)) return summary;
+  if (!issues.some((issue) => issue.code === 'ENCODE_REFERENCE_BINDING_CONFLICT')) {
+    return summary;
+  }
+  if (summary.includes(MISSING_WORKFLOW_SAMPLE_ROWS)) return summary;
+  return `${summary} ${MISSING_WORKFLOW_SAMPLE_ROWS}`.trim();
+}
+
 export interface ResponseScope {
   userId: string;
   projectId: string;

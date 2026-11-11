@@ -1,6 +1,7 @@
 import { ReferenceProfileSelector } from '../input-workbench/ReferenceProfileSelector';
 import type { ReferenceProfileSummary } from '../../api/runTypes';
 import type { ProjectSampleSummaryResponse } from '../../api/generated/models';
+import { MISSING_WORKFLOW_SAMPLE_ROWS } from './authoringContract';
 
 interface ManagedDraftInputsProps {
   samples: readonly ProjectSampleSummaryResponse[];
@@ -18,6 +19,7 @@ interface ManagedDraftInputsProps {
   onSelectReference: (revisionId: string | null) => void;
   onRefreshReferences: () => void;
   preservedSelectionCount: number;
+  sampleRowsAbsent: boolean;
 }
 
 export function ManagedDraftInputs({
@@ -36,6 +38,7 @@ export function ManagedDraftInputs({
   onSelectReference,
   onRefreshReferences,
   preservedSelectionCount,
+  sampleRowsAbsent,
 }: ManagedDraftInputsProps) {
   const selected = new Set(selectedRevisionIds);
   return (
@@ -46,6 +49,9 @@ export function ManagedDraftInputs({
           Choose sample revisions from this project. Local file paths are not
           accepted.
         </p>
+        {sampleRowsAbsent && (
+          <p className="text-xs text-[var(--color-text-muted)]">{MISSING_WORKFLOW_SAMPLE_ROWS}</p>
+        )}
         {samplesLoading && <p role="status">Loading project samples.</p>}
         {samplesError && <p role="alert">{samplesError}</p>}
         {!samplesLoading && samples.length === 0 && !samplesError && (

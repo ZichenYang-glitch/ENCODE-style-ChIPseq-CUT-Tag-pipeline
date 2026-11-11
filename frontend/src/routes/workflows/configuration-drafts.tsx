@@ -38,14 +38,15 @@ import {
   capabilityView,
   classifyAuthoringError,
   connectionView,
+  draftSaveDisposition,
   draftWriteRequest,
+  type CanonicalDraftContent,
   explanationView,
   isValidationBusinessFailure,
   listLabel,
   proposalView,
   questionRequest,
   sameMembers,
-  serverDocumentSnapshot,
   stableDocumentSnapshot,
   turnCreateBody,
   turnResponseIsCurrent,
@@ -53,6 +54,8 @@ import {
   validationFromIssues,
   validationFromResponse,
   validationView,
+  withMissingWorkflowSampleContext,
+  workflowSampleRowsAbsent,
   type StoredValidation,
   type TurnScope,
 } from '../../features/configuration-drafts/authoringContract';
@@ -97,6 +100,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   const busy = useRef(false);
   const operationGeneration = useRef(0);
   const selectedSidRef = useRef<string | null>(null);
+  const pendingRemote = useRef<AuthoringSessionResponse | null>(null);
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [extraProjects, setExtraProjects] = useState<ProjectSummaryResponse[]>([]);
@@ -132,6 +136,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }, []);
 
   useEffect(() => {
+    abandonOperation();
+    pendingRemote.current = null;
     scope.current += 1;
     setProjectId(null);
     setExtraProjects([]);
@@ -298,6 +304,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     busy.current = false;
     setOperationPending(false);
     setConnectPending(false);
+    setCreating(false);
   }
 
   function confirmSavedDraft(
@@ -307,6 +314,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     sentReference: string | null,
   ) {
     if (!saved.draft) return;
+    pendingRemote.current = null;
     setConfirmedSnapshot(sent);
     setSeedRevision(saved.draft_revision);
     setSeed({ config: saved.draft.config, options: saved.draft.options });
@@ -354,16 +362,19 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }
 
   async function createDraft() {
-    if (!userId || !projectId || busy.current) return;
+    if (!userId || !projectId) return;
+    const generation = claimOperation();
+    if (generation === null) return;
     const captured = scope.current;
-    busy.current = true;
+    const principalId = userId;
     setCreating(true);
     try {
       const created = await authoringCreateSession({
         project_id: projectId,
         workflow_id: workflowId,
       });
-      if (captured !== scope.current || userId !== principal?.user_id) return;
+      if (captured !== scope.current || principalId !== principal?.user_id) return;
+      pendingRemote.current = null;
       rememberSession(created);
       setSelectedSid(created.sid);
       setSeedRevision(null);
@@ -373,13 +384,13 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       setValidationOverride(null);
       setNotice(null);
       await queryClient.invalidateQueries({
-        queryKey: ['authoring-sessions', userId, projectId, workflowId],
+        queryKey: ['authoring-sessions', principalId, projectId, workflowId],
       });
     } catch (error) {
       if (captured === scope.current) setNotice(classifyAuthoringError(error).message);
     } finally {
-      busy.current = false;
-      setCreating(false);
+      if (generation === operationGeneration.current) setCreating(false);
+      releaseOperation(generation);
     }
   }
 
@@ -400,7 +411,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     }
     const captured = scope.current;
     const sid = selectedSid;
-    const sent = stableDocumentSnapshot(document.config, document.options);
+    const sentDocument = stableDocumentSnapshot(document.config, document.options);
     const sentSamples = [...sampleIds];
     const sentReference = referenceId;
     const previousRevision = seedRevision;
@@ -409,18 +420,32 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     try {
       const saved = await authoringSaveDraft(sid, body);
       if (!stillCurrent(captured, sid)) return;
-      if (serverDocumentSnapshot(saved.draft) === sent) {
-        confirmSavedDraft(saved, sent, sentSamples, sentReference);
+      const disposition = draftSaveDisposition({
+        sent: body,
+        observed: saved.draft,
+        previousRevision,
+        observedRevision: saved.draft_revision,
+        acknowledged: true,
+      });
+      if (disposition === 'confirmed') {
+        confirmSavedDraft(saved, sentDocument, sentSamples, sentReference);
         return;
       }
-      setRemoteConflict(true);
-      setNotice('The server stored a different draft. These edits are still here.');
-      rememberSession(saved);
+      if (disposition === 'conflict') noteUnmatchedSave(saved);
+      else setNotice('The save response was not confirmed. These edits are still unsaved.');
     } catch (error) {
       if (!stillCurrent(captured, sid)) return;
       const failure = classifyAuthoringError(error);
       if (failure.kind === 'network') {
-        await recoverSave(captured, sid, previousRevision, sent, sentSamples, sentReference);
+        await recoverSave(
+          captured,
+          sid,
+          previousRevision,
+          body,
+          sentDocument,
+          sentSamples,
+          sentReference,
+        );
         return;
       }
       if (failure.kind === 'stale') {
@@ -435,29 +460,40 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     }
   }
 
+  function noteUnmatchedSave(observed: AuthoringSessionResponse) {
+    pendingRemote.current = observed;
+    setRemoteConflict(true);
+    setNotice('The server has a newer draft. These edits are still here.');
+  }
+
   async function recoverSave(
     captured: number,
     sid: string,
     previousRevision: number,
-    sent: string,
+    sent: CanonicalDraftContent,
+    sentDocument: string,
     sentSamples: readonly string[],
     sentReference: string | null,
   ) {
     try {
       const recovered = await authoringGetSession(sid);
       if (!stillCurrent(captured, sid)) return;
-      const snapshot = serverDocumentSnapshot(recovered.draft);
-      if (snapshot === sent && recovered.draft_revision !== previousRevision) {
-        confirmSavedDraft(recovered, sent, sentSamples, sentReference);
+      const disposition = draftSaveDisposition({
+        sent,
+        observed: recovered.draft,
+        previousRevision,
+        observedRevision: recovered.draft_revision,
+        acknowledged: false,
+      });
+      if (disposition === 'confirmed') {
+        confirmSavedDraft(recovered, sentDocument, sentSamples, sentReference);
         return;
       }
-      if (recovered.draft_revision === previousRevision) {
-        setNotice('The save response was not confirmed. These edits are still unsaved.');
+      if (disposition === 'conflict') {
+        noteUnmatchedSave(recovered);
         return;
       }
-      setRemoteConflict(true);
-      setNotice('The server has a newer draft. These edits are still here.');
-      rememberSession(recovered);
+      setNotice('The save response was not confirmed. These edits are still unsaved.');
     } catch {
       if (stillCurrent(captured, sid)) {
         setNotice('The save response was not confirmed. These edits are still unsaved.');
@@ -713,17 +749,35 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     }
   }
 
+  function validationWithSampleContext(
+    stored: StoredValidation,
+    issues: readonly { code: string; message: string }[],
+    samples: unknown,
+  ): StoredValidation {
+    const summary = withMissingWorkflowSampleContext(stored.view.summary ?? '', issues, samples);
+    if (summary === stored.view.summary) return stored;
+    return { ...stored, view: { ...stored.view, summary } };
+  }
+
   async function validateDraft() {
-    if (!draftOpen || !session || seedRevision === null || !selectedSid || busy.current) return;
+    if (!draftOpen || !session || seedRevision === null || !selectedSid) return;
+    const generation = claimOperation();
+    if (generation === null) return;
     const captured = scope.current;
     const sid = selectedSid;
     const revision = seedRevision;
     const schemaDigest = session.schema_digest;
-    busy.current = true;
+    const samples = session.draft?.samples;
     try {
       const result = await authoringValidateDraft(sid, { expected_revision: revision });
       if (!stillCurrent(captured, sid)) return;
-      setStoredValidation(validationFromResponse(result, schemaDigest));
+      setStoredValidation(
+        validationWithSampleContext(
+          validationFromResponse(result, schemaDigest),
+          result.issues ?? [],
+          samples,
+        ),
+      );
       setValidationOverride(null);
       setNotice(null);
     } catch (error) {
@@ -735,7 +789,13 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         return;
       }
       if (isValidationBusinessFailure(failure) && error instanceof ApiError) {
-        setStoredValidation(validationFromIssues(revision, schemaDigest, error.issues));
+        setStoredValidation(
+          validationWithSampleContext(
+            validationFromIssues(revision, schemaDigest, error.issues),
+            error.issues,
+            samples,
+          ),
+        );
         setValidationOverride(null);
         setNotice(null);
         return;
@@ -743,20 +803,24 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       setValidationOverride({ status: 'request-failed', summary: failure.message });
       setNotice(failure.message);
     } finally {
-      busy.current = false;
+      releaseOperation(generation);
     }
   }
 
   function reloadRemote() {
-    if (!session?.draft) return;
+    const pending = pendingRemote.current;
+    pendingRemote.current = null;
+    if (pending && pending.sid === selectedSidRef.current) rememberSession(pending);
+    const current = pending && pending.sid === selectedSidRef.current ? pending : session;
+    if (!current?.draft) return;
     preservedRef.current = {
-      samples: session.draft.samples ?? null,
-      selections: session.draft.input_selections ?? [],
+      samples: current.draft.samples ?? null,
+      selections: current.draft.input_selections ?? [],
     };
-    setSampleIds([...(session.draft.sample_revision_ids ?? [])]);
-    setReferenceId(session.draft.reference_profile_revision_id ?? null);
-    setSeed({ config: session.draft.config, options: session.draft.options });
-    setSeedRevision(session.draft_revision);
+    setSampleIds([...(current.draft.sample_revision_ids ?? [])]);
+    setReferenceId(current.draft.reference_profile_revision_id ?? null);
+    setSeed({ config: current.draft.config, options: current.draft.options });
+    setSeedRevision(current.draft_revision);
     setIgnoredRevision(null);
     setRemoteConflict(false);
     setConfirmedSnapshot(null);
@@ -945,6 +1009,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
               onSelectReference={setReferenceId}
               onRefreshReferences={() => void referenceQuery.refetch()}
               preservedSelectionCount={preservedRef.current.selections.length}
+              sampleRowsAbsent={workflowSampleRowsAbsent(activeDraft?.samples)}
             />
           ) : null
         }
@@ -1016,6 +1081,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
 
   function applyProject(nextProjectId: string) {
     abandonOperation();
+    pendingRemote.current = null;
     scope.current += 1;
     setProjectId(nextProjectId);
     setCursors([null]);
@@ -1030,6 +1096,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
 
   function selectDraft(sid: string) {
     abandonOperation();
+    pendingRemote.current = null;
     scope.current += 1;
     setSelectedSid(sid);
     setSeed(null);

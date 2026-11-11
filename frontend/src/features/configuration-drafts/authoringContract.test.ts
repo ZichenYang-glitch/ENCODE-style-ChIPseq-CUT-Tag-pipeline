@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../api/fetcher';
 import type { AuthoringTurnResponse, AuthoringValidationResponse } from '../../api/generated/models';
 import {
+  canonicalDraftSnapshot,
   capabilityView,
   classifyAuthoringError,
   connectionView,
+  draftSaveDisposition,
   draftWriteRequest,
   explanationView,
   isValidationBusinessFailure,
@@ -14,6 +16,8 @@ import {
   turnResponseIsCurrent,
   validationFromResponse,
   validationView,
+  withMissingWorkflowSampleContext,
+  workflowSampleRowsAbsent,
 } from './authoringContract';
 import { createCapabilityFixture } from './testFixtures';
 
@@ -297,6 +301,114 @@ describe('authoring contract mapping', () => {
         input_file_revision_ids: ['ifr_' + '3'.repeat(32)],
       },
     ]);
+  });
+
+  it('compares the full normalized draft, including selections', () => {
+    const sampleA = 'smpr_' + '1'.repeat(32);
+    const sampleB = 'smpr_' + '2'.repeat(32);
+    const referenceA = 'refpr_' + 'a'.repeat(32);
+    const referenceB = 'refpr_' + 'b'.repeat(32);
+    const selection = {
+      input_use_key: 'reads',
+      occurrence: 0,
+      input_file_revision_ids: ['ifr_' + '3'.repeat(32)],
+    };
+    const sent = {
+      config: { b: 1, a: 2 },
+      options: { cores: 1 },
+      samples: null,
+      sample_revision_ids: [sampleA],
+      reference_profile_revision_id: referenceA,
+      input_selections: [selection],
+    };
+    expect(canonicalDraftSnapshot(sent)).toBe(
+      canonicalDraftSnapshot({
+        config: { a: 2, b: 1 },
+        options: { cores: 1 },
+        sample_revision_ids: [sampleA],
+        reference_profile_revision_id: referenceA,
+        input_selections: [selection],
+      }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({ ...sent, sample_revision_ids: [sampleB] }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({ ...sent, sample_revision_ids: [sampleA, sampleB] }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({ ...sent, reference_profile_revision_id: referenceB }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({ ...sent, input_selections: [] }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({ ...sent, samples: [{ sample: 'A' }] }),
+    );
+    expect(workflowSampleRowsAbsent(null)).toBe(true);
+    expect(workflowSampleRowsAbsent([])).toBe(true);
+    expect(workflowSampleRowsAbsent('/srv/private/samples.tsv')).toBe(false);
+    expect(
+      withMissingWorkflowSampleContext(
+        'ENCODE reference binding is unavailable.',
+        [{ code: 'ENCODE_REFERENCE_BINDING_CONFLICT' }],
+        null,
+      ),
+    ).toMatch(/no workflow sample rows/i);
+    expect(
+      withMissingWorkflowSampleContext(
+        'ENCODE reference binding is unavailable.',
+        [{ code: 'ENCODE_REFERENCE_BINDING_CONFLICT' }],
+        '/srv/private/samples.tsv',
+      ),
+    ).toBe('ENCODE reference binding is unavailable.');
+  });
+
+  it('confirms a matching draft without treating a readback as exactly-once', () => {
+    const sent = {
+      config: { limit: 5 },
+      options: {},
+      samples: null,
+      sample_revision_ids: [] as string[],
+      reference_profile_revision_id: null,
+      input_selections: [],
+    };
+    expect(
+      draftSaveDisposition({
+        sent,
+        observed: sent,
+        previousRevision: 1,
+        observedRevision: 2,
+        acknowledged: false,
+      }),
+    ).toBe('confirmed');
+    expect(
+      draftSaveDisposition({
+        sent,
+        observed: sent,
+        previousRevision: 1,
+        observedRevision: 1,
+        acknowledged: false,
+      }),
+    ).toBe('unconfirmed');
+    expect(
+      draftSaveDisposition({
+        sent,
+        observed: { ...sent, sample_revision_ids: ['smpr_' + '2'.repeat(32)] },
+        previousRevision: 1,
+        observedRevision: 2,
+        acknowledged: false,
+      }),
+    ).toBe('conflict');
+    expect(
+      draftSaveDisposition({
+        sent,
+        observed: { ...sent, reference_profile_revision_id: 'refpr_' + 'b'.repeat(32) },
+        previousRevision: 1,
+        observedRevision: 2,
+        acknowledged: true,
+      }),
+    ).toBe('conflict');
   });
 });
 
