@@ -130,6 +130,13 @@ class AuthoringSessionPage:
 
 
 @dataclass(frozen=True)
+class AdoptionReceiptPage:
+    record: AuthoringSessionRecord
+    turns: tuple[AuthoringTurnRecord, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class ConnectionClaim:
     record: AuthoringSessionRecord
     reused: bool
@@ -316,6 +323,67 @@ class SqlAlchemyAuthoringRepository:
                     last.sid,
                 )
             return AuthoringSessionPage(visible, next_cursor)
+
+    def list_adoption_receipts(
+        self,
+        actor: AuthoringActor,
+        sid: str,
+        *,
+        cursor_time: datetime | None,
+        cursor_turn: str | None,
+        limit: int,
+    ) -> AdoptionReceiptPage:
+        """Return adopted receipts for one owned draft. Reads do not renew it."""
+
+        missing = False
+        page: AdoptionReceiptPage | None = None
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            now = self._now()
+            self._require_actor(session, actor, now)
+            row = session.get(AgentAuthoringSessionRow, sid)
+            if (
+                row is None
+                or row.owner_user_id != actor.user_id
+                or not _project_visible(session, row.project_id)
+            ):
+                missing = True
+            elif _as_utc(row.purge_after) <= now:
+                _delete_session(session, sid)
+                missing = True
+            else:
+                statement = select(AgentAuthoringTurnRow).where(
+                    AgentAuthoringTurnRow.sid == sid,
+                    AgentAuthoringTurnRow.decision == "adopted",
+                    AgentAuthoringTurnRow.adopted_at.is_not(None),
+                )
+                if cursor_time is not None and cursor_turn is not None:
+                    statement = statement.where(
+                        or_(
+                            AgentAuthoringTurnRow.adopted_at < cursor_time,
+                            and_(
+                                AgentAuthoringTurnRow.adopted_at == cursor_time,
+                                AgentAuthoringTurnRow.turn_id < cursor_turn,
+                            ),
+                        )
+                    )
+                rows = session.scalars(
+                    statement.order_by(
+                        AgentAuthoringTurnRow.adopted_at.desc(),
+                        AgentAuthoringTurnRow.turn_id.desc(),
+                    ).limit(limit + 1)
+                ).all()
+                visible = tuple(_turn_record(item) for item in rows[:limit])
+                next_cursor = None
+                if len(rows) > limit and visible:
+                    last = visible[-1]
+                    assert last.adopted_at is not None
+                    next_cursor = encode_receipt_cursor(last.adopted_at, last.turn_id)
+                page = AdoptionReceiptPage(_session_record(row), visible, next_cursor)
+            self._hook()
+        if missing or page is None:
+            raise AuthoringRejected(NOT_FOUND)
+        return page
 
     def save_draft(
         self,
@@ -1451,6 +1519,32 @@ def decode_authoring_cursor(value: str) -> tuple[datetime, str]:
     if len(sid) != 36 or not sid.startswith("aas_"):
         raise AuthoringRejected(INVALID_REQUEST)
     return parsed, sid
+
+
+def encode_receipt_cursor(adopted_at: datetime, turn_id: str) -> str:
+    raw = f"{_as_utc(adopted_at).strftime('%Y-%m-%dT%H:%M:%SZ')}\n{turn_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_receipt_cursor(value: str) -> tuple[datetime, str]:
+    if not isinstance(value, str) or len(value) > 256:
+        raise AuthoringRejected(INVALID_REQUEST)
+    padded = value + ("=" * (-len(value) % 4))
+    try:
+        raw = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        stamp, turn_id = raw.split("\n", 1)
+        parsed = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (ValueError, UnicodeError):
+        raise AuthoringRejected(INVALID_REQUEST) from None
+    if len(turn_id) != 36 or not turn_id.startswith("atr_"):
+        raise AuthoringRejected(INVALID_REQUEST)
+    try:
+        int(turn_id[4:], 16)
+    except ValueError:
+        raise AuthoringRejected(INVALID_REQUEST) from None
+    return parsed, turn_id
 
 
 def _as_utc(value: datetime) -> datetime:

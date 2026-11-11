@@ -85,6 +85,7 @@ FAULTS = {
     "authoringListSessions": ("authoring_service", "list_sessions"),
     "authoringCreateSession": ("authoring_service", "create_session"),
     "authoringGetSession": ("authoring_service", "get_session"),
+    "authoringListReceipts": ("authoring_service", "list_adoption_receipts"),
     "authoringSaveDraft": ("authoring_service", "save_draft"),
     "authoringOpenConnection": ("authoring_service", "open_connection"),
     "authoringCloseConnection": ("authoring_service", "close_connection"),

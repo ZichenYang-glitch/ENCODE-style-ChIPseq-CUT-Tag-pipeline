@@ -19,6 +19,7 @@ from encode_pipeline.persistence.authoring import (
     SqlAlchemyAuthoringRepository,
     TurnCompletion,
     decode_authoring_cursor,
+    decode_receipt_cursor,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.authoring import (
@@ -146,6 +147,20 @@ class ProjectPage:
 class SamplePage:
     project_id: str
     samples: tuple[tuple[str, str, str], ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class ReceiptEntry:
+    turn_id: str
+    receipt: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ReceiptPage:
+    sid: str
+    draft_state: str
+    entries: tuple[ReceiptEntry, ...]
     next_cursor: str | None
 
 
@@ -294,6 +309,41 @@ class AuthoringService:
         return (
             tuple(self._session_view(actor, record) for record in page.records),
             page.next_cursor,
+        )
+
+    def list_adoption_receipts(
+        self,
+        actor: AuthoringActor,
+        sid: str,
+        *,
+        cursor: str | None,
+        limit: int,
+    ) -> ReceiptPage:
+        """Discover adopted receipts. This does not reconnect or renew the draft."""
+
+        cursor_time = None
+        cursor_turn = None
+        if cursor:
+            cursor_time, cursor_turn = decode_receipt_cursor(cursor)
+        page = self._repository.list_adoption_receipts(
+            actor,
+            sid,
+            cursor_time=cursor_time,
+            cursor_turn=cursor_turn,
+            limit=limit,
+        )
+        now = utc_now(self._clock)
+        entries = []
+        for turn in page.turns:
+            receipt = _receipt(turn)
+            if receipt is None:
+                continue
+            entries.append(ReceiptEntry(turn.turn_id, receipt))
+        return ReceiptPage(
+            sid=page.record.sid,
+            draft_state="active" if now < page.record.draft_expires_at else "expired",
+            entries=tuple(entries),
+            next_cursor=page.next_cursor,
         )
 
     def save_draft(

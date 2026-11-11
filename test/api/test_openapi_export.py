@@ -100,6 +100,10 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/agent/authoring-sessions"): "authoringListSessions",
     ("POST", "/api/v1/agent/authoring-sessions"): "authoringCreateSession",
     ("GET", "/api/v1/agent/authoring-sessions/{sid}"): "authoringGetSession",
+    (
+        "GET",
+        "/api/v1/agent/authoring-sessions/{sid}/receipts",
+    ): "authoringListReceipts",
     ("PUT", "/api/v1/agent/authoring-sessions/{sid}/draft"): "authoringSaveDraft",
     (
         "POST",

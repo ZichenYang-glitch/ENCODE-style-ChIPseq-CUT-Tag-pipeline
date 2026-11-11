@@ -11,7 +11,9 @@ import type {
   AuthoringDraftWriteRequest,
   AuthoringListProjectSamplesParams,
   AuthoringListProjectsParams,
+  AuthoringListReceiptsParams,
   AuthoringListSessionsParams,
+  AuthoringReceiptListResponse,
   AuthoringRejectRequest,
   AuthoringSessionCreateRequest,
   AuthoringSessionListResponse,
@@ -156,6 +158,38 @@ export const getAuthoringGetSessionUrl = (sid: string,) => {
 export const authoringGetSession = async (sid: string, options?: RequestInit): Promise<AuthoringSessionResponse> => {
 
   return fetcher<AuthoringSessionResponse>(getAuthoringGetSessionUrl(sid),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary List Receipts
+ */
+export const getAuthoringListReceiptsUrl = (sid: string,
+    params?: AuthoringListReceiptsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/agent/authoring-sessions/${sid}/receipts?${stringifiedParams}` : `/api/v1/agent/authoring-sessions/${sid}/receipts`
+}
+
+export const authoringListReceipts = async (sid: string,
+    params?: AuthoringListReceiptsParams, options?: RequestInit): Promise<AuthoringReceiptListResponse> => {
+
+  return fetcher<AuthoringReceiptListResponse>(getAuthoringListReceiptsUrl(sid,params),
   {
     ...options,
     method: 'GET'

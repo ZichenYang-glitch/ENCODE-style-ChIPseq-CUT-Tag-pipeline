@@ -288,6 +288,270 @@ def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
         assert rejected.json()["adoptable"] is False
 
 
+def test_owner_rediscovers_adopted_receipts_after_a_new_login(reference_ready_app):
+    from datetime import datetime, timedelta, timezone
+
+    from encode_pipeline.platform.authentication import (
+        UserAccount,
+        UserRole,
+        UserStatus,
+    )
+    from conftest import TEST_AUTH_PASSWORD_HASH, TEST_AUTH_USER_ID
+
+    class Clock:
+        def __init__(self) -> None:
+            self.now = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+                minutes=1
+            )
+
+        def __call__(self) -> datetime:
+            return self.now
+
+    class Bridge:
+        def __init__(self) -> None:
+            self.admits = 0
+            self.turns = 0
+
+        def status(self):
+            return BridgeStatus(available=True)
+
+        def owner_epoch(self) -> str:
+            return "owner-epoch-0001"
+
+        def admit(self, request):
+            del request
+            self.admits += 1
+            return BridgeAdmission(instance_id="instance01", state="ready")
+
+        def execute_turn(self, request) -> str:
+            self.turns += 1
+            token = request.question["preferences"][0]["field_token"]
+            value = request.question["preferences"][0]["value"]
+            body = {
+                "base_revision": request.base_revision,
+                "changes": [{"field_token": token, "value": value}],
+                "kind": "proposal",
+                "reason_codes": [],
+                "schema_digest": request.schema_digest,
+            }
+            return json.dumps(body, separators=(",", ":"), sort_keys=True)
+
+        def close(self, request) -> None:
+            del request
+
+    app = reference_ready_app
+    clock = Clock()
+    service = app.state.authoring_service
+    service._clock = clock
+    service._repository._clock = clock
+    app.state.authentication_service._now_factory = clock
+    bridge = Bridge()
+    service._bridge = bridge
+    renewed = ("c" * 43, "d" * 43)
+    _open_login(app, TEST_AUTH_USER_ID, renewed)
+    project = _registry(app).create_project("Receipts")
+    with ApiTestClient(app) as client:
+        created = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
+        )
+        assert created.status_code == 200, created.text
+        sid = created.json()["sid"]
+        opened = client.post(f"/api/v1/agent/authoring-sessions/{sid}/connection")
+        assert opened.status_code == 200, opened.text
+        suggested = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns",
+            json={
+                "client_turn_id": "adopted-turn",
+                "expected_revision": 0,
+                "question": {
+                    "intent": "suggest",
+                    "field_tokens": ["config.threads"],
+                    "preferences": [{"field_token": "config.threads", "value": 4}],
+                },
+            },
+        )
+        assert suggested.status_code == 200, suggested.text
+        adopted = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/proposals/"
+            f"{suggested.json()['proposal_id']}/adopt",
+            json={
+                "expected_revision": 0,
+                "proposal_digest": suggested.json()["proposal_digest"],
+            },
+        )
+        assert adopted.status_code == 200, adopted.text
+        receipt = adopted.json()["adoption_receipt"]
+        hidden = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns",
+            json={
+                "client_turn_id": "hidden-turn",
+                "expected_revision": adopted.json()["draft_revision"],
+                "question": {
+                    "intent": "suggest",
+                    "field_tokens": ["options.cores"],
+                    "preferences": [{"field_token": "options.cores", "value": 9}],
+                },
+            },
+        )
+        assert hidden.status_code == 200, hidden.text
+        before = client.get(f"/api/v1/agent/authoring-sessions/{sid}").json()
+        admits = bridge.admits
+        turns = bridge.turns
+        app.state.test_auth_tokens = renewed
+        found = client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts")
+        assert found.status_code == 200, found.text
+        body = found.json()
+        assert body["draft_state"] == "active"
+        assert body["next_cursor"] is None
+        assert len(body["receipts"]) == 1
+        assert set(body["receipts"][0]) == {"turn_id", "adoption_receipt"}
+        assert body["receipts"][0]["adoption_receipt"] == receipt
+        assert body["receipts"][0]["turn_id"] == suggested.json()["turn_id"]
+        assert "hidden-turn" not in found.text
+        assert "config.threads" not in found.text
+        assert "originating" not in found.text
+        session = client.get(f"/api/v1/agent/authoring-sessions/{sid}")
+        assert session.status_code == 200, session.text
+        assert session.json()["requires_new_connection"] is True
+        assert session.json()["connection"]["state"] == "ready"
+        assert session.json()["draft_revision"] == before["draft_revision"]
+        assert session.json()["expires_at"] == before["expires_at"]
+        assert session.json()["purge_after"] == before["purge_after"]
+        assert bridge.admits == admits
+        assert bridge.turns == turns
+    original_tokens = ("a" * 43, "b" * 43)
+    app.state.test_auth_tokens = original_tokens
+    with ApiTestClient(app) as client:
+        replayed = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/proposals/"
+            f"{receipt['proposal_id']}/adopt",
+            json={
+                "expected_revision": receipt["base_revision"],
+                "proposal_digest": suggested.json()["proposal_digest"],
+            },
+        )
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.json()["replayed"] is True
+        assert replayed.json()["adoption_receipt"] == receipt
+        assert replayed.json()["draft_revision"] == before["draft_revision"]
+        bad = client.get(
+            f"/api/v1/agent/authoring-sessions/{sid}/receipts",
+            params={"cursor": "not-a-cursor"},
+        )
+        assert bad.status_code == 422
+        assert bad.json()["reason_code"] == "INVALID_REQUEST"
+        missing = client.get(
+            "/api/v1/agent/authoring-sessions/aas_" + "ab" * 16 + "/receipts"
+        )
+        assert missing.status_code == 404
+        logged_out = client.post("/api/v1/auth/logout")
+        assert logged_out.status_code == 200, logged_out.text
+        app.state.test_auth_tokens = renewed
+        still = client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts")
+        assert still.status_code == 200, still.text
+        assert still.json()["receipts"][0]["adoption_receipt"] == receipt
+        assert still.json()["draft_state"] == "active"
+        outsider = ("e" * 43, "f" * 43)
+        other = UserAccount(
+            user_id="usr_" + "ab" * 16,
+            username="receipt-other",
+            role=UserRole.MEMBER,
+            status=UserStatus.ENABLED,
+            password_hash=TEST_AUTH_PASSWORD_HASH,
+            created_at=clock.now,
+            updated_at=clock.now,
+            password_changed_at=clock.now,
+        )
+        app.state.authentication_repository.create_account(other)
+        _open_login(app, other.user_id, outsider)
+        app.state.test_auth_tokens = outsider
+        assert (
+            client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts").status_code
+            == 404
+        )
+        archived_project = _registry(app).create_project("Archived receipts")
+        app.state.test_auth_tokens = renewed
+        archived = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={
+                "project_id": archived_project.project_id,
+                "workflow_id": WORKFLOW_ID,
+            },
+        )
+        assert archived.status_code == 200, archived.text
+        _registry(app).archive_project(archived_project.project_id)
+        assert (
+            client.get(
+                f"/api/v1/agent/authoring-sessions/{archived.json()['sid']}/receipts"
+            ).status_code
+            == 404
+        )
+
+        clock.now = _parse(before["expires_at"]) - timedelta(seconds=1)
+        _cover_clock(app, renewed[0], clock.now)
+        active = client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts")
+        assert active.status_code == 200, active.text
+        assert active.json()["draft_state"] == "active"
+        clock.now = _parse(before["expires_at"])
+        expired = client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts")
+        assert expired.status_code == 200, expired.text
+        assert expired.json()["draft_state"] == "expired"
+        assert expired.json()["receipts"][0]["adoption_receipt"] == receipt
+        unchanged = client.get(f"/api/v1/agent/authoring-sessions/{sid}")
+        assert unchanged.json()["draft"] is None
+        assert unchanged.json()["draft_revision"] == before["draft_revision"]
+        assert unchanged.json()["expires_at"] == before["expires_at"]
+        clock.now = _parse(before["purge_after"]) - timedelta(seconds=1)
+        _cover_clock(app, renewed[0], clock.now)
+        assert (
+            client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts").status_code
+            == 200
+        )
+        clock.now = _parse(before["purge_after"])
+        _cover_clock(app, renewed[0], clock.now)
+        purged = client.get(f"/api/v1/agent/authoring-sessions/{sid}/receipts")
+        assert purged.status_code == 404
+
+
+def _parse(value: str):
+    from datetime import datetime, timezone
+
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def _cover_clock(app, token: str, now) -> None:
+    from datetime import timedelta
+
+    from encode_pipeline.persistence.models import AuthSessionRow
+    from encode_pipeline.services.authentication import digest_session_token
+
+    digest = digest_session_token(token)
+    with app.state.authentication_repository._session_factory.begin() as session:
+        row = session.get(AuthSessionRow, digest)
+        assert row is not None
+        row.created_at = now - timedelta(minutes=1)
+        row.expires_at = now + timedelta(days=1)
+
+
+def _open_login(app, user_id: str, tokens: tuple[str, str]) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from encode_pipeline.services.authentication import (
+        SessionSecrets,
+        new_session_record,
+    )
+
+    app.state.authentication_repository.create_session(
+        new_session_record(
+            user_id=user_id,
+            secrets=SessionSecrets._from_generated(*tokens),
+            created_at=datetime.now(timezone.utc),
+            lifetime=timedelta(days=7),
+        )
+    )
+
+
 def _session_factory(app):
     from encode_pipeline.persistence import create_session_factory
 
