@@ -570,7 +570,19 @@ jobs:
       - name: Install Playwright operating-system dependencies
         timeout-minutes: 12
         working-directory: frontend
-        run: npx playwright install-deps chromium
+        run: |
+          set -euo pipefail
+          # ubuntu-24.04 runners send every apt source through
+          # mirror+file:/etc/apt/apt-mirrors.txt. Its priority-1 host is the
+          # Azure Ubuntu mirror. A DNS failure there aborts install-deps
+          # before archive.ubuntu.com is used. This rewrite is job-local.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' \
+              $'https://archive.ubuntu.com/ubuntu/\tpriority:1' \
+              $'https://security.ubuntu.com/ubuntu/\tpriority:2' \
+              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          npx playwright install-deps chromium
 
       - name: Install Playwright Chromium
         timeout-minutes: 3
