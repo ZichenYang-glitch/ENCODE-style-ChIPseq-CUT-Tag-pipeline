@@ -122,9 +122,11 @@ Identity moves like this:
    read is `WORKFLOW_SAMPLE_INPUT_UNAVAILABLE` and does not create a snapshot.
 5. The same revision ids are passed to the existing input-use binding. The
    ENCODE adapter declares one `regular_file_v1` use per occupied read
-   (`encode-sample-reads-v1`). The repository authorizes the project, pool,
-   and revision digest, then stores the member's revision id, digest, size,
-   and content hash.
+   (`encode-sample-reads-v1`). A validation that does not name input
+   revisions leaves those reads transitional and stores no member. When the
+   plan names every read, the repository authorizes the project, pool, and
+   revision digest, then stores the member's revision id, digest, size, and
+   content hash.
 6. The public snapshot's `input_binding.input_uses[].members` carries that
    revision id. `fully_managed: true` means every declared read has an
    admitted revision. It does not qualify execution. `verify_run` still

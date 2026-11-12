@@ -380,6 +380,7 @@ class EncodeStyleWorkflowAdapter:
                             closure_contract_version="regular_file_v1",
                             allowed_provenance_modes=(
                                 InputProvenanceMode.MANAGED_REVISION_V1,
+                                InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
                             ),
                         )
                     )
