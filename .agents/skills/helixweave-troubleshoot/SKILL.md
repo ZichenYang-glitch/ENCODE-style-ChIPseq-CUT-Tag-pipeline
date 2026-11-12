@@ -42,19 +42,15 @@ ENCODE QC tables apply only to workflow id
 `scripts/validate_samples.py` does not see later `snakemake --config`
 overrides; the workflow validates the merged config when it loads.
 
-`remove_dup` and `duplicate_analysis` are the common alias conflict
-(`docs/configuration.md`, "Duplicate policy"). `yes` maps to `exclude` and
-`no` maps to `retain`. Disagreeing explicit values raise `ValidationError`.
-
-`analysis_profile` is `legacy` or `updated`. An omitted key is not evidence
-of either value. An omitted `config_schema_version` resolves to `1.0.0`,
-and only schema `2.0.0` defaults the profile to `updated`. Read
-`src/encode_pipeline/config/validator.py` (`_validate_analysis_profile`,
-`_validate_duplicate_settings`, `validate_execution_support`). Legacy
-execution support keeps `control_mode=pooled`, an empty
-`duplicate_backend`, `fragment_cpm=off`, and `tss_fragment_profile=false`.
-Updated execution support requires `duplicate_backend=picard` and
-`control_mode=matched`. Path symptoms for this workflow are the
+`analysis_profile` and `remove_dup` are rejected. The replacement is
+`duplicate_analysis: auto`, `exclude`, or `retain`
+(`docs/configuration.md`, "Duplicate policy"). An omitted
+`config_schema_version` resolves to `1.0.0` and uses the same analysis path
+as `2.0.0`. Read `src/encode_pipeline/config/validator.py`
+(`_reject_removed_config_keys`, `_validate_duplicate_settings`,
+`validate_execution_support`). Execution requires `duplicate_backend=picard`
+and `control_mode=matched`. `fragment_cpm` defaults to `auto`. Path symptoms
+for this workflow are the
 `docs/quickstart.md` Troubleshooting headings for FASTQ, Bowtie2 index
 prefix, and control path.
 
@@ -94,8 +90,8 @@ newer, and Node from `.nvmrc`. Doctor requires Python 3.12, Snakemake
 ports or creating runtime data. A missing Bulk RNA-seq binding reported as
 `not_configured` or `unavailable` leaves the core doctor passing.
 
-`profiles/default` is a Snakemake profile. `analysis_profile` is the
-scientific config key. The profile file sets `configfile`, `cores`,
+`profiles/default` is a Snakemake profile. It does not select a scientific
+analysis path. The profile file sets `configfile`, `cores`,
 `use-conda`, `rerun-incomplete`, `keep-going`, and `show-failed-logs`.
 
 Runner symptoms are the `docs/quickstart.md` headings "Slow micromamba
@@ -114,8 +110,9 @@ and the helpers it calls. Quote the class:
 - missing effective config: `Effective configuration record is missing next to a valid run marker`
 - fresh outdir: `Use a fresh outdir`
 
-The same helpers refuse a non-regular metadata file, a profile mismatch
-(`owned by analysis_profile`), and a different scientific policy revision.
+The same helpers refuse a non-regular metadata file, an outdated marker,
+a marker that still carries `analysis_profile`, and a different scientific
+policy revision.
 `Use a fresh outdir` means a new directory. Keep the existing directory,
 `.snakemake`, `.helixweave/analysis_identity.json`, and
 `.helixweave/effective_config.json`. The confirming check for a direct

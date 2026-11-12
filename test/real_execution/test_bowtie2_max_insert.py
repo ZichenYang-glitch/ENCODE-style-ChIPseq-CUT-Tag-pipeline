@@ -365,7 +365,6 @@ def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
             config.update(
                 {
                     "config_schema_version": "2.0.0",
-                    "analysis_profile": "updated",
                     "blacklist_mode": "off",
                     "organelle_mode": "keep",
                     "duplicate_backend": "picard",

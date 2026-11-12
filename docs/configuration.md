@@ -13,38 +13,40 @@ gating. This page is the maintained configuration reference; the
 | `threads` | `8` | positive integer | Threads per job. |
 | `mapq` | `30` | integer >= 0 | Minimum MAPQ for samtools filtering. |
 | `binsize` | `10` | positive integer | Bin size in bp for bamCoverage BigWig. |
-| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Legacy alias for the duplicate policy. See below. |
-| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy selector; per-sample assay resolution in auto. See below. |
+| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy for the analysis BAM. See below. |
 | `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming and trimmed-read FastQC. Raw-input FastQC always runs. |
 | `extend_reads` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Extend SE reads to fragment size. |
 | `use_control` | `false` | boolean | Enable control sample resolution. |
 | `multiqc` | `true` | boolean | Enable MultiQC report aggregation. |
 
-### Duplicate policy (`duplicate_analysis` and `remove_dup`)
+### Duplicate policy (`duplicate_analysis`)
 
-The duplicate policy is decided per sample at the BAM layer; every MACS3
-call (per-sample, pooled, consensus, and IDR-ready) then renders
-`--keep-dup all` so peak callers consume the chosen molecule set without a
-second implicit coordinate collapse.
+The workflow has one analysis path. `analysis_profile` and `remove_dup` are
+rejected; a config that still contains either key does not run. Historical
+result directories remain readable and are not relabeled.
+
+The duplicate policy is decided per sample at the analysis BAM. Picard
+MarkDuplicates always marks duplicates in `final.bam` and writes metrics.
+It does not remove them. If Picard is missing, duplicate handling fails.
+`samtools markdup` is not a fallback. `tool_parameters.picard_markduplicates.extra_args`
+cannot set `REMOVE_DUPLICATES`.
+
+Every MACS3 call (per-sample, pooled, consensus, and IDR-ready) renders
+`--keep-dup all`, so peak callers consume the chosen molecule set without a
+second coordinate collapse.
 
 | `duplicate_analysis` | Behavior |
 | :--- | :--- |
-| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (same-coordinate fragments can be independent molecules, so coordinates alone cannot prove PCR copies — a candidate default pending the SCI-7 real-library data freeze); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
-| `"exclude"` | Remove duplicates for all samples. |
-| `"retain"` | Keep duplicates for all samples (marked, for metrics, where the backend supports marking). |
+| `"auto"` (default) | Resolve per sample by assay: CUT&Tag retains duplicates, including broad peaks. ChIP-seq, ATAC-seq, and MNase-seq exclude them, including broad ChIP-seq. Peak mode does not change this choice. |
+| `"exclude"` | Drop marked duplicates from every sample's analysis BAM. |
+| `"retain"` | Keep marked duplicates in every sample's analysis BAM. |
 
-`remove_dup` remains as a legacy alias: `"yes"` maps to `exclude`, `"no"`
-maps to `retain`, and `"auto"` never overrides an explicit
-`duplicate_analysis`. Setting both to conflicting values
-(e.g. `remove_dup: "no"` with `duplicate_analysis: exclude`) is rejected.
-The startup summary and `<outdir>/.helixweave/effective_config.json`
-record the per-sample resolution (`resolved_duplicate_analysis`).
-
-In legacy runs, exclusion uses Picard `REMOVE_DUPLICATES=true` when Picard
-is available, otherwise the `samtools markdup` fallback; retained samples
-keep a symlinked `final.bam`. In updated runs, Picard marks duplicates in
-`final.bam` and `analysis.bam` applies the policy (`-F 0x400` for exclude
-samples).
+An explicit `exclude` or `retain` applies to the whole run, not to one assay.
+The startup summary and `<outdir>/.helixweave/effective_config.json` record
+the per-sample resolution (`resolved_duplicate_analysis`). The analysis BAM
+then applies that choice, together with the organelle policy and an optional
+blacklist filter. Downstream peak calling, coverage, FRiP, and MNase products
+read the analysis BAM.
 
 A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
 `tool_parameters.idr_macs3.extra_args` is migrated: a synonymous
@@ -257,8 +259,7 @@ Bowtie2 index contents remain hash-bound without internal contig parsing.
 ## Fragment-level CPM tracks
 
 ```yaml
-analysis_profile: updated
-fragment_cpm: auto       # off | auto | on; legacy requires off
+fragment_cpm: auto       # off | auto | on; auto is the default
 ```
 
 `fragment_cpm` adds an additive `.fragment.CPM.bw` track without changing the
@@ -282,7 +283,6 @@ MNase dyad tracks keep their existing `--MNase --binSize 1` behavior.
 ## Fragment-occupancy TSS profile
 
 ```yaml
-analysis_profile: updated
 fragment_cpm: auto
 tss_fragment_profile: true
 ```
@@ -537,14 +537,15 @@ the workflow's own merged-config validation and dry-run.
 Cross-correlation remains opt-in. `qc.cross_correlation_target_type` defaults
 to `auto`; `tf`/`histone` are run-wide ChIP overrides. Auto leaves unrecognized
 ChIP targets unknown, and non-ChIP assays remain diagnostic regardless of the
-requested type. Authoring schema 3.1.0 exposes the enum; YAML config versions
-1.0.0/2.0.0 and both analysis profiles remain supported. For direct Snakemake,
+requested type. Authoring schema 3.2.0 exposes the enum. YAML config
+versions 1.0.0 and 2.0.0 use the same analysis path. For direct Snakemake,
 `--config 'qc={"cross_correlation":true,"cross_correlation_target_type":"tf"}'`
 uses the same validator as configuration files; unchanged sibling settings
 are preserved by the workflow merge. Platform runs use validated snapshots,
 with no arbitrary command injection.
 
-Scientific policy revision 6 isolates old cross-correlation semantics from new
-runs: use a fresh outdir. The required detail records the resolved window and
+Scientific policy revision 7 isolates this single analysis path from earlier
+runs, including revision 6 cross-correlation output: use a fresh outdir. The
+required detail records the resolved window and
 analysis_r1/analysis_se stage; raw SPP QC/PDF are optional for no-data samples.
 See [QC interpretation](qc-interpretation.md#cross-correlation-phantompeakqualtools).

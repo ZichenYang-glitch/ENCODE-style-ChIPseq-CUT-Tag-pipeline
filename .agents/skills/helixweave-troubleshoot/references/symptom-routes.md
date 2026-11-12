@@ -17,11 +17,11 @@ python3 -I -S scripts/checkout_bootstrap.py --repository-root . \
 
 `encode-validate` and `POST /api/v1/workflows/{workflow_id}/validate` are
 the same contract on their own surfaces. Add `--strict-inputs` only when
-the symptom is a missing declared input. A key, alias, or
-`analysis_profile` error is confirmed without that flag.
+the symptom is a missing declared input. A rejected `analysis_profile` or
+`remove_dup` key is confirmed without that flag.
 
-Stop when the error names `remove_dup` / `duplicate_analysis`, an
-`analysis_profile` constraint, or another config key. Read
+Stop when the error names `analysis_profile`, `remove_dup`,
+`duplicate_analysis`, or another config key. Read
 [../../../../docs/configuration.md](../../../../docs/configuration.md)
 ("Duplicate policy") and
 [../../../../src/encode_pipeline/config/validator.py](../../../../src/encode_pipeline/config/validator.py).
@@ -83,7 +83,7 @@ and "Run locally" in
 `not_configured` or `unavailable` for Bulk RNA-seq is not a core failure.
 
 [../../../../profiles/default/config.yaml](../../../../profiles/default/config.yaml)
-is a Snakemake profile. `analysis_profile` is the scientific key.
+is a Snakemake profile. It does not select the analysis path.
 
 ## Outdir identity
 

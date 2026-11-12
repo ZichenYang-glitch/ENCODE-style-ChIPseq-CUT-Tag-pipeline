@@ -34,24 +34,15 @@ binsize:
   constraints: ">= 1"
   description: BigWig bin size in bp.
 
-# ---- A1 Compatibility Surface (parsed, not activated in A1) ----
+# ---- Config identity ----
 config_schema_version:
   type: string
   default: "1.0.0"
   allowed: ["1.0.0", "2.0.0"]
   description: >
-    Config compatibility version. Omitted YAML configs resolve to 1.0.0
-    (legacy behavior). New authoring should set 2.0.0 and choose
-    analysis_profile explicitly.
-
-analysis_profile:
-  type: string
-  default: legacy
-  allowed: [legacy, updated]
-  description: >
-    Analysis policy bundle. Both profiles apply the current scientific policy;
-    legacy keeps the original backend dispatch, updated derives a filtered analysis BAM.
-    updated must be explicit; it is not inferred from a missing key.
+    Config compatibility version. An omitted version resolves to 1.0.0.
+    Both accepted versions use the same analysis path. analysis_profile is
+    rejected.
 
 blacklist_mode:
   type: string
@@ -59,24 +50,24 @@ blacklist_mode:
   allowed: [off, copies, analysis]
   description: >
     Canonical blacklist policy. off=raw; copies=QC copies; analysis=filtered
-    analysis branch across both legacy and updated profiles. In legacy configs the
-    historical qc.blacklist_filter alias maps true→copies and false→off.
+    analysis branch. The historical qc.blacklist_filter alias maps
+    true→copies and false→off.
 
 organelle_mode:
   type: string
   default: auto
   allowed: [auto, exclude, report, keep]
   description: >
-    Organelle policy across both profiles. auto applies assay defaults;
+    Organelle policy. auto applies assay defaults;
     exclude/report/keep are explicit overrides.
 
 duplicate_backend:
   type: string
-  default: ""
-  allowed: ["", picard, samtools]
+  default: picard
+  allowed: [picard]
   description: >
-    Updated profile: picard primary, samtools explicit. Legacy profile
-    preserves the original backend dispatch and expects an empty value.
+    Picard MarkDuplicates is the only duplicate marker. It marks duplicates
+    and writes metrics. The analysis BAM applies duplicate_analysis.
 
 duplicate_analysis:
   type: string
@@ -84,18 +75,18 @@ duplicate_analysis:
   allowed: [auto, exclude, retain]
   description: >
     Duplicate policy. auto resolves per sample by assay (CUT&Tag retains;
-    ChIP-seq, ATAC-seq, MNase-seq exclude). An explicit exclude/retain
-    overrides the assay default for the whole run. The legacy remove_dup
-    yes/no alias maps to exclude/retain. The BAM layer executes the policy
-    and every MACS3 call renders --keep-dup all.
+    ChIP-seq, ATAC-seq, MNase-seq exclude, including broad peaks). An explicit
+    exclude/retain applies to the whole run. remove_dup is rejected. Picard
+    marks duplicates, the analysis BAM keeps or drops them, and every MACS3
+    call renders --keep-dup all.
 
 control_mode:
   type: string
-  default: pooled
-  allowed: [matched, pooled, auto]
+  default: matched
+  allowed: [matched]
   description: >
-    Control background policy. Legacy profile supports pooled only; updated
-    defaults to matched.
+    FASTQ controls are matched per biological replicate through each control
+    sample's analysis BAM. Experiment-level pooling is a separate output.
 
 reference_mode:
   type: string
@@ -115,13 +106,13 @@ external_control_policy:
 
 fragment_cpm:
   type: string
-  default: off
+  default: auto
   allowed: [off, auto, on]
   description: >
-    Additive fragment-level CPM track. Updated runs default to auto; legacy
-    requires off. Auto emits for ATAC, MNase, and known histone CUT&Tag;
-    explicit on also permits unclassified CUT&Tag targets. ChIP-seq remains
-    read-level in PR-E1.
+    Additive fragment-level CPM track. The default auto emits for ATAC,
+    MNase, and known histone CUT&Tag; explicit on also permits unclassified
+    CUT&Tag targets. off disables the extra track. ChIP-seq remains
+    read-level.
 
 tss_fragment_profile:
   type: boolean
@@ -132,14 +123,6 @@ tss_fragment_profile:
     not an ENCODE TSS enrichment score.
 
 # ---- Processing Policies ----
-remove_dup:
-  type: string
-  default: "auto"
-  allowed: ["auto", "yes", "no"]
-  description:
-    Duplicate removal policy.
-    auto → yes for narrow-peak samples, no for broad peaks.
-
 trim:
   type: boolean | string
   default: true
@@ -648,10 +631,11 @@ tool_parameters:
       properties:
         filter_flags:
           type: integer | string
-          default: "0x904"
+          default: ""
           description: >
-            -F filter flags. Accepts int, decimal string, or hex
-            string like "0x904". Always emitted.
+            Not applied. The analysis filter is fixed: paired-end uses
+            -F 0xb0c -f 2 and keeps complete name pairs; single-end uses
+            -F 0xb0c. A non-empty value is rejected. MAPQ is the mapq key.
         extra_args:
           type: string
           default: ""

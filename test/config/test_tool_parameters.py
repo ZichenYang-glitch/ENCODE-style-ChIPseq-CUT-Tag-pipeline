@@ -162,18 +162,18 @@ def test_bowtie2_rejects_invalid_bool_flag(tmp_path):
         _validate(tmp_path, {"bowtie2": {"dovetail": "yes"}})
 
 
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("", ""),
-        (2308, 2308),
-        ("2308", 2308),
-        ("0x904", 2308),
-    ],
-)
-def test_samtools_filter_flags_normalization(tmp_path, raw, expected):
-    validated = _validate(tmp_path, {"samtools_filter": {"filter_flags": raw}})
-    assert validated["samtools_filter"]["filter_flags"] == expected
+def test_samtools_filter_flags_empty_is_unused(tmp_path):
+    validated = _validate(tmp_path, {"samtools_filter": {"filter_flags": ""}})
+    assert validated["samtools_filter"]["filter_flags"] == ""
+
+
+@pytest.mark.parametrize("raw", [2308, "2308", "0x904", "0xb0c"])
+def test_samtools_filter_flags_override_is_rejected(tmp_path, raw):
+    with pytest.raises(
+        ValidationError,
+        match="tool_parameters.samtools_filter.filter_flags does not change",
+    ):
+        _validate(tmp_path, {"samtools_filter": {"filter_flags": raw}})
 
 
 @pytest.mark.parametrize("raw", [True, 0, "0x0", "0xZZ", "abc"])

@@ -27,7 +27,7 @@ def _write_config(workdir, samples_path, *, trim):
         "threads: 1\n"
         "mapq: 30\n"
         "binsize: 10\n"
-        'remove_dup: "no"\n'
+        'duplicate_analysis: "retain"\n'
         f"trim: {str(trim).lower()}\n"
         'extend_reads: "auto"\n'
         "use_control: false\n"

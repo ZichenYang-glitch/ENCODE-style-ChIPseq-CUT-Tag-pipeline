@@ -9,6 +9,7 @@ from encode_pipeline.qc.contract import (
     ANALYSIS_POLICY_INPUT_STAGE_KEYS,
     ANALYSIS_POLICY_KEYS,
     ANALYSIS_POLICY_V1_KEYS,
+    ANALYSIS_POLICY_V3_KEYS,
     ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS,
     POLICY_ANALYSIS_TEMPLATE_STATUSES,
     POLICY_BLACKLIST_MODES,
@@ -19,7 +20,7 @@ from encode_pipeline.qc.contract import (
     POLICY_STAGE_COUNT_KEYS,
 )
 
-ANALYSIS_POLICY_VERSION = 2
+ANALYSIS_POLICY_VERSION = 3
 _ALLOWED_INPUT_STAGES = frozenset(
     {
         "analysis_bam",
@@ -117,8 +118,11 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
     if schema_version == 1:
         expected_keys = ANALYSIS_POLICY_V1_KEYS
         input_stage_keys = ANALYSIS_POLICY_INPUT_STAGE_KEYS
-    elif schema_version == ANALYSIS_POLICY_VERSION:
+    elif schema_version == 2:
         expected_keys = ANALYSIS_POLICY_KEYS
+        input_stage_keys = ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS
+    elif schema_version == ANALYSIS_POLICY_VERSION:
+        expected_keys = ANALYSIS_POLICY_V3_KEYS
         input_stage_keys = ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS
     else:
         raise AnalysisPolicyError("analysis policy version is unsupported")
@@ -128,8 +132,9 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
         raise AnalysisPolicyError("scientific policy revision is invalid")
     _require_str(value["sample"], "sample", token=True)
     _require_str(value["assay"], "assay", token=True)
-    if value["profile"] not in ("legacy", "updated"):
-        raise AnalysisPolicyError("analysis profile is invalid")
+    if schema_version < ANALYSIS_POLICY_VERSION:
+        if value["profile"] not in ("legacy", "updated"):
+            raise AnalysisPolicyError("analysis profile is invalid")
     if value["resolved_duplicate_analysis"] not in POLICY_DUPLICATE_POLICIES:
         raise AnalysisPolicyError("duplicate policy is invalid")
     max_insert = value["resolved_max_insert"]
@@ -172,7 +177,7 @@ def parse_analysis_policy_bytes(content: bytes) -> dict:
 
     # A declared v2 record always carries an explicit status.  Validate it even
     # when it is null so a broken writer cannot skip the consistency checks.
-    if schema_version == ANALYSIS_POLICY_VERSION:
+    if schema_version >= 2:
         _validate_analysis_template_status(
             value, counts, value["analysis_template_status"]
         )

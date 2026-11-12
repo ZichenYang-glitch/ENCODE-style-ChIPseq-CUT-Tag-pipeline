@@ -24,8 +24,8 @@ assay. It describes implemented behavior, not aspirational features.
 
 ChIP-seq **excludes** duplicates under `duplicate_analysis: auto`, in broad
 peak mode too — the narrow/broad mode no longer proxies the decision. An
-explicit `duplicate_analysis: exclude/retain` (or the legacy `remove_dup`
-yes/no alias) overrides the assay default for the whole run. The BAM layer
+explicit `duplicate_analysis: exclude/retain` overrides the assay default
+for the whole run. `remove_dup` is rejected. The BAM layer
 executes the policy and every MACS3 call renders `--keep-dup all`. See the
 CUT&Tag section for the full per-assay matrix.
 
@@ -84,8 +84,8 @@ coordinates alone cannot prove PCR copies — this retain default is a
 candidate pending the SCI-7 real-library data freeze). ChIP-seq, ATAC-seq,
 and MNase-seq exclude. The narrow/broad peak mode no longer proxies the
 decision — legacy broad ChIP-seq also excludes. An explicit
-`duplicate_analysis: exclude/retain` (or the `remove_dup` yes/no alias)
-overrides the assay default for the whole run. The BAM layer executes the
+`duplicate_analysis: exclude/retain` overrides the assay default for the
+whole run. `remove_dup` is rejected. The BAM layer executes the
 policy and every MACS3 call renders `--keep-dup all`. Resolution lives in
 `get_duplicate_policy` (`workflow/rules/metadata.smk`).
 
@@ -102,8 +102,7 @@ Under `tool_parameters.bowtie2.max_insert: auto`, PE CUT&Tag samples align
 with `-X 700` (700 bp), covering sub-nucleosomal, mono-, di-, and
 tri-nucleosomal tethered Tn5 fragments without opening a 2000 bp window.
 Resolution lives in `get_max_insert` (`workflow/rules/metadata.smk`) and
-applies identically in `legacy` and `updated` profiles as well as treatment
-and control samples. Because `max_insert` sets Bowtie2's `-X` paired-end
+applies to treatment and control samples on the single analysis path. Because `max_insert` sets Bowtie2's `-X` paired-end
 alignment parameter (rather than a post-alignment TLEN filter), when the
 individual read length exceeds `-X` (for example 150 bp reads with `-X 100`),
 Bowtie2 can still align templates up to the read length as concordant pairs
@@ -153,8 +152,8 @@ Tn5-aware shift/extension matching common ATAC-seq practice applies to SE data o
 
 ATAC-seq **excludes** duplicates under `duplicate_analysis: auto` (no
 broad-peak exception — broad ATAC is not supported). An explicit
-`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
-alias) overrides the assay default for the whole run.
+`duplicate_analysis: exclude/retain` overrides the assay default for the
+whole run. `remove_dup` is rejected.
 
 ### Paired-end alignment insert limit (Bowtie2 `-X`)
 
@@ -237,8 +236,8 @@ under `04_signal/`.
 
 MNase-seq **excludes** duplicates under `duplicate_analysis: auto` (MNase is
 PE-only; no broad-peak exception). An explicit
-`duplicate_analysis: exclude/retain` (or the legacy `remove_dup` yes/no
-alias) overrides the assay default for the whole run.
+`duplicate_analysis: exclude/retain` overrides the assay default for the
+whole run. `remove_dup` is rejected.
 
 ### Paired-end alignment insert limit (Bowtie2 `-X`)
 

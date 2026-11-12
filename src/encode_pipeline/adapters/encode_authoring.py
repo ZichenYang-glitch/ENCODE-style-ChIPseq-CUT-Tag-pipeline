@@ -17,7 +17,7 @@ from encode_pipeline.platform.adapters import (
 )
 
 
-SCHEMA_VERSION = "3.1.0"
+SCHEMA_VERSION = "3.2.0"
 MAX_CORES = 1024
 _SCHEMA_ID_ROOT = (
     "https://encode-pipeline.org/schemas/encode-style-chipseq-cuttag-atac-mnase"
@@ -138,18 +138,8 @@ def _config_schema() -> dict[str, object]:
                 "enum": ["1.0.0", "2.0.0"],
                 "default": "1.0.0",
                 "description": (
-                    "Canonical config compatibility version. Omitted legacy "
-                    "YAML configs resolve to 1.0.0."
-                ),
-            },
-            "analysis_profile": {
-                "type": "string",
-                "enum": ["legacy", "updated"],
-                "default": "legacy",
-                "description": (
-                    "Analysis policy bundle. Both profiles apply the current "
-                    "scientific policy; legacy keeps the original backend "
-                    "dispatch, updated derives a filtered analysis BAM."
+                    "Canonical config compatibility version. An omitted "
+                    "version resolves to 1.0.0 and uses the same analysis path."
                 ),
             },
             "blacklist_mode": {
@@ -157,8 +147,7 @@ def _config_schema() -> dict[str, object]:
                 "enum": ["off", "copies", "analysis"],
                 "default": "analysis",
                 "description": (
-                    "off=raw; copies=QC copies; analysis=filtered analysis "
-                    "branch in both legacy and updated profiles."
+                    "off=raw; copies=QC copies; analysis=filtered analysis branch."
                 ),
             },
             "organelle_mode": {
@@ -168,8 +157,12 @@ def _config_schema() -> dict[str, object]:
             },
             "duplicate_backend": {
                 "type": "string",
-                "enum": ["", "picard", "samtools"],
-                "default": "",
+                "enum": ["picard"],
+                "default": "picard",
+                "description": (
+                    "Picard MarkDuplicates is the only duplicate marker. "
+                    "It marks duplicates and writes metrics."
+                ),
             },
             "duplicate_analysis": {
                 "type": "string",
@@ -178,8 +171,12 @@ def _config_schema() -> dict[str, object]:
             },
             "control_mode": {
                 "type": "string",
-                "enum": ["matched", "pooled", "auto"],
-                "default": "pooled",
+                "enum": ["matched"],
+                "default": "matched",
+                "description": (
+                    "FASTQ controls are matched per biological replicate. "
+                    "Experiment-level pooling is a separate output."
+                ),
             },
             "reference_mode": {
                 "type": "string",
@@ -194,10 +191,11 @@ def _config_schema() -> dict[str, object]:
             "fragment_cpm": {
                 "type": "string",
                 "enum": ["off", "auto", "on"],
-                "default": "off",
+                "default": "auto",
                 "description": (
-                    "Additive fragment-level CPM track for updated runs; "
-                    "updated default is auto, legacy requires off."
+                    "Additive fragment-level CPM track. auto emits it for "
+                    "ATAC-seq, MNase-seq, and known histone CUT&Tag. "
+                    "ChIP-seq stays read-level. off disables the extra track."
                 ),
             },
             "tss_fragment_profile": {
@@ -207,11 +205,6 @@ def _config_schema() -> dict[str, object]:
                     "Opt-in fragment-occupancy TSS profile; requires "
                     "fragment_cpm != off and a GTF."
                 ),
-            },
-            "remove_dup": {
-                "type": "string",
-                "enum": ["auto", "yes", "no"],
-                "default": "auto",
             },
             "trim": _boolean_or_string_schema(default=True),
             "extend_reads": {

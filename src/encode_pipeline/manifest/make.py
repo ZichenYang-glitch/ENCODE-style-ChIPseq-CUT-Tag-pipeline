@@ -83,9 +83,9 @@ def _is_mnase(sample_dict):
     return sample_dict.get("assay", "") == "mnase"
 
 
-def _has_fragment_cpm(sample, mode, analysis_profile="updated"):
-    """Return True when PR-E1 produces a fragment CPM track for *sample*."""
-    if analysis_profile != "updated" or mode == "off":
+def _has_fragment_cpm(sample, mode):
+    """Return True when the sample gets a fragment CPM track."""
+    if mode == "off":
         return False
     assay = sample.get("assay", "")
     if assay in ("atac", "mnase"):
@@ -106,9 +106,8 @@ def _build_sample_rows(
     signal_tracks,
     genomic_resources,
     analysis_outdir=None,
-    fragment_cpm="off",
+    fragment_cpm="auto",
     tss_fragment_profile=False,
-    analysis_profile="updated",
     blacklist_mode="analysis",
     cuttag_fragment_size=True,
     cross_correlation=False,
@@ -301,7 +300,7 @@ def _build_sample_rows(
             "bamCoverage",
             _resolve_path(analysis_root, sid, "03_bigwig", f"{sid}.CPM.bw"),
         )
-        if _has_fragment_cpm(s, fragment_cpm, analysis_profile):
+        if _has_fragment_cpm(s, fragment_cpm):
             fragment_method = (
                 "bamCoverage --extendReads --samFlagInclude 64"
                 if s.get("layout") == "PE"
@@ -345,7 +344,7 @@ def _build_sample_rows(
         if (
             tss_fragment_profile
             and not is_mn
-            and _has_fragment_cpm(s, fragment_cpm, analysis_profile)
+            and _has_fragment_cpm(s, fragment_cpm)
             and genomic_resources.get(genome, {}).get("gtf", "")
         ):
             _add_row(
@@ -1741,8 +1740,7 @@ def build_manifest_rows(config, samples_path=None):
     for genome, entry in genomic_resources.items():
         if not isinstance(entry, dict):
             raise ValueError(f"genome_resources[{genome!r}] must be a mapping")
-    fragment_cpm = config.get("fragment_cpm", "off")
-    analysis_profile = str(config.get("analysis_profile", "updated"))
+    fragment_cpm = config.get("fragment_cpm", "auto")
     cuttag_fragment_size = _manifest_bool(
         qc.get("cuttag_fragment_size"), True, "qc.cuttag_fragment_size"
     )
@@ -1770,7 +1768,6 @@ def build_manifest_rows(config, samples_path=None):
             analysis_outdir=analysis_outdir,
             fragment_cpm=fragment_cpm,
             tss_fragment_profile=tss_fragment_profile,
-            analysis_profile=analysis_profile,
             blacklist_mode=blacklist_mode,
             cuttag_fragment_size=cuttag_fragment_size,
             cross_correlation=_manifest_bool(

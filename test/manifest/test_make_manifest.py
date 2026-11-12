@@ -248,7 +248,6 @@ def test_fragment_cpm_rows_follow_assay_eligibility(tmp_config):
                 "samples": str(samples_path),
                 "outdir": str(workdir / "raw"),
                 "analysis_outdir": str(workdir / "raw/analysis_filtered"),
-                "analysis_profile": "updated",
                 "fragment_cpm": "auto",
                 "tss_fragment_profile": True,
                 "genome_resources": {

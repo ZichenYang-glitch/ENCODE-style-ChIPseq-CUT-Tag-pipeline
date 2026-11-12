@@ -389,6 +389,26 @@ def _scan_extra_args_tokens(tool, extra, error_cls):
     return tokens
 
 
+def _reject_picard_duplicate_override(extra, error_cls):
+    """Reject Picard arguments that would remove duplicates or skip marking.
+
+    The workflow always runs MarkDuplicates with REMOVE_DUPLICATES=false.
+    The analysis BAM applies duplicate_analysis. An extra_args override must
+    not replace that policy, including a repeated REMOVE_DUPLICATES=false.
+    """
+    tokens = _scan_extra_args_tokens("picard_markduplicates", extra, error_cls)
+    for value, _start, _end in tokens:
+        name = value.split("=", 1)[0].upper()
+        if name == "REMOVE_DUPLICATES":
+            raise error_cls(
+                "tool_parameters.picard_markduplicates.extra_args: "
+                "REMOVE_DUPLICATES conflicts with the managed duplicate policy. "
+                "Remove it. Picard only marks duplicates. Set duplicate_analysis "
+                "to auto, exclude, or retain to choose the analysis BAM."
+            )
+    return extra
+
+
 def _migrate_keep_dup_extra_args(tool, extra, error_cls):
     """Normalize legacy ``--keep-dup`` tokens in MACS3 extra_args.
 
@@ -944,6 +964,14 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
             norm["filter_flags"] = _normalize_filter_flags(
                 "filter_flags", block.get("filter_flags", "")
             )
+            if norm["filter_flags"] != "":
+                raise error_cls(
+                    "tool_parameters.samtools_filter.filter_flags does not "
+                    "change the analysis filter. Remove it. Paired-end "
+                    "filtering uses -F 0xb0c -f 2 and keeps complete name "
+                    "pairs; single-end filtering uses -F 0xb0c. Set mapq for "
+                    "the mapping-quality threshold."
+                )
             extra = block.get("extra_args", "")
             if not isinstance(extra, str):
                 raise error_cls(
@@ -962,7 +990,7 @@ def validate_tool_params(tool_params, error_cls=ValueError) -> dict:
                 raise error_cls(
                     "tool_parameters.picard_markduplicates.extra_args must be a string"
                 )
-            norm["extra_args"] = extra
+            norm["extra_args"] = _reject_picard_duplicate_override(extra, error_cls)
 
         elif tool == "bamcoverage":
             norm_using = block.get("normalize_using", "CPM")

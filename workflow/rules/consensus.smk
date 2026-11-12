@@ -93,14 +93,8 @@ def _consensus_macs3_inputs(wildcards):
         f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam",
         f"{OUTDIR}/experiments/{exp}/02_align/biorep{br}.final.bam.bai",
     ]
-    if is_updated_profile():
-        if _biorep_control_paths(exp, br):
-            inputs.append(_biorep_control_bam(exp, br))
-    elif exp in POOLED_CONTROL_EXPERIMENTS:
-        inputs.append(
-            f"{OUTDIR}/experiments/{exp}/02_align/"
-            f"{exp}.pooled.control.final.bam"
-        )
+    if _biorep_control_paths(exp, br):
+        inputs.append(_biorep_control_bam(exp, br))
     return inputs
 
 

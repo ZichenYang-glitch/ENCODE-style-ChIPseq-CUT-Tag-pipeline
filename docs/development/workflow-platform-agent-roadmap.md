@@ -4,6 +4,16 @@ This roadmap records the maintained product boundary, delivered baseline, and
 explicit follow-ons. It does not promise dates. Detailed implementation history
 belongs in Git history, the changelog, and release evidence.
 
+## 科学分析单路径（2026-11-12）
+
+ChIP-seq、CUT&Tag、ATAC-seq 和 MNase-seq 只有一条分析路径。
+`analysis_profile` 和 `remove_dup` 会被拒绝，不能静默改义。
+`duplicate_analysis: auto` 按样本 assay 解析：ChIP、ATAC、MNase 排除重复，
+CUT&Tag 保留，narrow/broad 不改变该选择。显式 exclude/retain 作用于整次运行。
+Picard 只标记重复；分析 BAM 执行该政策；所有 MACS3 调用使用 `--keep-dup all`。
+外部 `control_bam` 不被接受。科学政策修订号是 7，新运行使用新的 outdir。
+历史结果目录不重写。这不是科学默认冻结，也不启动新的真实数据批次。
+
 ## 当前交付状态与后续计划（2026-11-06 已合入 main）
 
 当前状态以本节和 [PR 收口与集成清单](current-delivery-integration.md) 的

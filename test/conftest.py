@@ -279,7 +279,6 @@ SMOKE_PROFILES = [
     "cuttag_pe_noctrl",
     "cuttag_pe_seacr",
     "chipseq_idr_dryrun",
-    "chipseq_pe_external_ctrlbam",
     "mnase_pe_noctrl",
 ]
 
@@ -368,6 +367,8 @@ def seed_run_identity(workdir, executable, snakefile, config_path, outdir="resul
             str(executable),
             "-s",
             str(snakefile),
+            "--profile",
+            "none",
             "--workflow-profile",
             "none",
             "--configfile",

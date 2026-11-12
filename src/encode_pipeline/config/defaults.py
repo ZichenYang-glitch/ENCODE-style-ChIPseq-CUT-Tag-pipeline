@@ -24,7 +24,6 @@ SAMPLE_ID_RE = re.compile(SAMPLE_ID_PATTERN)
 SANITIZE_RE = re.compile(SANITIZE_PATTERN)
 
 # Config keyword allowed values
-REMOVE_DUP_KEYWORDS = ("auto", "yes", "no")
 EXTEND_READS_KEYWORDS = ("auto", "yes", "no")
 
 # Tool / mode allowed values
@@ -40,15 +39,14 @@ BOWTIE2_MAX_INSERT_BY_ASSAY = {
 }
 BAMCOVERAGE_NORMALIZE_USING = ("CPM", "RPKM", "BPM", "None")
 
-# A1 config compatibility surface. These keys are parsed/normalized in this
-# PR but do not activate new analysis behavior.
+# Config compatibility versions. Omitted YAML still resolves to 1.0.0.
+# That version no longer selects a second analysis path.
 CONFIG_SCHEMA_VERSIONS = ("1.0.0", "2.0.0")
-ANALYSIS_PROFILES = ("legacy", "updated")
 BLACKLIST_MODES = ("off", "copies", "analysis")
 ORGANELLE_MODES = ("auto", "exclude", "report", "keep")
-DUPLICATE_BACKENDS = ("", "picard", "samtools")
+DUPLICATE_BACKENDS = ("picard",)
 DUPLICATE_ANALYSIS_MODES = ("auto", "exclude", "retain")
-CONTROL_MODES = ("matched", "pooled", "auto")
+CONTROL_MODES = ("matched",)
 REFERENCE_MODES = ("legacy", "strict")
 EXTERNAL_CONTROL_POLICIES = ("warn", "validate")
 FRAGMENT_CPM_MODES = ("off", "auto", "on")

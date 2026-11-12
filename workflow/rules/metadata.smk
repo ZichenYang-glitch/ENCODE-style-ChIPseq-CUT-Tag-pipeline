@@ -101,9 +101,9 @@ if REPLICATE_ANALYSIS:
             if cs:
                 ctrl_samples.add(cs)
             elif cb:
-                if VALIDATED_CONFIG.get("analysis_profile") == "updated":
-                    raise ValueError("updated profile does not yet support external control_bam")
-                ctrl_bams.add(cb)
+                raise ValueError(
+                    "external control_bam is not supported. Use a FASTQ control_sample."
+                )
         result = []
         for cs in sorted(ctrl_samples):
             path = analysis_bam(cs)
@@ -476,21 +476,6 @@ def _tool_param(tool, key, default):
     return block.get(key, default)
 
 
-def _filter_flags_arg():
-    """Build the -F argument for samtools_filter. Preserves hex for default."""
-    block = TOOL_PARAMS.get("samtools_filter", {})
-    raw = block.get("filter_flags", "")
-    if raw == "" or raw is None:
-        return "-F 0x904"
-    if isinstance(raw, int):
-        # Check if the original config had hex representation
-        raw_config = VALIDATED_CONFIG.get("tool_parameters", {}).get("samtools_filter", {}).get("filter_flags", "")
-        if isinstance(raw_config, str) and (raw_config.strip().startswith("0x") or raw_config.strip().startswith("0X")):
-            return f"-F {raw_config.strip()}"
-        return f"-F {raw}"
-    return f"-F {raw}"
-
-
 # Samples with a configured blacklist path (resource-gated blacklist filtering)
 BLACKLIST_SAMPLES = [
     s for s in TREATMENT_SAMPLE_IDS if GENOME_RESOURCES.get(SAMPLE_MAP[s]["genome"], {}).get("blacklist", "")
@@ -581,11 +566,6 @@ def get_duplicate_policy(sample_id):
     return get_duplicate_policy_for_assay(SAMPLE_MAP[sample_id]["assay"])
 
 
-def get_remove_dup(wildcards):
-    """Return the legacy BAM-layer switch for the resolved duplicate policy."""
-    return "yes" if get_duplicate_policy(wildcards.sample) == "exclude" else "no"
-
-
 # SCI-3 paired-end alignment insert limit: an explicit integer
 # tool_parameters.bowtie2.max_insert applies to every PE sample in the run;
 # "auto" resolves per PE sample by assay (chipseq=2000, atac=2000,
@@ -620,17 +600,12 @@ def get_bowtie2_max_insert_arg(wildcards):
     return f"-X {resolved}"
 
 
-def is_updated_profile():
-    """True when the run uses the B/C updated analysis chain."""
-    return VALIDATED_CONFIG.get("analysis_profile") == "updated"
-
-
-FRAGMENT_CPM_MODE = VALIDATED_CONFIG.get("fragment_cpm", "off")
+FRAGMENT_CPM_MODE = VALIDATED_CONFIG.get("fragment_cpm", "auto")
 
 
 def is_fragment_cpm_enabled():
-    """Return True when the updated profile requests fragment tracks."""
-    return is_updated_profile() and FRAGMENT_CPM_MODE != "off"
+    """Return True when fragment CPM tracks are requested."""
+    return FRAGMENT_CPM_MODE != "off"
 
 
 def fragment_cpm_eligible(sample_id):
@@ -672,13 +647,6 @@ if TSS_FRAGMENT_ENABLED:
             f"missing GTF for: {', '.join(_missing_gtf) or 'none'}"
         )
 TSS_FRAGMENT_GENOMES = sorted({SAMPLE_MAP[sid]["genome"] for sid in TSS_FRAGMENT_SAMPLE_IDS})
-
-
-def get_duplicate_mode(wildcards):
-    """Return the duplicate handling mode for the current profile."""
-    if is_updated_profile():
-        return "mark"
-    return get_remove_dup(wildcards)
 
 
 def get_organelle_mode(wildcards):
@@ -770,9 +738,9 @@ def _biorep_control_paths(experiment, bio_rep):
         if cs:
             control_samples.add(cs)
         elif cb:
-            if is_updated_profile():
-                raise ValueError("updated profile does not yet support external control_bam")
-            control_bams.add(cb)
+            raise ValueError(
+                "external control_bam is not supported. Use a FASTQ control_sample."
+            )
     paths = []
     for cs in sorted(control_samples):
         paths.append(analysis_bam(cs))
@@ -807,7 +775,7 @@ def _macs3_inputs(wildcards):
             cs = s["control_sample"]
             inputs.append(analysis_bam(cs))
         elif s.get("control_bam"):
-            if is_updated_profile():
-                raise ValueError("updated profile does not yet support external control_bam")
-            inputs.append(s["control_bam"])
+            raise ValueError(
+                "external control_bam is not supported. Use a FASTQ control_sample."
+            )
     return inputs

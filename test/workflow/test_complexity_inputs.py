@@ -17,20 +17,22 @@ def job(output, rule):
 
 @pytest.mark.parametrize("layout", ["SE", "PE"])
 @pytest.mark.parametrize(
-    "policy,mode,effective,mapq",
+    "policy,mode,mapq",
     [
-        ("yes", "narrow", "yes", 17),
-        ("no", "narrow", "no", 42),
-        ("auto", "narrow", "yes", 17),
-        # SCI-2: peak_mode no longer proxies the duplicate policy; auto
-        # resolves per assay (chipseq excludes, broad included).
-        ("auto", "broad", "yes", 42),
+        ("exclude", "narrow", 17),
+        ("retain", "narrow", 42),
+        ("auto", "narrow", 17),
+        # Peak mode does not change the assay default. ChIP-seq auto excludes
+        # duplicates for both narrow and broad samples.
+        ("auto", "broad", 42),
     ],
 )
 def test_complexity_uses_filtered_duplicates_independent_of_dedup_policy(
-    tmp_path, snakemake_executable, run_validator, layout, policy, mode, effective, mapq
+    tmp_path, snakemake_executable, run_validator, layout, policy, mode, mapq
 ):
-    config = project(tmp_path, layout, remove_dup=policy, peak_mode=mode, mapq=mapq)
+    config = project(
+        tmp_path, layout, duplicate_analysis=policy, peak_mode=mode, mapq=mapq
+    )
     assert run_validator(config).returncode == 0
     # The marker must precede staged outputs: unmarked non-empty outdirs are
     # refused before any scientific task runs.
@@ -74,8 +76,12 @@ def test_complexity_uses_filtered_duplicates_independent_of_dedup_policy(
         "tee",
         "results/S1/logs/S1.preseq.log",
     ]
-    assert f'if [[ "{effective}" == "yes" ]]' in output
-    assert f"-q {mapq} -F 0x904" in output
+    assert "REMOVE_DUPLICATES=false" in output
+    assert "samtools markdup" not in output
+    if layout == "PE":
+        assert f"-q {mapq} -F 0xb0c -f 2" in output
+    else:
+        assert f"-q {mapq} -F 0xb0c" in output
 
 
 def test_preseq_remains_opt_in_and_nrf_remains_default(tmp_path, snakemake_executable):
