@@ -163,6 +163,21 @@ describe('GenomeBrowserPanel', () => {
     expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
   });
 
+  it('removes the injected stylesheet when the panel leaves', async () => {
+    sessionMock.mockResolvedValue(session());
+    const view = renderPanel();
+    await screen.findByText(/PET records: sample_all.bedpe.gz/);
+    expect(
+      document.head.querySelector('style[data-helixweave-washu="run-1"]'),
+    ).not.toBeNull();
+    localStorage.setItem('persist:helixweave-browser-run-1', 'stale');
+    view.unmount();
+    expect(
+      document.head.querySelector('style[data-helixweave-washu="run-1"]'),
+    ).toBeNull();
+    expect(localStorage.getItem('persist:helixweave-browser-run-1')).toBeNull();
+  });
+
   it('explains a file that is too large instead of drawing an empty track', async () => {
     const value = session();
     value.tracks[0] = {

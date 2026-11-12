@@ -457,3 +457,38 @@ def test_pet_derivative_and_signal_share_a_reference_window(
     index = client.get(track["index_path"], headers={"Range": "bytes=0-3"})
     assert index.status_code == 206
     assert index.content == b"\x1f\x8b\x08\x04"
+
+
+def test_replaced_display_index_cannot_be_read(client: ApiTestClient) -> None:
+    run_id = _create_run(client)
+    pet = _record(
+        client,
+        run_id,
+        "artifact-pet",
+        b"chr1\t1200\t1400\tchr1\t1600\t1800\tread\t211\t+\t+\n",
+        name="sample_all.bedpe.gz",
+        output_type="hitrac_bedpe_all",
+        revision_kind="content",
+    )
+    generation = _generation(client, run_id)
+    prepared = client.post(
+        f"/api/v1/runs/{run_id}/browser-tracks/artifact-pet/derivative",
+        json={"generation": generation, "revision": pet.revision},
+    )
+    track = prepared.json()["track"]
+    index_file = (
+        client.app.state.workspace_root
+        / "browser-derivatives"
+        / run_id
+        / pet.artifact_id
+        / pet.revision
+        / "track.gz.tbi"
+    )
+    index_file.write_bytes(index_file.read_bytes() + b"tamper")
+    response = client.get(track["index_path"], headers={"Range": "bytes=0-3"})
+    assert response.status_code == 409
+    assert (
+        response.json()["issues"][0]["context"]["reason_code"] == "derivative_changed"
+    )
+    assert str(client.app.state.workspace_root) not in response.text
+    assert "track.gz" not in response.text
