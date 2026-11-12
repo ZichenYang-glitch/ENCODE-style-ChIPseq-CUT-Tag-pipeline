@@ -633,6 +633,20 @@ def test_managed_sample_plan_validates_to_a_real_snapshot(
         assert body["snapshot"]["sample_revision_ids"] == [
             imported.revision.sample_revision_id
         ]
+        binding = app.state.persistence.repository.get_validated_input_use_binding(
+            body["snapshot"]["snapshot_id"]
+        )
+        members = [member for use in binding.input_uses for member in use.members]
+        assert [member.input_file_revision_id for member in members] == [
+            registered["input_file_revision_id"]
+        ]
+        assert [member.content_sha256 for member in members] == [
+            registered["content_sha256"]
+        ]
+        assert [use.provenance_mode.value for use in binding.input_uses] == [
+            "managed_revision_v1"
+        ]
+        assert registered["input_file_revision_id"] in validated.text
         assert str(root) not in validated.text
         assert "must-not-leak" not in validated.text
         assert "Private sample" not in validated.text
@@ -685,6 +699,172 @@ def test_managed_sample_plan_validates_to_a_real_snapshot(
         assert rejected.json()["ok"] is False
         assert rejected.json()["snapshot"] is None
         assert rejected.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_INVALID"
+        archived_path = root / "reads" / "archived.fastq.gz"
+        archived_path.write_bytes(b"@read\nAAAA\n+\n!!!!\n")
+        archived_input = admin.register_input_file(
+            project_id=project.project_id,
+            stable_key="sample-a-archived",
+            pool_relative_path="reads/archived.fastq.gz",
+        )
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ).archive_input_file(str(archived_input["input_file_id"]))
+        archived_plan = dict(plan)
+        archived_plan["reads"] = [
+            {
+                "read": 1,
+                "input_file_revision_id": archived_input["input_file_revision_id"],
+            }
+        ]
+        archived_save = client.request(
+            "PUT",
+            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            json={
+                "expected_revision": denied.json()["draft_revision"],
+                "config": {},
+                "samples": None,
+                "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "workflow_samples": [archived_plan],
+            },
+        )
+        assert archived_save.status_code == 200, archived_save.text
+        archived = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            json={"expected_revision": archived_save.json()["draft_revision"]},
+        )
+        assert archived.json()["ok"] is False
+        assert archived.json()["snapshot"] is None
+        assert archived.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_INVALID"
+        assert str(root) not in archived.text
+
+
+def test_managed_sample_plan_rejects_replacement_before_snapshot(
+    tmp_path, reference_ready_app, monkeypatch
+):
+    import json
+
+    from encode_pipeline.services.input_file_access import InputFileAccess
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    fastq = root / "reads" / "s1.fastq.gz"
+    fastq.write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    replacement = root / "reads" / "unregistered.fastq.gz"
+    replacement.write_bytes(b"@different\nTGCA\n+\n!!!!\n")
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.authoring_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a",
+                display_name="Private sample",
+                attributes={},
+            ),
+        ),
+    )[0]
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    registered = admin.register_input_file(
+        project_id=project.project_id,
+        stable_key="sample-a-r1",
+        pool_relative_path="reads/s1.fastq.gz",
+    )
+    original_reverify = InputFileAccess.reverify
+
+    def reverify_then_replace(access, expected):
+        observation = original_reverify(access, expected)
+        if fastq.is_symlink():
+            return observation
+        fastq.unlink()
+        fastq.symlink_to(replacement)
+        return observation
+
+    monkeypatch.setattr(InputFileAccess, "reverify", reverify_then_replace)
+    with ApiTestClient(app) as client:
+        created = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
+        )
+        sid = created.json()["sid"]
+        saved = client.request(
+            "PUT",
+            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            json={
+                "expected_revision": 0,
+                "config": {},
+                "samples": None,
+                "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "workflow_samples": [
+                    {
+                        "sample_revision_id": imported.revision.sample_revision_id,
+                        "assay": "chipseq",
+                        "target": "CTCF",
+                        "peak_mode": "narrow",
+                        "layout": "SE",
+                        "role": "treatment",
+                        "control_sample_revision_id": None,
+                        "reads": [
+                            {
+                                "read": 1,
+                                "input_file_revision_id": registered[
+                                    "input_file_revision_id"
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        validated = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            json={"expected_revision": saved.json()["draft_revision"]},
+        )
+        body = validated.json()
+        assert body["ok"] is False, body
+        assert body["snapshot"] is None
+        assert body["issues"][0]["code"] == "WORKFLOW_SAMPLE_INPUT_UNAVAILABLE"
+        assert "unregistered.fastq.gz" not in validated.text
+        assert str(root) not in validated.text
 
 
 def _parse(value: str):

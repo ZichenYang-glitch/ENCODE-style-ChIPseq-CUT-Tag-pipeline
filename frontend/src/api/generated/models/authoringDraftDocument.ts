@@ -10,7 +10,7 @@ import type { AuthoringDraftDocumentSamples } from './authoringDraftDocumentSamp
 import type { AuthoringDraftDocumentOptions } from './authoringDraftDocumentOptions';
 import type { InputFileRevisionSelectionRequest } from './inputFileRevisionSelectionRequest';
 import type { AuthoringDraftDocumentReferenceProfileRevisionId } from './authoringDraftDocumentReferenceProfileRevisionId';
-import type { AuthoringWorkflowSampleRequest } from './authoringWorkflowSampleRequest';
+import type { AuthoringDraftDocumentWorkflowSamplesItem } from './authoringDraftDocumentWorkflowSamplesItem';
 
 export interface AuthoringDraftDocument {
   config: AuthoringDraftDocumentConfig;
@@ -19,5 +19,5 @@ export interface AuthoringDraftDocument {
   sample_revision_ids: string[];
   input_selections: InputFileRevisionSelectionRequest[];
   reference_profile_revision_id?: AuthoringDraftDocumentReferenceProfileRevisionId;
-  workflow_samples?: AuthoringWorkflowSampleRequest[];
+  workflow_samples?: AuthoringDraftDocumentWorkflowSamplesItem[];
 }

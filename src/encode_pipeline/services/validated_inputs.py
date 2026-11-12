@@ -22,7 +22,6 @@ from encode_pipeline.platform.data_registry import (
 from encode_pipeline.platform.input_registry import (
     AdapterInputUseContract,
     InputFileRevisionSelection,
-    InputProvenanceMode,
     InputUseBindingEnvelope,
     InputUseBindingPlan,
     build_input_use_binding_plan,
@@ -364,23 +363,6 @@ class ValidatedInputService:
                             message=(
                                 "The selected input revisions do not match the "
                                 "exact workflow input-use contract."
-                            ),
-                            source="input_registry",
-                            path="input_selections",
-                        )
-                    ]
-                )
-            if any(
-                input_use.provenance_mode is InputProvenanceMode.MANAGED_REVISION_V1
-                for input_use in input_use_binding_plan.input_uses
-            ):
-                return Result.failure(
-                    [
-                        Issue(
-                            code="INPUT_USE_CAPABILITY_UNAVAILABLE",
-                            message=(
-                                "Managed provenance is not qualified for this "
-                                "exact workflow input use."
                             ),
                             source="input_registry",
                             path="input_selections",

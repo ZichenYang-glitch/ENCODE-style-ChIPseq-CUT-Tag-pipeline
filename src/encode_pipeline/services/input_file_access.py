@@ -154,16 +154,30 @@ class InputFileAccess:
                     os.close(descriptor)
 
     def verified_regular_path(self, expected: InputFileRevision) -> Path:
-        """Return the private absolute path only after the revision still matches."""
+        """Return the registered leaf only while that same descriptor identity matches.
 
-        self.reverify(expected)
-        root = self._root.resolve()
-        candidate = (root / expected.relative_path).resolve()
-        if candidate != root and root not in candidate.parents:
+        The second observation uses the openat walk. It does not resolve the
+        pathname, so a symlink planted after the first hash cannot choose a
+        different regular file.
+        """
+
+        observation = self.reverify(expected)
+        confirmed = self.observe(expected.relative_path)
+        if (
+            confirmed.relative_path != observation.relative_path
+            or confirmed.size_bytes != observation.size_bytes
+            or confirmed.content_sha256 != observation.content_sha256
+            or confirmed.path_fingerprint != observation.path_fingerprint
+        ):
             raise InputFileAccessError()
-        if not candidate.is_file():
+        leaf = self._root.joinpath(*observation.relative_path.split("/"))
+        try:
+            relative = leaf.relative_to(self._root)
+        except ValueError:
+            raise InputFileAccessError() from None
+        if relative.as_posix() != observation.relative_path:
             raise InputFileAccessError()
-        return candidate
+        return leaf
 
     def reverify(self, expected: InputFileRevision) -> FileObservation:
         """Reopen and compare the exact immutable revision before private use."""

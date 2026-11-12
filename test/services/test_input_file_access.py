@@ -134,6 +134,47 @@ def test_reverify_checks_exact_revision_size_and_checksum(tmp_path) -> None:
         access.reverify(expected)
 
 
+def test_verified_path_rejects_symlink_replacement_after_reverify(tmp_path) -> None:
+    root = tmp_path / "pool"
+    nested = root / "reads"
+    nested.mkdir(parents=True)
+    source = nested / "s1.fastq.gz"
+    source.write_bytes(b"ACGT\n")
+    replacement = nested / "unregistered.fastq.gz"
+    replacement.write_bytes(b"TGCA\n")
+    expected = build_input_file_revision(
+        input_file_revision_id=REVISION_ID,
+        input_file_id=INPUT_FILE_ID,
+        project_id=PROJECT_ID,
+        storage_pool_id=POOL_ID,
+        revision_number=1,
+        relative_path="reads/s1.fastq.gz",
+        size_bytes=5,
+        content_sha256=hashlib.sha256(b"ACGT\n").hexdigest(),
+        created_at=NOW,
+    )
+    access = InputFileAccess(root)
+    original = InputFileAccess.reverify
+
+    def reverify_then_replace(self, revision):
+        observation = original(self, revision)
+        source.unlink()
+        source.symlink_to(replacement)
+        return observation
+
+    InputFileAccess.reverify = reverify_then_replace  # type: ignore[method-assign]
+    try:
+        with pytest.raises(InputFileAccessError) as captured:
+            access.verified_regular_path(expected)
+    finally:
+        InputFileAccess.reverify = original  # type: ignore[method-assign]
+
+    rendered = f"{captured.value!s} {captured.value!r}"
+    assert str(root) not in rendered
+    assert "unregistered.fastq.gz" not in rendered
+    assert str(captured.value) == "input file is missing, changed, or unsafe"
+
+
 def test_failures_do_not_disclose_private_root_or_relative_path(tmp_path) -> None:
     root = tmp_path / "private-customer-name"
     root.mkdir()

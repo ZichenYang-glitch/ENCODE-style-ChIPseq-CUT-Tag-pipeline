@@ -11,6 +11,7 @@ from typing import Any
 
 from encode_pipeline.adapters.encode_authoring_samples import (
     materialize_encode_sample_rows,
+    normalize_encode_workflow_sample_plans,
 )
 from encode_pipeline.adapters.encode_authoring_projection import (
     explainable_codes,
@@ -380,6 +381,14 @@ class AuthoringService:
         current = self._repository.get_session(actor, sid)
         schema_digest, projection_digest, _fields = self._identity(current.workflow_id)
         normalized = normalize_draft_content(content)
+        if current.workflow_id == ENCODE_WORKFLOW_ID:
+            try:
+                plans = normalize_encode_workflow_sample_plans(
+                    normalized["workflow_samples"]
+                )
+            except ValueError:
+                raise AuthoringRejected(INVALID_REQUEST) from None
+            normalized = {**normalized, "workflow_samples": plans}
         record, changed = self._repository.save_draft(
             actor,
             sid,
@@ -701,13 +710,17 @@ class AuthoringService:
                 ),
             )
         samples = record.content["samples"]
+        selections = _stored_input_selections(record.content["input_selections"])
         if record.workflow_id == ENCODE_WORKFLOW_ID:
             prepared_samples = self._encode_sample_rows(record)
             if isinstance(prepared_samples, Result):
                 return PreparedValidation(record.revision, prepared_samples)
-            samples = prepared_samples
+            samples, selections = prepared_samples
         cached = self._cached_validation(record)
-        if cached is not None:
+        if cached is not None and self._cached_input_binding_matches(
+            cached,
+            selections,
+        ):
             return PreparedValidation(record.revision, cached)
         result = self._validated.validate(
             record.workflow_id,
@@ -720,14 +733,7 @@ class AuthoringService:
                 project_id=record.project_id,
                 sample_revision_ids=tuple(record.content["sample_revision_ids"]),
             ),
-            input_file_revision_selections=tuple(
-                InputFileRevisionSelection(
-                    input_use_key=item["input_use_key"],
-                    occurrence=item["occurrence"],
-                    input_file_revision_ids=tuple(item["input_file_revision_ids"]),
-                )
-                for item in record.content["input_selections"]
-            ),
+            input_file_revision_selections=selections,
             reference_profile_revision_id=record.content[
                 "reference_profile_revision_id"
             ],
@@ -753,13 +759,20 @@ class AuthoringService:
     def _encode_sample_rows(
         self,
         record: AuthoringSessionRecord,
-    ) -> list[dict[str, str]] | Result[ValidatedInputSnapshot | None]:
+    ) -> (
+        tuple[list[dict[str, str]], tuple[InputFileRevisionSelection, ...]]
+        | Result[ValidatedInputSnapshot | None]
+    ):
         plans = list(record.content.get("workflow_samples") or [])
         if not plans:
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_REQUIRED)
         if [item["sample_revision_id"] for item in plans] != list(
             record.content["sample_revision_ids"]
         ):
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
+        try:
+            plans = normalize_encode_workflow_sample_plans(plans)
+        except ValueError:
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
         try:
             sample_names, read_paths = self._resolve_workflow_plan(
@@ -775,7 +788,42 @@ class AuthoringService:
         )
         if materialized.is_failure or materialized.value is None:
             return Result.failure(materialized.issues)
-        return materialized.value
+        try:
+            selections = _encode_input_selections(plans, sample_names)
+            stored = _stored_input_selections(record.content["input_selections"])
+        except (TypeError, ValueError):
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
+        if stored and stored != selections:
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
+        return materialized.value, selections
+
+    def _cached_input_binding_matches(
+        self,
+        cached: Result[ValidatedInputSnapshot | None],
+        selections: tuple[InputFileRevisionSelection, ...],
+    ) -> bool:
+        if not selections:
+            return True
+        snapshot = cached.value
+        if snapshot is None:
+            return False
+        try:
+            binding = self._snapshots.get_validated_input_use_binding(
+                snapshot.snapshot_id
+            )
+        except (AttributeError, KeyError, LookupError, TypeError, ValueError):
+            return False
+        expected = tuple(
+            revision_id
+            for selection in selections
+            for revision_id in selection.input_file_revision_ids
+        )
+        observed = tuple(
+            member.input_file_revision_id
+            for use in binding.input_uses
+            for member in use.members
+        )
+        return observed == expected
 
     def _resolve_workflow_plan(
         self,
@@ -1342,6 +1390,39 @@ def _capability(
 class _PlanRejected(Exception):
     def __init__(self, code: str) -> None:
         self.code = code
+
+
+def _encode_input_selections(
+    plans: list[Mapping[str, Any]],
+    sample_names: Mapping[str, str],
+) -> tuple[InputFileRevisionSelection, ...]:
+    selections: list[InputFileRevisionSelection] = []
+    for plan in plans:
+        sample_name = sample_names[str(plan["sample_revision_id"])]
+        for read in plan["reads"]:
+            selections.append(
+                InputFileRevisionSelection(
+                    input_use_key=sample_name,
+                    occurrence=int(read["read"]),
+                    input_file_revision_ids=(str(read["input_file_revision_id"]),),
+                )
+            )
+    return tuple(selections)
+
+
+def _stored_input_selections(
+    items: object,
+) -> tuple[InputFileRevisionSelection, ...]:
+    if not isinstance(items, list):
+        raise ValueError("input selections must be a list")
+    return tuple(
+        InputFileRevisionSelection(
+            input_use_key=item["input_use_key"],
+            occurrence=item["occurrence"],
+            input_file_revision_ids=tuple(item["input_file_revision_ids"]),
+        )
+        for item in items
+    )
 
 
 def _authoring_failure(code: str, *, path: str = "workflow_samples") -> Result[Any]:

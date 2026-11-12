@@ -5,5 +5,6 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
+import type { JsonValueOutput } from './jsonValueOutput';
 
-export type AuthoringWorkflowSampleRequestControlSampleRevisionId = string | null;
+export type AuthoringDraftDocumentWorkflowSamplesItem = {[key: string]: JsonValueOutput};

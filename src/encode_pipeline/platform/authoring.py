@@ -307,26 +307,16 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 _SAMPLE_REVISION_ID = re.compile(r"^smpr_[0-9a-f]{32}$")
 _INPUT_FILE_REVISION_ID = re.compile(r"^inpfr_[0-9a-f]{32}$")
-_SAMPLE_TOKEN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-_WORKFLOW_SAMPLE_FIELDS = {
-    "assay",
-    "control_sample_revision_id",
-    "layout",
-    "peak_mode",
-    "reads",
-    "role",
-    "sample_revision_id",
-    "target",
-}
 _READ_FIELDS = {"input_file_revision_id", "read"}
-_ASSAYS = {"chipseq", "cuttag", "atac", "mnase"}
-_LAYOUTS = {"PE", "SE"}
-_ROLES = {"treatment", "control"}
-_PEAK_MODES = {"narrow", "broad", "nucleosome"}
+_MAX_WORKFLOW_SAMPLE_KEYS = 32
+_MAX_WORKFLOW_SAMPLE_READS = 8
 
 
 def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
-    """Canonicalize explicit sample plans. Missing facts are rejected."""
+    """Bound a plan and its revision identities.
+
+    Assay, layout, role, and read pairing belong to the workflow adapter.
+    """
 
     if value is None:
         return []
@@ -336,9 +326,9 @@ def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
     seen_samples: set[str] = set()
     seen_reads: set[str] = set()
     for item in value:
-        if not isinstance(item, Mapping) or set(item) != _WORKFLOW_SAMPLE_FIELDS:
+        if not isinstance(item, Mapping) or len(item) > _MAX_WORKFLOW_SAMPLE_KEYS:
             raise ValueError("workflow sample plan has an unexpected shape")
-        sample_revision_id = item["sample_revision_id"]
+        sample_revision_id = item.get("sample_revision_id")
         if (
             not isinstance(sample_revision_id, str)
             or _SAMPLE_REVISION_ID.fullmatch(sample_revision_id) is None
@@ -346,39 +336,13 @@ def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
         ):
             raise ValueError("workflow sample revision is missing or repeated")
         seen_samples.add(sample_revision_id)
-        assay = item["assay"]
-        layout = item["layout"]
-        role = item["role"]
-        peak_mode = item["peak_mode"]
-        target = item["target"]
+        reads = item.get("reads")
         if (
-            assay not in _ASSAYS
-            or layout not in _LAYOUTS
-            or role not in _ROLES
-            or peak_mode not in _PEAK_MODES
-            or not isinstance(target, str)
-            or _SAMPLE_TOKEN.fullmatch(target) is None
+            not isinstance(reads, list)
+            or not reads
+            or len(reads) > _MAX_WORKFLOW_SAMPLE_READS
         ):
-            raise ValueError("workflow sample plan is missing an explicit field")
-        if (assay == "atac" and peak_mode != "narrow") or (
-            assay == "mnase" and (layout != "PE" or peak_mode != "nucleosome")
-        ):
-            raise ValueError("workflow sample assay and layout do not agree")
-        if assay != "mnase" and peak_mode == "nucleosome":
-            raise ValueError("workflow sample assay and peak mode do not agree")
-        control = item["control_sample_revision_id"]
-        if role == "control" and control is not None:
-            raise ValueError("a control sample cannot name another control")
-        if control is not None and (
-            not isinstance(control, str)
-            or _SAMPLE_REVISION_ID.fullmatch(control) is None
-            or control == sample_revision_id
-        ):
-            raise ValueError("control sample revision is not explicit")
-        reads = item["reads"]
-        if not isinstance(reads, list):
             raise ValueError("workflow sample reads must be explicit")
-        expected_reads = (1, 2) if layout == "PE" else (1,)
         observed: list[dict[str, Any]] = []
         numbers: list[int] = []
         for read in reads:
@@ -391,32 +355,24 @@ def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
                 or not isinstance(revision_id, str)
                 or _INPUT_FILE_REVISION_ID.fullmatch(revision_id) is None
                 or revision_id in seen_reads
+                or number in numbers
             ):
                 raise ValueError("workflow sample read is missing or repeated")
             seen_reads.add(revision_id)
             numbers.append(number)
             observed.append({"input_file_revision_id": revision_id, "read": number})
-        if tuple(sorted(numbers)) != expected_reads:
-            raise ValueError("workflow sample reads do not match the layout")
-        normalized.append(
-            {
-                "assay": assay,
-                "control_sample_revision_id": control,
-                "layout": layout,
-                "peak_mode": peak_mode,
-                "reads": sorted(observed, key=lambda read: read["read"]),
-                "role": role,
-                "sample_revision_id": sample_revision_id,
-                "target": target,
-            }
-        )
-    controls = {
-        item["sample_revision_id"] for item in normalized if item["role"] == "control"
-    }
-    for item in normalized:
-        control = item["control_sample_revision_id"]
-        if control is not None and control not in controls:
-            raise ValueError("control sample revision is not a control row")
+        payload = {
+            key: item[key] for key in item if key not in {"reads", "sample_revision_id"}
+        }
+        try:
+            encoded = json.loads(canonical_json(payload))
+        except (TypeError, ValueError):
+            raise ValueError("workflow sample plan has an unexpected shape") from None
+        if not isinstance(encoded, dict):
+            raise ValueError("workflow sample plan has an unexpected shape")
+        encoded["reads"] = sorted(observed, key=lambda read: int(read["read"]))
+        encoded["sample_revision_id"] = sample_revision_id
+        normalized.append(encoded)
     return normalized
 
 
