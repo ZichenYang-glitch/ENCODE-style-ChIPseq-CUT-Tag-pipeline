@@ -50,6 +50,7 @@ export interface ConfigurationDraftWorkbenchProps {
   serverReloadEpoch?: number;
   remoteConflict?: boolean;
   managedInputs?: ReactNode;
+  adoptedReceipts?: ReactNode;
   actionNotice?: string | null;
   onSelectDraft?: (sid: string) => void;
   onListPrevious?: () => void;
@@ -98,6 +99,7 @@ export function ConfigurationDraftWorkbench({
   serverReloadEpoch = 0,
   remoteConflict = false,
   managedInputs = null,
+  adoptedReceipts = null,
   actionNotice = null,
   onSelectDraft,
   onListPrevious,
@@ -291,8 +293,8 @@ export function ConfigurationDraftWorkbench({
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           {draftExpired ? (
             <p role="status">
-              This draft has expired. Its configuration is hidden. Adoption
-              receipts can be reviewed when that interface is connected.
+              This draft has expired. Its configuration is hidden. Adopted
+              changes from before it expired stay listed below.
             </p>
           ) : schema ? (
             <>
@@ -374,6 +376,7 @@ export function ConfigurationDraftWorkbench({
             draftExpired={draftExpired}
             onValidate={onValidate}
           />
+          {adoptedReceipts}
         </div>
       </div>
       <UnsavedEditsDialog

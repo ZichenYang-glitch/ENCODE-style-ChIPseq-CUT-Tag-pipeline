@@ -4,6 +4,7 @@ import type {
   AuthoringConnectionResponse,
   AuthoringDraftDocument,
   AuthoringDraftWriteRequest,
+  AuthoringListReceiptsParams,
   AuthoringProposalResponse,
   AuthoringQuestionRequest,
   AuthoringSessionResponse,
@@ -78,6 +79,13 @@ function sortJson(value: unknown): unknown {
     sorted[key] = sortJson(value[key]);
   }
   return sorted;
+}
+
+export function receiptListParams(
+  cursor: string | null,
+  limit = 20,
+): AuthoringListReceiptsParams {
+  return typeof cursor === 'string' ? { cursor, limit } : { limit };
 }
 
 export function stableDocumentSnapshot(config: unknown, options: unknown): string {

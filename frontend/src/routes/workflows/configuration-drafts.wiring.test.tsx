@@ -34,6 +34,7 @@ const authoring = vi.hoisted(() => ({
   closeConnection: vi.fn(),
   createTurn: vi.fn(),
   getTurn: vi.fn(),
+  listReceipts: vi.fn(),
   adopt: vi.fn(),
   reject: vi.fn(),
   validate: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../../api/generated/authoring/authoring', () => ({
   authoringCloseConnection: authoring.closeConnection,
   authoringCreateTurn: authoring.createTurn,
   authoringGetTurn: authoring.getTurn,
+  authoringListReceipts: authoring.listReceipts,
   authoringAdoptProposal: authoring.adopt,
   authoringRejectProposal: authoring.reject,
   authoringValidateDraft: authoring.validate,
@@ -117,6 +119,13 @@ describe('configuration draft API wiring', () => {
       sid === OTHER_SID ? draftSession(OTHER_SID, { limit: 8 }) : draftSession(SID, { limit: 4 }),
     );
     authoring.getTurn.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'missing'));
+    authoring.listReceipts.mockImplementation(async (sid: string) => ({
+      ok: true as const,
+      sid,
+      draft_state: 'active' as const,
+      receipts: [],
+      next_cursor: null,
+    }));
   });
 
   it('restores a draft after sign-in without opening the assistant', async () => {
@@ -545,6 +554,154 @@ describe('configuration draft API wiring', () => {
     expect(screen.queryByText(/raw server text/i)).not.toBeInTheDocument();
   });
 
+  it('shows an adopted record without connecting or offering it for adoption', async () => {
+    authoring.listReceipts.mockImplementation(async (sid: string) => ({
+      ok: true as const,
+      sid,
+      draft_state: 'active' as const,
+      receipts: [receiptEntry(TURN)],
+      next_cursor: null,
+    }));
+    authoring.getTurn.mockImplementation(async (_sid: string, turnId: string) =>
+      turnId === TURN ? adoptedTurn() : Promise.reject(new ApiError(404, 'NOT_FOUND', 'missing')),
+    );
+    renderPage();
+    await openDraft(SID);
+    const record = await screen.findByRole('article', { name: 'Adopted record' });
+    expect(record).toHaveTextContent(/already adopted|Adopted /i);
+    expect(within(record).getByRole('cell', { name: '4' })).toBeInTheDocument();
+    expect(within(record).queryByRole('button', { name: 'Adopt suggestion' })).not.toBeInTheDocument();
+    expect(screen.getByText(/not a suggestion you can adopt again/i)).toBeInTheDocument();
+    expect(authoring.openConnection).not.toHaveBeenCalled();
+    expect(authoring.adopt).not.toHaveBeenCalled();
+    expect(authoring.listReceipts.mock.calls[0]?.[1]).toEqual({ limit: 20 });
+    expect(authoring.listReceipts.mock.calls[0]?.[1]).not.toHaveProperty('cursor');
+  });
+
+  it('pages adopted records with the returned cursor', async () => {
+    const user = userEvent.setup();
+    const secondTurn = `atr_${'f'.repeat(32)}`;
+    authoring.listReceipts
+      .mockResolvedValueOnce({
+        ok: true,
+        sid: SID,
+        draft_state: 'active',
+        receipts: [receiptEntry(TURN)],
+        next_cursor: 'cursor-2',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        sid: SID,
+        draft_state: 'active',
+        receipts: [receiptEntry(secondTurn, 3)],
+        next_cursor: null,
+      });
+    authoring.getTurn.mockImplementation(async (_sid: string, turnId: string) =>
+      adoptedTurn(turnId === secondTurn ? 9 : 2, turnId),
+    );
+    renderPage();
+    await openDraft(SID);
+    expect(await screen.findByRole('cell', { name: '2' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next adopted changes' }));
+    expect(await screen.findByRole('cell', { name: '9' })).toBeInTheDocument();
+    expect(authoring.listReceipts.mock.calls[1]?.[1]).toEqual({
+      cursor: 'cursor-2',
+      limit: 20,
+    });
+    expect(screen.queryByRole('cell', { name: '2' })).not.toBeInTheDocument();
+  });
+
+  it('drops a receipt response that arrives after another draft is opened', async () => {
+    let resolveFirst: (value: {
+      ok: true;
+      sid: string;
+      draft_state: 'active';
+      receipts: ReturnType<typeof receiptEntry>[];
+      next_cursor: null;
+    }) => void = () => undefined;
+    authoring.listReceipts.mockImplementation(
+      (sid: string) =>
+        new Promise((resolve) => {
+          if (sid === SID) resolveFirst = resolve;
+          else {
+            resolve({
+              ok: true,
+              sid,
+              draft_state: 'active',
+              receipts: [],
+              next_cursor: null,
+            });
+          }
+        }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await openDraft(OTHER_SID);
+    resolveFirst({
+      ok: true,
+      sid: SID,
+      draft_state: 'active',
+      receipts: [receiptEntry(TURN, 77)],
+      next_cursor: null,
+    });
+    expect(await screen.findByText(/no adopted changes are recorded/i)).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: '77' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Local limit')).toHaveValue(8);
+  });
+
+  it('separates an empty receipt list, a failed load, and a removed draft', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await openDraft(SID);
+    expect(await screen.findByText(/no adopted changes are recorded/i)).toBeInTheDocument();
+
+    authoring.listReceipts.mockRejectedValueOnce(
+      new ApiError(500, 'INTERNAL', 'raw receipt failure'),
+    );
+    await user.click(screen.getByRole('button', { name: /revision 2/ }));
+    const failed = await screen.findByLabelText('Adopted changes');
+    expect(within(failed).getByRole('alert')).toHaveTextContent('The request was not accepted.');
+    expect(screen.queryByText(/raw receipt failure/i)).not.toBeInTheDocument();
+
+    authoring.listReceipts.mockRejectedValueOnce(
+      new ApiError(404, 'NOT_FOUND', 'raw purged text'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Try adopted changes again' }));
+    expect(
+      await within(screen.getByLabelText('Adopted changes')).findByText(
+        'That configuration draft is not available.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/raw purged text/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps adopted records visible after the draft expires', async () => {
+    authoring.listSessions.mockResolvedValue({
+      ok: true,
+      sessions: [{ ...summary(SID), draft_state: 'expired' }],
+    });
+    authoring.getSession.mockImplementation(async (sid: string) => ({
+      ...draftSession(sid, { limit: 4 }),
+      draft_state: 'expired' as const,
+      draft: null,
+    }));
+    authoring.listReceipts.mockImplementation(async (sid: string) => ({
+      ok: true as const,
+      sid,
+      draft_state: 'expired' as const,
+      receipts: [receiptEntry(TURN)],
+      next_cursor: null,
+    }));
+    authoring.getTurn.mockResolvedValue(adoptedTurn());
+    renderPage();
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Expired/ }));
+    expect(await screen.findByText(/configuration is hidden/i)).toBeInTheDocument();
+    expect(await screen.findByRole('cell', { name: '4' })).toBeInTheDocument();
+    expect(screen.getByText(/stay here until the draft is removed/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Local limit')).not.toBeInTheDocument();
+    expect(authoring.openConnection).not.toHaveBeenCalled();
+  });
+
   it('keeps the original suggestion id when a second click arrives before the response', async () => {
     const user = userEvent.setup();
     const bodies: AuthoringTurnCreateRequest[] = [];
@@ -801,6 +958,29 @@ function draftSession(
     connection: { state: 'closed' },
     requires_new_connection: true,
     ...overrides,
+  };
+}
+
+function receiptEntry(turnId: string, after = 2) {
+  return {
+    turn_id: turnId,
+    adoption_receipt: {
+      proposal_id: PROPOSAL,
+      base_revision: 1,
+      result_revision: after,
+      changed: true,
+      adopted_at: '2026-11-10T00:00:00Z',
+      draft_expires_at: '2026-11-17T00:00:00Z',
+    },
+  };
+}
+
+function adoptedTurn(after = 2, turnId = TURN): AuthoringTurnResponse {
+  return {
+    ...proposalTurn(after),
+    turn_id: turnId,
+    proposal_state: 'adopted',
+    adoptable: false,
   };
 }
 

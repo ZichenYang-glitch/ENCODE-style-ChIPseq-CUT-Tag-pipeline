@@ -13,6 +13,7 @@ import {
   proposalView,
   questionRequest,
   reasonCopy,
+  receiptListParams,
   turnResponseIsCurrent,
   validationFromResponse,
   validationView,
@@ -31,6 +32,11 @@ const scope = {
 };
 
 describe('authoring contract mapping', () => {
+  it('omits an empty receipt cursor instead of sending the string null', () => {
+    expect(receiptListParams(null)).toEqual({ limit: 20 });
+    expect(receiptListParams('cursor-2', 20)).toEqual({ cursor: 'cursor-2', limit: 20 });
+  });
+
   it('maps known reason codes and hides unrecognized codes', () => {
     expect(reasonCopy('BRIDGE_UNAVAILABLE')).toMatch(/unavailable/i);
     expect(reasonCopy('HOST_PATH_/tmp/secret')).toBe('The request was not accepted.');

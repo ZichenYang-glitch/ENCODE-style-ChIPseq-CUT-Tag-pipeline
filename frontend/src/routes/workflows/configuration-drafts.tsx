@@ -9,6 +9,7 @@ import {
   authoringGetTurn,
   authoringListProjectSamples,
   authoringListProjects,
+  authoringListReceipts,
   authoringListSessions,
   authoringOpenConnection,
   authoringRejectProposal,
@@ -19,6 +20,7 @@ import { ApiError } from '../../api/fetcher';
 import type {
   AuthoringAdoptRequest,
   AuthoringDraftDocument,
+  AuthoringReceiptListResponse,
   AuthoringRejectRequest,
   AuthoringSessionResponse,
   AuthoringTurnCreateRequest,
@@ -42,10 +44,12 @@ import {
   draftWriteRequest,
   type CanonicalDraftContent,
   explanationView,
+  formatServerTimestamp,
   isValidationBusinessFailure,
   listLabel,
   proposalView,
   questionRequest,
+  receiptListParams,
   sameMembers,
   stableDocumentSnapshot,
   turnCreateBody,
@@ -59,6 +63,11 @@ import {
   type StoredValidation,
   type TurnScope,
 } from '../../features/configuration-drafts/authoringContract';
+import {
+  AdoptedReceiptHistory,
+  type AdoptedReceiptRecord,
+  type ReceiptHistoryStatus,
+} from '../../features/configuration-drafts/AdoptedReceiptHistory';
 import { ConfigurationDraftWorkbench } from '../../features/configuration-drafts/ConfigurationDraftWorkbench';
 import type { EditorDocument } from '../../features/configuration-drafts/ConfigurationDraftEditor';
 import { ManagedDraftInputs } from '../../features/configuration-drafts/ManagedDraftInputs';
@@ -101,10 +110,19 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   const operationGeneration = useRef(0);
   const selectedSidRef = useRef<string | null>(null);
   const pendingRemote = useRef<AuthoringSessionResponse | null>(null);
+  const receiptRequest = useRef(0);
 
   const [projectId, setProjectId] = useState<string | null>(null);
   const [extraProjects, setExtraProjects] = useState<ProjectSummaryResponse[]>([]);
   const [cursors, setCursors] = useState<Array<string | null>>([null]);
+  const [receiptCursors, setReceiptCursors] = useState<Array<string | null>>([null]);
+  const [receiptPage, setReceiptPage] = useState<AuthoringReceiptListResponse | null>(null);
+  const [receiptTurns, setReceiptTurns] = useState<
+    Record<string, AuthoringTurnResponse | 'unavailable'>
+  >({});
+  const [receiptStatus, setReceiptStatus] = useState<ReceiptHistoryStatus>('idle');
+  const [receiptNotice, setReceiptNotice] = useState<string | null>(null);
+  const [receiptRetry, setReceiptRetry] = useState(0);
   const [selectedSid, setSelectedSid] = useState<string | null>(null);
   const [seed, setSeed] = useState<InputDraftSeed | null>(null);
   const [seedRevision, setSeedRevision] = useState<number | null>(null);
@@ -136,6 +154,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }, []);
 
   useEffect(() => {
+    receiptRequest.current += 1;
     abandonOperation();
     pendingRemote.current = null;
     scope.current += 1;
@@ -160,7 +179,53 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     setValidationOverride(null);
     pendingTurn.current = null;
     pendingDecision.current = null;
+    setReceiptCursors([null]);
   }, [userId]);
+
+  const receiptCursor = receiptCursors[receiptCursors.length - 1] ?? null;
+  useEffect(() => {
+    if (!userId || !selectedSid) {
+      setReceiptPage(null);
+      setReceiptTurns({});
+      setReceiptStatus('idle');
+      setReceiptNotice(null);
+      return;
+    }
+    const request = receiptRequest.current + 1;
+    receiptRequest.current = request;
+    const sid = selectedSid;
+    setReceiptPage(null);
+    setReceiptTurns({});
+    setReceiptStatus('loading');
+    setReceiptNotice(null);
+    void (async () => {
+      const current = () => request === receiptRequest.current && sid === selectedSidRef.current;
+      try {
+        const page = await authoringListReceipts(sid, receiptListParams(receiptCursor));
+        if (!current()) return;
+        setReceiptPage(page);
+        setReceiptStatus('ready');
+        const loaded = await Promise.all(
+          page.receipts.map(async (entry) => {
+            try {
+              return [entry.turn_id, await authoringGetTurn(sid, entry.turn_id)] as const;
+            } catch {
+              return [entry.turn_id, 'unavailable'] as const;
+            }
+          }),
+        );
+        if (!current()) return;
+        setReceiptTurns(Object.fromEntries(loaded));
+      } catch (error) {
+        if (!current()) return;
+        const failure = classifyAuthoringError(error);
+        setReceiptPage(null);
+        setReceiptTurns({});
+        setReceiptStatus(failure.kind === 'not-found' ? 'not-found' : 'error');
+        setReceiptNotice(failure.message);
+      }
+    })();
+  }, [receiptCursor, receiptRetry, selectedSid, userId]);
 
   const detailQuery = useQuery({
     queryKey: ['workflow', workflowId],
@@ -930,6 +995,53 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         <p role="status">No projects are available for this login.</p>
       )}
       <ConfigurationDraftWorkbench
+        adoptedReceipts={
+          selectedSid ? (
+            <AdoptedReceiptHistory
+              status={receiptStatus}
+              message={receiptNotice}
+              expired={receiptPage?.draft_state === 'expired'}
+              receipts={(receiptPage?.receipts ?? []).map((entry) => {
+                const turn = receiptTurns[entry.turn_id];
+                const view =
+                  turn && turn !== 'unavailable' ? proposalView(turn, capability) : null;
+                return {
+                  turnId: entry.turn_id,
+                  adoptedLabel: `Adopted ${formatServerTimestamp(entry.adoption_receipt.adopted_at)}.`,
+                  revisionLabel: `Revision ${entry.adoption_receipt.base_revision} became revision ${entry.adoption_receipt.result_revision}.`,
+                  changedLabel: entry.adoption_receipt.changed
+                    ? 'The draft changed.'
+                    : 'The draft did not change.',
+                  changes:
+                    turn && turn !== 'unavailable' ? (view?.changes ?? []) : null,
+                  differenceMessage:
+                    turn === 'unavailable'
+                      ? 'The adopted difference could not be loaded.'
+                      : turn === undefined
+                        ? null
+                        : view
+                          ? null
+                          : 'The adopted difference is not included in this turn.',
+                } satisfies AdoptedReceiptRecord;
+              })}
+              hasPrevious={receiptCursors.length > 1}
+              hasNext={typeof receiptPage?.next_cursor === 'string'}
+              onPrevious={() => {
+                receiptRequest.current += 1;
+                setReceiptCursors((current) =>
+                  current.length > 1 ? current.slice(0, -1) : current,
+                );
+              }}
+              onNext={() => {
+                const next = receiptPage?.next_cursor;
+                if (typeof next !== 'string') return;
+                receiptRequest.current += 1;
+                setReceiptCursors((current) => [...current, next]);
+              }}
+              onRetry={() => setReceiptRetry((value) => value + 1)}
+            />
+          ) : null
+        }
         workflowName={workflowName}
         projectName={projectName}
         schema={missing || draftLoading ? null : schema}
@@ -1080,11 +1192,13 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }
 
   function applyProject(nextProjectId: string) {
+    receiptRequest.current += 1;
     abandonOperation();
     pendingRemote.current = null;
     scope.current += 1;
     setProjectId(nextProjectId);
     setCursors([null]);
+    setReceiptCursors([null]);
     setSelectedSid(null);
     setExtraSamples([]);
     setTurn(null);
@@ -1095,10 +1209,12 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   }
 
   function selectDraft(sid: string) {
+    receiptRequest.current += 1;
     abandonOperation();
     pendingRemote.current = null;
     scope.current += 1;
     setSelectedSid(sid);
+    setReceiptCursors([null]);
     setSeed(null);
     setSeedRevision(null);
     setIgnoredRevision(null);

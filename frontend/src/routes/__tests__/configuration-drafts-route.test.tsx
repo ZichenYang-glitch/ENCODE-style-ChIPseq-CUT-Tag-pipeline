@@ -46,6 +46,13 @@ vi.mock('../../api/generated/authoring/authoring', () => ({
   authoringCloseConnection: vi.fn(),
   authoringCreateTurn: vi.fn(),
   authoringGetTurn: vi.fn(),
+  authoringListReceipts: vi.fn(async (sid: string) => ({
+    ok: true as const,
+    sid,
+    draft_state: 'active' as const,
+    receipts: [],
+    next_cursor: null,
+  })),
   authoringAdoptProposal: vi.fn(),
   authoringRejectProposal: vi.fn(),
   authoringValidateDraft: generatedMocks.validateDraft,
