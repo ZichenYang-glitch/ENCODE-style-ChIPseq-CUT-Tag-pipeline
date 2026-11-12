@@ -4833,6 +4833,13 @@
               }
             ],
             "title": "Reference Profile Revision Id"
+          },
+          "workflow_samples": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringWorkflowSampleRequest"
+            },
+            "type": "array",
+            "title": "Workflow Samples"
           }
         },
         "additionalProperties": false,
@@ -4927,6 +4934,14 @@
               }
             ],
             "title": "Reference Profile Revision Id"
+          },
+          "workflow_samples": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringWorkflowSampleRequest"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Workflow Samples"
           }
         },
         "additionalProperties": false,
@@ -5794,6 +5809,116 @@
           "ok"
         ],
         "title": "AuthoringValidationResponse"
+      },
+      "AuthoringWorkflowReadRequest": {
+        "properties": {
+          "read": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "title": "Read"
+          },
+          "input_file_revision_id": {
+            "type": "string",
+            "maxLength": 38,
+            "pattern": "^inpfr_[0-9a-f]{32}$",
+            "title": "Input File Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "read",
+          "input_file_revision_id"
+        ],
+        "title": "AuthoringWorkflowReadRequest"
+      },
+      "AuthoringWorkflowSampleRequest": {
+        "properties": {
+          "sample_revision_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^smpr_[0-9a-f]{32}$",
+            "title": "Sample Revision Id"
+          },
+          "assay": {
+            "type": "string",
+            "enum": [
+              "chipseq",
+              "cuttag",
+              "atac",
+              "mnase"
+            ],
+            "title": "Assay"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+            "title": "Target"
+          },
+          "peak_mode": {
+            "type": "string",
+            "enum": [
+              "narrow",
+              "broad",
+              "nucleosome"
+            ],
+            "title": "Peak Mode"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "PE",
+              "SE"
+            ],
+            "title": "Layout"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "treatment",
+              "control"
+            ],
+            "title": "Role"
+          },
+          "control_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 37,
+                "pattern": "^smpr_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Control Sample Revision Id"
+          },
+          "reads": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringWorkflowReadRequest"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 1,
+            "title": "Reads"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_revision_id",
+          "assay",
+          "target",
+          "peak_mode",
+          "layout",
+          "role",
+          "reads"
+        ],
+        "title": "AuthoringWorkflowSampleRequest"
       },
       "BindingMode": {
         "type": "string",

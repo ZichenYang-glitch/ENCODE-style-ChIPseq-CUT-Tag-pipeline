@@ -20,7 +20,8 @@
       "options": {},
       "sample_revision_ids": [],
       "input_selections": [],
-      "reference_profile_revision_id": null
+      "reference_profile_revision_id": null,
+      "workflow_samples": []
     },
     "authoring_capability": {
       "available": true,
@@ -138,6 +139,23 @@
     ],
     "next_cursor": null
   },
+  "workflow_sample_plan": [
+    {
+      "sample_revision_id": "smpr_0123456789abcdef0123456789abcdef",
+      "assay": "chipseq",
+      "target": "CTCF",
+      "peak_mode": "narrow",
+      "layout": "SE",
+      "role": "treatment",
+      "control_sample_revision_id": null,
+      "reads": [
+        {
+          "read": 1,
+          "input_file_revision_id": "inpfr_0123456789abcdef0123456789abcdef"
+        }
+      ]
+    }
+  ],
   "bridge_unavailable": {
     "ok": false,
     "reason_code": "BRIDGE_UNAVAILABLE",

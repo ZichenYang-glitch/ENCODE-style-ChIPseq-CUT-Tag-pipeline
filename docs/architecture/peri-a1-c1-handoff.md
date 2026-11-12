@@ -1,9 +1,9 @@
 # A1 C1 handoff
 
-Status: C1 and C2 remain on this branch. C3-C1 adds discovery of adopted
-receipts and is back with Codex for review. The contract commit is
-`b9ceca73fe163c3362bfcd22f8ffec02c03e3703`. It is not byte-identical to
-`f671cdacdb4be07af3b89e19fb8431b3c35e7e72`. The turn response
+Status: C1 and C2 remain on this branch. C3-C1 receipt discovery remains.
+This round adds an explicit ENCODE workflow sample plan so validation can
+build sample rows from admitted revisions. It is not byte-identical to
+`7ee16d706049e4d5f6abea20b01891b48c7b16b4`. The turn response
 still includes the server `proposal_digest` and, for an explanation,
 `explanation.reason_codes`. Do not recompute the digest in the frontend. This
 handoff is not a frozen C3 contract, and it is not C4 or A1 acceptance.
@@ -98,6 +98,40 @@ example is `receipt_list_response` in `docs/architecture/peri-a1-c1-examples.jso
 - Logout, closing the connection, or retiring a generation leaves the adopted
   receipt in place. The new login sees `requires_new_connection: true` until
   the user explicitly connects again.
+
+## Workflow sample plan
+
+Selecting `sample_revision_ids` does not by itself create an ENCODE sample
+row. `samples` stays `null`. The draft also carries `workflow_samples`, an
+explicit plan the server turns into rows only while validating.
+
+Each plan item names one `sample_revision_id`, `assay`, `target`, `peak_mode`,
+`layout`, `role`, optional `control_sample_revision_id`, and `reads`. A read
+is `1` or `2` plus an `input_file_revision_id`. SE has read 1. PE has reads 1
+and 2. A treatment that names a control must point at another row whose role
+is `control`. The same input revision cannot be used twice. The order of
+`workflow_samples` must equal `sample_revision_ids`.
+
+The server checks that every revision belongs to the draft's project, that
+the input file is still the admitted bytes, and then the ENCODE adapter builds
+the workflow rows. Host paths are not stored in the draft, returned by the
+API, or shown to the model. A successful validation returns the existing
+snapshot object. `snapshot.sample_revision_ids` is the bound selection.
+
+Errors, all with `snapshot: null` unless noted:
+
+- No sample revision: `SAMPLE_SELECTION_REQUIRED`.
+- Revisions selected without a plan: `WORKFLOW_SAMPLE_PLAN_REQUIRED`.
+- Plan shape, pairing, role, or project does not match: save returns 422, or
+  validate returns `WORKFLOW_SAMPLE_PLAN_INVALID`.
+- The admitted file changed or cannot be verified:
+  `WORKFLOW_SAMPLE_INPUT_UNAVAILABLE`.
+- A later validation of an unchanged draft returns the same snapshot only
+  after the admitted bytes still match.
+
+An example plan is `workflow_sample_plan` in
+`docs/architecture/peri-a1-c1-examples.json`. Receipt discovery is unchanged.
+This is not C4 or A1 acceptance.
 
 ## Not in this handoff
 

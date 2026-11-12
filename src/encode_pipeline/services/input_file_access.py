@@ -153,6 +153,18 @@ class InputFileAccess:
                 with suppress(OSError):
                     os.close(descriptor)
 
+    def verified_regular_path(self, expected: InputFileRevision) -> Path:
+        """Return the private absolute path only after the revision still matches."""
+
+        self.reverify(expected)
+        root = self._root.resolve()
+        candidate = (root / expected.relative_path).resolve()
+        if candidate != root and root not in candidate.parents:
+            raise InputFileAccessError()
+        if not candidate.is_file():
+            raise InputFileAccessError()
+        return candidate
+
     def reverify(self, expected: InputFileRevision) -> FileObservation:
         """Reopen and compare the exact immutable revision before private use."""
         if not isinstance(expected, InputFileRevision):

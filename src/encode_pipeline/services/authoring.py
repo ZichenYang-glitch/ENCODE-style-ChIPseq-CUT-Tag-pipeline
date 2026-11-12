@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 import re
 from typing import Any
 
+from encode_pipeline.adapters.encode_authoring_samples import (
+    materialize_encode_sample_rows,
+)
 from encode_pipeline.adapters.encode_authoring_projection import (
     explainable_codes,
     explainable_issues,
@@ -47,6 +51,9 @@ from encode_pipeline.platform.authoring import (
     PROJECTION_VERSION,
     SAMPLE_SELECTION_REQUIRED,
     SCOPE_DENIED,
+    WORKFLOW_SAMPLE_INPUT_UNAVAILABLE,
+    WORKFLOW_SAMPLE_PLAN_INVALID,
+    WORKFLOW_SAMPLE_PLAN_REQUIRED,
     STALE_DRAFT,
     WORKFLOW_UNAVAILABLE,
     adopt_request_digest,
@@ -73,7 +80,12 @@ from encode_pipeline.platform.data_registry import (
     ProjectKind,
     ProjectSampleSelection,
 )
-from encode_pipeline.platform.input_registry import InputFileRevisionSelection
+from encode_pipeline.platform.input_registry import (
+    InputFile,
+    InputFileRevision,
+    InputFileRevisionSelection,
+)
+from encode_pipeline.platform.registry import ENCODE_WORKFLOW_ID
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.snapshots import ValidatedInputSnapshot
 from encode_pipeline.services.authoring_bridge import (
@@ -84,6 +96,13 @@ from encode_pipeline.services.authoring_bridge import (
     UnavailableAuthoringBridge,
 )
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.input_file_access import (
+    InputFileAccess,
+    InputFileAccessError,
+)
+from encode_pipeline.services.private_storage_pools import (
+    load_private_storage_pool_config,
+)
 
 
 _INSTANCE_ID = re.compile(r"^[A-Za-z0-9_-]{8,36}$")
@@ -183,6 +202,8 @@ class AuthoringService:
         snapshots: Any,
         bridge: AuthoringBridge | None = None,
         clock: Clock | None = None,
+        input_registry: object | None = None,
+        storage_pool_config_path: Path | None = None,
     ) -> None:
         self._repository = repository
         self._registry = registry
@@ -191,6 +212,8 @@ class AuthoringService:
         self._snapshots = snapshots
         self._bridge = bridge if bridge is not None else UnavailableAuthoringBridge()
         self._clock = clock
+        self._input_registry = input_registry
+        self._storage_pool_config_path = storage_pool_config_path
 
     def list_projects(
         self,
@@ -669,28 +692,28 @@ class AuthoringService:
             sid,
             expected_revision=expected_revision,
         )
-        cached = self._cached_validation(record)
-        if cached is not None:
-            return PreparedValidation(record.revision, cached)
         if not record.content["sample_revision_ids"]:
             return PreparedValidation(
                 record.revision,
-                Result.failure(
-                    [
-                        Issue(
-                            code=SAMPLE_SELECTION_REQUIRED,
-                            message=authoring_message(SAMPLE_SELECTION_REQUIRED),
-                            path="sample_revision_ids",
-                            source="authoring",
-                        )
-                    ]
+                _authoring_failure(
+                    SAMPLE_SELECTION_REQUIRED,
+                    path="sample_revision_ids",
                 ),
             )
+        samples = record.content["samples"]
+        if record.workflow_id == ENCODE_WORKFLOW_ID:
+            prepared_samples = self._encode_sample_rows(record)
+            if isinstance(prepared_samples, Result):
+                return PreparedValidation(record.revision, prepared_samples)
+            samples = prepared_samples
+        cached = self._cached_validation(record)
+        if cached is not None:
+            return PreparedValidation(record.revision, cached)
         result = self._validated.validate(
             record.workflow_id,
             WorkflowInputs(
                 config=record.content["config"],
-                samples=record.content["samples"],
+                samples=samples,
                 options=record.content["options"],
             ),
             project_sample_selection=ProjectSampleSelection(
@@ -726,6 +749,87 @@ class AuthoringService:
             issues=public,
         )
         return PreparedValidation(expected_revision, result)
+
+    def _encode_sample_rows(
+        self,
+        record: AuthoringSessionRecord,
+    ) -> list[dict[str, str]] | Result[ValidatedInputSnapshot | None]:
+        plans = list(record.content.get("workflow_samples") or [])
+        if not plans:
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_REQUIRED)
+        if [item["sample_revision_id"] for item in plans] != list(
+            record.content["sample_revision_ids"]
+        ):
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
+        try:
+            sample_names, read_paths = self._resolve_workflow_plan(
+                record.project_id,
+                plans,
+            )
+        except _PlanRejected as rejected:
+            return _authoring_failure(rejected.code)
+        materialized = materialize_encode_sample_rows(
+            plans,
+            sample_names=sample_names,
+            read_paths=read_paths,
+        )
+        if materialized.is_failure or materialized.value is None:
+            return Result.failure(materialized.issues)
+        return materialized.value
+
+    def _resolve_workflow_plan(
+        self,
+        project_id: str,
+        plans: list[Mapping[str, Any]],
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        registry = self._input_registry
+        config_path = self._storage_pool_config_path
+        if registry is None or config_path is None:
+            raise _PlanRejected(WORKFLOW_SAMPLE_INPUT_UNAVAILABLE)
+        data = self._data
+        sample_names: dict[str, str] = {}
+        read_paths: dict[str, str] = {}
+        for plan in plans:
+            revision_id = str(plan["sample_revision_id"])
+            try:
+                revision = data._repository.get_sample_revision(revision_id)
+                sample = data._repository.get_sample(revision.sample_id)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID) from None
+            if revision.project_id != project_id or sample.project_id != project_id:
+                raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID)
+            sample_names[revision_id] = sample.stable_key
+            for read in plan["reads"]:
+                read_paths[str(read["input_file_revision_id"])] = ""
+        try:
+            config = load_private_storage_pool_config(config_path)
+        except Exception:
+            raise _PlanRejected(WORKFLOW_SAMPLE_INPUT_UNAVAILABLE) from None
+        for revision_id in read_paths:
+            try:
+                file_revision = registry.get_input_file_revision(revision_id)
+                input_file = registry.get_input_file(file_revision.input_file_id)
+                pool = registry.get_storage_pool(file_revision.storage_pool_id)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID) from None
+            if (
+                not isinstance(file_revision, InputFileRevision)
+                or not isinstance(input_file, InputFile)
+                or file_revision.project_id != project_id
+                or input_file.project_id != project_id
+                or input_file.archived_at is not None
+                or getattr(pool, "archived_at", None) is not None
+            ):
+                raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID)
+            try:
+                path = InputFileAccess.from_config(
+                    config,
+                    pool.config_key,
+                ).verified_regular_path(file_revision)
+            except InputFileAccessError:
+                raise _PlanRejected(WORKFLOW_SAMPLE_INPUT_UNAVAILABLE) from None
+            read_paths[revision_id] = str(path)
+        return sample_names, read_paths
 
     def read_tool(
         self,
@@ -810,7 +914,7 @@ class AuthoringService:
                 "issue_codes": list(record.validation_issue_codes),
                 "projection_digest": projection_digest,
                 "revision": record.revision,
-                "sample_count": sample_count(record.content.get("samples")),
+                "sample_count": _visible_sample_count(record.content),
                 "schema_digest": schema_digest,
             },
         )
@@ -1233,6 +1337,31 @@ def _capability(
         "projection_version": PROJECTION_VERSION,
         "reason_code": None,
     }
+
+
+class _PlanRejected(Exception):
+    def __init__(self, code: str) -> None:
+        self.code = code
+
+
+def _authoring_failure(code: str, *, path: str = "workflow_samples") -> Result[Any]:
+    return Result.failure(
+        [
+            Issue(
+                code=code,
+                message=authoring_message(code),
+                path=path,
+                source="authoring",
+            )
+        ]
+    )
+
+
+def _visible_sample_count(content: Mapping[str, Any]) -> int:
+    plans = content.get("workflow_samples")
+    if isinstance(plans, list) and plans:
+        return len(plans)
+    return sample_count(content.get("samples"))
 
 
 def _receipt(turn: AuthoringTurnRecord) -> dict[str, Any] | None:

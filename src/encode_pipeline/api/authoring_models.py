@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from encode_pipeline.platform.authoring import normalize_draft_content
 from encode_pipeline.api.models import (
     InputFileRevisionSelectionRequest,
+    InputFileRevisionId,
     IssueResponse,
     JsonValue,
     ProjectId,
@@ -82,6 +83,26 @@ class AuthoringConnectionResponse(BaseModel):
     reason_code: str | None = None
 
 
+class AuthoringWorkflowReadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    read: Literal[1, 2]
+    input_file_revision_id: InputFileRevisionId
+
+
+class AuthoringWorkflowSampleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sample_revision_id: SampleRevisionId
+    assay: Literal["chipseq", "cuttag", "atac", "mnase"]
+    target: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$", max_length=64)
+    peak_mode: Literal["narrow", "broad", "nucleosome"]
+    layout: Literal["PE", "SE"]
+    role: Literal["treatment", "control"]
+    control_sample_revision_id: SampleRevisionId | None = None
+    reads: list[AuthoringWorkflowReadRequest] = Field(min_length=1, max_length=2)
+
+
 class AuthoringDraftDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +112,7 @@ class AuthoringDraftDocument(BaseModel):
     sample_revision_ids: list[SampleRevisionId]
     input_selections: list[InputFileRevisionSelectionRequest]
     reference_profile_revision_id: ReferenceProfileRevisionId | None = None
+    workflow_samples: list[AuthoringWorkflowSampleRequest] = Field(default_factory=list)
 
 
 class AuthoringSessionResponse(BaseModel):
@@ -155,6 +177,10 @@ class AuthoringDraftWriteRequest(BaseModel):
         max_length=256,
     )
     reference_profile_revision_id: ReferenceProfileRevisionId | None = None
+    workflow_samples: list[AuthoringWorkflowSampleRequest] = Field(
+        default_factory=list,
+        max_length=256,
+    )
 
     @model_validator(mode="after")
     def draft_is_canonical_json(self) -> "AuthoringDraftWriteRequest":
@@ -168,6 +194,9 @@ class AuthoringDraftWriteRequest(BaseModel):
                 "reference_profile_revision_id": self.reference_profile_revision_id,
                 "sample_revision_ids": list(self.sample_revision_ids),
                 "samples": self.samples,
+                "workflow_samples": [
+                    sample.model_dump() for sample in self.workflow_samples
+                ],
             }
         )
         return self

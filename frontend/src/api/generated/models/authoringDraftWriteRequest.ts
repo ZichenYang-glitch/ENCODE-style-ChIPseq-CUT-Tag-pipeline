@@ -10,6 +10,7 @@ import type { AuthoringDraftWriteRequestSamples } from './authoringDraftWriteReq
 import type { AuthoringDraftWriteRequestOptions } from './authoringDraftWriteRequestOptions';
 import type { InputFileRevisionSelectionRequest } from './inputFileRevisionSelectionRequest';
 import type { AuthoringDraftWriteRequestReferenceProfileRevisionId } from './authoringDraftWriteRequestReferenceProfileRevisionId';
+import type { AuthoringWorkflowSampleRequest } from './authoringWorkflowSampleRequest';
 
 export interface AuthoringDraftWriteRequest {
   /**
@@ -24,4 +25,6 @@ export interface AuthoringDraftWriteRequest {
   /** @maxItems 256 */
   input_selections?: InputFileRevisionSelectionRequest[];
   reference_profile_revision_id?: AuthoringDraftWriteRequestReferenceProfileRevisionId;
+  /** @maxItems 256 */
+  workflow_samples?: AuthoringWorkflowSampleRequest[];
 }

@@ -291,6 +291,8 @@ def create_app(
         validated_inputs=validated_input_service,
         snapshots=persistence.repository,
         bridge=authoring_bridge,
+        input_registry=persistence.input_registry_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
     )
 
     def _drop_authoring_natives(digests: tuple[str, ...]) -> None:
