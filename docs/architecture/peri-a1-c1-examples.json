@@ -1,0 +1,157 @@
+{
+  "create_request": {
+    "project_id": "prj_0123456789abcdef0123456789abcdef",
+    "workflow_id": "encode-style-chipseq-cuttag-atac-mnase"
+  },
+  "create_response": {
+    "ok": true,
+    "sid": "aas_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_0123456789abcdef0123456789abcdef",
+    "workflow_id": "encode-style-chipseq-cuttag-atac-mnase",
+    "draft_state": "active",
+    "draft_revision": 0,
+    "expires_at": "2026-11-17T10:00:00Z",
+    "purge_after": "2026-11-24T10:00:00Z",
+    "schema_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "projection_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "draft": {
+      "config": {},
+      "samples": null,
+      "options": {},
+      "sample_revision_ids": [],
+      "input_selections": [],
+      "reference_profile_revision_id": null
+    },
+    "authoring_capability": {
+      "available": true,
+      "reason_code": null,
+      "projection_version": "hw-a1/1",
+      "projection_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "allowed_intents": ["explain_issues", "suggest"],
+      "allowed_issue_codes": [
+        {"code": "SAMPLE_SELECTION_REQUIRED", "label": "Select at least one sample revision before validation."}
+      ],
+      "fields": [
+        {
+          "token": "config.threads",
+          "label": "Threads",
+          "type": "integer",
+          "constraints": {"type": "integer", "minimum": 1, "maximum": null}
+        }
+      ]
+    },
+    "connection": {"state": "closed", "reason_code": null},
+    "requires_new_connection": true,
+    "changed": false
+  },
+  "save_request": {
+    "expected_revision": 0,
+    "config": {"threads": 4},
+    "samples": null,
+    "options": {"cores": 2},
+    "sample_revision_ids": [],
+    "input_selections": [],
+    "reference_profile_revision_id": null
+  },
+  "turn_request": {
+    "client_turn_id": "composer-1",
+    "expected_revision": 1,
+    "question": {
+      "intent": "suggest",
+      "field_tokens": ["config.threads"],
+      "preferences": [{"field_token": "config.threads", "value": 4}]
+    }
+  },
+  "turn_response": {
+    "ok": true,
+    "turn_id": "atr_0123456789abcdef0123456789abcdef",
+    "client_turn_id": "composer-1",
+    "status": "completed",
+    "failure_reason": null,
+    "result_kind": "proposal",
+    "proposal_id": "prop_0123456789abcdef0123456789abcdef",
+    "proposal": {
+      "changes": [],
+      "reason_codes": []
+    },
+    "proposal_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "explanation": null,
+    "proposal_state": "pending",
+    "adoptable": true,
+    "reason_code": null,
+    "proposal_expires_at": "2026-11-10T10:30:00Z",
+    "adoption_receipt": null
+  },
+  "explanation_response": {
+    "ok": true,
+    "turn_id": "atr_0123456789abcdef0123456789abcdef",
+    "client_turn_id": "composer-2",
+    "status": "completed",
+    "failure_reason": null,
+    "result_kind": "explanation",
+    "proposal_id": null,
+    "proposal": null,
+    "proposal_digest": null,
+    "explanation": {"reason_codes": ["ENCODE_OPTIONS_INVALID"]},
+    "proposal_state": null,
+    "adoptable": false,
+    "reason_code": null,
+    "proposal_expires_at": null,
+    "adoption_receipt": null
+  },
+  "adopt_request": {
+    "expected_revision": 4,
+    "proposal_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "adopt_replay_response": {
+    "ok": true,
+    "replayed": true,
+    "adoption_receipt": {
+      "proposal_id": "prop_0123456789abcdef0123456789abcdef",
+      "base_revision": 4,
+      "result_revision": 5,
+      "changed": true,
+      "adopted_at": "2026-11-10T10:05:00Z",
+      "draft_expires_at": "2026-11-17T10:05:00Z"
+    },
+    "draft_state": "active",
+    "draft_revision": 5,
+    "expires_at": "2026-11-17T10:05:00Z",
+    "purge_after": "2026-11-24T10:05:00Z"
+  },
+  "receipt_list_response": {
+    "ok": true,
+    "sid": "aas_0123456789abcdef0123456789abcdef",
+    "draft_state": "expired",
+    "receipts": [
+      {
+        "turn_id": "atr_0123456789abcdef0123456789abcdef",
+        "adoption_receipt": {
+          "proposal_id": "prop_0123456789abcdef0123456789abcdef",
+          "base_revision": 4,
+          "result_revision": 5,
+          "changed": true,
+          "adopted_at": "2026-11-10T10:05:00Z",
+          "draft_expires_at": "2026-11-17T10:05:00Z"
+        }
+      }
+    ],
+    "next_cursor": null
+  },
+  "bridge_unavailable": {
+    "ok": false,
+    "reason_code": "BRIDGE_UNAVAILABLE",
+    "issues": [
+      {
+        "code": "BRIDGE_UNAVAILABLE",
+        "message": "The authoring assistant is unavailable.",
+        "severity": "error",
+        "path": null,
+        "source": "authoring",
+        "technical_message": null,
+        "hint": null,
+        "context": {}
+      }
+    ]
+  }
+}

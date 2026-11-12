@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronRight, FilePenLine, History } from 'lucide-react';
+import { ChevronRight, FilePenLine, Files, History } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useClients } from '../../api/client-context';
 import type {
@@ -299,6 +299,12 @@ export function WorkflowDetailPage({ workflowId }: WorkflowDetailPageProps) {
                   <Link to={`/workflows/${encodeURIComponent(workflow.metadata.workflow_id)}/new-run`}>
                     <FilePenLine aria-hidden="true" size={16} />
                     Author inputs
+                  </Link>
+                </Button>
+                <Button asChild variant="secondary" className="gap-1.5">
+                  <Link to={`/workflows/${encodeURIComponent(workflow.metadata.workflow_id)}/configuration-drafts`}>
+                    <Files aria-hidden="true" size={16} />
+                    Configuration drafts
                   </Link>
                 </Button>
                 <Button asChild variant="quiet" className="gap-1.5">

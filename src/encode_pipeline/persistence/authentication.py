@@ -39,6 +39,26 @@ class SqlAlchemyAuthenticationRepository:
         if not isinstance(session_factory, sessionmaker):
             raise ValueError("session_factory must be a SQLAlchemy sessionmaker")
         self._session_factory = session_factory
+        self._authoring_revocation_listeners: list[
+            Callable[[tuple[str, ...]], None]
+        ] = []
+
+    def add_authoring_revocation_listener(
+        self,
+        listener: Callable[[tuple[str, ...]], None],
+    ) -> None:
+        """Notify after a committed login fence. Failure here cannot reopen it."""
+
+        self._authoring_revocation_listeners.append(listener)
+
+    def _notify_authoring_revocation(self, digests: tuple[str, ...]) -> None:
+        if not digests:
+            return
+        for listener in tuple(self._authoring_revocation_listeners):
+            try:
+                listener(digests)
+            except Exception:
+                continue
 
     def create_account(
         self,
@@ -119,6 +139,7 @@ class SqlAlchemyAuthenticationRepository:
             else None
         )
         revoked_time = _write_time(revoked_at) if revoked_at is not None else None
+        fenced: tuple[str, ...] = ()
         try:
             with self._session_factory.begin() as session:
                 _begin_write(session)
@@ -140,12 +161,20 @@ class SqlAlchemyAuthenticationRepository:
                         active.revocation_reason = reason.value
                     session.flush()
                     revoked = len(active_rows)
+                    if active_rows:
+                        fenced = tuple(active.session_digest for active in active_rows)
+                        _fence_authoring_logins(
+                            session,
+                            fenced,
+                            revoked_time,
+                        )
                 if audit is not None:
                     insert_security_audit_event(session, audit)
         except IntegrityError as exc:
             raise AuthenticationAccountConflictError(
                 "user account state conflicted"
             ) from exc
+        self._notify_authoring_revocation(fenced)
         return revoked
 
     def create_session(
@@ -250,9 +279,11 @@ class SqlAlchemyAuthenticationRepository:
             row.revoked_at = revoked_time
             row.revocation_reason = normalized_reason.value
             session.flush()
+            _fence_authoring_logins(session, (session_digest,), revoked_time)
             if audit is not None:
                 insert_security_audit_event(session, audit)
-            return True
+        self._notify_authoring_revocation((session_digest,))
+        return True
 
     def list_security_audit_events(
         self,
@@ -436,6 +467,26 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _fence_authoring_logins(
+    session: Session,
+    session_digests: tuple[str, ...],
+    revoked_at: datetime | None,
+) -> None:
+    """Apply the A1 connection fence before the authentication transaction commits."""
+
+    if revoked_at is None or not session_digests:
+        return
+    from encode_pipeline.persistence.authoring import (
+        fence_authoring_connections_for_auth_sessions,
+    )
+
+    fence_authoring_connections_for_auth_sessions(
+        session,
+        session_digests,
+        revoked_at,
+    )
 
 
 def _begin_write(session: Session) -> None:

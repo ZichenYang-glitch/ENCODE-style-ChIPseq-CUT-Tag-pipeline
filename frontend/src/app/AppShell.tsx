@@ -2,6 +2,7 @@ import {
   Dna,
   FileArchive,
   FilePenLine,
+  Files,
   History,
   ListTree,
 } from 'lucide-react';
@@ -49,6 +50,10 @@ export function AppShell() {
   );
   const authoringRoute = matchPath(
     { path: '/workflows/:workflowId/new-run', end: true },
+    pathname,
+  );
+  const draftRoute = matchPath(
+    { path: '/workflows/:workflowId/configuration-drafts', end: true },
     pathname,
   );
   const runHistoryRoute = matchPath({ path: '/runs', end: true }, pathname);
@@ -123,6 +128,19 @@ export function AppShell() {
                 <FilePenLine className="hidden sm:block" aria-hidden="true" size={16} />
                 <span className="sm:hidden">New</span>
                 <span className="hidden sm:inline">New analysis</span>
+              </Link>
+            )}
+            {workflowId && (
+              <Link
+                className="primary-nav-link"
+                aria-label="Configuration drafts"
+                title="Configuration drafts"
+                aria-current={draftRoute ? 'page' : undefined}
+                to={`/workflows/${encodeURIComponent(workflowId)}/configuration-drafts`}
+              >
+                <Files className="hidden sm:block" aria-hidden="true" size={16} />
+                <span className="sm:hidden">Drafts</span>
+                <span className="hidden sm:inline">Configuration drafts</span>
               </Link>
             )}
           </nav>
