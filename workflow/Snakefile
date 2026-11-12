@@ -412,13 +412,11 @@ def _check_effective_config_record(record, marker_identity):
         raise WorkflowError("Effective configuration record does not match the run identity; " "use a fresh outdir.")
     if "analysis_profile" in recorded or "analysis_profile" in recorded["config"]:
         raise WorkflowError(
-            "Effective configuration record contains analysis_profile. "
-            "Use a fresh outdir for this workflow version."
+            "Effective configuration record contains analysis_profile. " "Use a fresh outdir for this workflow version."
         )
     if "remove_dup" in recorded["config"]:
         raise WorkflowError(
-            "Effective configuration record contains remove_dup. "
-            "Use a fresh outdir for this workflow version."
+            "Effective configuration record contains remove_dup. " "Use a fresh outdir for this workflow version."
         )
     if recorded["config_schema_version"] != recorded["config"].get("config_schema_version"):
         raise WorkflowError(
@@ -445,10 +443,7 @@ def _check_analysis_outdir_identity():
     if marker.exists():
         recorded_identity = _read_analysis_identity_marker(marker)
         if recorded_identity != _analysis_identity_hash():
-            raise WorkflowError(
-                "Existing analysis outdir has a different analysis identity; "
-                "use a fresh outdir."
-            )
+            raise WorkflowError("Existing analysis outdir has a different analysis identity; " "use a fresh outdir.")
         _check_effective_config_record(_effective_config_record(), recorded_identity)
         return
     outdir = Path(RAW_OUTDIR)

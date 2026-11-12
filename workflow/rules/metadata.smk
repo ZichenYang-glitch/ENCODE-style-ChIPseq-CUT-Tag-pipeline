@@ -101,9 +101,7 @@ if REPLICATE_ANALYSIS:
             if cs:
                 ctrl_samples.add(cs)
             elif cb:
-                raise ValueError(
-                    "external control_bam is not supported. Use a FASTQ control_sample."
-                )
+                raise ValueError("external control_bam is not supported. Use a FASTQ control_sample.")
         result = []
         for cs in sorted(ctrl_samples):
             path = analysis_bam(cs)
@@ -738,9 +736,7 @@ def _biorep_control_paths(experiment, bio_rep):
         if cs:
             control_samples.add(cs)
         elif cb:
-            raise ValueError(
-                "external control_bam is not supported. Use a FASTQ control_sample."
-            )
+            raise ValueError("external control_bam is not supported. Use a FASTQ control_sample.")
     paths = []
     for cs in sorted(control_samples):
         paths.append(analysis_bam(cs))
@@ -775,7 +771,5 @@ def _macs3_inputs(wildcards):
             cs = s["control_sample"]
             inputs.append(analysis_bam(cs))
         elif s.get("control_bam"):
-            raise ValueError(
-                "external control_bam is not supported. Use a FASTQ control_sample."
-            )
+            raise ValueError("external control_bam is not supported. Use a FASTQ control_sample.")
     return inputs
