@@ -97,6 +97,10 @@ EXPECTED_OPERATIONS = {
     ): "revoke_account_sessions",
     ("GET", "/api/v1/projects"): "authoringListProjects",
     ("GET", "/api/v1/projects/{project_id}/samples"): "authoringListProjectSamples",
+    (
+        "GET",
+        "/api/v1/projects/{project_id}/input-revisions",
+    ): "authoringListProjectInputRevisions",
     ("GET", "/api/v1/agent/authoring-sessions"): "authoringListSessions",
     ("POST", "/api/v1/agent/authoring-sessions"): "authoringCreateSession",
     ("GET", "/api/v1/agent/authoring-sessions/{sid}"): "authoringGetSession",

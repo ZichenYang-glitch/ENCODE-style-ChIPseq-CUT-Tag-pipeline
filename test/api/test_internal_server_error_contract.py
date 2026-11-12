@@ -82,6 +82,10 @@ FAULTS = {
     "listRunQcMetrics": ("run_service", "list_qc_metrics_page"),
     "authoringListProjects": ("authoring_service", "list_projects"),
     "authoringListProjectSamples": ("authoring_service", "list_samples"),
+    "authoringListProjectInputRevisions": (
+        "authoring_service",
+        "list_input_revisions",
+    ),
     "authoringListSessions": ("authoring_service", "list_sessions"),
     "authoringCreateSession": ("authoring_service", "create_session"),
     "authoringGetSession": ("authoring_service", "get_session"),
