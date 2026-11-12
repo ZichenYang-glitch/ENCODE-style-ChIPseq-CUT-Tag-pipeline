@@ -151,7 +151,7 @@ def test_idr_biorep_peaks_inputs_with_control(idr_paths_namespace_with_control):
     assert idr_paths_namespace_with_control["idr_biorep_peaks_inputs"]("EXP1", 2) == [
         "results/experiments/EXP1/02_align/biorep2.final.bam",
         "results/experiments/EXP1/02_align/biorep2.final.bam.bai",
-        "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
+        "results/experiments/EXP1/02_align/biorep2.control.final.bam",
     ]
 
 
@@ -272,11 +272,11 @@ def test_legacy_idr_biorep_peaks_inputs_match_inlined(idr_paths_namespace, exp, 
 def test_legacy_idr_biorep_peaks_inputs_with_control_match_inlined(
     idr_paths_namespace_with_control,
 ):
-    """Legacy inlined logic appended pooled control when present."""
+    """Biorep IDR peaks use the matched control BAM, not the pooled control."""
     expected = [
         "results/experiments/EXP1/02_align/biorep2.final.bam",
         "results/experiments/EXP1/02_align/biorep2.final.bam.bai",
-        "results/experiments/EXP1/02_align/EXP1.pooled.control.final.bam",
+        "results/experiments/EXP1/02_align/biorep2.control.final.bam",
     ]
     assert (
         idr_paths_namespace_with_control["idr_biorep_peaks_inputs"]("EXP1", 2)
@@ -352,7 +352,7 @@ def test_legacy_idr_pseudorep_peaks_inputs_match_inlined(
 def test_legacy_idr_pseudorep_peaks_inputs_with_control_match_inlined(
     idr_paths_namespace_with_control,
 ):
-    """Legacy pseudorep input helpers appended pooled control when present."""
+    """Pooled pseudoreps still use the experiment-level pooled control BAM."""
     expected = [
         "results/experiments/EXP1/05_pseudorep/EXP1_broad_cuttag_pooled.pr2.bam",
         "results/experiments/EXP1/05_pseudorep/EXP1_broad_cuttag_pooled.pr2.bam.bai",

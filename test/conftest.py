@@ -605,11 +605,18 @@ def idr_paths_namespace(idr_paths_file):
 
 @pytest.fixture
 def idr_paths_namespace_with_control(idr_paths_file):
-    """Return a namespace where EXP1 has a pooled control experiment."""
-    return _load_idr_paths_namespace(
+    """Return a namespace where EXP1 has matched FASTQ controls."""
+    namespace = _load_idr_paths_namespace(
         idr_paths_file,
         pooled_control_experiments=["EXP1"],
     )
+    namespace["_biorep_control_paths"] = lambda experiment, bio_rep: (
+        ["control-analysis-bam"] if experiment == "EXP1" else []
+    )
+    namespace["_resolve_experiment_controls"] = lambda experiment: (
+        ["control-analysis-bam"] if experiment == "EXP1" else []
+    )
+    return namespace
 
 
 @pytest.fixture
