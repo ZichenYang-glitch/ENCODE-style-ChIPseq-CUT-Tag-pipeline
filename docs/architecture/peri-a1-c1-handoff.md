@@ -2,7 +2,8 @@
 
 Status: C1 and C2 remain on this branch. C3-C1 receipt discovery remains.
 This round adds an explicit ENCODE workflow sample plan so validation can
-build sample rows from admitted revisions. It is not byte-identical to
+build sample rows from admitted revisions. The contract commit is
+`f6cd097e86455243bfcb461651e807e4da970483`. It is not byte-identical to
 `7ee16d706049e4d5f6abea20b01891b48c7b16b4`. The turn response
 still includes the server `proposal_digest` and, for an explanation,
 `explanation.reason_codes`. Do not recompute the digest in the frontend. This
