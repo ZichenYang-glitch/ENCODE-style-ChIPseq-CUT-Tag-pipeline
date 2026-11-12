@@ -104,7 +104,6 @@ export interface CanonicalDraftContent {
     occurrence: number;
   }> | null;
   workflow_samples?: unknown;
-  control_sample_revision_id?: string | null;
 }
 
 /**
@@ -124,7 +123,6 @@ export function canonicalDraftSnapshot(content: CanonicalDraftContent): string {
     sample_revision_ids: [...(content.sample_revision_ids ?? [])],
     samples: content.samples ?? null,
     workflow_samples: content.workflow_samples ?? null,
-    control_sample_revision_id: content.control_sample_revision_id ?? null,
   });
 }
 

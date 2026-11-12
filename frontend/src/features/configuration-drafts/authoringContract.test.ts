@@ -355,19 +355,12 @@ describe('authoring contract mapping', () => {
       canonicalDraftSnapshot({
         ...sent,
         workflow_samples: null,
-        control_sample_revision_id: null,
       }),
     );
     expect(canonicalDraftSnapshot(sent)).not.toBe(
       canonicalDraftSnapshot({
         ...sent,
         workflow_samples: [{ layout: 'SE' }],
-      }),
-    );
-    expect(canonicalDraftSnapshot(sent)).not.toBe(
-      canonicalDraftSnapshot({
-        ...sent,
-        control_sample_revision_id: 'smpr_' + 'c'.repeat(32),
       }),
     );
     expect(workflowSampleRowsAbsent(null)).toBe(true);

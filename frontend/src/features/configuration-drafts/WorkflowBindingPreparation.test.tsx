@@ -18,9 +18,9 @@ const columns: SampleColumn[] = [
     readOnly: false,
   },
   {
-    key: 'read',
-    label: 'read',
-    description: 'Read file.',
+    key: 'sample',
+    label: 'sample',
+    description: 'Sample identifier.',
     required: true,
     enumValues: null,
     defaultValue: '',
@@ -40,7 +40,9 @@ describe('workflow binding preparation', () => {
     expect(screen.getByLabelText('layout')).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).toBeNull();
-    expect(screen.getByText(/no path field/i)).toBeInTheDocument();
+    const sampleField = screen.getByText(/^sample\./).closest('p');
+    expect(sampleField).toHaveTextContent('This field is not connected to save yet.');
+    expect(sampleField).not.toHaveTextContent(/input revision/i);
   });
 
   it('reports an empty catalog and a failed catalog separately', () => {

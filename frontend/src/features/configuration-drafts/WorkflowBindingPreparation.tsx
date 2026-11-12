@@ -65,8 +65,8 @@ export function WorkflowBindingPreparation({
         Sample row preparation
       </h2>
       <p className="text-xs text-[var(--color-text-muted)]">
-        Preparation only. These choices stay on this page and are not saved
-        until the admitted input catalog contract is connected.
+        Preparation only. These choices stay on this page and are not included
+        in the save request.
       </p>
       <div className="space-y-2">
         {columns.map((column) =>
@@ -89,8 +89,7 @@ export function WorkflowBindingPreparation({
           ) : (
             <p key={column.key} className="text-sm">
               <span className="font-medium">{column.label}. </span>
-              This value comes from an admitted input revision. There is no
-              path field here.
+              This field is not connected to save yet.
             </p>
           ),
         )}
