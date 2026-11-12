@@ -354,6 +354,8 @@ class ValidatedInputService:
             return Result.failure([_schema_unavailable_issue()])
 
         held_leaves: list[tuple[int, str, InputFileAccess, InputFileRevision]] = []
+        generation_watches = ExitStack()
+        observers = []
         try:
             refusal = self._bind_selected_files(
                 validation_adapter,
@@ -364,21 +366,18 @@ class ValidatedInputService:
             )
             if refusal is not None:
                 return refusal
-            with ExitStack() as generation_watches:
-                observers = [
-                    generation_watches.enter_context(
-                        watch_leaf_generation(
-                            Path(candidate).parent, Path(candidate).name
-                        )
-                    )
-                    for _descriptor, candidate, _access, _revision in held_leaves
-                ]
-                validation_result = self._validation_service.validate_adapter(
-                    validation_adapter,
-                    validation_inputs,
+            observers = [
+                generation_watches.enter_context(
+                    watch_leaf_generation(Path(candidate).parent, Path(candidate).name)
                 )
-                if any(observer.changed() for observer in observers):
-                    return _input_binding_refusal()
+                for _descriptor, candidate, _access, _revision in held_leaves
+            ]
+            validation_result = self._validation_service.validate_adapter(
+                validation_adapter,
+                validation_inputs,
+            )
+            if any(observer.changed() for observer in observers):
+                return _input_binding_refusal()
             if validation_result.is_failure:
                 return Result.failure(validation_result.issues)
 
@@ -450,6 +449,8 @@ class ValidatedInputService:
                 )
 
             if held_leaves and not self._selected_files_still_match(held_leaves):
+                return _input_binding_refusal()
+            if any(observer.changed() for observer in observers):
                 return _input_binding_refusal()
 
             try:
@@ -537,6 +538,7 @@ class ValidatedInputService:
                 )
             return Result.success(persisted, issues=validation_result.issues)
         finally:
+            generation_watches.close()
             for descriptor, _path, _access, _revision in held_leaves:
                 os.close(descriptor)
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from encode_pipeline.platform.authoring import normalize_draft_content
 from encode_pipeline.api.models import (
+    InputFileRevisionId,
     InputFileRevisionSelectionRequest,
     IssueResponse,
     JsonValue,
@@ -359,4 +360,27 @@ class ProjectSampleListResponse(BaseModel):
     ok: Literal[True] = True
     project_id: ProjectId
     samples: list[ProjectSampleSummaryResponse]
+    next_cursor: str | None = None
+
+
+InputFileId = Annotated[str, Field(pattern=r"^inpf_[0-9a-f]{32}$", max_length=37)]
+
+
+class ProjectInputRevisionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_file_id: InputFileId
+    stable_key: str = Field(min_length=1, max_length=255)
+    input_file_revision_id: InputFileRevisionId
+    revision_number: int = Field(ge=1)
+    size_bytes: int = Field(ge=0)
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+
+
+class ProjectInputRevisionListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    project_id: ProjectId
+    revisions: list[ProjectInputRevisionResponse]
     next_cursor: str | None = None

@@ -171,6 +171,13 @@ class SamplePage:
 
 
 @dataclass(frozen=True)
+class InputRevisionPage:
+    project_id: str
+    revisions: tuple[tuple[str, str, str, int, int, str], ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class ReceiptEntry:
     turn_id: str
     receipt: dict[str, Any]
@@ -284,6 +291,65 @@ class AuthoringService:
                     view.revision.sample_revision_id,
                 )
                 for view in page
+            ),
+            next_cursor,
+        )
+
+    def list_input_revisions(
+        self,
+        actor: AuthoringActor,
+        project_id: str,
+        *,
+        cursor: str | None,
+        limit: int,
+    ) -> InputRevisionPage:
+        """Return the current admitted revision of each selectable project file."""
+
+        self._require_login(actor)
+        self._require_visible_project(project_id)
+        registry = self._input_registry
+        if registry is None:
+            raise RuntimeError("input revision catalog is unavailable")
+        try:
+            registry.get_active_project_storage_pool_binding(project_id)
+            files = [
+                item
+                for item in registry.list_input_files(project_id)
+                if item.archived_at is None
+            ]
+        except KeyError:
+            files = []
+        rows = []
+        for item in files:
+            revisions = registry.list_input_file_revisions(item.input_file_id)
+            if not revisions:
+                continue
+            current = max(revisions, key=lambda revision: revision.revision_number)
+            rows.append((item, current))
+        rows.sort(key=lambda pair: pair[0].input_file_id)
+        if cursor:
+            _stamp, file_id = _decode_pair_cursor(cursor, "inpf_")
+            rows = [pair for pair in rows if pair[0].input_file_id > file_id]
+        page = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and page:
+            last_file = page[-1][0]
+            next_cursor = _encode_pair_cursor(
+                last_file.created_at,
+                last_file.input_file_id,
+            )
+        return InputRevisionPage(
+            project_id,
+            tuple(
+                (
+                    item.input_file_id,
+                    item.stable_key,
+                    revision.input_file_revision_id,
+                    revision.revision_number,
+                    revision.size_bytes,
+                    revision.content_sha256,
+                )
+                for item, revision in page
             ),
             next_cursor,
         )

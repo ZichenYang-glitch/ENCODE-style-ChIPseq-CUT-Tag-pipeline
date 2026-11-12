@@ -119,12 +119,23 @@ Identity moves like this:
 4. Validate resolves each input revision in the draft's project, rejects
    archived or cross-project revisions, and re-reads the admitted bytes
    through the existing descriptor walk. The same check runs for the public
-   workflow validate route. The opened descriptor is the admitted leaf. While
-   the scientific check runs, the service watches that directory entry. A
-   rename, replacement, or rewrite during the check is rejected even if the
-   original inode and bytes are restored before the check returns. The
-   guarantee ends when the snapshot is stored or refused. A later run
-   rechecks separately, and managed execution remains unavailable.
+   workflow validate route.
+
+What this validation actually establishes:
+
+- The ENCODE strict check, when `options.strict_inputs` is true, only checks
+  that the submitted path is a regular file. It does not parse FASTQ bases.
+- Immediately before that check, the service opens the selected revision and
+  requires the submitted path to be that same leaf with the admitted bytes.
+- That directory entry stays watched through the scientific check, the
+  input-use declaration, and the pre-save re-read. A rename, replacement, or
+  rewrite in that interval fails the validation even if the original inode
+  and bytes are put back before the function returns.
+- The snapshot then records the revision id and the content hash confirmed by
+  those reads, plus the path string that passed them. It is evidence for this
+  validation, not a promise that the file stays unchanged afterward.
+- The database insert itself is not a filesystem transaction. Managed
+  execution remains unavailable; a later run must recheck the file.
 5. The same revision ids are passed to the existing input-use binding. The
    ENCODE adapter declares one `regular_file_v1` use per occupied read
    (`encode-sample-reads-v1`). A validation that does not name input
@@ -169,10 +180,43 @@ Where the ids come from:
 
 - `sample_revision_id` comes from `GET /api/v1/projects/{project_id}/samples`
   (`authoringListProjectSamples`).
-- There is no authoring route that lists admitted input-file revisions. The
-  browser must not invent an `inpfr_` value or type a host path. Wiring this
-  plan waits until a project-scoped catalog returns those ids, and until
-  Codex reviews this repair.
+- `input_file_revision_id` comes from
+  `GET /api/v1/projects/{project_id}/input-revisions`
+  (`authoringListProjectInputRevisions`). The browser copies
+  `revisions[].input_file_revision_id`. It does not invent an `inpfr_` value
+  or send a host path.
+- `reference_profile_revision_id` is the enabled profile revision already
+  selected for the workflow. `control_sample_revision_id` is the
+  `sample_revision_id` of another row in the same plan whose `role` is
+  `control`.
+
+Input revision catalog:
+
+- Login and project visibility match the sample list. An unknown, archived,
+  or non-user project is `404` `NOT_FOUND`. A bad cursor is `422`
+  `INVALID_REQUEST`.
+- `200` with `revisions: []` and `next_cursor: null` is an empty selectable
+  catalog. That includes a project with no active storage-pool binding.
+- Each item is the current revision of one non-archived file:
+  `input_file_id`, `stable_key`, `input_file_revision_id`,
+  `revision_number`, `size_bytes`, `content_sha256`.
+- Archived files and older revisions are omitted. The response has no storage
+  root, relative path, or private configuration.
+- Order is `input_file_id` ascending. `limit` defaults to 20 and is at most
+  50. `next_cursor` is opaque; pass it back unchanged.
+- The call does not admit a file, write a draft, or start a native or
+  scientific task. Do not send this catalog to the model. The Peri tool
+  allowlist is unchanged.
+
+A saved draft's previous snapshot is not reused when `workflow_samples`,
+`sample_revision_ids`, `reference_profile_revision_id`, `config`, `options`,
+or `samples` change, or when the admitted bytes or stored input-use members
+no longer match. The full draft comparison is `config`, `input_selections`,
+`options`, `reference_profile_revision_id`, `sample_revision_ids`, `samples`,
+and `workflow_samples`.
+
+The verified public sequence is `catalog_validation_loop` in
+`docs/architecture/peri-a1-c1-examples.json`. Receipt discovery is unchanged.
 
 Errors, all with `snapshot: null` unless noted:
 

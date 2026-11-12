@@ -1065,6 +1065,87 @@
         }
       }
     },
+    "/api/v1/projects/{project_id}/input-revisions": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "List Project Input Revisions",
+        "operationId": "authoringListProjectInputRevisions",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInputRevisionListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agent/authoring-sessions": {
       "get": {
         "tags": [
@@ -6207,6 +6288,96 @@
         ],
         "title": "PrincipalResponse",
         "description": "Safe public projection of the authenticated account."
+      },
+      "ProjectInputRevisionListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "revisions": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectInputRevisionResponse"
+            },
+            "type": "array",
+            "title": "Revisions"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "revisions"
+        ],
+        "title": "ProjectInputRevisionListResponse"
+      },
+      "ProjectInputRevisionResponse": {
+        "properties": {
+          "input_file_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^inpf_[0-9a-f]{32}$",
+            "title": "Input File Id"
+          },
+          "stable_key": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Stable Key"
+          },
+          "input_file_revision_id": {
+            "type": "string",
+            "maxLength": 38,
+            "pattern": "^inpfr_[0-9a-f]{32}$",
+            "title": "Input File Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes"
+          },
+          "content_sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_file_id",
+          "stable_key",
+          "input_file_revision_id",
+          "revision_number",
+          "size_bytes",
+          "content_sha256"
+        ],
+        "title": "ProjectInputRevisionResponse"
       },
       "ProjectListResponse": {
         "properties": {

@@ -1139,6 +1139,191 @@ def test_validator_window_rejects_restored_replacement(
     assert str(root) not in response.text
 
 
+def test_catalog_ids_validate_to_a_real_snapshot(tmp_path, reference_ready_app):
+    import json
+
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    first = root / "reads" / "s1.fastq.gz"
+    second = root / "reads" / "s2.fastq.gz"
+    first.write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    second.write_bytes(b"@read\nTGCA\n+\n!!!!\n")
+    archived = root / "reads" / "old.fastq.gz"
+    archived.write_bytes(b"@read\nAAAA\n+\n!!!!\n")
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.authoring_service._storage_pool_config_path = config_path
+    app.state.validated_input_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    empty = registry.create_project("Empty cohort")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a",
+                display_name="Private sample",
+                attributes={"note": "must-not-leak"},
+            ),
+        ),
+    )[0]
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    admin.bind_project_storage_pool(
+        project_id=empty.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    for name, relative in (
+        ("sample-a-r1", "reads/s1.fastq.gz"),
+        ("sample-a-r2", "reads/s2.fastq.gz"),
+        ("sample-a-old", "reads/old.fastq.gz"),
+    ):
+        admin.register_input_file(
+            project_id=project.project_id,
+            stable_key=name,
+            pool_relative_path=relative,
+        )
+    old = app.state.persistence.input_registry_repository.list_input_files(
+        project.project_id
+    )
+    archived_file = next(item for item in old if item.stable_key == "sample-a-old")
+    InputRegistryService(
+        repository=app.state.persistence.input_registry_repository
+    ).archive_input_file(archived_file.input_file_id)
+
+    with ApiTestClient(app) as client:
+        missing = client.get(
+            "/api/v1/projects/prj_0123456789abcdef0123456789abcdef/input-revisions"
+        )
+        assert missing.status_code == 404, missing.text
+        bad_cursor = client.get(
+            f"/api/v1/projects/{project.project_id}/input-revisions",
+            params={"cursor": "not-a-cursor"},
+        )
+        assert bad_cursor.status_code == 422, bad_cursor.text
+        vacant = client.get(f"/api/v1/projects/{empty.project_id}/input-revisions")
+        assert vacant.status_code == 200, vacant.text
+        assert vacant.json()["revisions"] == []
+        assert vacant.json()["next_cursor"] is None
+        first_page = client.get(
+            f"/api/v1/projects/{project.project_id}/input-revisions",
+            params={"limit": 1},
+        )
+        assert first_page.status_code == 200, first_page.text
+        assert len(first_page.json()["revisions"]) == 1
+        assert first_page.json()["next_cursor"]
+        assert str(root) not in first_page.text
+        assert "reads/" not in first_page.text
+        second_page = client.get(
+            f"/api/v1/projects/{project.project_id}/input-revisions",
+            params={"limit": 1, "cursor": first_page.json()["next_cursor"]},
+        )
+        assert len(second_page.json()["revisions"]) == 1
+        assert second_page.json()["next_cursor"] is None
+        listed = first_page.json()["revisions"] + second_page.json()["revisions"]
+        assert {item["stable_key"] for item in listed} == {
+            "sample-a-r1",
+            "sample-a-r2",
+        }
+        chosen = next(item for item in listed if item["stable_key"] == "sample-a-r1")
+        samples = client.get(f"/api/v1/projects/{project.project_id}/samples")
+        sample_revision_id = samples.json()["samples"][0]["sample_revision_id"]
+        assert sample_revision_id == imported.revision.sample_revision_id
+        created = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
+        )
+        sid = created.json()["sid"]
+        saved = client.request(
+            "PUT",
+            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            json={
+                "expected_revision": 0,
+                "config": {},
+                "samples": None,
+                "sample_revision_ids": [sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "workflow_samples": [
+                    {
+                        "sample_revision_id": sample_revision_id,
+                        "assay": "chipseq",
+                        "target": "CTCF",
+                        "peak_mode": "narrow",
+                        "layout": "SE",
+                        "role": "treatment",
+                        "control_sample_revision_id": None,
+                        "reads": [
+                            {
+                                "read": 1,
+                                "input_file_revision_id": chosen[
+                                    "input_file_revision_id"
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        assert (
+            saved.json()["draft"]["workflow_samples"][0]["reads"][0][
+                "input_file_revision_id"
+            ]
+            == chosen["input_file_revision_id"]
+        )
+        validated = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            json={"expected_revision": saved.json()["draft_revision"]},
+        )
+        assert validated.status_code == 200, validated.text
+        body = validated.json()
+        assert body["ok"] is True, body
+        binding = app.state.persistence.repository.get_validated_input_use_binding(
+            body["snapshot"]["snapshot_id"]
+        )
+        members = [member for use in binding.input_uses for member in use.members]
+        assert [member.input_file_revision_id for member in members] == [
+            chosen["input_file_revision_id"]
+        ]
+        assert [member.content_sha256 for member in members] == [
+            chosen["content_sha256"]
+        ]
+        assert str(root) not in validated.text
+        assert "must-not-leak" not in validated.text
+
+
 def _parse(value: str):
     from datetime import datetime, timezone
 
