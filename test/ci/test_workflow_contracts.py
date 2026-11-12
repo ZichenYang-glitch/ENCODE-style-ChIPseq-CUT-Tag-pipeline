@@ -784,6 +784,27 @@ def _is_helixweave_distribution(name: str) -> bool:
     )
 
 
+def test_browser_e2e_installs_os_deps_without_the_azure_apt_mirror() -> None:
+    job = _load("ci.yml")["jobs"]["browser-e2e"]
+    step = next(
+        item
+        for item in job["steps"]
+        if item.get("name") == "Install Playwright operating-system dependencies"
+    )
+    run = step["run"]
+    assert "set -euo pipefail" in run
+    assert "azure.archive.ubuntu.com" not in run
+    assert "https://archive.ubuntu.com/ubuntu/" in run
+    assert "https://security.ubuntu.com/ubuntu/" in run
+    assert run.strip().endswith("npx playwright install-deps chromium")
+    assert "--dry-run" not in run
+    assert "continue-on-error" not in step
+    bulk = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]
+    assert bulk["runs-on"] == ["self-hosted", "linux", "x64", "helixweave-bulk-rnaseq"]
+    assert "inputs.bulk_rnaseq_real_execution" in str(bulk["if"])
+    assert "apt-mirrors.txt" not in _runs(bulk)
+
+
 def test_chipseq_env_yml_excludes_helixweave() -> None:
     env = yaml.safe_load(
         (REPO_ROOT / "workflow" / "envs" / "chipseq.yml").read_text(encoding="utf-8")
