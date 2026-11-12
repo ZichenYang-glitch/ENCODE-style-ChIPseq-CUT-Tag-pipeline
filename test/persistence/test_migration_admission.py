@@ -310,7 +310,9 @@ else:
         capture_output=True,
         text=True,
         check=False,
-        timeout=3,
+        # Hang cap only. A cold API import from the copied tree already
+        # takes about three seconds on a loaded CI runner.
+        timeout=10,
     )
     assert completed.returncode == 0, completed.stderr
     return json.loads(completed.stdout.splitlines()[-1])
