@@ -398,6 +398,28 @@ class EncodeStyleWorkflowAdapter:
             return Result.failure([_input_use_contract_issue()])
         return Result.success(contract)
 
+    def locate_managed_input_path(
+        self,
+        inputs: WorkflowInputs,
+        *,
+        key: str,
+        occurrence: int,
+    ) -> str:
+        """Return the inline path this validation will read for one read coordinate."""
+
+        column = {1: "fastq_1", 2: "fastq_2"}.get(occurrence)
+        samples = inputs.samples
+        if column is None or not isinstance(samples, list):
+            raise ValueError("managed read coordinate is invalid")
+        for row in samples:
+            if not isinstance(row, Mapping) or row.get("sample") != key:
+                continue
+            value = row.get(column) or ""
+            if not isinstance(value, str) or not value.startswith("/"):
+                raise ValueError("managed read path is invalid")
+            return value
+        raise ValueError("managed read coordinate is missing")
+
     def import_input_bundle(
         self,
         bundle: WorkflowInputBundle,

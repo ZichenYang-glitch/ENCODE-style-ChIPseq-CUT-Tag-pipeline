@@ -170,14 +170,90 @@ class InputFileAccess:
             or confirmed.path_fingerprint != observation.path_fingerprint
         ):
             raise InputFileAccessError()
-        leaf = self._root.joinpath(*observation.relative_path.split("/"))
+        descriptor = self._open_relative_leaf(confirmed.relative_path)
+        try:
+            if not _same_leaf(descriptor, confirmed.path_fingerprint[-1]):
+                raise InputFileAccessError()
+        finally:
+            os.close(descriptor)
+        leaf = self._root.joinpath(*confirmed.relative_path.split("/"))
         try:
             relative = leaf.relative_to(self._root)
         except ValueError:
             raise InputFileAccessError() from None
-        if relative.as_posix() != observation.relative_path:
+        if relative.as_posix() != confirmed.relative_path:
             raise InputFileAccessError()
         return leaf
+
+    def bind_candidate(self, expected: InputFileRevision, candidate: str) -> int:
+        """Open ``candidate`` only when it is still the reverified revision leaf.
+
+        The caller owns the returned descriptor and must hold it until snapshot
+        generation finishes. A later execution revalidation is separate.
+        """
+
+        if not isinstance(candidate, str) or not candidate.startswith("/"):
+            raise InputFileAccessError()
+        observation = self.reverify(expected)
+        descriptor = _open_absolute_leaf(candidate)
+        try:
+            if not _same_leaf(descriptor, observation.path_fingerprint[-1]):
+                raise InputFileAccessError()
+            if os.fstat(descriptor).st_size != observation.size_bytes:
+                raise InputFileAccessError()
+            return os.dup(descriptor)
+        except InputFileAccessError:
+            raise
+        except (OSError, TypeError, ValueError):
+            raise InputFileAccessError() from None
+        finally:
+            os.close(descriptor)
+
+    def candidate_still_matches(
+        self,
+        expected: InputFileRevision,
+        candidate: str,
+        held: os.stat_result,
+    ) -> None:
+        """Raise when the held leaf and the candidate path have diverged."""
+
+        self.reverify(expected)
+        descriptor = _open_absolute_leaf(candidate)
+        try:
+            current = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        if (
+            not stat.S_ISREG(held.st_mode)
+            or not stat.S_ISREG(current.st_mode)
+            or (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino)
+            or current.st_size != held.st_size
+        ):
+            raise InputFileAccessError()
+
+    def _open_relative_leaf(self, relative_path: str) -> int:
+        descriptors: list[int] = []
+        try:
+            safe_path = validate_input_file_relative_path(relative_path)
+            root_descriptor = _open_absolute_directory(self._root)
+            descriptors.append(root_descriptor)
+            current = root_descriptor
+            components = safe_path.split("/")
+            for component in components[:-1]:
+                descriptor = os.open(component, _directory_flags(), dir_fd=current)
+                descriptors.append(descriptor)
+                current = descriptor
+                if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                    raise OSError("unsafe directory")
+            leaf = os.open(components[-1], _file_flags(), dir_fd=current)
+        except (OSError, TypeError, ValueError):
+            raise InputFileAccessError() from None
+        else:
+            return leaf
+        finally:
+            for descriptor in reversed(descriptors):
+                with suppress(OSError):
+                    os.close(descriptor)
 
     def reverify(self, expected: InputFileRevision) -> FileObservation:
         """Reopen and compare the exact immutable revision before private use."""
@@ -279,6 +355,32 @@ def _file_flags() -> int:
     if any(not hasattr(os, name) for name in required):
         raise OSError("safe file flags unavailable")
     return os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
+def _same_leaf(descriptor: int, identity: tuple[int, ...]) -> bool:
+    info = os.fstat(descriptor)
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_dev == identity[0]
+        and info.st_ino == identity[1]
+    )
+
+
+def _open_absolute_leaf(path: str) -> int:
+    candidate = Path(path)
+    if (
+        not candidate.is_absolute()
+        or not candidate.name
+        or candidate.name in {".", ".."}
+    ):
+        raise InputFileAccessError()
+    directory = os.open(candidate.parent, _directory_flags())
+    try:
+        return os.open(candidate.name, _file_flags(), dir_fd=directory)
+    except (OSError, TypeError, ValueError):
+        raise InputFileAccessError() from None
+    finally:
+        os.close(directory)
 
 
 def _directory_identity(info: os.stat_result) -> tuple[int, int]:

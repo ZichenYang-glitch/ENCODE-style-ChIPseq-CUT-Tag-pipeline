@@ -540,6 +540,7 @@ def test_managed_sample_plan_validates_to_a_real_snapshot(
         encoding="utf-8",
     )
     app.state.authoring_service._storage_pool_config_path = config_path
+    app.state.validated_input_service._storage_pool_config_path = config_path
     registry = _registry(app)
     project = registry.create_project("Managed cohort")
     other = registry.create_project("Other cohort")
@@ -774,6 +775,7 @@ def test_managed_sample_plan_rejects_replacement_before_snapshot(
         encoding="utf-8",
     )
     app.state.authoring_service._storage_pool_config_path = config_path
+    app.state.validated_input_service._storage_pool_config_path = config_path
     registry = _registry(app)
     project = registry.create_project("Managed cohort")
     imported = registry.import_samples(
@@ -865,6 +867,136 @@ def test_managed_sample_plan_rejects_replacement_before_snapshot(
         assert body["issues"][0]["code"] == "WORKFLOW_SAMPLE_INPUT_UNAVAILABLE"
         assert "unregistered.fastq.gz" not in validated.text
         assert str(root) not in validated.text
+
+
+def test_public_validation_rejects_path_and_byte_mismatches(
+    tmp_path, reference_ready_app
+):
+    import json
+
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    fastq = root / "reads" / "s1.fastq.gz"
+    fastq.write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.validated_input_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a",
+                display_name="Private sample",
+                attributes={},
+            ),
+        ),
+    )[0]
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    registered = admin.register_input_file(
+        project_id=project.project_id,
+        stable_key="sample-a-r1",
+        pool_relative_path="reads/s1.fastq.gz",
+    )
+    other = root / "reads" / "unregistered.fastq.gz"
+    other.write_bytes(b"@different\nTGCA\n+\n!!!!\n")
+
+    def post(path):
+        return client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
+            json={
+                "config": {},
+                "samples": [
+                    {
+                        "sample": "sample-a",
+                        "assay": "chipseq",
+                        "target": "CTCF",
+                        "layout": "SE",
+                        "role": "treatment",
+                        "peak_mode": "narrow",
+                        "fastq_1": str(path),
+                        "fastq_2": "",
+                        "control_sample": "",
+                    }
+                ],
+                "project_id": project.project_id,
+                "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "input_selections": [
+                    {
+                        "input_use_key": "sample-a",
+                        "occurrence": 1,
+                        "input_file_revision_ids": [
+                            registered["input_file_revision_id"]
+                        ],
+                    }
+                ],
+            },
+        )
+
+    with ApiTestClient(app) as client:
+        matched = post(fastq)
+        assert matched.status_code == 200, matched.text
+        assert matched.json()["ok"] is True, matched.text
+        snapshot_id = matched.json()["snapshot"]["snapshot_id"]
+        binding = app.state.persistence.repository.get_validated_input_use_binding(
+            snapshot_id
+        )
+        members = [member for use in binding.input_uses for member in use.members]
+        assert [member.input_file_revision_id for member in members] == [
+            registered["input_file_revision_id"]
+        ]
+        assert [member.content_sha256 for member in members] == [
+            registered["content_sha256"]
+        ]
+        assert str(root) not in matched.text
+        mismatched = post(other)
+        assert mismatched.status_code == 409, mismatched.text
+        assert mismatched.json()["snapshot"] is None
+        assert (
+            mismatched.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+        )
+        assert "unregistered.fastq.gz" not in mismatched.text
+        fastq.write_bytes(b"@changed\nTTTT\n+\n!!!!\n")
+        changed = post(fastq)
+        assert changed.status_code == 409, changed.text
+        assert changed.json()["snapshot"] is None
+        assert changed.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+        assert str(root) not in changed.text
 
 
 def _parse(value: str):

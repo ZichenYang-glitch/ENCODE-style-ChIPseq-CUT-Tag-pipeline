@@ -219,6 +219,8 @@ def create_app(
         repository=persistence.repository,
         reference_profile_binding_service=reference_profile_binding_service,
         reference_profile_catalog=reference_profile_service,
+        input_registry=persistence.input_registry_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
     )
     validated_run_creation_service = ValidatedRunCreationService(
         run_service=run_service,

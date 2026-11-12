@@ -716,6 +716,11 @@ class AuthoringService:
             if isinstance(prepared_samples, Result):
                 return PreparedValidation(record.revision, prepared_samples)
             samples, selections = prepared_samples
+        if (
+            self._storage_pool_config_path is not None
+            and getattr(self._validated, "_storage_pool_config_path", None) is None
+        ):
+            self._validated._storage_pool_config_path = self._storage_pool_config_path
         cached = self._cached_validation(record)
         if cached is not None and self._cached_input_binding_matches(
             cached,

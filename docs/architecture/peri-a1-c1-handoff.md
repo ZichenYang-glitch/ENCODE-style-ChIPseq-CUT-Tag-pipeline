@@ -118,8 +118,12 @@ Identity moves like this:
    mismatch is `422` `INVALID_REQUEST` on save.
 4. Validate resolves each input revision in the draft's project, rejects
    archived or cross-project revisions, and re-reads the admitted bytes
-   through the existing descriptor walk. A symlink or byte change after that
-   read is `WORKFLOW_SAMPLE_INPUT_UNAVAILABLE` and does not create a snapshot.
+   through the existing descriptor walk. The same check runs for the public
+   workflow validate route: the submitted path must still be that revision's
+   leaf, and the bytes must still match. This guarantee covers the current
+   validation until the snapshot is stored. A later run rechecks separately,
+   and managed execution remains unavailable. A symlink or byte change found
+   before the snapshot is stored does not create a snapshot.
 5. The same revision ids are passed to the existing input-use binding. The
    ENCODE adapter declares one `regular_file_v1` use per occupied read
    (`encode-sample-reads-v1`). A validation that does not name input

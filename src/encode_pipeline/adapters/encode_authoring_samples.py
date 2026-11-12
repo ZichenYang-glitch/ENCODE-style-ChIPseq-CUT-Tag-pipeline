@@ -118,11 +118,15 @@ def normalize_encode_workflow_sample_plans(
         if (
             not isinstance(sample_revision_id, str)
             or _SAMPLE_REVISION_ID.fullmatch(sample_revision_id) is None
+            or not isinstance(assay, str)
+            or not isinstance(layout, str)
+            or not isinstance(role, str)
+            or not isinstance(peak_mode, str)
+            or not isinstance(target, str)
             or assay not in _ASSAYS
             or layout not in _LAYOUTS
             or role not in _ROLES
             or peak_mode not in _PEAK_MODES
-            or not isinstance(target, str)
             or _SAMPLE_TOKEN.fullmatch(target) is None
         ):
             raise ValueError("workflow sample plan is missing an explicit field")
