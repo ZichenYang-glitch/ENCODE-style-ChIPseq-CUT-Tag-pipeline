@@ -71,6 +71,7 @@ import {
 import { ConfigurationDraftWorkbench } from '../../features/configuration-drafts/ConfigurationDraftWorkbench';
 import type { EditorDocument } from '../../features/configuration-drafts/ConfigurationDraftEditor';
 import { ManagedDraftInputs } from '../../features/configuration-drafts/ManagedDraftInputs';
+import { WorkflowBindingPreparation } from '../../features/configuration-drafts/WorkflowBindingPreparation';
 import type {
   DraftValidationView,
   ProposalView,
@@ -132,6 +133,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   const [sampleIds, setSampleIds] = useState<string[]>([]);
   const [extraSamples, setExtraSamples] = useState<ProjectSampleSummaryResponse[]>([]);
   const [referenceId, setReferenceId] = useState<string | null>(null);
+  const [rowChoices, setRowChoices] = useState<Record<string, string>>({});
+  const [controlSampleRevisionId, setControlSampleRevisionId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [remoteConflict, setRemoteConflict] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -180,6 +183,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     pendingTurn.current = null;
     pendingDecision.current = null;
     setReceiptCursors([null]);
+    setRowChoices({});
+    setControlSampleRevisionId(null);
   }, [userId]);
 
   const receiptCursor = receiptCursors[receiptCursors.length - 1] ?? null;
@@ -323,10 +328,14 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
           : null;
   const projectName = projects.find((project) => project.project_id === projectId)?.display_name ?? null;
   const activeDraft = session?.draft_state === 'active' ? session.draft : null;
+  const preparationDirty =
+    controlSampleRevisionId !== null ||
+    Object.values(rowChoices).some((value) => value !== '');
   const inputsDirty = Boolean(
     activeDraft &&
       (!sameMembers(sampleIds, activeDraft.sample_revision_ids ?? []) ||
-        referenceId !== (activeDraft.reference_profile_revision_id ?? null)),
+        referenceId !== (activeDraft.reference_profile_revision_id ?? null) ||
+        preparationDirty),
   );
   const missing =
     sessionQuery.isError && classifyAuthoringError(sessionQuery.error).kind === 'not-found';
@@ -884,6 +893,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     };
     setSampleIds([...(current.draft.sample_revision_ids ?? [])]);
     setReferenceId(current.draft.reference_profile_revision_id ?? null);
+    setRowChoices({});
+    setControlSampleRevisionId(null);
     setSeed({ config: current.draft.config, options: current.draft.options });
     setSeedRevision(current.draft_revision);
     setIgnoredRevision(null);
@@ -1091,6 +1102,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         remoteConflict={remoteConflict}
         managedInputs={
           draftOpen ? (
+            <>
             <ManagedDraftInputs
               samples={samples}
               selectedRevisionIds={sampleIds}
@@ -1123,6 +1135,27 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
               preservedSelectionCount={preservedRef.current.selections.length}
               sampleRowsAbsent={workflowSampleRowsAbsent(activeDraft?.samples)}
             />
+            {schema && (
+              <WorkflowBindingPreparation
+                columns={schema.sampleColumns}
+                rowChoices={rowChoices}
+                onChangeChoice={(columnKey, value) =>
+                  setRowChoices((current) => ({ ...current, [columnKey]: value }))
+                }
+                samples={samples}
+                controlSampleRevisionId={controlSampleRevisionId}
+                onSelectControl={setControlSampleRevisionId}
+                catalogStatus="unavailable"
+                catalogError={null}
+                catalogItems={[]}
+                selectedInputRevisionIds={[]}
+                unlistedInputCount={0}
+                onToggleInput={() => undefined}
+                hasPrevious={false}
+                hasNext={false}
+              />
+            )}
+            </>
           ) : null
         }
         actionNotice={notice}
@@ -1136,6 +1169,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         onSave={(document) => void saveDraft(document)}
         onDirtyChange={setDirty}
         onDiscarded={() => {
+          setRowChoices({});
+          setControlSampleRevisionId(null);
           if (!activeDraft) return;
           setSampleIds([...(activeDraft.sample_revision_ids ?? [])]);
           setReferenceId(activeDraft.reference_profile_revision_id ?? null);
@@ -1199,6 +1234,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     setProjectId(nextProjectId);
     setCursors([null]);
     setReceiptCursors([null]);
+    setRowChoices({});
+    setControlSampleRevisionId(null);
     setSelectedSid(null);
     setExtraSamples([]);
     setTurn(null);
@@ -1215,6 +1252,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     scope.current += 1;
     setSelectedSid(sid);
     setReceiptCursors([null]);
+    setRowChoices({});
+    setControlSampleRevisionId(null);
     setSeed(null);
     setSeedRevision(null);
     setIgnoredRevision(null);

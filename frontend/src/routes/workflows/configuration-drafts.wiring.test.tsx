@@ -702,6 +702,18 @@ describe('configuration draft API wiring', () => {
     expect(authoring.openConnection).not.toHaveBeenCalled();
   });
 
+  it('asks before leaving sample-row preparation that cannot be saved yet', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await openDraft(SID);
+    expect(screen.getByText(/not connected yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /fastq|read/i })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('layout'), 'SE');
+    await user.click(screen.getByRole('button', { name: /revision 2/ }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(authoring.saveDraft).not.toHaveBeenCalled();
+  });
+
   it('keeps the original suggestion id when a second click arrives before the response', async () => {
     const user = userEvent.setup();
     const bodies: AuthoringTurnCreateRequest[] = [];

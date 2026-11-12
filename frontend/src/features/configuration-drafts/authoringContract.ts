@@ -103,6 +103,8 @@ export interface CanonicalDraftContent {
     input_use_key: string;
     occurrence: number;
   }> | null;
+  workflow_samples?: unknown;
+  control_sample_revision_id?: string | null;
 }
 
 /**
@@ -121,6 +123,8 @@ export function canonicalDraftSnapshot(content: CanonicalDraftContent): string {
     reference_profile_revision_id: content.reference_profile_revision_id ?? null,
     sample_revision_ids: [...(content.sample_revision_ids ?? [])],
     samples: content.samples ?? null,
+    workflow_samples: content.workflow_samples ?? null,
+    control_sample_revision_id: content.control_sample_revision_id ?? null,
   });
 }
 

@@ -351,6 +351,25 @@ describe('authoring contract mapping', () => {
     expect(canonicalDraftSnapshot(sent)).not.toBe(
       canonicalDraftSnapshot({ ...sent, samples: [{ sample: 'A' }] }),
     );
+    expect(canonicalDraftSnapshot(sent)).toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: null,
+        control_sample_revision_id: null,
+      }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: [{ layout: 'SE' }],
+      }),
+    );
+    expect(canonicalDraftSnapshot(sent)).not.toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        control_sample_revision_id: 'smpr_' + 'c'.repeat(32),
+      }),
+    );
     expect(workflowSampleRowsAbsent(null)).toBe(true);
     expect(workflowSampleRowsAbsent([])).toBe(true);
     expect(workflowSampleRowsAbsent('/srv/private/samples.tsv')).toBe(false);
