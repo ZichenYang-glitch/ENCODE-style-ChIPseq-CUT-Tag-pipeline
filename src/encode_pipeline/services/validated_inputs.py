@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import os
 from typing import cast
@@ -33,6 +34,7 @@ from encode_pipeline.platform.input_registry import (
 from encode_pipeline.services.input_file_access import (
     InputFileAccess,
     InputFileAccessError,
+    watch_leaf_generation,
 )
 from encode_pipeline.services.private_storage_pools import (
     load_private_storage_pool_config,
@@ -362,10 +364,21 @@ class ValidatedInputService:
             )
             if refusal is not None:
                 return refusal
-            validation_result = self._validation_service.validate_adapter(
-                validation_adapter,
-                validation_inputs,
-            )
+            with ExitStack() as generation_watches:
+                observers = [
+                    generation_watches.enter_context(
+                        watch_leaf_generation(
+                            Path(candidate).parent, Path(candidate).name
+                        )
+                    )
+                    for _descriptor, candidate, _access, _revision in held_leaves
+                ]
+                validation_result = self._validation_service.validate_adapter(
+                    validation_adapter,
+                    validation_inputs,
+                )
+                if any(observer.changed() for observer in observers):
+                    return _input_binding_refusal()
             if validation_result.is_failure:
                 return Result.failure(validation_result.issues)
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
 from encode_pipeline.services.authoring_bridge import BridgeAdmission, BridgeStatus
 from encode_pipeline.services.data_registry import DataRegistryService, SampleImportSpec
@@ -997,6 +999,144 @@ def test_public_validation_rejects_path_and_byte_mismatches(
         assert changed.json()["snapshot"] is None
         assert changed.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
         assert str(root) not in changed.text
+        missing = post(root / "missing" / "s1.fastq.gz")
+        assert missing.status_code == 409, missing.text
+        assert missing.json()["snapshot"] is None
+        assert missing.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+        assert str(root) not in missing.text
+        linked = root / "linked"
+        linked.symlink_to(root / "reads", target_is_directory=True)
+        via_link = post(linked / "s1.fastq.gz")
+        assert via_link.status_code == 409, via_link.text
+        assert via_link.json()["snapshot"] is None
+        assert via_link.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+        assert str(root) not in via_link.text
+
+
+@pytest.mark.parametrize("scenario", ("rewrite_restore", "replace_restore"))
+def test_validator_window_rejects_restored_replacement(
+    tmp_path, reference_ready_app, monkeypatch, scenario
+):
+    import json
+
+    from encode_pipeline.samples import strict
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    fastq = root / "reads" / "s1.fastq.gz"
+    original_bytes = b"@read\nACGT\n+\n!!!!\n"
+    fastq.write_bytes(original_bytes)
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.validated_input_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a",
+                display_name="Private sample",
+                attributes={},
+            ),
+        ),
+    )[0]
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    registered = admin.register_input_file(
+        project_id=project.project_id,
+        stable_key="sample-a-r1",
+        pool_relative_path="reads/s1.fastq.gz",
+    )
+    original_check = strict._check_fastq_exists
+    alternate = b"@read\nTGCA\n+\n!!!!\n"
+
+    def rewrite_during_check(path, sample_id, label, **kwargs):
+        if path != str(fastq):
+            return original_check(path, sample_id, label, **kwargs)
+        parked = fastq.with_name("held-original.fastq.gz")
+        if scenario == "replace_restore":
+            fastq.rename(parked)
+        fastq.write_bytes(alternate)
+        try:
+            return original_check(path, sample_id, label, **kwargs)
+        finally:
+            if scenario == "replace_restore":
+                fastq.unlink()
+                parked.rename(fastq)
+            else:
+                fastq.write_bytes(original_bytes)
+
+    monkeypatch.setattr(strict, "_check_fastq_exists", rewrite_during_check)
+    with ApiTestClient(app) as client:
+        response = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
+            json={
+                "config": {},
+                "options": {"strict_inputs": True},
+                "samples": [
+                    {
+                        "sample": "sample-a",
+                        "assay": "chipseq",
+                        "target": "CTCF",
+                        "layout": "SE",
+                        "role": "treatment",
+                        "peak_mode": "narrow",
+                        "fastq_1": str(fastq),
+                        "fastq_2": "",
+                        "control_sample": "",
+                    }
+                ],
+                "project_id": project.project_id,
+                "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "input_selections": [
+                    {
+                        "input_use_key": "sample-a",
+                        "occurrence": 1,
+                        "input_file_revision_ids": [
+                            registered["input_file_revision_id"]
+                        ],
+                    }
+                ],
+            },
+        )
+    assert response.status_code == 409, response.text
+    assert response.json()["snapshot"] is None
+    assert response.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+    assert fastq.read_bytes() == original_bytes
+    assert str(root) not in response.text
 
 
 def _parse(value: str):

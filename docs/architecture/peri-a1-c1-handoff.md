@@ -119,11 +119,12 @@ Identity moves like this:
 4. Validate resolves each input revision in the draft's project, rejects
    archived or cross-project revisions, and re-reads the admitted bytes
    through the existing descriptor walk. The same check runs for the public
-   workflow validate route: the submitted path must still be that revision's
-   leaf, and the bytes must still match. This guarantee covers the current
-   validation until the snapshot is stored. A later run rechecks separately,
-   and managed execution remains unavailable. A symlink or byte change found
-   before the snapshot is stored does not create a snapshot.
+   workflow validate route. The opened descriptor is the admitted leaf. While
+   the scientific check runs, the service watches that directory entry. A
+   rename, replacement, or rewrite during the check is rejected even if the
+   original inode and bytes are restored before the check returns. The
+   guarantee ends when the snapshot is stored or refused. A later run
+   rechecks separately, and managed execution remains unavailable.
 5. The same revision ids are passed to the existing input-use binding. The
    ENCODE adapter declares one `regular_file_v1` use per occupied read
    (`encode-sample-reads-v1`). A validation that does not name input

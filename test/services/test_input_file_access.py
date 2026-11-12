@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import hashlib
 import os
 
+import stat
+
 import pytest
 
 from encode_pipeline.platform.input_registry import build_input_file_revision
@@ -13,6 +15,8 @@ from encode_pipeline.services.input_file_access import (
     FileObservation,
     InputFileAccess,
     InputFileAccessError,
+    _open_absolute_leaf,
+    watch_leaf_generation,
 )
 
 
@@ -253,3 +257,192 @@ def test_observe_rejects_noncanonical_private_root(
 
     with pytest.raises(InputFileAccessError):
         InputFileAccess(ambiguous_root).observe("reads.fastq")
+
+
+def _revision(relative_path: str, payload: bytes):
+    return build_input_file_revision(
+        input_file_revision_id=REVISION_ID,
+        input_file_id=INPUT_FILE_ID,
+        project_id=PROJECT_ID,
+        storage_pool_id=POOL_ID,
+        revision_number=1,
+        relative_path=relative_path,
+        size_bytes=len(payload),
+        content_sha256=hashlib.sha256(payload).hexdigest(),
+        created_at=NOW,
+    )
+
+
+def _held_descriptor_count() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+def _assert_redacted(exc: InputFileAccessError, *hidden: str) -> None:
+    rendered = f"{exc!s} {exc!r}"
+    assert str(exc) == "input file is missing, changed, or unsafe"
+    assert exc.__cause__ is None
+    assert exc.__suppress_context__
+    for fragment in hidden:
+        assert fragment not in rendered
+
+
+def test_bind_candidate_opens_regular_file(tmp_path) -> None:
+    root = tmp_path / "pool"
+    root.mkdir()
+    payload = b"ACGT\n"
+    source = root / "reads.fastq"
+    source.write_bytes(payload)
+    before = _held_descriptor_count()
+    descriptor = InputFileAccess(root).bind_candidate(
+        _revision("reads.fastq", payload),
+        str(source),
+    )
+    try:
+        assert stat.S_ISREG(os.fstat(descriptor).st_mode)
+        assert os.read(descriptor, len(payload) + 1) == payload
+    finally:
+        os.close(descriptor)
+    assert _held_descriptor_count() == before
+
+
+def test_open_absolute_leaf_missing_parent_is_redacted_without_descriptor_leak(
+    tmp_path,
+) -> None:
+    root = tmp_path / "pool"
+    root.mkdir()
+    payload = b"ACGT\n"
+    source = root / "reads.fastq"
+    source.write_bytes(payload)
+    candidate = str(tmp_path / "private-parent-name" / "secret-leaf.fastq")
+    access = InputFileAccess(root)
+    expected = _revision("reads.fastq", payload)
+
+    with pytest.raises(InputFileAccessError) as captured:
+        access.bind_candidate(expected, candidate)
+    _assert_redacted(
+        captured.value, candidate, "private-parent-name", "secret-leaf.fastq"
+    )
+
+    before = _held_descriptor_count()
+    for _ in range(128):
+        with pytest.raises(InputFileAccessError) as captured:
+            _open_absolute_leaf(candidate)
+        _assert_redacted(
+            captured.value,
+            candidate,
+            "private-parent-name",
+            "secret-leaf.fastq",
+        )
+    assert _held_descriptor_count() == before
+
+
+def test_open_absolute_leaf_symlink_parent_is_redacted_without_descriptor_leak(
+    tmp_path,
+) -> None:
+    root = tmp_path / "real-parent"
+    root.mkdir()
+    payload = b"ACGT\n"
+    source = root / "secret-leaf.fastq"
+    source.write_bytes(payload)
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(root, target_is_directory=True)
+    candidate = str(linked_parent / "secret-leaf.fastq")
+    access = InputFileAccess(root)
+    expected = _revision("secret-leaf.fastq", payload)
+
+    with pytest.raises(InputFileAccessError) as captured:
+        access.bind_candidate(expected, candidate)
+    _assert_redacted(
+        captured.value,
+        candidate,
+        "linked-parent",
+        "real-parent",
+        "secret-leaf.fastq",
+    )
+
+    before = _held_descriptor_count()
+    for _ in range(128):
+        with pytest.raises(InputFileAccessError) as captured:
+            _open_absolute_leaf(candidate)
+        _assert_redacted(
+            captured.value,
+            candidate,
+            "linked-parent",
+            "real-parent",
+            "secret-leaf.fastq",
+        )
+    assert _held_descriptor_count() == before
+
+
+def test_open_absolute_leaf_closes_parent_when_leaf_open_fails(tmp_path) -> None:
+    parent = tmp_path / "pool"
+    parent.mkdir()
+    candidate = str(parent / "missing-leaf.fastq")
+    before = _held_descriptor_count()
+    for _ in range(128):
+        with pytest.raises(InputFileAccessError) as captured:
+            _open_absolute_leaf(candidate)
+        _assert_redacted(captured.value, candidate, str(parent), "missing-leaf.fastq")
+    assert _held_descriptor_count() == before
+
+
+def test_watch_leaf_generation_untouched_leaf_is_unchanged(tmp_path) -> None:
+    parent = tmp_path / "pool"
+    parent.mkdir()
+    leaf = parent / "reads.fastq"
+    leaf.write_bytes(b"ACGT\n")
+    sibling = parent / "other.fastq"
+    before = _held_descriptor_count()
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        sibling.write_bytes(b"TGCA\n")
+        assert watch.changed() is False
+    assert watch.changed() is False
+    assert _held_descriptor_count() == before
+
+
+def test_watch_leaf_generation_equal_length_write_is_a_change(tmp_path) -> None:
+    parent = tmp_path / "pool"
+    parent.mkdir()
+    leaf = parent / "reads.fastq"
+    payload = b"ACGT\n"
+    leaf.write_bytes(payload)
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        assert watch.changed() is False
+        leaf.write_bytes(payload)
+        assert leaf.stat().st_size == len(payload)
+        assert watch.changed() is True
+
+
+def test_watch_leaf_generation_restored_inode_and_bytes_still_changed(
+    tmp_path,
+) -> None:
+    parent = tmp_path / "pool"
+    parent.mkdir()
+    leaf = parent / "reads.fastq"
+    payload = b"ACGT\n"
+    leaf.write_bytes(payload)
+    identity = (leaf.stat().st_dev, leaf.stat().st_ino)
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        assert watch.changed() is False
+        held = parent / "reads.fastq.held"
+        leaf.rename(held)
+        leaf.write_bytes(b"TGCA\n")
+        held.rename(leaf)
+        assert watch.changed() is True
+    restored = leaf.stat()
+    assert (restored.st_dev, restored.st_ino) == identity
+    assert leaf.read_bytes() == payload
+
+
+def test_watch_leaf_generation_fails_closed_when_parent_cannot_be_armed(
+    tmp_path,
+) -> None:
+    missing = tmp_path / "private-parent-name"
+    not_directory = tmp_path / "not-a-directory"
+    not_directory.write_bytes(b"x")
+    before = _held_descriptor_count()
+    for _ in range(16):
+        for parent in (missing, not_directory):
+            with watch_leaf_generation(parent, "secret-leaf.fastq") as watch:
+                assert watch.changed() is True
+    assert _held_descriptor_count() == before
