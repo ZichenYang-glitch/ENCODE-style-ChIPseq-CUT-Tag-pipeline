@@ -27,6 +27,7 @@ from encode_pipeline.platform.authoring import (
     AuthoringActor,
     AuthoringRejected,
     DRAFT_EXPIRED,
+    NOT_FOUND,
     STALE_DRAFT,
     draft_digest,
     empty_draft_content,
@@ -512,3 +513,209 @@ def _proposal(turn) -> TurnCompletion:
         },
         proposal_digest=digest,
     )
+
+
+def test_receipt_discovery_is_bounded_and_survives_login_and_expiry(
+    repository, actor, project_id, clock, auth_repository
+):
+    first = _ready_turn(repository, actor, project_id)
+    _adopt(repository, actor, first, cores=2)
+    current = repository.get_session(actor, first.sid)
+    second, _replayed = repository.start_turn(
+        actor,
+        first.sid,
+        client_turn_id="turn-2",
+        request_digest="f" * 64,
+        question={"intent": "suggest", "field_tokens": [], "preferences": []},
+        expected_revision=current.revision,
+        schema_digest=first.schema_digest,
+        projection_digest=first.projection_digest,
+        owner_epoch="epoch-1",
+    )
+    _adopt(repository, actor, second, cores=4)
+    pending, _replayed = repository.start_turn(
+        actor,
+        first.sid,
+        client_turn_id="turn-3",
+        request_digest="a" * 64,
+        question={"intent": "suggest", "field_tokens": [], "preferences": []},
+        expected_revision=repository.get_session(actor, first.sid).revision,
+        schema_digest=first.schema_digest,
+        projection_digest=first.projection_digest,
+        owner_epoch="epoch-1",
+    )
+    repository.complete_turn(
+        actor,
+        pending.turn_id,
+        _proposal(pending),
+        live_schema_digest=pending.schema_digest,
+        live_projection_digest=pending.projection_digest,
+    )
+    before = repository.get_session(actor, first.sid)
+    stored = {
+        turn_id: _receipt_snapshot(repository.peek_turn(first.sid, turn_id))
+        for turn_id in (first.turn_id, second.turn_id, pending.turn_id)
+    }
+    page = repository.list_adoption_receipts(
+        actor,
+        first.sid,
+        cursor_time=None,
+        cursor_turn=None,
+        limit=1,
+    )
+    assert [item.turn_id for item in page.turns] == [max(first.turn_id, second.turn_id)]
+    assert page.next_cursor
+    rest = repository.list_adoption_receipts(
+        actor,
+        first.sid,
+        cursor_time=_cursor_time(page.next_cursor),
+        cursor_turn=_cursor_turn(page.next_cursor),
+        limit=1,
+    )
+    assert [item.turn_id for item in rest.turns] == [min(first.turn_id, second.turn_id)]
+    assert rest.next_cursor is None
+    assert pending.turn_id not in {item.turn_id for item in page.turns + rest.turns}
+    after = repository.get_session(actor, first.sid)
+    assert after.revision == before.revision
+    assert after.draft_expires_at == before.draft_expires_at
+    assert after.purge_after == before.purge_after
+    for turn_id, snapshot in stored.items():
+        assert _receipt_snapshot(repository.peek_turn(first.sid, turn_id)) == snapshot
+
+    repository.close_connection(
+        actor,
+        first.sid,
+        expected_generation=after.generation,
+        expected_instance_id=after.instance_id,
+        expected_owner_epoch=after.bridge_owner_epoch,
+    )
+    auth_repository.revoke_session(
+        actor.session_digest,
+        clock.now,
+        SessionRevocationReason.LOGOUT,
+    )
+    passwords = PasswordManager(FAST_PROFILE)
+    renewed_login = AuthenticationService(
+        repository=auth_repository,
+        password_manager=passwords,
+        now_factory=clock,
+    ).login("owner", "correct horse battery staple", client_identity="127.0.0.1")
+    renewed = AuthoringActor(
+        user_id=actor.user_id,
+        session_digest=digest_session_token(renewed_login.secrets.session_token),
+    )
+    visible = repository.list_adoption_receipts(
+        renewed,
+        first.sid,
+        cursor_time=None,
+        cursor_turn=None,
+        limit=20,
+    )
+    assert {item.turn_id for item in visible.turns} == {first.turn_id, second.turn_id}
+    assert visible.record.revision == before.revision
+    _extend_login(auth_repository, renewed, before.purge_after + timedelta(days=1))
+
+    clock.now = before.draft_expires_at
+    expired = repository.list_adoption_receipts(
+        renewed,
+        first.sid,
+        cursor_time=None,
+        cursor_turn=None,
+        limit=20,
+    )
+    assert len(expired.turns) == 2
+    clock.now = before.purge_after - timedelta(seconds=1)
+    assert (
+        len(
+            repository.list_adoption_receipts(
+                renewed,
+                first.sid,
+                cursor_time=None,
+                cursor_turn=None,
+                limit=20,
+            ).turns
+        )
+        == 2
+    )
+    clock.now = before.purge_after
+    with pytest.raises(AuthoringRejected) as missing:
+        repository.list_adoption_receipts(
+            renewed,
+            first.sid,
+            cursor_time=None,
+            cursor_turn=None,
+            limit=20,
+        )
+    assert missing.value.reason_code == NOT_FOUND
+
+
+def _adopt(repository, actor, turn, *, cores: int):
+    completed = repository.complete_turn(
+        actor,
+        turn.turn_id,
+        _numbered_proposal(turn),
+        live_schema_digest=turn.schema_digest,
+        live_projection_digest=turn.projection_digest,
+    )
+    content = empty_draft_content()
+    content["options"] = {"cores": cores}
+    return repository.adopt(
+        actor,
+        turn.sid,
+        completed.proposal_id,
+        expected_revision=turn.base_revision,
+        proposal_digest_value=completed.proposal_digest,
+        request_digest="d" * 64,
+        content=content,
+        content_digest=draft_digest(content),
+        changed=True,
+        live_schema_digest=turn.schema_digest,
+        live_projection_digest=turn.projection_digest,
+    )
+
+
+def _numbered_proposal(turn) -> TurnCompletion:
+    digest = proposal_digest(
+        sid=turn.sid,
+        base_revision=turn.base_revision,
+        schema_digest=turn.schema_digest,
+        projection_digest=turn.projection_digest,
+        changes=[{"field_token": "options.cores", "value": 4}],
+        reason_codes=[],
+    )
+    return TurnCompletion(
+        kind="proposal",
+        result_digest=digest,
+        proposal_id="prop_" + turn.turn_id[-32:],
+        proposal={
+            "changes": [{"field_token": "options.cores", "value": 4}],
+            "reason_codes": [],
+        },
+        proposal_digest=digest,
+    )
+
+
+def _receipt_snapshot(turn):
+    assert turn is not None
+    return (
+        turn.status,
+        turn.decision,
+        turn.proposal_id,
+        turn.adopted_at,
+        turn.result_revision,
+        turn.adoption_changed,
+        turn.adoption_draft_expires_at,
+        turn.base_revision,
+    )
+
+
+def _cursor_time(value: str):
+    from encode_pipeline.persistence.authoring import decode_receipt_cursor
+
+    return decode_receipt_cursor(value)[0]
+
+
+def _cursor_turn(value: str):
+    from encode_pipeline.persistence.authoring import decode_receipt_cursor
+
+    return decode_receipt_cursor(value)[1]

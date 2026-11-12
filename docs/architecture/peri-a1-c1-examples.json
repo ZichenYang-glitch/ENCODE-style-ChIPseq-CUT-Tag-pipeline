@@ -119,6 +119,25 @@
     "expires_at": "2026-11-17T10:05:00Z",
     "purge_after": "2026-11-24T10:05:00Z"
   },
+  "receipt_list_response": {
+    "ok": true,
+    "sid": "aas_0123456789abcdef0123456789abcdef",
+    "draft_state": "expired",
+    "receipts": [
+      {
+        "turn_id": "atr_0123456789abcdef0123456789abcdef",
+        "adoption_receipt": {
+          "proposal_id": "prop_0123456789abcdef0123456789abcdef",
+          "base_revision": 4,
+          "result_revision": 5,
+          "changed": true,
+          "adopted_at": "2026-11-10T10:05:00Z",
+          "draft_expires_at": "2026-11-17T10:05:00Z"
+        }
+      }
+    ],
+    "next_cursor": null
+  },
   "bridge_unavailable": {
     "ok": false,
     "reason_code": "BRIDGE_UNAVAILABLE",

@@ -239,6 +239,23 @@ class AuthoringReceiptResponse(BaseModel):
     draft_expires_at: datetime
 
 
+class AuthoringReceiptEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    turn_id: str = TurnId
+    adoption_receipt: AuthoringReceiptResponse
+
+
+class AuthoringReceiptListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    sid: str = AuthoringSid
+    draft_state: Literal["active", "expired"]
+    receipts: list[AuthoringReceiptEntryResponse]
+    next_cursor: str | None = None
+
+
 class AuthoringTurnResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

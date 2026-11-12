@@ -15,6 +15,7 @@ from encode_pipeline.api.authoring_models import (
     AuthoringErrorResponse,
     AuthoringExplanationResponse,
     AuthoringProposalResponse,
+    AuthoringReceiptListResponse,
     AuthoringReceiptResponse,
     AuthoringRejectRequest,
     AuthoringSessionCreateRequest,
@@ -41,6 +42,7 @@ from encode_pipeline.services.authoring import (
     AdoptionView,
     AuthoringService,
     PreparedValidation,
+    ReceiptPage,
     SessionView,
     TurnView,
 )
@@ -170,6 +172,24 @@ def get_session(
     service: AuthoringService = Depends(get_authoring_service),
 ) -> AuthoringSessionResponse:
     return _session(service.get_session(actor, sid))
+
+
+@router.get(
+    "/{sid}/receipts",
+    response_model=AuthoringReceiptListResponse,
+    operation_id="authoringListReceipts",
+    responses=_INTERNAL_ERROR,
+)
+def list_receipts(
+    sid: str,
+    actor: AuthoringActor = Depends(require_authoring_actor),
+    service: AuthoringService = Depends(get_authoring_service),
+    cursor: str | None = Query(default=None, max_length=256),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> AuthoringReceiptListResponse:
+    return _receipts(
+        service.list_adoption_receipts(actor, sid, cursor=cursor, limit=limit)
+    )
 
 
 @router.put(
@@ -380,6 +400,21 @@ def _summary(view: SessionView) -> AuthoringSessionSummary:
             reason_code=view.connection_reason_code,
         ),
         requires_new_connection=view.requires_new_connection,
+    )
+
+
+def _receipts(page: ReceiptPage) -> AuthoringReceiptListResponse:
+    return AuthoringReceiptListResponse(
+        sid=page.sid,
+        draft_state=page.draft_state,  # type: ignore[arg-type]
+        receipts=[
+            {
+                "turn_id": entry.turn_id,
+                "adoption_receipt": entry.receipt,
+            }
+            for entry in page.entries
+        ],
+        next_cursor=page.next_cursor,
     )
 
 

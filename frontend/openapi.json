@@ -1272,6 +1272,87 @@
         }
       }
     },
+    "/api/v1/agent/authoring-sessions/{sid}/receipts": {
+      "get": {
+        "tags": [
+          "authoring"
+        ],
+        "summary": "List Receipts",
+        "operationId": "authoringListReceipts",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthoringReceiptListResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/agent/authoring-sessions/{sid}/draft": {
       "put": {
         "tags": [
@@ -5097,6 +5178,76 @@
           "field_tokens"
         ],
         "title": "AuthoringQuestionRequest"
+      },
+      "AuthoringReceiptEntryResponse": {
+        "properties": {
+          "turn_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^atr_[0-9a-f]{32}$",
+            "title": "Turn Id"
+          },
+          "adoption_receipt": {
+            "$ref": "#/components/schemas/AuthoringReceiptResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "turn_id",
+          "adoption_receipt"
+        ],
+        "title": "AuthoringReceiptEntryResponse"
+      },
+      "AuthoringReceiptListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok",
+            "default": true
+          },
+          "sid": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^aas_[0-9a-f]{32}$",
+            "title": "Sid"
+          },
+          "draft_state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired"
+            ],
+            "title": "Draft State"
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/AuthoringReceiptEntryResponse"
+            },
+            "type": "array",
+            "title": "Receipts"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sid",
+          "draft_state",
+          "receipts"
+        ],
+        "title": "AuthoringReceiptListResponse"
       },
       "AuthoringReceiptResponse": {
         "properties": {
