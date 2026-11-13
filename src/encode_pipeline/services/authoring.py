@@ -319,6 +319,12 @@ class AuthoringService:
             ]
         except KeyError:
             files = []
+        except ValueError as error:
+            # An archived pool is not an active binding. Any other ValueError,
+            # including a missing pool row, stays an error.
+            if error.args != ("StoragePool is archived",):
+                raise
+            files = []
         rows = []
         for item in files:
             revisions = registry.list_input_file_revisions(item.input_file_id)

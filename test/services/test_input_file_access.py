@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import os
+import shutil
 
 import stat
 
@@ -432,6 +433,65 @@ def test_watch_leaf_generation_restored_inode_and_bytes_still_changed(
     restored = leaf.stat()
     assert (restored.st_dev, restored.st_ino) == identity
     assert leaf.read_bytes() == payload
+
+
+def test_watch_leaf_generation_restored_parent_directory_is_a_change(
+    tmp_path,
+) -> None:
+    parent = tmp_path / "pool" / "reads"
+    parent.mkdir(parents=True)
+    leaf = parent / "reads.fastq"
+    payload = b"ACGT\n"
+    leaf.write_bytes(payload)
+    identity = (leaf.stat().st_dev, leaf.stat().st_ino)
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        assert watch.changed() is False
+        parked = parent.with_name("reads-original")
+        parent.rename(parked)
+        parent.mkdir()
+        (parent / leaf.name).write_bytes(b"TGCA\n")
+        shutil.rmtree(parent)
+        parked.rename(parent)
+        assert watch.changed() is True
+    restored = leaf.stat()
+    assert (restored.st_dev, restored.st_ino) == identity
+    assert leaf.read_bytes() == payload
+
+
+def test_watch_leaf_generation_restored_ancestor_directory_is_a_change(
+    tmp_path,
+) -> None:
+    pool = tmp_path / "pool"
+    parent = pool / "reads"
+    parent.mkdir(parents=True)
+    leaf = parent / "reads.fastq"
+    payload = b"ACGT\n"
+    leaf.write_bytes(payload)
+    identity = (leaf.stat().st_dev, leaf.stat().st_ino)
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        assert watch.changed() is False
+        parked = pool.with_name("pool-original")
+        pool.rename(parked)
+        parent.mkdir(parents=True)
+        (parent / leaf.name).write_bytes(b"TGCA\n")
+        shutil.rmtree(pool)
+        parked.rename(pool)
+        assert watch.changed() is True
+    restored = leaf.stat()
+    assert (restored.st_dev, restored.st_ino) == identity
+    assert leaf.read_bytes() == payload
+
+
+def test_watch_leaf_generation_ignores_unrelated_ancestor_names(tmp_path) -> None:
+    pool = tmp_path / "pool"
+    parent = pool / "reads"
+    parent.mkdir(parents=True)
+    leaf = parent / "reads.fastq"
+    leaf.write_bytes(b"ACGT\n")
+    with watch_leaf_generation(parent, leaf.name) as watch:
+        (pool / "other.txt").write_bytes(b"x")
+        (tmp_path / "sibling").mkdir()
+        assert watch.changed() is False
 
 
 def test_watch_leaf_generation_fails_closed_when_parent_cannot_be_armed(

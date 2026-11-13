@@ -1139,6 +1139,229 @@ def test_validator_window_rejects_restored_replacement(
     assert str(root) not in response.text
 
 
+@pytest.mark.parametrize("level", ("parent", "pool"))
+def test_validator_window_rejects_restored_ancestor(
+    tmp_path, reference_ready_app, monkeypatch, level
+):
+    import shutil
+
+    from encode_pipeline.samples import strict
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    fastq = root / "reads" / "s1.fastq.gz"
+    original_bytes = b"@read\nACGT\n+\n!!!!\n"
+    fastq.write_bytes(original_bytes)
+    original_inode = fastq.stat().st_ino
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.validated_input_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a",
+                display_name="Private sample",
+                attributes={},
+            ),
+        ),
+    )[0]
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    registered = admin.register_input_file(
+        project_id=project.project_id,
+        stable_key="sample-a-r1",
+        pool_relative_path="reads/s1.fastq.gz",
+    )
+    original_check = strict._check_fastq_exists
+    target = fastq.parent if level == "parent" else root
+
+    def replace_ancestor_during_check(path, sample_id, label, **kwargs):
+        if path != str(fastq):
+            return original_check(path, sample_id, label, **kwargs)
+        parked = target.with_name(target.name + "-original")
+        target.rename(parked)
+        fastq.parent.mkdir(parents=True)
+        fastq.write_bytes(b"@read\nTGCA\n+\n!!!!\n")
+        try:
+            return original_check(path, sample_id, label, **kwargs)
+        finally:
+            shutil.rmtree(target)
+            parked.rename(target)
+
+    monkeypatch.setattr(strict, "_check_fastq_exists", replace_ancestor_during_check)
+    with ApiTestClient(app) as client:
+        response = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/validate",
+            json={
+                "config": {},
+                "options": {"strict_inputs": True},
+                "samples": [
+                    {
+                        "sample": "sample-a",
+                        "assay": "chipseq",
+                        "target": "CTCF",
+                        "layout": "SE",
+                        "role": "treatment",
+                        "peak_mode": "narrow",
+                        "fastq_1": str(fastq),
+                        "fastq_2": "",
+                        "control_sample": "",
+                    }
+                ],
+                "project_id": project.project_id,
+                "sample_revision_ids": [imported.revision.sample_revision_id],
+                "reference_profile_revision_id": (
+                    app.state.test_reference_profile.revision_id
+                ),
+                "input_selections": [
+                    {
+                        "input_use_key": "sample-a",
+                        "occurrence": 1,
+                        "input_file_revision_ids": [
+                            registered["input_file_revision_id"]
+                        ],
+                    }
+                ],
+            },
+        )
+    assert response.status_code == 409, response.text
+    assert response.json()["snapshot"] is None
+    assert response.json()["issues"][0]["code"] == "INPUT_BINDING_SELECTION_INVALID"
+    assert fastq.read_bytes() == original_bytes
+    assert fastq.stat().st_ino == original_inode
+    assert str(root) not in response.text
+
+
+def test_archived_storage_pool_catalog_is_empty(tmp_path, reference_ready_app):
+    from encode_pipeline.services.input_registry import (
+        InputRegistryAdminService,
+        InputRegistryService,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+        load_private_storage_pool_config,
+    )
+
+    app = reference_ready_app
+    root = (tmp_path / "pool").resolve()
+    (root / "reads").mkdir(parents=True)
+    (root / "reads" / "s1.fastq.gz").write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    config_path = tmp_path / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"authoring-inputs": str(root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app.state.authoring_service._storage_pool_config_path = config_path
+    registry = _registry(app)
+    project = registry.create_project("Managed cohort")
+    admin = InputRegistryAdminService(
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ),
+        private_config=load_private_storage_pool_config(config_path),
+    )
+    pool = admin.register_storage_pool(
+        display_name="Authoring inputs",
+        config_key="authoring-inputs",
+    )
+    admin.bind_project_storage_pool(
+        project_id=project.project_id,
+        storage_pool_id=pool.storage_pool_id,
+    )
+    admin.register_input_file(
+        project_id=project.project_id,
+        stable_key="sample-a-r1",
+        pool_relative_path="reads/s1.fastq.gz",
+    )
+    url = f"/api/v1/projects/{project.project_id}/input-revisions"
+    with ApiTestClient(app) as client:
+        listed = client.get(url)
+        assert listed.status_code == 200, listed.text
+        assert len(listed.json()["revisions"]) == 1
+        InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        ).archive_storage_pool(pool.storage_pool_id)
+        archived = client.get(url)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["revisions"] == []
+    assert archived.json()["next_cursor"] is None
+    assert str(root) not in archived.text
+
+
+def test_missing_storage_pool_catalog_stays_an_error(reference_ready_app, monkeypatch):
+    import asyncio
+
+    import httpx
+
+    from api_test_client import seeded_auth_async_client
+
+    app = reference_ready_app
+    project = _registry(app).create_project("Managed cohort")
+
+    def missing_pool(_project_id: str):
+        raise ValueError("Project binding references a missing StoragePool")
+
+    monkeypatch.setattr(
+        app.state.persistence.input_registry_repository,
+        "get_active_project_storage_pool_binding",
+        missing_pool,
+    )
+
+    async def request():
+        async with seeded_auth_async_client(
+            app,
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://testserver",
+        ) as client:
+            return await client.get(
+                f"/api/v1/projects/{project.project_id}/input-revisions"
+            )
+
+    response = asyncio.run(request())
+    assert response.status_code == 500, response.text
+    body = response.json()
+    assert body["issues"][0]["code"] == "INTERNAL_SERVER_ERROR"
+    assert "revisions" not in body
+    assert "StoragePool" not in response.text
+
+
 def test_catalog_ids_validate_to_a_real_snapshot(tmp_path, reference_ready_app):
     import json
 

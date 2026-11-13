@@ -415,9 +415,12 @@ _IN_MOVED_FROM = 0x00000040
 _IN_MOVED_TO = 0x00000080
 _IN_CREATE = 0x00000100
 _IN_DELETE = 0x00000200
+_IN_DELETE_SELF = 0x00000400
+_IN_MOVE_SELF = 0x00000800
 _IN_Q_OVERFLOW = 0x00004000
 _IN_IGNORED = 0x00008000
 _IN_ONLYDIR = 0x01000000
+_IN_DONT_FOLLOW = 0x02000000
 _IN_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
 _IN_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 _LEAF_CHANGE_MASK = (
@@ -429,7 +432,11 @@ _LEAF_CHANGE_MASK = (
     | _IN_MOVED_FROM
     | _IN_MOVED_TO
 )
-_LEAF_WATCH_MASK = _LEAF_CHANGE_MASK | _IN_ONLYDIR
+_DIRECTORY_IDENTITY_MASK = _IN_DELETE_SELF | _IN_MOVE_SELF
+_LEAF_WATCH_MASK = (
+    _LEAF_CHANGE_MASK | _DIRECTORY_IDENTITY_MASK | _IN_ONLYDIR | _IN_DONT_FOLLOW
+)
+_DIRECTORY_IDENTITY_WATCH = _DIRECTORY_IDENTITY_MASK | _IN_ONLYDIR | _IN_DONT_FOLLOW
 _INOTIFY_EVENT = struct.Struct("=iIII")
 _INOTIFY_READ_BYTES = 4096
 _INOTIFY_FUNCTIONS: tuple[object, object, object] | None = None
@@ -478,7 +485,7 @@ def _single_leaf_name(leaf_name: str) -> bytes:
 
 
 class _LeafGenerationWatch:
-    """One nonblocking inotify watch for a single directory entry."""
+    """One nonblocking inotify watch for a leaf and its directory chain."""
 
     __slots__ = ("_armed", "_changed", "_fd", "_leaf_name", "_read")
 
@@ -530,6 +537,16 @@ class _LeafGenerationWatch:
         watched = add_watch(descriptor, os.fsencode(parent), _LEAF_WATCH_MASK)
         if watched < 0:
             raise OSError(ctypes.get_errno(), "inotify_add_watch")
+        for ancestor in parent.parents:
+            if ancestor == parent:
+                continue
+            watched = add_watch(
+                descriptor,
+                os.fsencode(ancestor),
+                _DIRECTORY_IDENTITY_WATCH,
+            )
+            if watched < 0:
+                raise OSError(ctypes.get_errno(), "inotify_add_watch")
         self._leaf_name = leaf_bytes
         self._armed = True
 
@@ -568,7 +585,7 @@ class _LeafGenerationWatch:
                 return
             raw_name = payload[offset : offset + name_len]
             offset += name_len
-            if mask & _IN_Q_OVERFLOW:
+            if mask & _IN_Q_OVERFLOW or mask & _DIRECTORY_IDENTITY_MASK:
                 self._changed = True
                 continue
             if mask & _IN_IGNORED and not (mask & _LEAF_CHANGE_MASK):
@@ -586,9 +603,12 @@ def watch_leaf_generation(
     """Yield an object with changed() -> bool.
 
     changed() is True when leaf_name was created, deleted, moved, written,
-    or had its attributes changed since the watch started, or if the
-    inotify queue overflowed. IN_IGNORED from removing our own watch is not
-    a change. If inotify cannot be armed, changed() is True (fail closed).
+    or had its attributes changed since the watch started, when the parent
+    directory or any of its ancestors was itself moved or deleted, or if the
+    inotify queue overflowed. A directory that is moved away and later moved
+    back still counts as changed. IN_IGNORED from removing our own watch is
+    not a change. If any watch in that chain cannot be armed, changed() is
+    True (fail closed).
     """
 
     watch = _LeafGenerationWatch()

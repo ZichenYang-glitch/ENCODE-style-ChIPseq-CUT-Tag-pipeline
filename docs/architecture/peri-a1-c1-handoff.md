@@ -127,10 +127,12 @@ What this validation actually establishes:
   that the submitted path is a regular file. It does not parse FASTQ bases.
 - Immediately before that check, the service opens the selected revision and
   requires the submitted path to be that same leaf with the admitted bytes.
-- That directory entry stays watched through the scientific check, the
-  input-use declaration, and the pre-save re-read. A rename, replacement, or
-  rewrite in that interval fails the validation even if the original inode
-  and bytes are put back before the function returns.
+- The leaf entry, its parent, and every ancestor directory through the
+  filesystem root stay watched through the scientific check, the input-use
+  declaration, and the pre-save re-read. A leaf rename, replacement, or
+  rewrite, or a move or deletion of any of those directories, fails
+  validation even if the original inode and bytes are put back before the
+  function returns.
 - The snapshot then records the revision id and the content hash confirmed by
   those reads, plus the path string that passed them. It is evidence for this
   validation, not a promise that the file stays unchanged afterward.
@@ -196,7 +198,9 @@ Input revision catalog:
   or non-user project is `404` `NOT_FOUND`. A bad cursor is `422`
   `INVALID_REQUEST`.
 - `200` with `revisions: []` and `next_cursor: null` is an empty selectable
-  catalog. That includes a project with no active storage-pool binding.
+  catalog. That includes a project with no storage-pool binding and a project
+  whose bound storage pool has been archived. A missing pool row, or any
+  other registry error, is not reported as an empty catalog.
 - Each item is the current revision of one non-archived file:
   `input_file_id`, `stable_key`, `input_file_revision_id`,
   `revision_number`, `size_bytes`, `content_sha256`.
