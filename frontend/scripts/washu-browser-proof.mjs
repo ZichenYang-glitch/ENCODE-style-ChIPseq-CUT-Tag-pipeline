@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +15,9 @@ const browsers =
 if (existsSync(browsers)) process.env.PLAYWRIGHT_BROWSERS_PATH = browsers;
 
 const negative = process.argv.includes('--negative');
-const work = mkdtempSync(join(tmpdir(), 'helixweave-washu-proof-'));
+const work = process.env.WASHU_PROOF_DIR
+  ? (mkdirSync(process.env.WASHU_PROOF_DIR, { recursive: true }), process.env.WASHU_PROOF_DIR)
+  : mkdtempSync(join(tmpdir(), 'helixweave-washu-proof-'));
 const screenshotPath = join(work, negative ? 'negative.png' : 'positive.png');
 const logPath = join(work, 'proof.log');
 const children = [];
@@ -236,6 +238,14 @@ function assertProof(viewerText, pageText, geometry, viewHits) {
   if (!onWindow) {
     throw new Error(`viewer is not on chr1:500-2700 ${JSON.stringify(viewHits)}`);
   }
+  const knownWindow = viewHits.some(
+    (hit) => hit.start >= 400 && hit.start <= 600 && hit.end >= 2600 && hit.end <= 2800,
+  );
+  if (!knownWindow || !/\b1000\b/.test(viewerText) || !/\b2000\b/.test(viewerText)) {
+    throw new Error(
+      `known window was not displayed\n${viewerText.slice(0, 400)}\n${JSON.stringify(viewHits)}`,
+    );
+  }
   const drawn = geometry.filter((box) => box.width >= 200 && box.height >= 24);
   if (drawn.length < 1) {
     throw new Error(`viewer canvases do not show drawn tracks\n${JSON.stringify(geometry)}`);
@@ -268,7 +278,7 @@ try {
       '--workspace',
       join(work, 'workspaces'),
     ],
-    negative ? { WASHU_PROOF_FAIL_AFTER_PREFLIGHT: '1' } : {},
+    negative ? { WASHU_PROOF_REPLACE_INDEX: '1' } : {},
   );
   api.stderr.on('data', (chunk) => process.stderr.write(chunk));
   const ready = await waitFor(api.stdout, /WASHU_FIXTURE run_id=(\S+)/, 60_000);
@@ -482,7 +492,12 @@ try {
   log(apiUrls.join('\n'));
   log(message);
   log(consoleMessages.filter((line) => line.startsWith('error') || line.startsWith('pageerror')).join('\n'));
-  if (negative && preflightOk && (readFailed || /missing .* read/.test(message))) {
+  const rejection = reads
+    .filter((read) => !read.preflight && read.status === 409)
+    .map((read) => read.body.toString('utf8'))
+    .join('\n');
+  const replaced = rejection.includes('derivative_changed') && !rejection.includes(work);
+  if (negative && preflightOk && replaced) {
     console.error(`WASHU_PROOF rejected ${message.split('\n')[0]}`);
     console.error(`proof work ${work}`);
     process.exitCode = 1;

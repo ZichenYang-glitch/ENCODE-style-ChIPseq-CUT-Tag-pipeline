@@ -87,10 +87,18 @@ artifact revision、坐标约定和分数含义。转换在解压和解析过程
 200 万。PET 的两条锚点都计入展示行，不改变 `pair_count`。任一上限被打破时转换失败，
 不写入部分衍生物，也不覆盖原始科学产物；页面把该轨道标为过大，不把抽样或空白画成完整结果。
 256 MiB 足以容纳未超过展示行上限的常规 BED/BEDPE 文本，并在高压缩比输入继续膨胀前停下。
-索引身份用文件戳核对。现有回归是向 `track.gz.tbi` 追加字节后再读，期望 `409 derivative_changed`；它不覆盖同长度、同 inode 的静默改写。
+索引身份用文件戳核对。现有回归和浏览器负例都是向 `track.gz.tbi` 追加字节后再读，期望 `409 derivative_changed`；这覆盖追加导致的戳变化，不覆盖同长度、同 inode 的静默改写。
 WashU 自身对一个区域最多绘制 10 万行；区域摘要若超过该数，页面说明绘制不完整。
-索引一致性检查比较衍生物摘要里的索引戳。现有回归是向 `track.gz.tbi` 追加字节后拒绝读取；
-它覆盖追加导致的戳变化，不覆盖同长度、同 inode 的静默改写。
+
+独立验收不使用 CI 的 browser-e2e。在仓库根目录执行：
+
+```bash
+export PATH="/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/.local/node22/bin:$PATH"
+export PLAYWRIGHT_BROWSERS_PATH="/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/.local/ms-playwright"
+node frontend/scripts/washu-browser-accept.mjs
+```
+
+该入口只调用 `frontend/scripts/washu-browser-proof.mjs`：正例要求预检与后续数据和索引读取分开、已知窗口 `chr1:500-2700`、PET/峰/bigWig 的已知字节，以及标尺上的 1000 与 2000。负例在一字节预检成功后追加索引字节，真实路由返回 `derivative_changed`，进程非零退出且不打印 `WASHU_PROOF ok`。
 
 没有绑定参考修订时，不猜测 hg38/mm10。有绑定时，页面展示 profile、
 revision、identity SHA-256 和 binding digest。WashU 染色体表只在程序集

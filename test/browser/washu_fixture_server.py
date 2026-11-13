@@ -85,41 +85,43 @@ def build_app(database: Path, workspace: Path):
     return app, run_id, signal.artifact_id, pet.artifact_id
 
 
-def _fail_after_preflight(app):
-    """Allow the one-byte preflight, then fail real data and index reads."""
+def _tamper_display_indexes(workspace: Path) -> int:
+    """Append bytes to each display index, the same change the API test rejects."""
+
+    root = workspace / "browser-derivatives"
+    if not root.is_dir():
+        return 0
+    changed = 0
+    for path in root.rglob("track.gz.tbi"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        path.write_bytes(path.read_bytes() + b"tamper")
+        changed += 1
+    return changed
+
+
+def _replace_index_after_preflight(app, workspace: Path):
+    """Let one-byte preflights succeed, then change the real index files."""
+
+    replaced = False
 
     async def wrapped(scope, receive, send):
-        if scope.get("type") != "http":
-            await app(scope, receive, send)
-            return
+        nonlocal replaced
         path = scope.get("path") or ""
-        if "/browser-tracks/" not in path or "/bytes/" not in path:
-            await app(scope, receive, send)
-            return
         headers = {
             name.decode("latin1").lower(): value.decode("latin1")
             for name, value in scope.get("headers", ())
         }
-        if headers.get("range") == "bytes=0-0":
-            await app(scope, receive, send)
-            return
-        body = (
-            b'{"ok":false,"issues":[{"code":"BROWSER_TRACK_UNAVAILABLE",'
-            b'"message":"Track bytes are temporarily unavailable.",'
-            b'"severity":"error","path":"file_token","source":"runtime",'
-            b'"context":{}}]}'
+        real_read = (
+            scope.get("type") == "http"
+            and "/browser-tracks/" in path
+            and "/bytes/" in path
+            and headers.get("range") != "bytes=0-0"
         )
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 500,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode("ascii")),
-                ],
-            }
-        )
-        await send({"type": "http.response.body", "body": body})
+        if real_read and not replaced:
+            replaced = True
+            _tamper_display_indexes(workspace)
+        await app(scope, receive, send)
 
     return wrapped
 
@@ -131,8 +133,8 @@ def main() -> None:
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
     app, run_id, signal_id, pet_id = build_app(args.database, args.workspace)
-    if os.environ.get("WASHU_PROOF_FAIL_AFTER_PREFLIGHT") == "1":
-        app = _fail_after_preflight(app)
+    if os.environ.get("WASHU_PROOF_REPLACE_INDEX") == "1":
+        app = _replace_index_after_preflight(app, args.workspace)
     print(
         f"WASHU_FIXTURE run_id={run_id} signal={signal_id} pet={pet_id}",
         flush=True,
