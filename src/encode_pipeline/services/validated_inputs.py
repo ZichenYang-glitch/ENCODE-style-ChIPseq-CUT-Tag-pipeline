@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
+import os
 from typing import cast
 from uuid import uuid4
+from pathlib import Path
 
 from encode_pipeline.platform.adapters import (
     VALIDATION_CAPABILITY,
@@ -21,11 +24,20 @@ from encode_pipeline.platform.data_registry import (
 )
 from encode_pipeline.platform.input_registry import (
     AdapterInputUseContract,
+    InputFile,
+    InputFileRevision,
     InputFileRevisionSelection,
-    InputProvenanceMode,
     InputUseBindingEnvelope,
     InputUseBindingPlan,
     build_input_use_binding_plan,
+)
+from encode_pipeline.services.input_file_access import (
+    InputFileAccess,
+    InputFileAccessError,
+    watch_leaf_generation,
+)
+from encode_pipeline.services.private_storage_pools import (
+    load_private_storage_pool_config,
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
@@ -117,6 +129,22 @@ def _schema_unavailable_issue() -> Issue:
     )
 
 
+def _input_binding_refusal() -> Result[ValidatedInputSnapshot | None]:
+    return Result.failure(
+        [
+            Issue(
+                code="INPUT_BINDING_SELECTION_INVALID",
+                message=(
+                    "The selected input revisions are not eligible for "
+                    "this validation snapshot."
+                ),
+                source="input_registry",
+                path="input_selections",
+            )
+        ]
+    )
+
+
 def _input_use_contract_unavailable_issue() -> Issue:
     return Issue(
         code="INPUT_USE_CAPABILITY_UNAVAILABLE",
@@ -138,6 +166,8 @@ class ValidatedInputService:
         repository: RunRepository,
         reference_profile_binding_service: ReferenceProfileBindingService | None = None,
         reference_profile_catalog: ReferenceProfileService | None = None,
+        input_registry: object | None = None,
+        storage_pool_config_path: Path | None = None,
         snapshot_id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
         snapshot_ttl: timedelta = DEFAULT_SNAPSHOT_TTL,
@@ -157,6 +187,8 @@ class ValidatedInputService:
         self._repository = repository
         self._reference_profile_binding_service = reference_profile_binding_service
         self._reference_profile_catalog = reference_profile_catalog
+        self._input_registry = input_registry
+        self._storage_pool_config_path = storage_pool_config_path
         self._snapshot_id_factory = snapshot_id_factory or (
             lambda: f"vsnap_{uuid4().hex}"
         )
@@ -321,177 +353,266 @@ class ValidatedInputService:
         except Exception:
             return Result.failure([_schema_unavailable_issue()])
 
-        validation_result = self._validation_service.validate_adapter(
-            validation_adapter,
-            validation_inputs,
-        )
-        if validation_result.is_failure:
-            return Result.failure(validation_result.issues)
+        held_leaves: list[tuple[int, str, InputFileAccess, InputFileRevision]] = []
+        generation_watches = ExitStack()
+        observers = []
+        try:
+            refusal = self._bind_selected_files(
+                validation_adapter,
+                validation_inputs,
+                project_sample_selection,
+                input_file_revision_selections,
+                held_leaves,
+            )
+            if refusal is not None:
+                return refusal
+            observers = [
+                generation_watches.enter_context(
+                    watch_leaf_generation(Path(candidate).parent, Path(candidate).name)
+                )
+                for _descriptor, candidate, _access, _revision in held_leaves
+            ]
+            validation_result = self._validation_service.validate_adapter(
+                validation_adapter,
+                validation_inputs,
+            )
+            if any(observer.changed() for observer in observers):
+                return _input_binding_refusal()
+            if validation_result.is_failure:
+                return Result.failure(validation_result.issues)
 
-        input_use_binding_plan: InputUseBindingPlan | None = None
-        if project_sample_selection is not None and isinstance(
-            validation_adapter,
-            InputUseDeclaringAdapter,
-        ):
-            try:
-                declaration_result = validation_adapter.declare_input_uses(
-                    validation_inputs,
-                    validation_result.value,
-                )
-            except Exception:
-                return Result.failure([_input_use_contract_unavailable_issue()])
-            if (
-                not isinstance(declaration_result, Result)
-                or declaration_result.is_failure
-                or not isinstance(
-                    declaration_result.value,
-                    AdapterInputUseContract,
-                )
+            input_use_binding_plan: InputUseBindingPlan | None = None
+            if project_sample_selection is not None and isinstance(
+                validation_adapter,
+                InputUseDeclaringAdapter,
             ):
-                return Result.failure([_input_use_contract_unavailable_issue()])
-            try:
-                input_use_binding_plan = build_input_use_binding_plan(
-                    project_id=project_sample_selection.project_id,
-                    workflow_id=workflow_id,
-                    contract=declaration_result.value,
-                    selections=input_file_revision_selections,
+                try:
+                    declaration_result = validation_adapter.declare_input_uses(
+                        validation_inputs,
+                        validation_result.value,
+                    )
+                except Exception:
+                    return Result.failure([_input_use_contract_unavailable_issue()])
+                if (
+                    not isinstance(declaration_result, Result)
+                    or declaration_result.is_failure
+                    or not isinstance(
+                        declaration_result.value,
+                        AdapterInputUseContract,
+                    )
+                ):
+                    return Result.failure([_input_use_contract_unavailable_issue()])
+                try:
+                    input_use_binding_plan = build_input_use_binding_plan(
+                        project_id=project_sample_selection.project_id,
+                        workflow_id=workflow_id,
+                        contract=declaration_result.value,
+                        selections=input_file_revision_selections,
+                    )
+                except (TypeError, ValueError):
+                    return Result.failure(
+                        [
+                            Issue(
+                                code="INPUT_BINDING_SELECTION_INVALID",
+                                message=(
+                                    "The selected input revisions do not match the "
+                                    "exact workflow input-use contract."
+                                ),
+                                source="input_registry",
+                                path="input_selections",
+                            )
+                        ]
+                    )
+
+            if reference_evidence is None:
+                after_result = self._build_identity_provider.capture_executable(
+                    workflow_id
                 )
-            except (TypeError, ValueError):
+            else:
+                after_result = (
+                    self._build_identity_provider.capture_resolved_executable(
+                        validation_adapter
+                    )
+                )
+            if after_result.is_failure or after_result.value is None:
+                return Result.failure([_build_unavailable_issue()])
+            if not before_result.value.matches(after_result.value):
+                return Result.failure(
+                    [
+                        Issue(
+                            code="VALIDATION_WORKFLOW_BUILD_CHANGED",
+                            message="Workflow source changed during validation; validate again.",
+                            source="workflow_build_identity",
+                            path="workflow",
+                        )
+                    ]
+                )
+
+            if held_leaves and not self._selected_files_still_match(held_leaves):
+                return _input_binding_refusal()
+            if any(observer.changed() for observer in observers):
+                return _input_binding_refusal()
+
+            try:
+                canonical_payload = canonical_workflow_inputs_json(inputs)
+                now = _now_utc(self._clock)
+                snapshot = ValidatedInputSnapshot(
+                    snapshot_id=self._snapshot_id_factory(),
+                    workflow_id=validation_adapter.metadata.workflow_id,
+                    adapter_version=validation_adapter.metadata.version,
+                    schema_version=schema.schema_version,
+                    schema_dialect=schema.schema_dialect,
+                    workflow_build_identity=after_result.value,
+                    canonical_payload=canonical_payload,
+                    payload_digest_scheme=PAYLOAD_DIGEST_SCHEME,
+                    payload_digest=build_workflow_inputs_digest(canonical_payload),
+                    validation_outcome=VALIDATION_EVIDENCE_OUTCOME,
+                    validation_issue_codes=tuple(
+                        issue.code for issue in validation_result.issues
+                    ),
+                    validated_at=now,
+                    expires_at=now + self._snapshot_ttl,
+                )
+                if input_use_binding_plan is None:
+                    persisted = self._repository.create_validated_input_snapshot(
+                        snapshot,
+                        project_sample_selection=project_sample_selection,
+                        reference_binding=reference_evidence,
+                    )
+                else:
+                    persisted = self._repository.create_validated_input_snapshot(
+                        snapshot,
+                        project_sample_selection=project_sample_selection,
+                        input_use_binding_plan=input_use_binding_plan,
+                        reference_binding=reference_evidence,
+                    )
+            except ProjectSampleSelectionError:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="DATA_BINDING_SELECTION_INVALID",
+                            message=(
+                                "The selected Project or Sample revisions are not "
+                                "eligible for a new validation snapshot."
+                            ),
+                            source="data_registry",
+                            path="project_id",
+                        )
+                    ]
+                )
+            except InputBindingSelectionError:
                 return Result.failure(
                     [
                         Issue(
                             code="INPUT_BINDING_SELECTION_INVALID",
                             message=(
-                                "The selected input revisions do not match the "
-                                "exact workflow input-use contract."
+                                "The selected input revisions are not eligible for "
+                                "this validation snapshot."
                             ),
                             source="input_registry",
                             path="input_selections",
                         )
                     ]
                 )
-            if any(
-                input_use.provenance_mode is InputProvenanceMode.MANAGED_REVISION_V1
-                for input_use in input_use_binding_plan.input_uses
-            ):
+            except ReferenceBindingSelectionError:
                 return Result.failure(
                     [
                         Issue(
-                            code="INPUT_USE_CAPABILITY_UNAVAILABLE",
-                            message=(
-                                "Managed provenance is not qualified for this "
-                                "exact workflow input use."
-                            ),
-                            source="input_registry",
-                            path="input_selections",
+                            code="REFERENCE_PROFILE_STALE",
+                            message="The selected Reference Profile revision is stale.",
+                            source="reference_profile",
+                            path="reference_profile_revision_id",
                         )
                     ]
                 )
+            except Exception:
+                return Result.failure(
+                    [
+                        Issue(
+                            code="VALIDATED_SNAPSHOT_PERSISTENCE_FAILED",
+                            message="Validated inputs could not be saved. Validate again.",
+                            source="persistence",
+                            path="inputs",
+                        )
+                    ]
+                )
+            return Result.success(persisted, issues=validation_result.issues)
+        finally:
+            generation_watches.close()
+            for descriptor, _path, _access, _revision in held_leaves:
+                os.close(descriptor)
 
-        if reference_evidence is None:
-            after_result = self._build_identity_provider.capture_executable(workflow_id)
-        else:
-            after_result = self._build_identity_provider.capture_resolved_executable(
-                validation_adapter
-            )
-        if after_result.is_failure or after_result.value is None:
-            return Result.failure([_build_unavailable_issue()])
-        if not before_result.value.matches(after_result.value):
-            return Result.failure(
-                [
-                    Issue(
-                        code="VALIDATION_WORKFLOW_BUILD_CHANGED",
-                        message="Workflow source changed during validation; validate again.",
-                        source="workflow_build_identity",
-                        path="workflow",
-                    )
-                ]
-            )
+    def _bind_selected_files(
+        self,
+        adapter: WorkflowAdapter,
+        inputs: WorkflowInputs,
+        project_sample_selection: ProjectSampleSelection | None,
+        selections: tuple[InputFileRevisionSelection, ...],
+        held_leaves: list[tuple[int, str, InputFileAccess, InputFileRevision]],
+    ) -> Result[ValidatedInputSnapshot | None] | None:
+        """Open each selected revision and require the validated path to be that leaf."""
 
+        locator = getattr(adapter, "locate_managed_input_path", None)
+        if not selections or not callable(locator):
+            return None
+        if (
+            project_sample_selection is None
+            or self._input_registry is None
+            or self._storage_pool_config_path is None
+        ):
+            return _input_binding_refusal()
         try:
-            canonical_payload = canonical_workflow_inputs_json(inputs)
-            now = _now_utc(self._clock)
-            snapshot = ValidatedInputSnapshot(
-                snapshot_id=self._snapshot_id_factory(),
-                workflow_id=validation_adapter.metadata.workflow_id,
-                adapter_version=validation_adapter.metadata.version,
-                schema_version=schema.schema_version,
-                schema_dialect=schema.schema_dialect,
-                workflow_build_identity=after_result.value,
-                canonical_payload=canonical_payload,
-                payload_digest_scheme=PAYLOAD_DIGEST_SCHEME,
-                payload_digest=build_workflow_inputs_digest(canonical_payload),
-                validation_outcome=VALIDATION_EVIDENCE_OUTCOME,
-                validation_issue_codes=tuple(
-                    issue.code for issue in validation_result.issues
-                ),
-                validated_at=now,
-                expires_at=now + self._snapshot_ttl,
-            )
-            if input_use_binding_plan is None:
-                persisted = self._repository.create_validated_input_snapshot(
-                    snapshot,
-                    project_sample_selection=project_sample_selection,
-                    reference_binding=reference_evidence,
+            config = load_private_storage_pool_config(self._storage_pool_config_path)
+        except (OSError, TypeError, ValueError):
+            return _input_binding_refusal()
+        registry = self._input_registry
+        project_id = project_sample_selection.project_id
+        for selection in selections:
+            revision_ids = selection.input_file_revision_ids
+            if len(revision_ids) != 1:
+                return _input_binding_refusal()
+            try:
+                revision = registry.get_input_file_revision(revision_ids[0])
+                input_file = registry.get_input_file(revision.input_file_id)
+                pool = registry.get_storage_pool(revision.storage_pool_id)
+                candidate = locator(
+                    inputs,
+                    key=selection.input_use_key,
+                    occurrence=selection.occurrence,
                 )
-            else:
-                persisted = self._repository.create_validated_input_snapshot(
-                    snapshot,
-                    project_sample_selection=project_sample_selection,
-                    input_use_binding_plan=input_use_binding_plan,
-                    reference_binding=reference_evidence,
-                )
-        except ProjectSampleSelectionError:
-            return Result.failure(
-                [
-                    Issue(
-                        code="DATA_BINDING_SELECTION_INVALID",
-                        message=(
-                            "The selected Project or Sample revisions are not "
-                            "eligible for a new validation snapshot."
-                        ),
-                        source="data_registry",
-                        path="project_id",
-                    )
-                ]
-            )
-        except InputBindingSelectionError:
-            return Result.failure(
-                [
-                    Issue(
-                        code="INPUT_BINDING_SELECTION_INVALID",
-                        message=(
-                            "The selected input revisions are not eligible for "
-                            "this validation snapshot."
-                        ),
-                        source="input_registry",
-                        path="input_selections",
-                    )
-                ]
-            )
-        except ReferenceBindingSelectionError:
-            return Result.failure(
-                [
-                    Issue(
-                        code="REFERENCE_PROFILE_STALE",
-                        message="The selected Reference Profile revision is stale.",
-                        source="reference_profile",
-                        path="reference_profile_revision_id",
-                    )
-                ]
-            )
-        except Exception:
-            return Result.failure(
-                [
-                    Issue(
-                        code="VALIDATED_SNAPSHOT_PERSISTENCE_FAILED",
-                        message="Validated inputs could not be saved. Validate again.",
-                        source="persistence",
-                        path="inputs",
-                    )
-                ]
-            )
-        return Result.success(persisted, issues=validation_result.issues)
+            except (AttributeError, KeyError, LookupError, TypeError, ValueError):
+                return _input_binding_refusal()
+            if (
+                not isinstance(revision, InputFileRevision)
+                or not isinstance(input_file, InputFile)
+                or not isinstance(candidate, str)
+                or revision.project_id != project_id
+                or input_file.project_id != project_id
+                or input_file.archived_at is not None
+                or getattr(pool, "archived_at", None) is not None
+            ):
+                return _input_binding_refusal()
+            try:
+                access = InputFileAccess.from_config(config, pool.config_key)
+                descriptor = access.bind_candidate(revision, candidate)
+            except InputFileAccessError:
+                return _input_binding_refusal()
+            held_leaves.append((descriptor, candidate, access, revision))
+        return None
+
+    def _selected_files_still_match(
+        self,
+        held_leaves: list[tuple[int, str, InputFileAccess, InputFileRevision]],
+    ) -> bool:
+        """Reject a leaf replaced after it was opened and before the snapshot is stored."""
+
+        for descriptor, candidate, access, revision in held_leaves:
+            try:
+                info = os.fstat(descriptor)
+                access.candidate_still_matches(revision, candidate, info)
+            except (InputFileAccessError, OSError):
+                return False
+        return True
 
     def get_validated_input_binding(
         self,

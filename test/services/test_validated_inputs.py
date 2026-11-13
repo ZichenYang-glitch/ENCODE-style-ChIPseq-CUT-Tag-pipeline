@@ -454,7 +454,7 @@ def test_managed_selection_fails_closed_without_scientific_validator() -> None:
     )
 
     assert result.is_failure
-    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    assert result.issues[0].code == "INPUT_BINDING_SELECTION_INVALID"
     with pytest.raises(KeyError):
         repository.get_validated_input_snapshot(
             "vsnap_0123456789abcdef0123456789abcdef"
@@ -691,7 +691,7 @@ def test_managed_selection_is_unavailable_until_execution_handoff_is_qualified(
     )
 
     assert result.is_failure
-    assert result.issues[0].code == "INPUT_USE_CAPABILITY_UNAVAILABLE"
+    assert result.issues[0].code == "INPUT_BINDING_SELECTION_INVALID"
     assert adapter.managed_validation_calls == 0
     with pytest.raises(KeyError):
         repository.get_validated_input_snapshot(

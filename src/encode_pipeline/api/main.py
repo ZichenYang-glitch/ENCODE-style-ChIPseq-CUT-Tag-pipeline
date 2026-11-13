@@ -26,7 +26,11 @@ from encode_pipeline.api.models import (
     RunResponse,
     ValidationResponse,
 )
-from encode_pipeline.api.request_limits import AuthoringRequestLimitMiddleware
+from encode_pipeline.api.request_limits import (
+    AgentAuthoringRequestLimitMiddleware,
+    AuthoringRequestLimitMiddleware,
+)
+from encode_pipeline.api.routes.authoring import authoring_error_response
 from encode_pipeline.api.routes import api_v1_router
 from encode_pipeline.persistence import (
     DATABASE_URL_ENV,
@@ -37,10 +41,17 @@ from encode_pipeline.persistence import (
 from encode_pipeline.persistence.authentication import (
     SqlAlchemyAuthenticationRepository,
 )
+from encode_pipeline.persistence.authoring import SqlAlchemyAuthoringRepository
+from encode_pipeline.platform.authoring import AuthoringRejected
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
+from encode_pipeline.services.authoring import AuthoringService
+from encode_pipeline.api.authoring_models import AuthoringValidationResponse
+from encode_pipeline.services.authoring_bridge import UnavailableAuthoringBridge
+from encode_pipeline.services.peri_runtime.socket_server import RemoteAuthoringBridge
+from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -88,6 +99,16 @@ from encode_pipeline.workers.settings import (
 
 
 AUTH_SECURE_COOKIES_ENV = "ENCODE_PIPELINE_AUTH_SECURE_COOKIES"
+PERI_OWNER_SOCKET_ENV = "HELIXWEAVE_PERI_OWNER_SOCKET"
+
+
+def _load_authoring_bridge(environ: dict[str, str]):
+    """Connect to the single owner. This process does not spawn natives."""
+
+    raw_socket = environ.get(PERI_OWNER_SOCKET_ENV)
+    if not raw_socket:
+        return UnavailableAuthoringBridge()
+    return RemoteAuthoringBridge(Path(raw_socket))
 
 
 def create_app(
@@ -132,6 +153,7 @@ def create_app(
         AuthoringRequestLimitMiddleware,
         max_request_bytes=MAX_AUTHORING_REQUEST_BYTES,
     )
+    app.add_middleware(AgentAuthoringRequestLimitMiddleware)
 
     registry = (
         create_default_workflow_registry(environ=settings_environment)
@@ -197,6 +219,8 @@ def create_app(
         repository=persistence.repository,
         reference_profile_binding_service=reference_profile_binding_service,
         reference_profile_catalog=reference_profile_service,
+        input_registry=persistence.input_registry_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
     )
     validated_run_creation_service = ValidatedRunCreationService(
         run_service=run_service,
@@ -255,6 +279,30 @@ def create_app(
     app.state.recovered_run_ids = tuple(run.run_id for run in recovered_runs)
     app.state.validation_service = validation_service
     app.state.validated_input_service = validated_input_service
+    authoring_repository = SqlAlchemyAuthoringRepository(
+        create_session_factory(persistence.engine)
+    )
+    authoring_bridge = _load_authoring_bridge(settings_environment)
+    app.state.authoring_bridge = authoring_bridge
+    app.state.authoring_service = AuthoringService(
+        repository=authoring_repository,
+        registry=registry,
+        data_registry=DataRegistryService(
+            repository=persistence.data_registry_repository
+        ),
+        validated_inputs=validated_input_service,
+        snapshots=persistence.repository,
+        bridge=authoring_bridge,
+        input_registry=persistence.input_registry_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
+    )
+
+    def _drop_authoring_natives(digests: tuple[str, ...]) -> None:
+        drop = getattr(app.state.authoring_bridge, "drop_authorizations", None)
+        if drop is not None:
+            drop(digests)
+
+    authentication_repository.add_authoring_revocation_listener(_drop_authoring_natives)
     app.state.reference_profile_service = reference_profile_service
     app.state.reference_profile_binding_service = reference_profile_binding_service
     app.state.reference_profile_resolver = reference_profile_resolver
@@ -287,6 +335,7 @@ def create_app(
     app.include_router(api_v1_router, prefix="/api/v1")
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(AuthApiError, _handle_auth_api_error)
+    app.add_exception_handler(AuthoringRejected, _handle_authoring_rejected)
     app.add_exception_handler(Exception, _handle_internal_server_error)
 
     return app
@@ -330,12 +379,25 @@ def _issue_from_request_validation_error(
     )
 
 
+async def _handle_authoring_rejected(
+    request: Request,
+    exc: AuthoringRejected,
+) -> JSONResponse:
+    """Return the stable authoring envelope without exception text."""
+
+    del request
+    return authoring_error_response(exc)
+
+
 async def _handle_request_validation_error(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
     """Return 400 with the PR84 API_REQUEST_INVALID envelope."""
     route = request.scope.get("route")
+    operation_id = getattr(route, "operation_id", None)
+    if isinstance(operation_id, str) and operation_id.startswith("authoring"):
+        return authoring_error_response(AuthoringRejected("INVALID_REQUEST"))
     if getattr(route, "operation_id", None) == "listArtifactPublications":
         issue = ArtifactPublicationIssueResponse(
             code="API_REQUEST_INVALID",
@@ -666,6 +728,26 @@ async def _handle_internal_server_error(
             status_code=500,
             content=body.model_dump(mode="json", exclude_none=True),
         )
+    if getattr(route, "operation_id", None) == "authoringValidateDraft":
+        issue = Issue(
+            code="INTERNAL_SERVER_ERROR",
+            message="An internal server error occurred.",
+            severity="error",
+            path=None,
+            source="runtime",
+            technical_message=None,
+            hint=None,
+            context={},
+        )
+        body = AuthoringValidationResponse(
+            draft_revision=0,
+            ok=False,
+            workflow_id=None,
+            value=None,
+            snapshot=None,
+            issues=[IssueResponse.model_validate(issue.to_dict())],
+        )
+        return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
     workflow_id = request.path_params.get("workflow_id")
     issue = Issue(
         code="INTERNAL_SERVER_ERROR",

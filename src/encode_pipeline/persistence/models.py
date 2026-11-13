@@ -2161,3 +2161,209 @@ class SecurityAuditEventRow(Base):
     resource_kind: Mapped[str | None] = mapped_column(String(24))
     resource_id: Mapped[str | None] = mapped_column(String(88))
     reason_code: Mapped[str | None] = mapped_column(String(40))
+
+
+class AgentAuthoringSessionRow(Base):
+    """Owner-scoped authoring draft and its single active connection fence."""
+
+    __tablename__ = "agent_authoring_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(sid) = 36 AND substr(sid, 1, 4) = 'aas_'",
+            name="ck_agent_authoring_sessions_id",
+        ),
+        CheckConstraint(
+            "length(schema_digest) = 64 AND schema_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_agent_authoring_sessions_schema_digest",
+        ),
+        CheckConstraint(
+            "projection_digest IS NULL OR (length(projection_digest) = 64 "
+            "AND projection_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_projection_digest",
+        ),
+        CheckConstraint(
+            "validated_schema_digest IS NULL OR "
+            "(length(validated_schema_digest) = 64 AND "
+            "validated_schema_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_schema",
+        ),
+        CheckConstraint(
+            "validated_projection_digest IS NULL OR "
+            "(length(validated_projection_digest) = 64 AND "
+            "validated_projection_digest NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_authoring_sessions_validated_projection",
+        ),
+        CheckConstraint(
+            "length(draft_digest) = 64 AND draft_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_agent_authoring_sessions_draft_digest",
+        ),
+        CheckConstraint(
+            "draft_revision >= 0",
+            name="ck_agent_authoring_sessions_revision",
+        ),
+        CheckConstraint(
+            "connection_state IN ('closed', 'blocked', 'ready')",
+            name="ck_agent_authoring_sessions_connection_state",
+        ),
+        CheckConstraint(
+            "generation >= 0",
+            name="ck_agent_authoring_sessions_generation",
+        ),
+        CheckConstraint(
+            "content_updated_at >= created_at",
+            name="ck_agent_authoring_sessions_content_order",
+        ),
+        CheckConstraint(
+            "draft_expires_at > content_updated_at",
+            name="ck_agent_authoring_sessions_expiry",
+        ),
+        CheckConstraint(
+            "purge_after > draft_expires_at",
+            name="ck_agent_authoring_sessions_purge",
+        ),
+        ForeignKeyConstraint(
+            ["owner_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_agent_authoring_sessions_owner",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_agent_authoring_sessions_project",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_agent_authoring_sessions_owner_updated",
+            "owner_user_id",
+            "content_updated_at",
+            "sid",
+        ),
+        Index(
+            "ix_agent_authoring_sessions_auth",
+            "originating_auth_session_ref",
+        ),
+        Index(
+            "ix_agent_authoring_sessions_epoch",
+            "bridge_owner_epoch",
+        ),
+    )
+
+    sid: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    schema_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    projection_digest: Mapped[str | None] = mapped_column(String(64))
+    draft_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    draft_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    content_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    draft_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    purge_after: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_snapshot_id: Mapped[str | None] = mapped_column(String(38))
+    last_validated_revision: Mapped[int | None] = mapped_column(Integer)
+    validation_issue_codes: Mapped[list[str] | None] = mapped_column(JSON)
+    validation_issues: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    validated_schema_digest: Mapped[str | None] = mapped_column(String(64))
+    validated_projection_digest: Mapped[str | None] = mapped_column(String(64))
+    connection_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    connection_reason_code: Mapped[str | None] = mapped_column(String(64))
+    originating_auth_session_ref: Mapped[str | None] = mapped_column(String(64))
+    instance_id: Mapped[str | None] = mapped_column(String(36))
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_owner_epoch: Mapped[str | None] = mapped_column(String(64))
+    connection_capability_digest: Mapped[str | None] = mapped_column(String(64))
+
+
+class AgentAuthoringTurnRow(Base):
+    """One structured assistant turn, optional proposal, and adoption receipt."""
+
+    __tablename__ = "agent_authoring_turns"
+    __table_args__ = (
+        CheckConstraint(
+            "length(turn_id) = 36 AND substr(turn_id, 1, 4) = 'atr_'",
+            name="ck_agent_authoring_turns_id",
+        ),
+        CheckConstraint(
+            "status IN ('generating', 'completed', 'failed')",
+            name="ck_agent_authoring_turns_status",
+        ),
+        CheckConstraint(
+            "decision IS NULL OR decision IN "
+            "('pending', 'adopted', 'rejected', 'invalidated')",
+            name="ck_agent_authoring_turns_decision",
+        ),
+        CheckConstraint(
+            "base_revision >= 0",
+            name="ck_agent_authoring_turns_revision",
+        ),
+        UniqueConstraint(
+            "sid",
+            "client_turn_id",
+            name="uq_agent_authoring_turns_client",
+        ),
+        UniqueConstraint(
+            "proposal_id",
+            name="uq_agent_authoring_turns_proposal",
+        ),
+        ForeignKeyConstraint(
+            ["sid"],
+            ["agent_authoring_sessions.sid"],
+            name="fk_agent_authoring_turns_session",
+            ondelete="CASCADE",
+        ),
+        Index("ix_agent_authoring_turns_session_status", "sid", "status"),
+        Index(
+            "ix_agent_authoring_turns_generation",
+            "sid",
+            "generation",
+        ),
+    )
+
+    turn_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    sid: Mapped[str] = mapped_column(String(36), nullable=False)
+    client_turn_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    question_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    originating_auth_session_ref: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    instance_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    bridge_owner_epoch: Mapped[str] = mapped_column(String(64), nullable=False)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    projection_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(String(64))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_kind: Mapped[str | None] = mapped_column(String(16))
+    result_digest: Mapped[str | None] = mapped_column(String(64))
+    proposal_id: Mapped[str | None] = mapped_column(String(37))
+    proposal_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    proposal_digest: Mapped[str | None] = mapped_column(String(64))
+    proposal_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    decision: Mapped[str | None] = mapped_column(String(16))
+    invalidation_reason: Mapped[str | None] = mapped_column(String(64))
+    adopt_request_digest: Mapped[str | None] = mapped_column(String(64))
+    adoption_actor_user_id: Mapped[str | None] = mapped_column(String(36))
+    adoption_auth_session_ref: Mapped[str | None] = mapped_column(String(64))
+    adopted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_revision: Mapped[int | None] = mapped_column(Integer)
+    adoption_changed: Mapped[bool | None] = mapped_column(Boolean)
+    adoption_content_digest: Mapped[str | None] = mapped_column(String(64))
+    adoption_draft_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
