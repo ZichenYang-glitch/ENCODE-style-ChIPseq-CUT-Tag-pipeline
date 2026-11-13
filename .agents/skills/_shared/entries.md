@@ -84,7 +84,7 @@ checkout's `profiles/default` sets another `configfile`, `use-conda`,
 `rerun-incomplete`, and `keep-going`. Pass `--profile none` and
 `--workflow-profile none` when the user chose a config file. Use
 `python -m snakemake --profile profiles/default` only when they asked for
-that scheduler profile. That profile is not `analysis_profile`.
+that scheduler profile. It does not select the analysis path.
 
 `scripts/validate_samples.py` is a provenance-checked wrapper around
 `encode_pipeline.cli.validate`. It validates one config file. It does not see
@@ -177,8 +177,10 @@ Records, under the configured outdir:
 - `.helixweave/analysis_identity.json`
 - `.helixweave/effective_config.json`
 
-The marker stores `marker_schema_version`, `analysis_profile`,
-`scientific_policy_revision`, and a hash. The hash covers the validated
+The marker stores `marker_schema_version`,
+`scientific_policy_revision`, and a hash. Current markers are schema 3 and
+do not store `analysis_profile`. Older markers are refused as an outdated
+format. The hash covers the validated
 config plus parsed samples, excluding only `outdir`, `threads`, and the
 `samples` path. `scientific_policy_revision` is internal
 (`src/encode_pipeline/config/scientific_policy.py`); users cannot set it.
@@ -187,9 +189,9 @@ Input paths are canonical absolute locations.
 | State | Behavior |
 | --- | --- |
 | New directory, or only `.snakemake` and `.helixweave` | Marker is created on a real run, then scientific tasks run |
-| Marker matches profile, policy revision, and identity, and the effective-config record recomputes to that identity | Resume is allowed |
+| Marker matches policy revision and identity, and the effective-config record recomputes to that identity | Resume is allowed |
 | Scientific outputs exist and there is no marker | Refused. Keep the directory. Use a fresh outdir |
-| Outdated marker, other profile, other policy revision, or different identity | Refused. Use a fresh outdir |
+| Outdated marker, a marker that still names `analysis_profile`, another policy revision, or a different identity | Refused. Use a fresh outdir |
 | Symlink or non-regular metadata | Refused. Do not repair or replace it |
 | Marker valid but effective-config record missing, unreadable, or inconsistent | Refused. Do not reconstruct it from the current config |
 
@@ -198,12 +200,10 @@ and does not create `analysis_identity.json`, `effective_config.json`, or
 scientific outputs. Snakemake may still create `.snakemake` scheduler
 metadata.
 
-`analysis_profile` is `legacy` or `updated`. Omitted configs resolve
-`config_schema_version` to `1.0.0`, whose profile default is `legacy`.
-Schema `2.0.0` defaults the profile to `updated`. Do not infer a profile
-from a missing key without running the validator. Read
-`src/encode_pipeline/config/validator.py` (`_validate_analysis_profile`)
-and `workflow/schemas/config.schema.yaml`.
+`analysis_profile` and `remove_dup` are rejected. Omitted configs resolve
+`config_schema_version` to `1.0.0` and use the same analysis path as
+`2.0.0`. Read `src/encode_pipeline/config/validator.py`
+(`_reject_removed_config_keys`) and `workflow/schemas/config.schema.yaml`.
 
 ## ENCODE QC contract
 
@@ -254,8 +254,8 @@ that type.
 ## Evidence to keep
 
 For a run that actually happens, record the source SHA and whether the
-worktree was clean, the config path, validated `analysis_profile` and
-`config_schema_version`, checkout `scientific_policy_revision`, outdir,
+worktree was clean, the config path, validated `config_schema_version`
+and `duplicate_analysis`, checkout `scientific_policy_revision`, outdir,
 and whether both run records exist. Also record the interpreter and tool
 paths and versions used by that command. For a platform run also record
 `workflow_id`, `snapshot_id`, `run_id`, and the artifact or QC generation.

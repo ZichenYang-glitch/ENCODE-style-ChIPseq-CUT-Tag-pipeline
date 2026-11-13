@@ -1,8 +1,7 @@
-"""Real-tool contract for legacy duplicate backend dispatch.
+"""Real-tool contract for Picard duplicate marking.
 
-The legacy profile must keep the original Picard-available dispatch and the
-samtools-only fallback. The updated profile uses Picard mark-only and is
-covered by test_analysis_chain_b1.py.
+Picard MarkDuplicates marks duplicates and keeps every alignment in
+final.bam. A PATH that has samtools but not Picard fails closed.
 """
 
 import os
@@ -95,17 +94,18 @@ def _make_duplicate_bam(tmp_path, samtools_path):
     return bam
 
 
-def _run(command, *, env=None, cwd=None):
+def _run(command, *, env=None, cwd=None, check=True):
     result = subprocess.run(command, capture_output=True, text=True, env=env, cwd=cwd)
-    assert result.returncode == 0, (
-        f"Command failed: {command!r}\n"
-        f"stdout:\n{result.stdout[-1000:]}\n"
-        f"stderr:\n{result.stderr[-1000:]}"
-    )
+    if check:
+        assert result.returncode == 0, (
+            f"Command failed: {command!r}\n"
+            f"stdout:\n{result.stdout[-1000:]}\n"
+            f"stderr:\n{result.stderr[-1000:]}"
+        )
     return result
 
 
-def _write_profile(tmp_path, *, remove_dup):
+def _write_profile(tmp_path):
     (tmp_path / "samples.tsv").write_text(
         "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\t"
         "bowtie2_index\texperiment\tcondition\treplicate\tbiological_replicate\t"
@@ -121,7 +121,7 @@ def _write_profile(tmp_path, *, remove_dup):
                 "outdir: results",
                 "threads: 1",
                 "mapq: 30",
-                f'remove_dup: "{remove_dup}"',
+                'duplicate_analysis: "exclude"',
                 "trim: true",
                 "use_control: false",
                 "multiqc: false",
@@ -146,6 +146,10 @@ def _run_marker(tmp_path, snakemake_path):
             snakemake_path,
             "-s",
             str(SNAKEFILE),
+            "--profile",
+            "none",
+            "--workflow-profile",
+            "none",
             "--configfile",
             str(tmp_path / "config.yaml"),
             "-j",
@@ -159,7 +163,7 @@ def _run_marker(tmp_path, snakemake_path):
     )
 
 
-def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
+def _run_duplicate_rule(tmp_path, snakemake_path, *, path, check=True):
     env = os.environ.copy()
     env["PATH"] = f"{path}:/usr/bin:/bin"
     return _run(
@@ -167,6 +171,10 @@ def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
             snakemake_path,
             "-s",
             str(SNAKEFILE),
+            "--profile",
+            "none",
+            "--workflow-profile",
+            "none",
             "--configfile",
             str(tmp_path / "config.yaml"),
             "-j",
@@ -175,54 +183,113 @@ def _run_duplicate_rule(tmp_path, snakemake_path, *, path):
         ],
         env=env,
         cwd=tmp_path,
+        check=check,
     )
 
 
-@pytest.mark.parametrize(
-    ("remove_dup", "with_picard"),
-    [
-        ("yes", True),
-        ("yes", False),
-        ("no", True),
-        ("no", False),
-    ],
-)
-def test_legacy_duplicate_dispatch(
-    tmp_path, snakemake_path, samtools_path, picard_path, remove_dup, with_picard
+def test_picard_marks_duplicates_without_removing_them(
+    tmp_path, snakemake_path, samtools_path, picard_path
 ):
-    _write_profile(tmp_path, remove_dup=remove_dup)
+    _write_profile(tmp_path)
     marker = _run_marker(tmp_path, snakemake_path)
     assert marker.returncode == 0, marker.stderr[-1000:]
     _make_duplicate_bam(tmp_path, samtools_path)
 
-    bin_dir = tmp_path / ("picard-bin" if with_picard else "samtools-bin")
+    bin_dir = tmp_path / "picard-bin"
     bin_dir.mkdir()
     (bin_dir / "samtools").symlink_to(samtools_path)
-    if with_picard:
-        (bin_dir / "picard").symlink_to(picard_path)
+    (bin_dir / "picard").symlink_to(picard_path)
     conda = shutil.which("conda")
     if conda:
         (bin_dir / "conda").symlink_to(conda)
-    assert bin_dir.is_relative_to(tmp_path)
-    tool_path = str(bin_dir)
 
-    _run_duplicate_rule(tmp_path, snakemake_path, path=tool_path)
+    result = _run_duplicate_rule(tmp_path, snakemake_path, path=str(bin_dir))
+    assert result.returncode == 0, result.stderr[-1000:]
 
     metrics = (tmp_path / "results/T1/01_qc/T1.dup_metrics.txt").read_text(
         encoding="utf-8"
     )
+    assert "picard.sam.DuplicationMetrics" in metrics
+    assert "PERCENT_DUPLICATION" in metrics
+    assert "samtools markdup" not in metrics
     final_bam = tmp_path / "results/T1/02_align/T1.final.bam"
-    if with_picard:
-        assert "picard.sam.DuplicationMetrics" in metrics
-        assert "PERCENT_DUPLICATION" in metrics
-    else:
-        if remove_dup == "yes":
-            assert "samtools markdup used (picard not found)." in metrics
-        else:
-            assert "picard not found; duplicate metrics unavailable." in metrics
-
     count = int(_run([samtools_path, "view", "-c", str(final_bam)]).stdout.strip())
-    if remove_dup == "yes":
-        assert count == 2
-    else:
-        assert count == 4
+    duplicate_count = int(
+        _run(
+            [samtools_path, "view", "-c", "-f", "0x400", str(final_bam)]
+        ).stdout.strip()
+    )
+    assert count == 4
+    assert duplicate_count > 0
+
+
+def test_missing_picard_fails_without_samtools_fallback(
+    tmp_path, snakemake_path, samtools_path
+):
+    _write_profile(tmp_path)
+    marker = _run_marker(tmp_path, snakemake_path)
+    assert marker.returncode == 0, marker.stderr[-1000:]
+    _make_duplicate_bam(tmp_path, samtools_path)
+
+    bin_dir = tmp_path / "samtools-bin"
+    bin_dir.mkdir()
+    (bin_dir / "samtools").symlink_to(samtools_path)
+    conda = shutil.which("conda")
+    if conda:
+        (bin_dir / "conda").symlink_to(conda)
+
+    result = _run_duplicate_rule(
+        tmp_path, snakemake_path, path=str(bin_dir), check=False
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "Picard MarkDuplicates is required" in output
+    assert "samtools markdup used" not in output
+    assert not (tmp_path / "results/T1/02_align/T1.final.bam").exists()
+
+
+def test_sequencing_duplicate_removal_is_rejected_before_picard(
+    tmp_path, snakemake_path, samtools_path, picard_path
+):
+    """The reviewed retain bypass never reaches MarkDuplicates.
+
+    duplicate_analysis=retain plus REMOVE_SEQUENCING_DUPLICATES=true used to
+    validate and then delete an optical duplicate pair. Admission now rejects
+    that extra_args value, so the production rule does not write final.bam.
+    """
+    _write_profile(tmp_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'duplicate_analysis: "exclude"',
+            "\n".join(
+                [
+                    'duplicate_analysis: "retain"',
+                    "tool_parameters:",
+                    "  picard_markduplicates:",
+                    "    extra_args: REMOVE_SEQUENCING_DUPLICATES=true",
+                ]
+            ),
+        ),
+        encoding="utf-8",
+    )
+    _make_duplicate_bam(tmp_path, samtools_path)
+
+    bin_dir = tmp_path / "picard-bin"
+    bin_dir.mkdir()
+    (bin_dir / "samtools").symlink_to(samtools_path)
+    (bin_dir / "picard").symlink_to(picard_path)
+    conda = shutil.which("conda")
+    if conda:
+        (bin_dir / "conda").symlink_to(conda)
+
+    result = _run_duplicate_rule(
+        tmp_path, snakemake_path, path=str(bin_dir), check=False
+    )
+    output = result.stdout + result.stderr
+    final_bam = tmp_path / "results/T1/02_align/T1.final.bam"
+    assert result.returncode != 0, output
+    assert "REMOVE_SEQUENCING_DUPLICATES" in output
+    assert "which this workflow manages" in output
+    assert not final_bam.exists()
+    assert not (tmp_path / "results/T1/01_qc/T1.dup_metrics.txt").exists()

@@ -29,16 +29,10 @@ Paired-end and single-end checks:
   That path follows the active analysis namespace (`OUTDIR`, which is
   `<outdir>/analysis_filtered` when blacklist analysis filtering is on).
   It is not the control row's raw `final.bam`.
-- `control_bam` is an external path, not a sample row.
-  `analysis_profile=updated` rejects it and tells you to use a FASTQ-based
-  `control_sample` (`validate_reference_control_admission` in
+- `control_bam` is an external path, not a sample row. It is rejected.
+  Use a FASTQ `control_sample` (`validate_reference_control_admission` in
   `src/encode_pipeline/samples/admission.py`, and `_macs3_inputs`).
-  `analysis_profile=legacy` may pass that path to MACS3 only when existing
-  admission allows it. With `use_control: true` the file must exist, the
-  experiment cannot mix control types, and
-  `external_control_policy=validate` also requires a coordinate-sorted
-  header whose contigs match `chrom_sizes`. Platform admission forces
-  that validate policy. An arbitrary BAM is not accepted.
+  `use_control: false` leaves an unused reference ignored.
 - `use_control: false` ignores both control fields. Control rows are not
   scheduled as active outputs. See `docs/configuration.md`, section
   `use_control`.
@@ -82,12 +76,10 @@ when `use_control` is true, are checked without `--strict-inputs`. Use
 a real run.
 
 The validator prints a sample count, `use_control`, and, when set, the
-genome-resource keys. It does not print `analysis_profile`. Read that from
-the workflow summary
-below. An omitted profile is resolved only by
-`src/encode_pipeline/config/validator.py` (`_validate_analysis_profile`)
-together with `workflow/schemas/config.schema.yaml`. Run the validator and
-the dry-run. Do not choose `legacy` or `updated` from a missing key.
+genome-resource keys. Read `duplicate_analysis` and
+`scientific_policy_revision` from the workflow summary below.
+`analysis_profile` and `remove_dup` are rejected. Run the validator and
+the dry-run.
 
 Exit 2 with `source provenance check failed [reason_code]` is not a sample
 or config error. The validator did not run. Leave the files unchanged and
@@ -110,7 +102,7 @@ Dry-run, from the same directory. `--profile none` and
 `--workflow-profile none` stop Snakemake 8.30 from loading `profiles/default`
 out of the current directory or the Snakefile directory. That profile selects
 `config/config.yaml`, `use-conda`, `rerun-incomplete`, and `keep-going`, and
-it is not `analysis_profile`. `python` is the interpreter of this run's
+it does not select the analysis path. `python` is the interpreter of this run's
 environment. `verify-checkout` does not certify the Snakemake process. The
 Snakefile calls `import_checkout_package` in that process before configuration.
 
@@ -148,10 +140,10 @@ On startup the workflow prints, to stderr, unless the invocation is
 
 ```text
 HelixWeave effective run configuration:
-  analysis_profile=<profile> config_schema_version=<version> scientific_policy_revision=<revision>
+  config_schema_version=<version> scientific_policy_revision=<revision>
 ```
 
-Record those three values from that line. When the summary shows
+Record those values from that line. When the summary shows
 `duplicate_analysis=auto(...)` and CUT&Tag resolves to `retain`, say that
 CUT&Tag auto-retain is a candidate pending the SCI-7 freeze. Read
 `docs/assay-policy.md`.
@@ -172,18 +164,15 @@ env -u PYTHONPATH -u PYTHONHOME \
 `--rerun-incomplete` reruns jobs that left incomplete outputs. It does not
 make a mismatched outdir reusable.
 
-## `profiles/default` and `analysis_profile`
+## `profiles/default`
 
 `profiles/default` is a Snakemake scheduler profile. Its `config.yaml` sets
 `configfile`, `cores`, `use-conda`, `conda-frontend`, `rerun-incomplete`,
 `keep-going`, and `show-failed-logs`.
 `snakemake --profile profiles/default` starts a real run with those settings.
 Read `profiles/default/config.yaml` before using it, and use it only when the
-user authorizes that real run.
-
-`analysis_profile` is the scientific profile, `legacy` or `updated`. It is a
-config key, validated by the existing validator, and stored in the run marker.
-The scheduler profile does not select it.
+user authorizes that real run. The scheduler profile does not select the
+analysis path. `analysis_profile` is not a configuration key.
 
 ## Outdir identity
 
@@ -192,8 +181,9 @@ Records, under the configured outdir:
 - `.helixweave/analysis_identity.json`
 - `.helixweave/effective_config.json`
 
-The marker stores `marker_schema_version`, `analysis_profile`,
-`scientific_policy_revision`, and an identity hash. The workflow computes the
+The marker stores `marker_schema_version`,
+`scientific_policy_revision`, and an identity hash. Schema 3 markers do not
+store `analysis_profile`. The workflow computes the
 hash. The hash covers the validated config plus parsed samples, and excludes
 `outdir`, `threads`, and the `samples` path. Path-valued inputs use canonical
 absolute locations. `scientific_policy_revision` comes from
@@ -206,17 +196,16 @@ and do not reconstruct a record from the current config.
 | What you find | What the workflow does |
 | --- | --- |
 | New directory, or only `.snakemake` and `.helixweave` | A real run creates the marker, then scientific tasks run |
-| Marker matches profile, policy revision, and identity, and the effective-config record recomputes to that identity | Resume is allowed |
+| Marker matches policy revision and identity, and the effective-config record recomputes to that identity | Resume is allowed |
 | Scientific outputs exist and there is no marker | Refused. Unmarked outdir. Use a fresh outdir |
-| Outdated marker format | Refused. Use a fresh outdir |
-| Marker owned by another `analysis_profile` | Refused. Use a fresh outdir for this profile |
+| Outdated marker format, or a marker that still stores `analysis_profile` | Refused. Use a fresh outdir |
 | Marker written by another `scientific_policy_revision` | Refused. Use a fresh outdir for this workflow version |
-| Marker identity differs | Refused. Use a fresh outdir or the profile that created it |
+| Marker identity differs | Refused. Use a fresh outdir |
 | `.helixweave` or a run record is a symlink, or is not a directory or regular file | Refused. Leave the metadata unrepaired |
 | Marker is valid and `effective_config.json` is missing, unreadable, or inconsistent with the marker | Refused. Use a fresh outdir. Leave the record unreconstructed |
 
 Inconsistent effective-config records include a missing required field, an
-identity that differs from the marker, another profile, a schema version that
+identity that differs from the marker, a stored `analysis_profile`, a schema version that
 disagrees with the recorded config, another policy revision, or a config
 block whose recomputed identity differs from the recorded identity.
 

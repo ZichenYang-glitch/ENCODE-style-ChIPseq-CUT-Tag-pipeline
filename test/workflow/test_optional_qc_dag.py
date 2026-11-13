@@ -90,7 +90,7 @@ def _make_config(qc_block=None, genome_resources=None):
         "threads": 4,
         "mapq": 30,
         "binsize": 10,
-        "remove_dup": "auto",
+        "duplicate_analysis": "auto",
         "trim": "true",
         "extend_reads": "auto",
         "use_control": "false",

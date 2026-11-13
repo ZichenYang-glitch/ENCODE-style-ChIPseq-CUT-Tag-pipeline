@@ -638,7 +638,6 @@ def test_snakemake_dual_profile_analysis_bam_and_downstream_routing(
         f'    blacklist: "{blacklist}"',
         '    organelle_chroms: ["chrM"]',
         "config_schema_version: 2.0.0",
-        f"analysis_profile: {profile}",
         "blacklist_mode: analysis",
         "organelle_mode: auto",
         "duplicate_analysis: exclude",
@@ -815,7 +814,6 @@ threads: 1
 use_control: true
 multiqc: false
 replicate_analysis: true
-analysis_profile: {profile}
 blacklist_mode: analysis
 organelle_mode: auto
 genome_resources:

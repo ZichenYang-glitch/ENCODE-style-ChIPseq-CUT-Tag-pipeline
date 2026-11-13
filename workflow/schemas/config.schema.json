@@ -35,19 +35,13 @@
       "type": "string",
       "enum": ["1.0.0", "2.0.0"],
       "default": "1.0.0",
-      "description": "Config compatibility version; omitted legacy YAML resolves to 1.0.0."
-    },
-    "analysis_profile": {
-      "type": "string",
-      "enum": ["legacy", "updated"],
-      "default": "legacy",
-      "description": "Analysis policy bundle; updated must be explicit."
+      "description": "Config compatibility version. Omitted YAML resolves to 1.0.0 and uses the same analysis path. analysis_profile is rejected."
     },
     "blacklist_mode": {
       "type": "string",
       "enum": ["off", "copies", "analysis"],
       "default": "analysis",
-      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch in both profiles."
+      "description": "off=raw; copies=QC copies; analysis=filtered analysis branch."
     },
     "organelle_mode": {
       "type": "string",
@@ -56,18 +50,21 @@
     },
     "duplicate_backend": {
       "type": "string",
-      "enum": ["", "picard", "samtools"],
-      "default": ""
+      "enum": ["picard"],
+      "default": "picard",
+      "description": "Picard MarkDuplicates marks duplicates and writes metrics."
     },
     "duplicate_analysis": {
       "type": "string",
       "enum": ["auto", "exclude", "retain"],
-      "default": "auto"
+      "default": "auto",
+      "description": "auto resolves per assay. remove_dup is rejected."
     },
     "control_mode": {
       "type": "string",
-      "enum": ["matched", "pooled", "auto"],
-      "default": "pooled"
+      "enum": ["matched"],
+      "default": "matched",
+      "description": "FASTQ controls use the matched control analysis BAM."
     },
     "reference_mode": {
       "type": "string",
@@ -82,19 +79,13 @@
     "fragment_cpm": {
       "type": "string",
       "enum": ["off", "auto", "on"],
-      "default": "off",
-      "description": "Additive fragment-level CPM track; updated default auto, legacy requires off."
+      "default": "auto",
+      "description": "Additive fragment-level CPM track. auto emits ATAC, MNase, and known histone CUT&Tag tracks."
     },
     "tss_fragment_profile": {
       "type": "boolean",
       "default": false,
       "description": "Opt-in fragment-occupancy TSS profile; requires fragment_cpm != off and a GTF."
-    },
-    "remove_dup": {
-      "type": "string",
-      "enum": ["auto", "yes", "no"],
-      "default": "auto",
-      "description": "Duplicate removal policy."
     },
     "trim": {
       "type": ["boolean", "string"],

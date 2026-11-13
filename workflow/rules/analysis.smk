@@ -225,7 +225,6 @@ rule analysis_policy:
         sample="{sample}",
         assay=lambda wc: SAMPLE_MAP[wc.sample]["assay"],
         genome=lambda wc: SAMPLE_MAP[wc.sample]["genome"],
-        profile=lambda wc: VALIDATED_CONFIG.get("analysis_profile"),
         policy_revision=SCIENTIFIC_POLICY_REVISION,
         duplicate_analysis=lambda wc: get_duplicate_policy(wc.sample),
         max_insert=lambda wc: get_max_insert(wc.sample),
@@ -259,7 +258,6 @@ rule analysis_policy:
             --sample {params.sample:q} \
             --assay {params.assay:q} \
             --genome {params.genome:q} \
-            --profile {params.profile:q} \
             --policy-revision {params.policy_revision} \
             --duplicate-analysis {params.duplicate_analysis:q} \
             --max-insert {params.max_insert:q} \

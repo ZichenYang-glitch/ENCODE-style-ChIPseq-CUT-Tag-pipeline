@@ -4,7 +4,7 @@ The platform path is stricter than the legacy CLI:
 - every sample genome must resolve to a configured genome resource;
 - one experiment must use one Bowtie2 index;
 - referenced controls must match treatment genome/layout;
-- external control BAMs must expose a compatible, coordinate-sorted header.
+- an external ``control_bam`` is rejected when ``use_control`` is true.
 
 This module is intentionally independent of Snakemake and optional QC tools.
 """
@@ -325,9 +325,10 @@ def validate_reference_control_admission(
 ) -> None:
     """Fail-closed platform admission for reference/control identity.
 
-    ``reference_mode=legacy`` follows the historical lenient behavior.
+    ``reference_mode=legacy`` follows the historical lenient reference checks.
     ``strict`` enforces genome resource membership, experiment index identity,
-    control genome/layout identity, and external control BAM admission.
+    and control genome/layout identity. An external ``control_bam`` is
+    rejected whenever ``use_control`` is true, in both reference modes.
     """
     strict = reference_mode == "strict"
     resources = config.get("genome_resources", {})
@@ -451,22 +452,16 @@ def validate_reference_control_admission(
                             f"genome_resources[{genome!r}].organelle_chroms or set "
                             "organelle_mode: keep."
                         )
-    if (
-        config.get("analysis_profile") == "updated"
-        and config.get("fragment_cpm") == "on"
-        and not any(
-            sample.get("role") == "treatment"
-            and sample.get("assay") in ("atac", "cuttag", "mnase")
-            for sample in samples
-        )
+    if config.get("fragment_cpm") == "on" and not any(
+        sample.get("role") == "treatment"
+        and sample.get("assay") in ("atac", "cuttag", "mnase")
+        for sample in samples
     ):
         raise error_cls(
             "fragment_cpm=on requires at least one ATAC, CUT&Tag, or MNase "
             "treatment sample; ChIP-seq remains read-level in PR-E1."
         )
-    if config.get("analysis_profile") == "updated" and config.get(
-        "tss_fragment_profile"
-    ):
+    if config.get("tss_fragment_profile"):
         mode = str(config.get("fragment_cpm", "off"))
         candidates = [
             sample
@@ -492,13 +487,13 @@ def validate_reference_control_admission(
                 "<genome>.gtf for every eligible sample; missing for: "
                 + ", ".join(missing_gtf)
             )
-    if use_control and config.get("analysis_profile") == "updated":
+    if use_control:
         for sample in samples:
             if sample.get("role") == "treatment" and sample.get("control_bam"):
                 raise error_cls(
-                    f"Sample {sample.get('id', '?')!r}: analysis_profile=updated "
-                    "does not yet support external control_bam. Use a FASTQ-based "
-                    "control_sample or analysis_profile=legacy."
+                    f"Sample {sample.get('id', '?')!r}: external control_bam is "
+                    "not supported. Use a FASTQ control_sample. "
+                    "use_control=false leaves an unused control_bam reference ignored."
                 )
     exp_treatments: dict[str, list[dict]] = {}
     for sample in samples:

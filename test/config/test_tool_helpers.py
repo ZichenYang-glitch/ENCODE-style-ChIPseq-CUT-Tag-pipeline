@@ -20,12 +20,13 @@ def test_validate_tool_params_normalizes_values():
     validated = validate_tool_params(
         {
             "bowtie2": {"dovetail": "true"},
-            "samtools_filter": {"filter_flags": "0x904"},
+            "samtools_filter": {"extra_args": "-F 0x4"},
             "macs3": {"qvalue": "0.05"},
         }
     )
     assert validated["bowtie2"]["dovetail"] is True
-    assert validated["samtools_filter"]["filter_flags"] == 2308
+    assert validated["samtools_filter"]["filter_flags"] == ""
+    assert validated["samtools_filter"]["extra_args"] == "-F 0x4"
     assert validated["macs3"]["qvalue"] == 0.05
 
 

@@ -65,7 +65,7 @@ using those bindings. The route rejects unknown fields.
 
 A successful response carries `snapshot.snapshot_id`. Keep that id. Also
 record `snapshot.schema_version` as the authoring contract version. Record
-`analysis_profile` and `config_schema_version` from the accepted config.
+`duplicate_analysis` and `config_schema_version` from the accepted config.
 Those are different fields. Read `scientific_policy_revision` from
 `src/encode_pipeline/config/scientific_policy.py` in this checkout.
 

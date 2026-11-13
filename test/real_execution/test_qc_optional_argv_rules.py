@@ -165,7 +165,6 @@ def _write_project(
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": profile,
         "config_schema_version": "2.0.0",
         "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
@@ -537,7 +536,8 @@ def test_analysis_policy_rule_handles_optional_qc(
     policy = json.loads((tmp_path / target).read_text(encoding="utf-8"))
     assert policy["sample"] == SAMPLE
     assert policy["assay"] == assay
-    assert policy["schema_version"] == 2
+    assert policy["schema_version"] == 3
+    assert "profile" not in policy
     assert policy["analysis_template_status"] == "ok"
     assert policy["input_stages"]["fragment_size"] == fragment_stage
     assert policy["input_stages"]["mnase_classification"] == mnase_stage
@@ -667,8 +667,9 @@ def test_analysis_policy_rule_preserves_literal_paths(
         "analysis_policy expanded the optional QC path as shell code"
     )
     policy = json.loads((tmp_path / target).read_text(encoding="utf-8"))
-    assert policy["profile"] == profile
-    assert policy["schema_version"] == 2
+    assert "profile" not in policy
+    assert policy["schema_version"] == 3
+    assert "profile" not in policy
     assert policy["analysis_template_status"] == "ok"
     assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"
     assert policy["input_stages"]["fragment_size"] == (

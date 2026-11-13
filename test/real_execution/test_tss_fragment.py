@@ -117,7 +117,6 @@ def test_fragment_tss_profile_runs_end_to_end(tmp_path, samtools_path, snakemake
                 '    effective_genome_size: "hs"',
                 f'    gtf: "{gtf}"',
                 "config_schema_version: 2.0.0",
-                "analysis_profile: updated",
                 "fragment_cpm: auto",
                 "tss_fragment_profile: true",
                 "organelle_mode: auto",

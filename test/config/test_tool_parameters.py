@@ -162,18 +162,18 @@ def test_bowtie2_rejects_invalid_bool_flag(tmp_path):
         _validate(tmp_path, {"bowtie2": {"dovetail": "yes"}})
 
 
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("", ""),
-        (2308, 2308),
-        ("2308", 2308),
-        ("0x904", 2308),
-    ],
-)
-def test_samtools_filter_flags_normalization(tmp_path, raw, expected):
-    validated = _validate(tmp_path, {"samtools_filter": {"filter_flags": raw}})
-    assert validated["samtools_filter"]["filter_flags"] == expected
+def test_samtools_filter_flags_empty_is_unused(tmp_path):
+    validated = _validate(tmp_path, {"samtools_filter": {"filter_flags": ""}})
+    assert validated["samtools_filter"]["filter_flags"] == ""
+
+
+@pytest.mark.parametrize("raw", [2308, "2308", "0x904", "0xb0c"])
+def test_samtools_filter_flags_override_is_rejected(tmp_path, raw):
+    with pytest.raises(
+        ValidationError,
+        match="tool_parameters.samtools_filter.filter_flags does not change",
+    ):
+        _validate(tmp_path, {"samtools_filter": {"filter_flags": raw}})
 
 
 @pytest.mark.parametrize("raw", [True, 0, "0x0", "0xZZ", "abc"])
@@ -205,6 +205,49 @@ def test_picard_markduplicates_integer_field_normalizes_string(tmp_path):
         validated["picard_markduplicates"]["extra_args"]
         == "--VALIDATION_STRINGENCY SILENT"
     )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "REMOVE_DUPLICATES=false",
+        "REMOVE_DUPLICATES=true",
+        "remove_duplicates=true",
+        "--REMOVE_DUPLICATES false",
+        "--REMOVE_DUPLICATES=false",
+        "-REMOVE_DUPLICATES true",
+        "REMOVE_SEQUENCING_DUPLICATES=true",
+        "remove_sequencing_duplicates=false",
+        "--REMOVE_SEQUENCING_DUPLICATES true",
+        "--REMOVE_SEQUENCING_DUPLICATES=true",
+        "-REMOVE_SEQUENCING_DUPLICATES true",
+        "REMOVE_DUPLICATE=true",
+        "--REMOVE true",
+        "'--REMOVE_SEQUENCING_DUPLICATES' true",
+        "--TAGGING_POLICY All REMOVE_SEQUENCING_DUPLICATES=true",
+    ],
+)
+def test_picard_extra_args_cannot_reconfigure_removal_switches(tmp_path, extra):
+    with pytest.raises(ValidationError, match="which this workflow manages"):
+        _validate(tmp_path, {"picard_markduplicates": {"extra_args": extra}})
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--VALIDATION_STRINGENCY SILENT",
+        "--TAGGING_POLICY OpticalOnly",
+        "--DUPLICATE_SCORING_STRATEGY SUM_OF_BASE_QUALITIES",
+        "OPTICAL_DUPLICATE_PIXEL_DISTANCE=100",
+        "--READ_NAME_REGEX null",
+        "-M metrics.txt",
+        "-DS SUM_OF_BASE_QUALITIES",
+        "--RE unused",
+    ],
+)
+def test_picard_extra_args_keeps_marking_options(tmp_path, extra):
+    validated = _validate(tmp_path, {"picard_markduplicates": {"extra_args": extra}})
+    assert validated["picard_markduplicates"]["extra_args"] == extra
 
 
 def test_bamcoverage_normalize_using_and_smooth_length(tmp_path):

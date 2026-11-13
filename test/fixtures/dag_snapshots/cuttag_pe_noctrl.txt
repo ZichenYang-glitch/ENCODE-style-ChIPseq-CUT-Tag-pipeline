@@ -13,6 +13,7 @@ cuttag_fragment_size
 duplicate_handling
 fastqc
 fastqc_stage
+fragment_cpm
 macs3_callpeak
 mito_fraction
 pipeline_done

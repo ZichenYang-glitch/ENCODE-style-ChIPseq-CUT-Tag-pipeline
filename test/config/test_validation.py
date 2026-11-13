@@ -72,11 +72,22 @@ def test_mapq_negative_rejected(make_validation_case, run_validator):
     assert "must be non-negative" in (result.stdout + result.stderr)
 
 
-def test_invalid_remove_dup_rejected(make_validation_case, run_validator):
+def test_removed_remove_dup_is_rejected(make_validation_case, run_validator):
     _, config_path, _ = make_validation_case(config={"remove_dup": "whatever"})
     result = run_validator(config_path)
     assert result.returncode != 0
-    assert "auto, yes, or no" in (result.stdout + result.stderr)
+    output = result.stdout + result.stderr
+    assert "remove_dup" in output
+    assert "duplicate_analysis" in output
+
+
+def test_removed_analysis_profile_is_rejected(make_validation_case, run_validator):
+    _, config_path, _ = make_validation_case(config={"analysis_profile": "legacy"})
+    result = run_validator(config_path)
+    assert result.returncode != 0
+    output = result.stdout + result.stderr
+    assert "analysis_profile" in output
+    assert "duplicate_analysis" in output
 
 
 # ---------------------------------------------------------------------------

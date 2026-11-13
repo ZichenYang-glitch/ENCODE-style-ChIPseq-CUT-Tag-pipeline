@@ -188,7 +188,7 @@ def write_config_and_samples(workdir):
         "threads: 1\n"
         "mapq: 30\n"
         "binsize: 10\n"
-        'remove_dup: "no"\n'
+        'duplicate_analysis: "retain"\n'
         "trim: true\n"
         'extend_reads: "auto"\n'
         "use_control: false\n"

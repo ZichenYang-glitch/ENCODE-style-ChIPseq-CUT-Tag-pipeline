@@ -13,38 +13,46 @@ gating. This page is the maintained configuration reference; the
 | `threads` | `8` | positive integer | Threads per job. |
 | `mapq` | `30` | integer >= 0 | Minimum MAPQ for samtools filtering. |
 | `binsize` | `10` | positive integer | Bin size in bp for bamCoverage BigWig. |
-| `remove_dup` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Legacy alias for the duplicate policy. See below. |
-| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy selector; per-sample assay resolution in auto. See below. |
+| `duplicate_analysis` | `"auto"` | `"auto"`, `"exclude"`, `"retain"` | Duplicate policy for the analysis BAM. See below. |
 | `trim` | `true` | boolean | Enable Trim Galore adapter/quality trimming and trimmed-read FastQC. Raw-input FastQC always runs. |
 | `extend_reads` | `"auto"` | `"auto"`, `"yes"`, `"no"` | Extend SE reads to fragment size. |
 | `use_control` | `false` | boolean | Enable control sample resolution. |
 | `multiqc` | `true` | boolean | Enable MultiQC report aggregation. |
 
-### Duplicate policy (`duplicate_analysis` and `remove_dup`)
+### Duplicate policy (`duplicate_analysis`)
 
-The duplicate policy is decided per sample at the BAM layer; every MACS3
-call (per-sample, pooled, consensus, and IDR-ready) then renders
-`--keep-dup all` so peak callers consume the chosen molecule set without a
-second implicit coordinate collapse.
+The workflow has one analysis path. `analysis_profile` and `remove_dup` are
+rejected; a config that still contains either key does not run. Historical
+result directories remain readable and are not relabeled.
+
+The duplicate policy is decided per sample at the analysis BAM. Picard
+MarkDuplicates always marks duplicates in `final.bam` and writes metrics.
+It does not remove them. If Picard is missing, duplicate handling fails.
+`samtools markdup` is not a fallback. `tool_parameters.picard_markduplicates.extra_args`
+cannot set `REMOVE_DUPLICATES` or `REMOVE_SEQUENCING_DUPLICATES`. Picard 3.4.0
+accepts either switch as `NAME=value` or as `-NAME` / `--NAME` with a separate
+value. Admission also rejects a unique abbreviation of either name, which this
+Picard build does not execute, and rejects `--NAME=value`.
+An explicit `false` is still a conflict: the workflow owns both switches, and
+argument order does not decide the policy. Optical distance, duplicate scoring,
+and other marking options stay available.
+
+Every MACS3 call (per-sample, pooled, consensus, and IDR-ready) renders
+`--keep-dup all`, so peak callers consume the chosen molecule set without a
+second coordinate collapse.
 
 | `duplicate_analysis` | Behavior |
 | :--- | :--- |
-| `"auto"` (default) | Resolve per sample by assay: CUT&Tag **retains** duplicates (same-coordinate fragments can be independent molecules, so coordinates alone cannot prove PCR copies — a candidate default pending the SCI-7 real-library data freeze); ChIP-seq, ATAC-seq, and MNase-seq **exclude** them. The narrow/broad peak mode no longer changes this decision — legacy broad ChIP-seq now excludes duplicates like every other exclude assay. |
-| `"exclude"` | Remove duplicates for all samples. |
-| `"retain"` | Keep duplicates for all samples (marked, for metrics, where the backend supports marking). |
+| `"auto"` (default) | Resolve per sample by assay: CUT&Tag retains duplicates, including broad peaks. ChIP-seq, ATAC-seq, and MNase-seq exclude them, including broad ChIP-seq. Peak mode does not change this choice. |
+| `"exclude"` | Drop marked duplicates from every sample's analysis BAM. |
+| `"retain"` | Keep marked duplicates in every sample's analysis BAM. |
 
-`remove_dup` remains as a legacy alias: `"yes"` maps to `exclude`, `"no"`
-maps to `retain`, and `"auto"` never overrides an explicit
-`duplicate_analysis`. Setting both to conflicting values
-(e.g. `remove_dup: "no"` with `duplicate_analysis: exclude`) is rejected.
-The startup summary and `<outdir>/.helixweave/effective_config.json`
-record the per-sample resolution (`resolved_duplicate_analysis`).
-
-In legacy runs, exclusion uses Picard `REMOVE_DUPLICATES=true` when Picard
-is available, otherwise the `samtools markdup` fallback; retained samples
-keep a symlinked `final.bam`. In updated runs, Picard marks duplicates in
-`final.bam` and `analysis.bam` applies the policy (`-F 0x400` for exclude
-samples).
+An explicit `exclude` or `retain` applies to the whole run, not to one assay.
+The startup summary and `<outdir>/.helixweave/effective_config.json` record
+the per-sample resolution (`resolved_duplicate_analysis`). The analysis BAM
+then applies that choice, together with the organelle policy and an optional
+blacklist filter. Downstream peak calling, coverage, FRiP, and MNase products
+read the analysis BAM.
 
 A legacy `--keep-dup` in `tool_parameters.macs3.extra_args` or
 `tool_parameters.idr_macs3.extra_args` is migrated: a synonymous
@@ -99,8 +107,8 @@ samples without a control (`-c` omitted). If the sample sheet still contains a
 control row or control reference, validation emits a `use_control=False`
 warning; it does not change behavior.
 
-When `true`, treatment rows may reference a control via `control_sample`
-(another sample row) or `control_bam` (an external BAM path). Control rows
+When `true`, treatment rows reference a control with `control_sample`
+(another sample row). An external `control_bam` is rejected. Control rows
 (`role: control`) are preprocessed but skip peak calling. Control-reference
 cycles are rejected.
 
@@ -192,7 +200,7 @@ effective organelle mode, not by assay name alone.
 
 ### Canonical analysis BAM and blacklist filtering
 
-Both `legacy` and `updated` profiles use a canonical analysis BAM (`<sample>.analysis.bam`)
+The single analysis path uses a canonical analysis BAM (`<sample>.analysis.bam`)
 as the uniform input for downstream consumers (peak calling, signal tracks, FRiP, TSS,
 SEACR, IDR, consensus).
 
@@ -257,8 +265,7 @@ Bowtie2 index contents remain hash-bound without internal contig parsing.
 ## Fragment-level CPM tracks
 
 ```yaml
-analysis_profile: updated
-fragment_cpm: auto       # off | auto | on; legacy requires off
+fragment_cpm: auto       # off | auto | on; auto is the default
 ```
 
 `fragment_cpm` adds an additive `.fragment.CPM.bw` track without changing the
@@ -282,7 +289,6 @@ MNase dyad tracks keep their existing `--MNase --binSize 1` behavior.
 ## Fragment-occupancy TSS profile
 
 ```yaml
-analysis_profile: updated
 fragment_cpm: auto
 tss_fragment_profile: true
 ```
@@ -400,8 +406,8 @@ tool_parameters:
 ### Bowtie2 paired-end insert limit (`tool_parameters.bowtie2.max_insert`)
 
 In `auto` mode, `rule bowtie2_align` resolves `-X` per PE sample by assay
-(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) across both
-`legacy` and `updated` profiles and for both treatment and control rows.
+(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) for both treatment
+and control rows.
 An explicit positive integer in `tool_parameters.bowtie2.max_insert`
 overrides `auto` for every PE sample in the run. SE samples never emit `-X`
 and are recorded as `"not_applicable"` in `resolved_max_insert` inside
@@ -443,8 +449,9 @@ When `--strict-inputs` is active:
   in either standard `.bt2` or large-index `.bt2l` format.
 - A clear error message lists the first missing file.
 
-This flag does NOT re-validate `genome_resources` paths or `control_bam` —
-those are already checked regardless of strict mode.
+This flag does NOT re-validate `genome_resources` paths — those are already
+checked regardless of strict mode. An external `control_bam` is not an
+accepted input.
 
 ## Defaults and key dependencies
 
@@ -462,11 +469,12 @@ those are already checked regardless of strict mode.
 
 ## Run identity and effective configuration
 
-Every run — both `legacy` and `updated` profiles — records a versioned
-identity marker at `<outdir>/.helixweave/analysis_identity.json` before any
-scientific task executes. The marker carries a marker schema version, the
-analysis profile, the internal `scientific_policy_revision`, and a hash of the
-merged, validated configuration plus the parsed sample sheet. The identity
+Every run records a versioned identity marker at
+`<outdir>/.helixweave/analysis_identity.json` before any scientific task
+executes. The marker carries marker schema version 3 and the internal
+`scientific_policy_revision` (7). It does not store `analysis_profile`.
+The identity is a hash of the merged, validated configuration plus the parsed
+sample sheet. It
 covers every validated (effective) config value — including the `mnase`,
 `cuttag`/SEACR, `qc`, `idr`/`reproducibility`, genome-resource, duplicate,
 organelle, blacklist, and tool-parameter blocks — with only these explicitly
@@ -482,9 +490,9 @@ actual input referenced through equivalent path forms stays equivalent.
 | Outdir / marker state | Behavior |
 | :--- | :--- |
 | New directory, or only scheduler metadata (`.snakemake`, `.helixweave`) | The marker is created, then scientific tasks run |
-| Marker matches profile, policy revision, and identity | The same run may continue |
+| Marker matches policy revision and identity, and the effective-config record recomputes to that identity | The same run may continue |
 | Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
-| Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
+| Outdated marker, a marker that still stores `analysis_profile`, another policy revision, or a different identity | Refused; choose a fresh outdir |
 | Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
 | Marker valid but `effective_config.json` missing, unreadable, missing required fields, or inconsistent with the run identity | Refused; the run does not continue without an intact, truthful configuration record |
 
@@ -492,8 +500,8 @@ The record stores scientific input paths in the canonical form resolved at
 creation time, so resuming from a different working directory with
 equivalent absolute paths of the same actual inputs stays valid, while a
 different actual resource is refused. The record is validated beyond file
-integrity: it must carry the profile, schema version (consistent with the
-recorded configuration), policy revision, identity, and a `config` block
+integrity: it must carry marker schema 3 with no `analysis_profile`, the
+policy revision, the identity, and a `config` block
 whose canonical form recomputes to the recorded identity, so a bare
 identity string or a tampered inner configuration is refused like any other
 mismatch. Nothing is auto-repaired from current parameters.
@@ -537,14 +545,15 @@ the workflow's own merged-config validation and dry-run.
 Cross-correlation remains opt-in. `qc.cross_correlation_target_type` defaults
 to `auto`; `tf`/`histone` are run-wide ChIP overrides. Auto leaves unrecognized
 ChIP targets unknown, and non-ChIP assays remain diagnostic regardless of the
-requested type. Authoring schema 3.1.0 exposes the enum; YAML config versions
-1.0.0/2.0.0 and both analysis profiles remain supported. For direct Snakemake,
+requested type. Authoring schema 3.2.0 exposes the enum. YAML config
+versions 1.0.0 and 2.0.0 use the same analysis path. For direct Snakemake,
 `--config 'qc={"cross_correlation":true,"cross_correlation_target_type":"tf"}'`
 uses the same validator as configuration files; unchanged sibling settings
 are preserved by the workflow merge. Platform runs use validated snapshots,
 with no arbitrary command injection.
 
-Scientific policy revision 6 isolates old cross-correlation semantics from new
-runs: use a fresh outdir. The required detail records the resolved window and
+Scientific policy revision 7 isolates this single analysis path from earlier
+runs, including revision 6 cross-correlation output: use a fresh outdir. The
+required detail records the resolved window and
 analysis_r1/analysis_se stage; raw SPP QC/PDF are optional for no-data samples.
 See [QC interpretation](qc-interpretation.md#cross-correlation-phantompeakqualtools).
