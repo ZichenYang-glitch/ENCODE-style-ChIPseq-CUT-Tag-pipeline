@@ -72,6 +72,7 @@ where = ["src"]
     "asset-manifest.json",
     "static/*",
     "static/assets/*",
+    "static/third-party-notices/*",
 ]
 
 [tool.pytest.ini_options]
