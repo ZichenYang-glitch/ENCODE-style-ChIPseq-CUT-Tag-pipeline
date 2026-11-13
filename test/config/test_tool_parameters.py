@@ -207,6 +207,49 @@ def test_picard_markduplicates_integer_field_normalizes_string(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "REMOVE_DUPLICATES=false",
+        "REMOVE_DUPLICATES=true",
+        "remove_duplicates=true",
+        "--REMOVE_DUPLICATES false",
+        "--REMOVE_DUPLICATES=false",
+        "-REMOVE_DUPLICATES true",
+        "REMOVE_SEQUENCING_DUPLICATES=true",
+        "remove_sequencing_duplicates=false",
+        "--REMOVE_SEQUENCING_DUPLICATES true",
+        "--REMOVE_SEQUENCING_DUPLICATES=true",
+        "-REMOVE_SEQUENCING_DUPLICATES true",
+        "REMOVE_DUPLICATE=true",
+        "--REMOVE true",
+        "'--REMOVE_SEQUENCING_DUPLICATES' true",
+        "--TAGGING_POLICY All REMOVE_SEQUENCING_DUPLICATES=true",
+    ],
+)
+def test_picard_extra_args_cannot_reconfigure_removal_switches(tmp_path, extra):
+    with pytest.raises(ValidationError, match="which this workflow manages"):
+        _validate(tmp_path, {"picard_markduplicates": {"extra_args": extra}})
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--VALIDATION_STRINGENCY SILENT",
+        "--TAGGING_POLICY OpticalOnly",
+        "--DUPLICATE_SCORING_STRATEGY SUM_OF_BASE_QUALITIES",
+        "OPTICAL_DUPLICATE_PIXEL_DISTANCE=100",
+        "--READ_NAME_REGEX null",
+        "-M metrics.txt",
+        "-DS SUM_OF_BASE_QUALITIES",
+        "--RE unused",
+    ],
+)
+def test_picard_extra_args_keeps_marking_options(tmp_path, extra):
+    validated = _validate(tmp_path, {"picard_markduplicates": {"extra_args": extra}})
+    assert validated["picard_markduplicates"]["extra_args"] == extra
+
+
 def test_bamcoverage_normalize_using_and_smooth_length(tmp_path):
     validated = _validate(
         tmp_path,

@@ -246,3 +246,50 @@ def test_missing_picard_fails_without_samtools_fallback(
     assert "Picard MarkDuplicates is required" in output
     assert "samtools markdup used" not in output
     assert not (tmp_path / "results/T1/02_align/T1.final.bam").exists()
+
+
+def test_sequencing_duplicate_removal_is_rejected_before_picard(
+    tmp_path, snakemake_path, samtools_path, picard_path
+):
+    """The reviewed retain bypass never reaches MarkDuplicates.
+
+    duplicate_analysis=retain plus REMOVE_SEQUENCING_DUPLICATES=true used to
+    validate and then delete an optical duplicate pair. Admission now rejects
+    that extra_args value, so the production rule does not write final.bam.
+    """
+    _write_profile(tmp_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'duplicate_analysis: "exclude"',
+            "\n".join(
+                [
+                    'duplicate_analysis: "retain"',
+                    "tool_parameters:",
+                    "  picard_markduplicates:",
+                    "    extra_args: REMOVE_SEQUENCING_DUPLICATES=true",
+                ]
+            ),
+        ),
+        encoding="utf-8",
+    )
+    _make_duplicate_bam(tmp_path, samtools_path)
+
+    bin_dir = tmp_path / "picard-bin"
+    bin_dir.mkdir()
+    (bin_dir / "samtools").symlink_to(samtools_path)
+    (bin_dir / "picard").symlink_to(picard_path)
+    conda = shutil.which("conda")
+    if conda:
+        (bin_dir / "conda").symlink_to(conda)
+
+    result = _run_duplicate_rule(
+        tmp_path, snakemake_path, path=str(bin_dir), check=False
+    )
+    output = result.stdout + result.stderr
+    final_bam = tmp_path / "results/T1/02_align/T1.final.bam"
+    assert result.returncode != 0, output
+    assert "REMOVE_SEQUENCING_DUPLICATES" in output
+    assert "which this workflow manages" in output
+    assert not final_bam.exists()
+    assert not (tmp_path / "results/T1/01_qc/T1.dup_metrics.txt").exists()

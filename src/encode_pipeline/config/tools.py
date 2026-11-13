@@ -389,23 +389,143 @@ def _scan_extra_args_tokens(tool, extra, error_cls):
     return tokens
 
 
-def _reject_picard_duplicate_override(extra, error_cls):
-    """Reject Picard arguments that would remove duplicates or skip marking.
+# Picard 3.4.0 MarkDuplicates long and short names. Prefixes are resolved
+# the way Picard does, so a unique abbreviation of a removal switch cannot
+# slip past an exact-name check. This list is an admission guard, not a
+# second duplicate policy.
+_PICARD_MARKDUPLICATES_LONG_NAMES = frozenset(
+    {
+        "ADD_PG_TAG_TO_READS",
+        "ASSUME_SORT_ORDER",
+        "ASSUME_SORTED",
+        "BARCODE_TAG",
+        "CLEAR_DT",
+        "COMMENT",
+        "COMPRESSION_LEVEL",
+        "CREATE_INDEX",
+        "CREATE_MD5_FILE",
+        "DUPLEX_UMI",
+        "DUPLICATE_SCORING_STRATEGY",
+        "FLOW_DUP_STRATEGY",
+        "FLOW_EFFECTIVE_QUALITY_THRESHOLD",
+        "FLOW_MODE",
+        "FLOW_Q_IS_KNOWN_END",
+        "FLOW_SKIP_FIRST_N_FLOWS",
+        "FLOW_UNPAIRED_END_UNCERTAINTY",
+        "FLOW_UNPAIRED_START_UNCERTAINTY",
+        "FLOW_USE_END_IN_UNPAIRED_READS",
+        "FLOW_USE_UNPAIRED_CLIPPED_END",
+        "INPUT",
+        "MAX_FILE_HANDLES_FOR_READ_ENDS_MAP",
+        "MAX_OPTICAL_DUPLICATE_SET_SIZE",
+        "MAX_RECORDS_IN_RAM",
+        "MAX_SEQUENCES_FOR_DISK_READ_ENDS_MAP",
+        "METRICS_FILE",
+        "MOLECULAR_IDENTIFIER_TAG",
+        "OPTICAL_DUPLICATE_PIXEL_DISTANCE",
+        "OUTPUT",
+        "PROGRAM_GROUP_COMMAND_LINE",
+        "PROGRAM_GROUP_NAME",
+        "PROGRAM_GROUP_VERSION",
+        "PROGRAM_RECORD_ID",
+        "QUIET",
+        "READ_NAME_REGEX",
+        "READ_ONE_BARCODE_TAG",
+        "READ_TWO_BARCODE_TAG",
+        "REFERENCE_SEQUENCE",
+        "REMOVE_DUPLICATES",
+        "REMOVE_SEQUENCING_DUPLICATES",
+        "SORTING_COLLECTION_SIZE_RATIO",
+        "TAG_DUPLICATE_SET_MEMBERS",
+        "TAGGING_POLICY",
+        "TMP_DIR",
+        "USE_JDK_DEFLATER",
+        "USE_JDK_INFLATER",
+        "VALIDATION_STRINGENCY",
+        "VERBOSITY",
+    }
+)
+_PICARD_MARKDUPLICATES_SHORT_NAMES = frozenset(
+    {
+        "AS",
+        "ASO",
+        "CO",
+        "DS",
+        "I",
+        "M",
+        "MAX_FILE_HANDLES",
+        "MAX_SEQS",
+        "O",
+        "PG",
+        "PG_COMMAND",
+        "PG_NAME",
+        "PG_VERSION",
+        "R",
+        "USE_JDK_DEFLATER",
+        "USE_JDK_INFLATER",
+    }
+)
+_PICARD_MANAGED_REMOVAL_OPTIONS = frozenset(
+    {"REMOVE_DUPLICATES", "REMOVE_SEQUENCING_DUPLICATES"}
+)
 
-    The workflow always runs MarkDuplicates with REMOVE_DUPLICATES=false.
-    The analysis BAM applies duplicate_analysis. An extra_args override must
-    not replace that policy, including a repeated REMOVE_DUPLICATES=false.
+
+def _picard_managed_removal_option(token):
+    """Return the removal switch a Picard token sets, if it sets one.
+
+    Picard accepts ``--NAME value``, ``--NAME=value``, ``NAME=value``, and a
+    single leading dash on the long name. A token is an option only when it
+    has that shape. Unique prefixes of the MarkDuplicates long names count,
+    because Picard accepts them. A short name such as ``-M`` stays a short
+    name and is not treated as a prefix of a long removal switch.
+    """
+    if "=" in token:
+        raw_name, _value = token.split("=", 1)
+    else:
+        raw_name = token
+    if raw_name.startswith("-"):
+        short_name = raw_name[1:]
+        if short_name.upper() in _PICARD_MARKDUPLICATES_SHORT_NAMES:
+            return None
+        while raw_name.startswith("-"):
+            raw_name = raw_name[1:]
+    elif "=" not in token:
+        return None
+    if not raw_name:
+        return None
+    folded = raw_name.upper()
+    matches = [
+        name for name in _PICARD_MARKDUPLICATES_LONG_NAMES if name.startswith(folded)
+    ]
+    if not matches or any(
+        name not in _PICARD_MANAGED_REMOVAL_OPTIONS for name in matches
+    ):
+        return None
+    return sorted(matches)[0]
+
+
+def _reject_picard_duplicate_override(extra, error_cls):
+    """Reject Picard arguments that remove duplicates instead of marking them.
+
+    The workflow always runs MarkDuplicates with ``REMOVE_DUPLICATES=false``
+    and does not set ``REMOVE_SEQUENCING_DUPLICATES``. The analysis BAM
+    applies ``duplicate_analysis``. Either switch in extra_args is a conflict,
+    including an explicit false: argument order must not decide the policy.
     """
     tokens = _scan_extra_args_tokens("picard_markduplicates", extra, error_cls)
     for value, _start, _end in tokens:
-        name = value.split("=", 1)[0].upper()
-        if name == "REMOVE_DUPLICATES":
-            raise error_cls(
-                "tool_parameters.picard_markduplicates.extra_args: "
-                "REMOVE_DUPLICATES conflicts with the managed duplicate policy. "
-                "Remove it. Picard only marks duplicates. Set duplicate_analysis "
-                "to auto, exclude, or retain to choose the analysis BAM."
-            )
+        option = _picard_managed_removal_option(value)
+        if option is None:
+            continue
+        raise error_cls(
+            "tool_parameters.picard_markduplicates.extra_args: "
+            f"{value!r} sets {option}, which this workflow manages. "
+            "Remove it. Picard only marks duplicates. Do not set "
+            "REMOVE_DUPLICATES or REMOVE_SEQUENCING_DUPLICATES, with or "
+            "without leading dashes, as NAME=value, or as a separate value. "
+            "Set duplicate_analysis to auto, exclude, or retain to choose "
+            "whether the analysis BAM keeps the marked duplicates."
+        )
     return extra
 
 

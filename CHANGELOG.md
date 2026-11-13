@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One analysis path for ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq.
   `analysis_profile` and `remove_dup` are rejected. Picard only marks
   duplicates, the analysis BAM applies `duplicate_analysis`, and scientific
-  policy revision 7 requires a fresh outdir. Authoring schema 3.2.0 records
-  the single-path defaults. Historical results are not relabeled.
+  policy revision 7 requires a fresh outdir. Picard `extra_args` cannot set
+  `REMOVE_DUPLICATES` or `REMOVE_SEQUENCING_DUPLICATES`. Authoring schema
+  3.2.0 records the single-path defaults. Historical results are not relabeled.
 
 ### Added
 

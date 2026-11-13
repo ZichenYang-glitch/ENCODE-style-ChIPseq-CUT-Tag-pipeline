@@ -29,7 +29,11 @@ The duplicate policy is decided per sample at the analysis BAM. Picard
 MarkDuplicates always marks duplicates in `final.bam` and writes metrics.
 It does not remove them. If Picard is missing, duplicate handling fails.
 `samtools markdup` is not a fallback. `tool_parameters.picard_markduplicates.extra_args`
-cannot set `REMOVE_DUPLICATES`.
+cannot set `REMOVE_DUPLICATES` or `REMOVE_SEQUENCING_DUPLICATES`. Picard accepts
+either switch as `NAME=value` or as `-NAME` / `--NAME` with a separate value.
+An explicit `false` is still a conflict: the workflow owns both switches, and
+argument order does not decide the policy. Optical distance, duplicate scoring,
+and other marking options stay available.
 
 Every MACS3 call (per-sample, pooled, consensus, and IDR-ready) renders
 `--keep-dup all`, so peak callers consume the chosen molecule set without a

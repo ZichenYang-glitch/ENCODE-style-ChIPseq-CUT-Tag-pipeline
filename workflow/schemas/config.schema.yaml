@@ -652,7 +652,10 @@ tool_parameters:
         extra_args:
           type: string
           default: ""
-          description: Additional picard MarkDuplicates options (verbatim).
+          description: >
+            Additional picard MarkDuplicates options. Cannot set
+            REMOVE_DUPLICATES or REMOVE_SEQUENCING_DUPLICATES, including
+            NAME=value and -NAME/--NAME with a separate value.
     bamcoverage:
       type: mapping
       required: false
