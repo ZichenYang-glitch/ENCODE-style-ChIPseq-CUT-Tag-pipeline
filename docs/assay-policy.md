@@ -18,7 +18,7 @@ assay. It describes implemented behavior, not aspirational features.
 - `--gsize` (`-g`): resolved from `genome_resources.<genome>.effective_genome_size` (MACS3 shortcut `hs`/`mm` or explicit integer).
 - `--qvalue` (`-q`): from `tool_parameters.macs3.qvalue`, default `0.01`.
 - `--broad-cutoff`: from `tool_parameters.macs3.broad_cutoff`, default `0.1`.
-- Control (`-c`): resolved from `control_sample` or `control_bam` when `use_control: true`.
+- Control (`-c`): the analysis BAM of `control_sample` when `use_control: true`. External `control_bam` is rejected.
 
 ### Duplicate policy
 
@@ -50,7 +50,7 @@ the run.
 
 ### Controls
 
-Supported via `use_control: true` with either `control_sample` (FASTQ row) or `control_bam` (external BAM path). Control samples go through full preprocessing but skip peak calling.
+Supported via `use_control: true` with `control_sample` (a FASTQ control row). External `control_bam` is rejected. Control samples go through full preprocessing but skip peak calling.
 
 ### Reproducibility
 
@@ -187,7 +187,7 @@ Replicate consensus and opt-in narrow IDR are implemented under the
 
 - `use_control: true` enables control resolution. When `false`, `control_sample` and `control_bam` are ignored; if present, validation emits a warning (no behavior change).
 - Control rows (`role: control`) are preprocessed but skip peak calling.
-- External `control_bam` is not processed by the pipeline — used directly in MACS3 `-c`.
+- External `control_bam` is rejected when `use_control: true`. `use_control: false` ignores a leftover reference.
 
 ### Replicate model
 

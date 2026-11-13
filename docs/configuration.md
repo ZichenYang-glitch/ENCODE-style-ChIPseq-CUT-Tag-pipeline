@@ -29,8 +29,10 @@ The duplicate policy is decided per sample at the analysis BAM. Picard
 MarkDuplicates always marks duplicates in `final.bam` and writes metrics.
 It does not remove them. If Picard is missing, duplicate handling fails.
 `samtools markdup` is not a fallback. `tool_parameters.picard_markduplicates.extra_args`
-cannot set `REMOVE_DUPLICATES` or `REMOVE_SEQUENCING_DUPLICATES`. Picard accepts
-either switch as `NAME=value` or as `-NAME` / `--NAME` with a separate value.
+cannot set `REMOVE_DUPLICATES` or `REMOVE_SEQUENCING_DUPLICATES`. Picard 3.4.0
+accepts either switch as `NAME=value` or as `-NAME` / `--NAME` with a separate
+value. Admission also rejects a unique abbreviation of either name, which this
+Picard build does not execute, and rejects `--NAME=value`.
 An explicit `false` is still a conflict: the workflow owns both switches, and
 argument order does not decide the policy. Optical distance, duplicate scoring,
 and other marking options stay available.
@@ -105,8 +107,8 @@ samples without a control (`-c` omitted). If the sample sheet still contains a
 control row or control reference, validation emits a `use_control=False`
 warning; it does not change behavior.
 
-When `true`, treatment rows may reference a control via `control_sample`
-(another sample row) or `control_bam` (an external BAM path). Control rows
+When `true`, treatment rows reference a control with `control_sample`
+(another sample row). An external `control_bam` is rejected. Control rows
 (`role: control`) are preprocessed but skip peak calling. Control-reference
 cycles are rejected.
 
@@ -198,7 +200,7 @@ effective organelle mode, not by assay name alone.
 
 ### Canonical analysis BAM and blacklist filtering
 
-Both `legacy` and `updated` profiles use a canonical analysis BAM (`<sample>.analysis.bam`)
+The single analysis path uses a canonical analysis BAM (`<sample>.analysis.bam`)
 as the uniform input for downstream consumers (peak calling, signal tracks, FRiP, TSS,
 SEACR, IDR, consensus).
 
@@ -404,8 +406,8 @@ tool_parameters:
 ### Bowtie2 paired-end insert limit (`tool_parameters.bowtie2.max_insert`)
 
 In `auto` mode, `rule bowtie2_align` resolves `-X` per PE sample by assay
-(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) across both
-`legacy` and `updated` profiles and for both treatment and control rows.
+(`chipseq=2000`, `atac=2000`, `cuttag=700`, `mnase=500`) for both treatment
+and control rows.
 An explicit positive integer in `tool_parameters.bowtie2.max_insert`
 overrides `auto` for every PE sample in the run. SE samples never emit `-X`
 and are recorded as `"not_applicable"` in `resolved_max_insert` inside
@@ -447,8 +449,9 @@ When `--strict-inputs` is active:
   in either standard `.bt2` or large-index `.bt2l` format.
 - A clear error message lists the first missing file.
 
-This flag does NOT re-validate `genome_resources` paths or `control_bam` —
-those are already checked regardless of strict mode.
+This flag does NOT re-validate `genome_resources` paths — those are already
+checked regardless of strict mode. An external `control_bam` is not an
+accepted input.
 
 ## Defaults and key dependencies
 
@@ -466,11 +469,12 @@ those are already checked regardless of strict mode.
 
 ## Run identity and effective configuration
 
-Every run — both `legacy` and `updated` profiles — records a versioned
-identity marker at `<outdir>/.helixweave/analysis_identity.json` before any
-scientific task executes. The marker carries a marker schema version, the
-analysis profile, the internal `scientific_policy_revision`, and a hash of the
-merged, validated configuration plus the parsed sample sheet. The identity
+Every run records a versioned identity marker at
+`<outdir>/.helixweave/analysis_identity.json` before any scientific task
+executes. The marker carries marker schema version 3 and the internal
+`scientific_policy_revision` (7). It does not store `analysis_profile`.
+The identity is a hash of the merged, validated configuration plus the parsed
+sample sheet. It
 covers every validated (effective) config value — including the `mnase`,
 `cuttag`/SEACR, `qc`, `idr`/`reproducibility`, genome-resource, duplicate,
 organelle, blacklist, and tool-parameter blocks — with only these explicitly
@@ -486,9 +490,9 @@ actual input referenced through equivalent path forms stays equivalent.
 | Outdir / marker state | Behavior |
 | :--- | :--- |
 | New directory, or only scheduler metadata (`.snakemake`, `.helixweave`) | The marker is created, then scientific tasks run |
-| Marker matches profile, policy revision, and identity | The same run may continue |
+| Marker matches policy revision and identity, and the effective-config record recomputes to that identity | The same run may continue |
 | Scientific outputs present but no marker | Refused; choose a fresh outdir (existing content is kept) |
-| Old-format marker, other profile, other policy revision, or different identity | Refused; choose a fresh outdir |
+| Outdated marker, a marker that still stores `analysis_profile`, another policy revision, or a different identity | Refused; choose a fresh outdir |
 | Marker or record corrupted, not a regular file, or a symlink; `.helixweave` a symlink or not a directory | Refused; never auto-repaired or overwritten |
 | Marker valid but `effective_config.json` missing, unreadable, missing required fields, or inconsistent with the run identity | Refused; the run does not continue without an intact, truthful configuration record |
 
@@ -496,8 +500,8 @@ The record stores scientific input paths in the canonical form resolved at
 creation time, so resuming from a different working directory with
 equivalent absolute paths of the same actual inputs stays valid, while a
 different actual resource is refused. The record is validated beyond file
-integrity: it must carry the profile, schema version (consistent with the
-recorded configuration), policy revision, identity, and a `config` block
+integrity: it must carry marker schema 3 with no `analysis_profile`, the
+policy revision, the identity, and a `config` block
 whose canonical form recomputes to the recorded identity, so a bare
 identity string or a tampered inner configuration is refused like any other
 mismatch. Nothing is auto-repaired from current parameters.

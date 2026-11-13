@@ -4,7 +4,7 @@ The platform path is stricter than the legacy CLI:
 - every sample genome must resolve to a configured genome resource;
 - one experiment must use one Bowtie2 index;
 - referenced controls must match treatment genome/layout;
-- external control BAMs must expose a compatible, coordinate-sorted header.
+- an external ``control_bam`` is rejected when ``use_control`` is true.
 
 This module is intentionally independent of Snakemake and optional QC tools.
 """
@@ -325,9 +325,10 @@ def validate_reference_control_admission(
 ) -> None:
     """Fail-closed platform admission for reference/control identity.
 
-    ``reference_mode=legacy`` follows the historical lenient behavior.
+    ``reference_mode=legacy`` follows the historical lenient reference checks.
     ``strict`` enforces genome resource membership, experiment index identity,
-    control genome/layout identity, and external control BAM admission.
+    and control genome/layout identity. An external ``control_bam`` is
+    rejected whenever ``use_control`` is true, in both reference modes.
     """
     strict = reference_mode == "strict"
     resources = config.get("genome_resources", {})

@@ -180,9 +180,9 @@ rule environments so the first install stays small.
 
 ### Control path not found
 
-- `control_bam` points to an external BAM that must exist on disk.
-- `control_sample` must match a `sample` ID in the same sample sheet.
-- Controls are disabled unless `use_control: true` in `config/config.yaml`.
+- `control_sample` must match a `sample` ID in the same sample sheet, and that row must be a control.
+- An external `control_bam` is rejected when `use_control: true`. Use a FASTQ `control_sample`.
+- Controls are disabled unless `use_control: true` in `config/config.yaml`. A leftover `control_bam` is ignored when `use_control` is false.
 
 ### Missing tools for tiny execution
 

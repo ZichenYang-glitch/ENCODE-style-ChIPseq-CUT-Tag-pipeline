@@ -389,9 +389,10 @@ def _scan_extra_args_tokens(tool, extra, error_cls):
     return tokens
 
 
-# Picard 3.4.0 MarkDuplicates long and short names. Prefixes are resolved
-# the way Picard does, so a unique abbreviation of a removal switch cannot
-# slip past an exact-name check. This list is an admission guard, not a
+# Picard 3.4.0 MarkDuplicates long and short names. The validator uses this
+# list only to recognize a managed removal switch. A unique prefix of those
+# two names is rejected here even though that Picard build does not execute
+# abbreviations. This is an admission guard, not Picard syntax and not a
 # second duplicate policy.
 _PICARD_MARKDUPLICATES_LONG_NAMES = frozenset(
     {
@@ -471,13 +472,15 @@ _PICARD_MANAGED_REMOVAL_OPTIONS = frozenset(
 
 
 def _picard_managed_removal_option(token):
-    """Return the removal switch a Picard token sets, if it sets one.
+    """Return the removal switch a token would reconfigure, if it names one.
 
-    Picard accepts ``--NAME value``, ``--NAME=value``, ``NAME=value``, and a
-    single leading dash on the long name. A token is an option only when it
-    has that shape. Unique prefixes of the MarkDuplicates long names count,
-    because Picard accepts them. A short name such as ``-M`` stays a short
-    name and is not treated as a prefix of a long removal switch.
+    Picard 3.4.0 accepts legacy ``NAME=value`` and new-syntax ``-NAME value``
+    or ``--NAME value``. On that build, unique abbreviations and
+    ``--NAME=value`` are not executed. This guard is stricter: after the
+    existing token scan, a name that uniquely prefixes only
+    ``REMOVE_DUPLICATES`` or ``REMOVE_SEQUENCING_DUPLICATES`` is rejected,
+    including an explicit false. A documented short name such as ``-M`` is
+    not treated as a long-name prefix.
     """
     if "=" in token:
         raw_name, _value = token.split("=", 1)
