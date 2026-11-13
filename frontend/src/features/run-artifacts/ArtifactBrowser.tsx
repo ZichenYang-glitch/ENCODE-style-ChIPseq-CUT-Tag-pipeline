@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ArtifactReferenceResponse,
   RunArtifactDetailResponse,
@@ -34,6 +34,7 @@ import {
 } from './artifactDownload';
 
 const ARTIFACT_PAGE_SIZE = 50;
+const GenomeBrowserPanel = lazy(() => import('./GenomeBrowserPanel'));
 
 interface ArtifactBrowserProps {
   runId: string;
@@ -129,6 +130,7 @@ export function ArtifactBrowser({
   const [staleGeneration, setStaleGeneration] = useState<string | null>(null);
   const staleRunId = useRef<string | null>(null);
   const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const automaticRefreshGeneration = useRef<string | null>(null);
   const generationIsStale =
     generation !== null &&
@@ -371,7 +373,15 @@ export function ArtifactBrowser({
             {artifacts.length} loaded{outcome.count >= artifacts.length ? ` of ${outcome.count}` : ''}
           </p>
         </div>
+        <Button variant="secondary" onClick={() => setBrowserOpen((open) => !open)}>
+          {browserOpen ? 'Hide genome browser' : 'View tracks in genome browser'}
+        </Button>
       </div>
+      {browserOpen ? (
+        <Suspense fallback={<p role="status">Loading genome browser…</p>}>
+          <GenomeBrowserPanel runId={runId} />
+        </Suspense>
+      ) : null}
 
       {listQuery.isError && hasCachedArtifacts && (
         <div

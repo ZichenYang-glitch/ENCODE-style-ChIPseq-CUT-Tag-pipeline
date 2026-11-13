@@ -95,6 +95,23 @@ EXPECTED_OPERATIONS = {
         "POST",
         "/api/v1/auth/accounts/{user_id}/sessions/revoke",
     ): "revoke_account_sessions",
+    ("GET", "/api/v1/runs/{run_id}/browser-session"): "getRunBrowserSession",
+    (
+        "POST",
+        "/api/v1/runs/{run_id}/browser-tracks/{artifact_id}/derivative",
+    ): "prepareRunBrowserTrack",
+    (
+        "GET",
+        "/api/v1/runs/{run_id}/browser-tracks/{artifact_id}/region-summary/{generation}/{revision}",
+    ): "summarizeRunBrowserTrackRegion",
+    (
+        "GET",
+        "/api/v1/runs/{run_id}/browser-tracks/{artifact_id}/bytes/{generation}/{file_token}",
+    ): "readRunBrowserTrackBytes",
+    (
+        "HEAD",
+        "/api/v1/runs/{run_id}/browser-tracks/{artifact_id}/bytes/{generation}/{file_token}",
+    ): "headRunBrowserTrackBytes",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
