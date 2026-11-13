@@ -255,6 +255,7 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/auth/accounts/{user_id}/sessions/revoke",
             "/api/v1/projects",
             "/api/v1/projects/{project_id}/samples",
+            "/api/v1/projects/{project_id}/input-revisions",
             "/api/v1/agent/authoring-sessions",
             "/api/v1/agent/authoring-sessions/{sid}",
             "/api/v1/agent/authoring-sessions/{sid}/receipts",

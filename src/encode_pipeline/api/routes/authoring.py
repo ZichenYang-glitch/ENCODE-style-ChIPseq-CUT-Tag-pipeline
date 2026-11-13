@@ -26,6 +26,8 @@ from encode_pipeline.api.authoring_models import (
     AuthoringTurnResponse,
     AuthoringValidateRequest,
     AuthoringValidationResponse,
+    ProjectInputRevisionListResponse,
+    ProjectInputRevisionResponse,
     ProjectListResponse,
     ProjectSampleListResponse,
     ProjectSampleSummaryResponse,
@@ -108,6 +110,44 @@ def list_project_samples(
                 sample_revision_id=revision_id,
             )
             for sample_id, name, revision_id in page.samples
+        ],
+        next_cursor=page.next_cursor,
+    )
+
+
+@projects_router.get(
+    "/{project_id}/input-revisions",
+    response_model=ProjectInputRevisionListResponse,
+    operation_id="authoringListProjectInputRevisions",
+    responses=_INTERNAL_ERROR,
+)
+def list_project_input_revisions(
+    project_id: str,
+    actor: AuthoringActor = Depends(require_authoring_actor),
+    service: AuthoringService = Depends(get_authoring_service),
+    cursor: str | None = Query(default=None, max_length=256),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> ProjectInputRevisionListResponse:
+    page = service.list_input_revisions(actor, project_id, cursor=cursor, limit=limit)
+    return ProjectInputRevisionListResponse(
+        project_id=page.project_id,
+        revisions=[
+            ProjectInputRevisionResponse(
+                input_file_id=file_id,
+                stable_key=stable_key,
+                input_file_revision_id=revision_id,
+                revision_number=revision_number,
+                size_bytes=size_bytes,
+                content_sha256=content_sha256,
+            )
+            for (
+                file_id,
+                stable_key,
+                revision_id,
+                revision_number,
+                size_bytes,
+                content_sha256,
+            ) in page.revisions
         ],
         next_cursor=page.next_cursor,
     )

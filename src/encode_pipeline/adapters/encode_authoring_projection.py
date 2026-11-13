@@ -16,6 +16,9 @@ from encode_pipeline.platform.authoring import (
     FieldConstraint,
     IssueLabel,
     SAMPLE_SELECTION_REQUIRED,
+    WORKFLOW_SAMPLE_INPUT_UNAVAILABLE,
+    WORKFLOW_SAMPLE_PLAN_INVALID,
+    WORKFLOW_SAMPLE_PLAN_REQUIRED,
 )
 from encode_pipeline.platform.registry import ENCODE_WORKFLOW_ID
 
@@ -63,6 +66,18 @@ _ISSUES = (
     (
         SAMPLE_SELECTION_REQUIRED,
         "Select at least one sample revision before validation.",
+    ),
+    (
+        WORKFLOW_SAMPLE_PLAN_REQUIRED,
+        "Each selected sample revision needs an explicit workflow sample plan.",
+    ),
+    (
+        WORKFLOW_SAMPLE_PLAN_INVALID,
+        "The workflow sample plan does not match the selected revisions.",
+    ),
+    (
+        WORKFLOW_SAMPLE_INPUT_UNAVAILABLE,
+        "A selected input revision could not be verified.",
     ),
 )
 

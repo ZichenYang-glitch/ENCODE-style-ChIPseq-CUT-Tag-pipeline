@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import re
 from typing import Any
 
 from encode_pipeline.platform.adapters import WorkflowInputs
@@ -64,6 +65,9 @@ MODEL_OUTPUT_REJECTED = "MODEL_OUTPUT_REJECTED"
 AUTH_SESSION_ENDED = "AUTH_SESSION_ENDED"
 CLOSED_BY_OWNER = "CLOSED_BY_OWNER"
 SAMPLE_SELECTION_REQUIRED = "SAMPLE_SELECTION_REQUIRED"
+WORKFLOW_SAMPLE_PLAN_REQUIRED = "WORKFLOW_SAMPLE_PLAN_REQUIRED"
+WORKFLOW_SAMPLE_PLAN_INVALID = "WORKFLOW_SAMPLE_PLAN_INVALID"
+WORKFLOW_SAMPLE_INPUT_UNAVAILABLE = "WORKFLOW_SAMPLE_INPUT_UNAVAILABLE"
 SCOPE_DENIED = "SCOPE_DENIED"
 CAPABILITY_CHANGED = "CAPABILITY_CHANGED"
 
@@ -124,6 +128,15 @@ _MESSAGES = {
     CLOSED_BY_OWNER: "The connection was closed.",
     SAMPLE_SELECTION_REQUIRED: (
         "Select at least one sample revision before validation."
+    ),
+    WORKFLOW_SAMPLE_PLAN_REQUIRED: (
+        "Each selected sample revision needs an explicit workflow sample plan."
+    ),
+    WORKFLOW_SAMPLE_PLAN_INVALID: (
+        "The workflow sample plan does not match the selected revisions."
+    ),
+    WORKFLOW_SAMPLE_INPUT_UNAVAILABLE: (
+        "A selected input revision could not be verified."
     ),
     SCOPE_DENIED: "The assistant tool is outside the authorized scope.",
     CAPABILITY_CHANGED: "The authoring projection changed.",
@@ -292,6 +305,77 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return payload
 
 
+_SAMPLE_REVISION_ID = re.compile(r"^smpr_[0-9a-f]{32}$")
+_INPUT_FILE_REVISION_ID = re.compile(r"^inpfr_[0-9a-f]{32}$")
+_READ_FIELDS = {"input_file_revision_id", "read"}
+_MAX_WORKFLOW_SAMPLE_KEYS = 32
+_MAX_WORKFLOW_SAMPLE_READS = 8
+
+
+def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
+    """Bound a plan and its revision identities.
+
+    Assay, layout, role, and read pairing belong to the workflow adapter.
+    """
+
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 256:
+        raise ValueError("workflow_samples must be a bounded list")
+    normalized: list[dict[str, Any]] = []
+    seen_samples: set[str] = set()
+    seen_reads: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping) or len(item) > _MAX_WORKFLOW_SAMPLE_KEYS:
+            raise ValueError("workflow sample plan has an unexpected shape")
+        sample_revision_id = item.get("sample_revision_id")
+        if (
+            not isinstance(sample_revision_id, str)
+            or _SAMPLE_REVISION_ID.fullmatch(sample_revision_id) is None
+            or sample_revision_id in seen_samples
+        ):
+            raise ValueError("workflow sample revision is missing or repeated")
+        seen_samples.add(sample_revision_id)
+        reads = item.get("reads")
+        if (
+            not isinstance(reads, list)
+            or not reads
+            or len(reads) > _MAX_WORKFLOW_SAMPLE_READS
+        ):
+            raise ValueError("workflow sample reads must be explicit")
+        observed: list[dict[str, Any]] = []
+        numbers: list[int] = []
+        for read in reads:
+            if not isinstance(read, Mapping) or set(read) != _READ_FIELDS:
+                raise ValueError("workflow sample read has an unexpected shape")
+            number = read["read"]
+            revision_id = read["input_file_revision_id"]
+            if (
+                number not in {1, 2}
+                or not isinstance(revision_id, str)
+                or _INPUT_FILE_REVISION_ID.fullmatch(revision_id) is None
+                or revision_id in seen_reads
+                or number in numbers
+            ):
+                raise ValueError("workflow sample read is missing or repeated")
+            seen_reads.add(revision_id)
+            numbers.append(number)
+            observed.append({"input_file_revision_id": revision_id, "read": number})
+        payload = {
+            key: item[key] for key in item if key not in {"reads", "sample_revision_id"}
+        }
+        try:
+            encoded = json.loads(canonical_json(payload))
+        except (TypeError, ValueError):
+            raise ValueError("workflow sample plan has an unexpected shape") from None
+        if not isinstance(encoded, dict):
+            raise ValueError("workflow sample plan has an unexpected shape")
+        encoded["reads"] = sorted(observed, key=lambda read: int(read["read"]))
+        encoded["sample_revision_id"] = sample_revision_id
+        normalized.append(encoded)
+    return normalized
+
+
 def normalize_draft_content(content: Mapping[str, Any]) -> dict[str, Any]:
     """Return the canonical draft document used for equality and digests."""
 
@@ -311,13 +395,20 @@ def normalize_draft_content(content: Mapping[str, Any]) -> dict[str, Any]:
             }
         )
     reference = content["reference_profile_revision_id"]
+    workflow_samples = _normalize_workflow_samples(content.get("workflow_samples", []))
+    sample_revision_ids = list(content["sample_revision_ids"])
+    if workflow_samples and sample_revision_ids != [
+        item["sample_revision_id"] for item in workflow_samples
+    ]:
+        raise ValueError("workflow_samples must match sample_revision_ids")
     return {
         "config": decoded["config"],
         "input_selections": selections,
         "options": decoded["options"],
         "reference_profile_revision_id": reference,
-        "sample_revision_ids": list(content["sample_revision_ids"]),
+        "sample_revision_ids": sample_revision_ids,
         "samples": decoded["samples"],
+        "workflow_samples": workflow_samples,
     }
 
 
@@ -330,6 +421,7 @@ def empty_draft_content() -> dict[str, Any]:
             "reference_profile_revision_id": None,
             "sample_revision_ids": [],
             "samples": None,
+            "workflow_samples": [],
         }
     )
 

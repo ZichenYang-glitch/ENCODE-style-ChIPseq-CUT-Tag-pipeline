@@ -9,6 +9,7 @@ import type {
   AuthoringAdoptRequest,
   AuthoringAdoptionResponse,
   AuthoringDraftWriteRequest,
+  AuthoringListProjectInputRevisionsParams,
   AuthoringListProjectSamplesParams,
   AuthoringListProjectsParams,
   AuthoringListReceiptsParams,
@@ -22,6 +23,7 @@ import type {
   AuthoringTurnResponse,
   AuthoringValidateRequest,
   AuthoringValidationResponse,
+  ProjectInputRevisionListResponse,
   ProjectListResponse,
   ProjectSampleListResponse
 } from '.././models';
@@ -81,6 +83,38 @@ export const authoringListProjectSamples = async (projectId: string,
     params?: AuthoringListProjectSamplesParams, options?: RequestInit): Promise<ProjectSampleListResponse> => {
 
   return fetcher<ProjectSampleListResponse>(getAuthoringListProjectSamplesUrl(projectId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary List Project Input Revisions
+ */
+export const getAuthoringListProjectInputRevisionsUrl = (projectId: string,
+    params?: AuthoringListProjectInputRevisionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/projects/${projectId}/input-revisions?${stringifiedParams}` : `/api/v1/projects/${projectId}/input-revisions`
+}
+
+export const authoringListProjectInputRevisions = async (projectId: string,
+    params?: AuthoringListProjectInputRevisionsParams, options?: RequestInit): Promise<ProjectInputRevisionListResponse> => {
+
+  return fetcher<ProjectInputRevisionListResponse>(getAuthoringListProjectInputRevisionsUrl(projectId,params),
   {
     ...options,
     method: 'GET'
