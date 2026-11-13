@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import gzip
+
 import pytest
 
 from encode_pipeline.services.browser_bgzf import IndexedText, query_indexed_bed
 from encode_pipeline.services.browser_derivatives import (
     MAX_SOURCE_BYTES,
+    DerivativeLimits,
     DisplayDerivativeError,
     build_display_derivative,
 )
@@ -16,7 +19,13 @@ REVISION = "artifactrev-" + "a" * 64
 GENERATION = "artifactgen-" + "b" * 64
 
 
-def _build(kind: str, text: str, *, output_type: str = "hitrac_bedpe_all"):
+def _build(
+    kind: str,
+    text: str,
+    *,
+    output_type: str = "hitrac_bedpe_all",
+    limits: DerivativeLimits | None = None,
+):
     return build_display_derivative(
         kind=kind,
         source=text.encode("ascii"),
@@ -24,6 +33,7 @@ def _build(kind: str, text: str, *, output_type: str = "hitrac_bedpe_all"):
         source_revision=REVISION,
         source_generation=GENERATION,
         source_output_type=output_type,
+        limits=limits,
     )
 
 
@@ -103,5 +113,67 @@ def test_source_over_the_display_cap_is_rejected() -> None:
             source_revision=REVISION,
             source_generation=GENERATION,
             source_output_type="hitrac_bedpe_all",
+        )
+    assert caught.value.reason == "source_too_large"
+
+
+def test_gzip_expansion_stops_at_the_decompressed_cap() -> None:
+    line = b"chr1\t1000\t1100\tchr1\t2000\t2100\tread\t40\t+\t-\n"
+    raw = line * 20_000
+    source = gzip.compress(raw, compresslevel=9)
+    assert len(source) < 64 * 1024
+    assert len(raw) > 8192
+    with pytest.raises(DisplayDerivativeError) as caught:
+        build_display_derivative(
+            kind="pet_records",
+            source=source,
+            source_artifact_id="artifact-pet",
+            source_revision=REVISION,
+            source_generation=GENERATION,
+            source_output_type="hitrac_bedpe_all",
+            limits=DerivativeLimits(decompressed_bytes=8192),
+        )
+    assert caught.value.reason == "source_too_large"
+
+
+def test_line_over_the_cap_is_rejected_before_a_derivative_exists() -> None:
+    with pytest.raises(DisplayDerivativeError) as caught:
+        _build(
+            "pet_records",
+            "chr1\t1000\t1100\tchr1\t2000\t2100\tread\t40\t+\t-\n",
+            limits=DerivativeLimits(line_bytes=32),
+        )
+    assert caught.value.reason == "source_too_large"
+
+
+def test_display_rows_include_both_pet_anchors() -> None:
+    with pytest.raises(DisplayDerivativeError) as caught:
+        _build(
+            "pet_records",
+            "chr1\t1200\t1400\tchr1\t1600\t1800\tread\t211\t+\t+\n",
+            limits=DerivativeLimits(output_rows=1),
+        )
+    assert caught.value.reason == "source_too_large"
+    built = _build(
+        "pet_records",
+        "chr1\t1200\t1400\tchr1\t1600\t1800\tread\t211\t+\t+\n",
+        limits=DerivativeLimits(output_rows=2, source_records=1),
+    )
+    assert built.provenance["pair_count"] == 1
+    assert built.provenance["anchor_row_count"] == 2
+    assert b"211" not in built.data
+
+
+def test_source_record_cap_stops_before_sorting_extra_pairs() -> None:
+    with pytest.raises(DisplayDerivativeError) as caught:
+        _build(
+            "pet_records",
+            "\n".join(
+                (
+                    "chr1\t1200\t1400\tchr1\t1600\t1800\tread\t10\t+\t+",
+                    "chr1\t3000\t3100\tchr1\t3200\t3300\tread\t11\t+\t+",
+                )
+            ),
+            limits=DerivativeLimits(source_records=1, output_rows=10),
         )
     assert caught.value.reason == "source_too_large"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -84,6 +85,45 @@ def build_app(database: Path, workspace: Path):
     return app, run_id, signal.artifact_id, pet.artifact_id
 
 
+def _fail_after_preflight(app):
+    """Allow the one-byte preflight, then fail real data and index reads."""
+
+    async def wrapped(scope, receive, send):
+        if scope.get("type") != "http":
+            await app(scope, receive, send)
+            return
+        path = scope.get("path") or ""
+        if "/browser-tracks/" not in path or "/bytes/" not in path:
+            await app(scope, receive, send)
+            return
+        headers = {
+            name.decode("latin1").lower(): value.decode("latin1")
+            for name, value in scope.get("headers", ())
+        }
+        if headers.get("range") == "bytes=0-0":
+            await app(scope, receive, send)
+            return
+        body = (
+            b'{"ok":false,"issues":[{"code":"BROWSER_TRACK_UNAVAILABLE",'
+            b'"message":"Track bytes are temporarily unavailable.",'
+            b'"severity":"error","path":"file_token","source":"runtime",'
+            b'"context":{}}]}'
+        )
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 500,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    return wrapped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
@@ -91,6 +131,8 @@ def main() -> None:
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
     app, run_id, signal_id, pet_id = build_app(args.database, args.workspace)
+    if os.environ.get("WASHU_PROOF_FAIL_AFTER_PREFLIGHT") == "1":
+        app = _fail_after_preflight(app)
     print(
         f"WASHU_FIXTURE run_id={run_id} signal={signal_id} pet={pet_id}",
         flush=True,

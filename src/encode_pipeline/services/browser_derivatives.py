@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import gzip
 import hashlib
 import re
+import zlib
 
 
 CONVERTER_ID = "washu-display-derivative-1"
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
+MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024
+MAX_LINE_BYTES = 64 * 1024
+MAX_SOURCE_RECORDS = 2_000_000
 MAX_OUTPUT_ROWS = 2_000_000
 DISPLAY_FLAG = "1"
 _CHROM = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _INTEGER = re.compile(r"(?:0|[1-9][0-9]*)$")
+_GZIP_WBITS = 16 + zlib.MAX_WBITS
 
 
 class DisplayDerivativeError(ValueError):
@@ -22,6 +26,17 @@ class DisplayDerivativeError(ValueError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class DerivativeLimits:
+    """Caps applied while inflating and parsing, before any derivative is returned."""
+
+    source_bytes: int = MAX_SOURCE_BYTES
+    decompressed_bytes: int = MAX_DECOMPRESSED_BYTES
+    line_bytes: int = MAX_LINE_BYTES
+    source_records: int = MAX_SOURCE_RECORDS
+    output_rows: int = MAX_OUTPUT_ROWS
 
 
 @dataclass(frozen=True)
@@ -41,14 +56,15 @@ def build_display_derivative(
     source_revision: str,
     source_generation: str,
     source_output_type: str,
+    limits: DerivativeLimits | None = None,
 ) -> DisplayDerivative:
     """Convert PET or interval text into a tabix-indexed display file."""
 
-    if len(source) > MAX_SOURCE_BYTES:
+    active = limits or DerivativeLimits()
+    if len(source) > active.source_bytes:
         raise DisplayDerivativeError("source_too_large")
-    text = _decode_text(source)
     if kind in {"pet_records", "paired_intervals"}:
-        rows, pair_count = _pet_rows(text)
+        rows, pair_count = _pet_rows(source, active)
         score_meaning = "display_flag"
         detail = (
             "Two longrange rows are anchors for one source pair. Their "
@@ -56,7 +72,9 @@ def build_display_derivative(
             "source score column were not copied."
         )
     elif kind in {"peak_intervals", "annotation"}:
-        rows = _interval_rows(text, copy_score=kind == "peak_intervals")
+        rows = _interval_rows(
+            source, copy_score=kind == "peak_intervals", limits=active
+        )
         pair_count = len(rows)
         score_meaning = (
             "source_interval_score" if kind == "peak_intervals" else "display_flag"
@@ -66,8 +84,7 @@ def build_display_derivative(
         raise DisplayDerivativeError("derivative_kind_unsupported")
     if not rows:
         raise DisplayDerivativeError("source_has_no_records")
-    if len(rows) > MAX_OUTPUT_ROWS:
-        raise DisplayDerivativeError("source_too_large")
+    rows.sort(key=_sort_key)
     from encode_pipeline.services.browser_bgzf import write_indexed_bed
 
     indexed = write_indexed_bed(tuple(rows))
@@ -99,26 +116,95 @@ def build_display_derivative(
     )
 
 
-def _decode_text(source: bytes) -> str:
-    payload = source
-    if source.startswith(b"\x1f\x8b"):
+def _gzip_chunks(source: bytes, limits: DerivativeLimits):
+    decompressor = zlib.decompressobj(_GZIP_WBITS)
+    pending = source
+    produced = 0
+    while True:
+        budget = limits.decompressed_bytes - produced
         try:
-            payload = gzip.decompress(source)
-        except (OSError, EOFError, gzip.BadGzipFile) as exc:
+            chunk = decompressor.decompress(pending, budget + 1)
+        except zlib.error as exc:
             raise DisplayDerivativeError("source_unreadable") from exc
+        pending = decompressor.unconsumed_tail
+        if len(chunk) > budget:
+            raise DisplayDerivativeError("source_too_large")
+        produced += len(chunk)
+        if chunk:
+            yield chunk
+        if decompressor.eof:
+            if pending:
+                raise DisplayDerivativeError("source_unreadable")
+            return
+        if pending:
+            continue
+        try:
+            flushed = decompressor.flush(budget + 1)
+        except zlib.error as exc:
+            raise DisplayDerivativeError("source_unreadable") from exc
+        if len(flushed) > budget:
+            raise DisplayDerivativeError("source_too_large")
+        if flushed:
+            yield flushed
+        if not decompressor.eof:
+            raise DisplayDerivativeError("source_unreadable")
+        return
+
+
+def _iter_text_lines(source: bytes, limits: DerivativeLimits):
+    if source.startswith(b"\x1f\x8b"):
+        chunks = _gzip_chunks(source, limits)
+    else:
+        if len(source) > limits.decompressed_bytes:
+            raise DisplayDerivativeError("source_too_large")
+        chunks = (source,)
+    pending = bytearray()
+    for chunk in chunks:
+        pending.extend(chunk)
+        while True:
+            newline = pending.find(b"\n")
+            if newline < 0:
+                break
+            if newline > limits.line_bytes:
+                raise DisplayDerivativeError("source_too_large")
+            raw = bytes(pending[:newline])
+            del pending[: newline + 1]
+            yield _text_line(raw)
+        if len(pending) > limits.line_bytes:
+            raise DisplayDerivativeError("source_too_large")
+    if pending:
+        yield _text_line(bytes(pending))
+
+
+def _text_line(raw: bytes) -> str:
+    if raw.endswith(b"\r"):
+        raw = raw[:-1]
+    if b"\x00" in raw or b"\r" in raw:
+        raise DisplayDerivativeError("source_unreadable")
     try:
-        text = payload.decode("ascii")
+        return raw.decode("ascii")
     except UnicodeError as exc:
         raise DisplayDerivativeError("source_unreadable") from exc
-    if "\x00" in text:
-        raise DisplayDerivativeError("source_unreadable")
-    return text
 
 
-def _pet_rows(text: str) -> tuple[list[str], int]:
+def _reserve_record(count: int, limits: DerivativeLimits) -> int:
+    if count >= limits.source_records:
+        raise DisplayDerivativeError("source_too_large")
+    return count + 1
+
+
+def _append_rows(
+    rows: list[str], additions: tuple[str, ...], limits: DerivativeLimits
+) -> None:
+    if len(rows) + len(additions) > limits.output_rows:
+        raise DisplayDerivativeError("source_too_large")
+    rows.extend(additions)
+
+
+def _pet_rows(source: bytes, limits: DerivativeLimits) -> tuple[list[str], int]:
     rows: list[str] = []
     pairs = 0
-    for raw in text.splitlines():
+    for raw in _iter_text_lines(source, limits):
         if not raw or raw.startswith("#"):
             continue
         columns = raw.split("\t")
@@ -128,17 +214,20 @@ def _pet_rows(text: str) -> tuple[list[str], int]:
         right = _interval(columns[3], columns[4], columns[5])
         if len(columns) >= 10:
             _reject_mapq_as_score(columns[7])
-        pairs += 1
-        rows.append(_anchor(left, right))
+        pairs = _reserve_record(pairs, limits)
+        anchors = [_anchor(left, right)]
         if left != right:
-            rows.append(_anchor(right, left))
-    rows.sort(key=_sort_key)
+            anchors.append(_anchor(right, left))
+        _append_rows(rows, tuple(anchors), limits)
     return rows, pairs
 
 
-def _interval_rows(text: str, *, copy_score: bool) -> list[str]:
+def _interval_rows(
+    source: bytes, *, copy_score: bool, limits: DerivativeLimits
+) -> list[str]:
     rows: list[str] = []
-    for raw in text.splitlines():
+    records = 0
+    for raw in _iter_text_lines(source, limits):
         if not raw or raw.startswith(("#", "track", "browser")):
             continue
         columns = raw.split("\t")
@@ -154,8 +243,10 @@ def _interval_rows(text: str, *, copy_score: bool) -> list[str]:
         strand = (
             columns[5] if len(columns) > 5 and columns[5] in {"+", "-", "."} else "."
         )
-        rows.append(f"{chrom}\t{start}\t{end}\t{name}\t{score}\t{strand}")
-    rows.sort(key=_sort_key)
+        records = _reserve_record(records, limits)
+        _append_rows(
+            rows, (f"{chrom}\t{start}\t{end}\t{name}\t{score}\t{strand}",), limits
+        )
     return rows
 
 

@@ -150,6 +150,7 @@ def browser_error(
     message: str,
     path: str,
     reason: str | None,
+    source: str = "api",
 ) -> dict[str, Any]:
     context = {"reason_code": reason} if reason else {}
     return BrowserErrorResponse(
@@ -159,6 +160,7 @@ def browser_error(
                 code=code,
                 message=message,
                 path=path,
+                source=source,
                 context=BrowserIssueContextResponse(**context),
             )
         ],

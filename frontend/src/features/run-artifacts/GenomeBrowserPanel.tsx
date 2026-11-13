@@ -68,7 +68,21 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
     const suggested = session.tracks.find(
       (track) => track.provenance?.suggested_region,
     )?.provenance?.suggested_region;
-    if (typeof suggested === 'string') setRegion(suggested);
+    if (typeof suggested !== 'string') return;
+    // GenomeHub applies the region it receives on the first mount, then only
+    // refetches tracks when that string changes. A short hop makes the mounted
+    // viewer query the intended window.
+    const parts = suggested.match(/^(.*:)(\d+)-(\d+)$/);
+    const hop = parts
+      ? `${parts[1]}${Math.max(0, Number(parts[2]) - 400)}-${Math.max(1, Number(parts[3]) - 400)}`
+      : suggested;
+    setRegion(suggested);
+    const move = window.setTimeout(() => setRegion(hop), 600);
+    const settle = window.setTimeout(() => setRegion(suggested), 1100);
+    return () => {
+      window.clearTimeout(move);
+      window.clearTimeout(settle);
+    };
   }, [session]);
 
   const readyTracks = useMemo(

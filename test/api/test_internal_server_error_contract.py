@@ -21,7 +21,51 @@ from encode_pipeline.services.authentication import (
     new_session_record,
     new_session_secrets,
 )
+from encode_pipeline.services.browser_tracks import BrowserTrackService
 from encode_pipeline.services.run_repositories import RunEventDraft
+
+
+async def _application_response(app, request: httpx.Request) -> httpx.Response:
+    """Read the status and body the ASGI app actually produced."""
+
+    body_parts: list[bytes] = []
+    status_code = 500
+    headers: list[tuple[bytes, bytes]] = []
+
+    async def receive() -> dict[str, object]:
+        if receive.sent:
+            return {"type": "http.disconnect"}
+        receive.sent = True
+        return {"type": "http.request", "body": request.content, "more_body": False}
+
+    receive.sent = False
+
+    async def send(message: dict[str, object]) -> None:
+        nonlocal status_code, headers
+        if message["type"] == "http.response.start":
+            status_code = int(message["status"])
+            headers = list(message.get("headers", []))
+        elif message["type"] == "http.response.body":
+            body_parts.append(message.get("body", b""))
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": request.method,
+            "headers": [(key.lower(), value) for key, value in request.headers.raw],
+            "scheme": request.url.scheme,
+            "path": request.url.path,
+            "raw_path": request.url.raw_path.split(b"?")[0],
+            "query_string": request.url.query,
+            "server": (request.url.host, request.url.port or 80),
+            "client": ("127.0.0.1", 123),
+        },
+        receive,
+        send,
+    )
+    return httpx.Response(status_code, headers=headers, content=b"".join(body_parts))
 
 
 WORKFLOW = "encode-style-chipseq-cuttag-atac-mnase"
@@ -80,6 +124,11 @@ FAULTS = {
         "get_artifact_publication",
     ),
     "listRunQcMetrics": ("run_service", "list_qc_metrics_page"),
+    "getRunBrowserSession": ("browser_track_service", "session"),
+    "prepareRunBrowserTrack": ("browser_track_service", "prepare"),
+    "summarizeRunBrowserTrackRegion": ("browser_track_service", "region_summary"),
+    "readRunBrowserTrackBytes": ("browser_track_service", "open_bytes"),
+    "headRunBrowserTrackBytes": ("browser_track_service", "open_bytes"),
 }
 SPECIAL_MODELS = {
     "createRun": "RunResponse",
@@ -90,6 +139,11 @@ SPECIAL_MODELS = {
     "listArtifactPublications": "ArtifactPublicationListResponse",
     "getArtifactPublication": "ArtifactPublicationDetailResponse",
     "listRunQcMetrics": "RunQcMetricsResponse",
+    "getRunBrowserSession": "BrowserErrorResponse",
+    "prepareRunBrowserTrack": "BrowserErrorResponse",
+    "summarizeRunBrowserTrackRegion": "BrowserErrorResponse",
+    "readRunBrowserTrackBytes": "BrowserErrorResponse",
+    "headRunBrowserTrackBytes": "BrowserErrorResponse",
 }
 
 
@@ -114,6 +168,12 @@ def error_api(tmp_path):
     )
     admin_tokens = app.state.test_auth_tokens
     member_tokens = (secrets.session_token, secrets.csrf_token)
+    app.state.browser_track_service = BrowserTrackService(
+        run_service=app.state.run_service,
+        download_service=app.state.artifact_download_service,
+        workspace_root=app.state.workspace_root,
+        reference_profile_service=app.state.reference_profile_service,
+    )
     now = datetime.now(timezone.utc)
     record = RunRecord(
         run_id=RUN,
@@ -144,7 +204,13 @@ def error_api(tmp_path):
     async def request(operation):
         method, path, _ = operations[operation]
         path = path.format(
-            workflow_id=WORKFLOW, run_id=RUN, user_id=USER, artifact_id="artifact-test"
+            workflow_id=WORKFLOW,
+            run_id=RUN,
+            user_id=USER,
+            artifact_id="artifact-test",
+            generation=GENERATION,
+            revision=REVISION,
+            file_token=REVISION,
         )
         payloads = {
             "login": {"username": "test-admin", "password": "private-payload-marker"},
@@ -158,6 +224,10 @@ def error_api(tmp_path):
             "validateWorkflow": {"config": {}},
             "chatWithWorkflowAgent": {"message": "private-payload-marker"},
             "createRun": {"snapshot_id": "vsnap_" + "0" * 32},
+            "prepareRunBrowserTrack": {
+                "generation": GENERATION,
+                "revision": REVISION,
+            },
         }
         params = {}
         if operation in {
@@ -168,6 +238,8 @@ def error_api(tmp_path):
             params["generation"] = GENERATION
         if operation == "downloadRunArtifact":
             params["revision"] = REVISION
+        if operation == "summarizeRunBrowserTrackRegion":
+            params.update(chrom="chr1", start=0, end=1)
         app.state.test_auth_tokens = (
             member_tokens if "terminal_email_preference" in operation else admin_tokens
         )
@@ -176,9 +248,16 @@ def error_api(tmp_path):
             transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
             base_url="http://testserver",
         ) as client:
-            response = await client.request(
-                method, path, json=payloads.get(operation), params=params
-            )
+            if method.lower() == "head":
+                # httpx drops HEAD bodies. Keep the JSON envelope the app emitted.
+                prepared = client.build_request(
+                    method, path, json=payloads.get(operation), params=params
+                )
+                response = await _application_response(app, prepared)
+            else:
+                response = await client.request(
+                    method, path, json=payloads.get(operation), params=params
+                )
         responses.append(
             {
                 "operation": operation,

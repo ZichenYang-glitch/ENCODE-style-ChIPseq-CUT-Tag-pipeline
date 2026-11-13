@@ -73,6 +73,8 @@ def get_run_browser_session(
         payload = service.session(run_id)
     except BrowserTrackError as exc:
         return _error(run_id, exc)
+    except Exception:
+        return _unexpected(run_id)
     return BrowserSessionResponse.model_validate(payload)
 
 
@@ -102,6 +104,8 @@ def prepare_run_browser_track(
         )
     except BrowserTrackError as exc:
         return _error(run_id, exc)
+    except Exception:
+        return _unexpected(run_id)
     return BrowserPrepareResponse(
         ok=True,
         run_id=run_id,
@@ -142,6 +146,8 @@ def summarize_run_browser_track_region(
         )
     except BrowserTrackError as exc:
         return _error(run_id, exc)
+    except Exception:
+        return _unexpected(run_id)
     return BrowserRegionSummaryResponse.model_validate(payload)
 
 
@@ -187,6 +193,8 @@ def _read_track_bytes(
         )
     except BrowserTrackError as exc:
         return _error(run_id, exc)
+    except Exception:
+        return _unexpected(run_id)
     return _byte_response(body)
 
 
@@ -239,6 +247,22 @@ def head_run_browser_track_bytes(
         request=request,
         service=service,
         head=True,
+    )
+
+
+def _unexpected(run_id: str) -> JSONResponse:
+    """Redacted 500 for an unexpected failure. The exception text stays off the wire."""
+
+    return JSONResponse(
+        status_code=500,
+        content=browser_error(
+            run_id=run_id,
+            code="INTERNAL_SERVER_ERROR",
+            message="The browser view is temporarily unavailable.",
+            path="run_id",
+            reason=None,
+            source="runtime",
+        ),
     )
 
 
