@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- /tmp/helixweave-peri-qualification-review-20261115-ossu4mss/env/bin/python
+rootdir: /tmp/helixweave-peri-qualification-review-20261115-ossu4mss/checkout
+configfile: pyproject.toml
+collecting ... collected 1 item
+
+test/services/test_peri_authoring_bridge.py::test_fixed_native_reads_two_tools_and_rejects_an_old_generation PASSED [100%]
+
+- generated xml file: /tmp/helixweave-peri-qualification-review-20261115-ossu4mss/a1-final.xml -
+============================== 1 passed in 4.69s ===============================
