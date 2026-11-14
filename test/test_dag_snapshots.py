@@ -280,7 +280,6 @@ def test_updated_profile_schedules_analysis_chain(
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",
@@ -326,7 +325,6 @@ def _prepare_updated_workdir(profiles_dir, profile_name):
     config.update(
         {
             "config_schema_version": "2.0.0",
-            "analysis_profile": "updated",
             "blacklist_mode": "off",
             "organelle_mode": "auto",
             "duplicate_backend": "picard",
@@ -456,7 +454,6 @@ def _write_updated_profile(
             "cuttag_fragment_size": False,
         },
         "config_schema_version": "2.0.0",
-        "analysis_profile": "updated",
         "blacklist_mode": blacklist_mode,
         "organelle_mode": "auto",
         "duplicate_backend": "picard",
@@ -1390,7 +1387,6 @@ def _write_relative_project(base, name, profile, outdir, seq):
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",
@@ -1483,7 +1479,6 @@ def _write_resource_project(base, name, profile, outdir, fastq_dir, chrom_sizes)
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",
@@ -1772,15 +1767,16 @@ def test_marker_records_versioned_identity_and_effective_config(
 
         with open(os.path.join(workdir, marker_rel), encoding="utf-8") as handle:
             marker = json.load(handle)
-        assert marker["marker_schema_version"] == 2
-        assert marker["analysis_profile"] == profile
+        assert marker["marker_schema_version"] == 3
+        assert "analysis_profile" not in marker
         assert marker["scientific_policy_revision"] == SCIENTIFIC_POLICY_REVISION
         assert isinstance(marker["identity"], str) and marker["identity"]
 
         record_rel = "results/.helixweave/effective_config.json"
         with open(os.path.join(workdir, record_rel), encoding="utf-8") as handle:
             record = json.load(handle)
-        assert record["analysis_profile"] == profile
+        assert "analysis_profile" not in record
+        assert "remove_dup" not in record["config"]
         assert record["scientific_policy_revision"] == SCIENTIFIC_POLICY_REVISION
         assert record["identity"] == marker["identity"]
         assert record["config"]["mapq"] == 30
@@ -1895,21 +1891,23 @@ def _write_marker(workdir, payload):
     return marker
 
 
-def _new_format_marker(profile, identity="deadbeef", revision=None):
-    return {
-        "marker_schema_version": 2,
-        "analysis_profile": profile,
+def _new_format_marker(identity="deadbeef", revision=None, *, analysis_profile=None):
+    payload = {
+        "marker_schema_version": 3,
         "scientific_policy_revision": (
             SCIENTIFIC_POLICY_REVISION if revision is None else revision
         ),
         "identity": identity,
     }
+    if analysis_profile is not None:
+        payload["analysis_profile"] = analysis_profile
+    return payload
 
 
 def test_updated_refuses_different_identity_marker(snakefile, profiles_dir):
     workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
     try:
-        _write_marker(workdir, _new_format_marker("updated"))
+        _write_marker(workdir, _new_format_marker())
 
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
         assert result.returncode != 0, output
@@ -1963,27 +1961,35 @@ def test_legacy_refuses_outdated_marker_format(snakefile, profiles_dir):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_legacy_refuses_updated_marker_outdir(snakefile, profiles_dir):
+def test_historical_profile_marker_is_not_reused(snakefile, profiles_dir):
     profile_dir = os.path.join(profiles_dir, "chipseq_se_noctrl")
     workdir, dest_config = prepare_profile_workdir(profile_dir)
     try:
-        _write_marker(workdir, _new_format_marker("updated"))
+        _write_marker(
+            workdir,
+            {
+                "marker_schema_version": 2,
+                "analysis_profile": "legacy",
+                "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
+                "identity": "deadbeef",
+            },
+        )
 
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
         assert result.returncode != 0, output
-        assert "owned by analysis_profile=updated" in output, output
+        assert "outdated format" in output, output
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def test_updated_refuses_legacy_marker_outdir(snakefile, profiles_dir):
+def test_current_marker_rejects_selectable_analysis_profile(snakefile, profiles_dir):
     workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
     try:
-        _write_marker(workdir, _new_format_marker("legacy"))
+        _write_marker(workdir, _new_format_marker(analysis_profile="updated"))
 
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
         assert result.returncode != 0, output
-        assert "owned by analysis_profile=legacy" in output, output
+        assert "selectable analysis profile" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -1991,7 +1997,7 @@ def test_updated_refuses_legacy_marker_outdir(snakefile, profiles_dir):
 def test_refuses_marker_from_other_policy_revision(snakefile, profiles_dir):
     workdir, dest_config = _prepare_updated_workdir(profiles_dir, "chipseq_pe_noctrl")
     try:
-        _write_marker(workdir, _new_format_marker("updated", revision=999))
+        _write_marker(workdir, _new_format_marker(revision=999))
 
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
         assert result.returncode != 0, output
@@ -2056,7 +2062,7 @@ def test_updated_external_control_rejected_before_consumer_selection(
     try:
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config, target)
         assert result.returncode != 0, output
-        assert "does not yet support external control_bam" in output, output
+        assert "external control_bam is not supported" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -2082,7 +2088,7 @@ def test_updated_external_control_rejected_for_mnase_without_replicates(
 
         result, output = _run_snakemake_dryrun(snakefile, workdir, dest_config)
         assert result.returncode != 0, output
-        assert "does not yet support external control_bam" in output, output
+        assert "external control_bam is not supported" in output, output
     finally:
         shutil.rmtree(workdir)
 
@@ -2205,7 +2211,6 @@ def test_updated_use_control_false_idr_has_no_control_tasks(snakefile, tmp_path)
             "cuttag_fragment_size": False,
         },
         "config_schema_version": "2.0.0",
-        "analysis_profile": "updated",
         "blacklist_mode": "off",
         "organelle_mode": "auto",
         "duplicate_backend": "picard",
@@ -2273,7 +2278,6 @@ def _write_mixed_project(base, profile, outdir):
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",
@@ -2296,9 +2300,11 @@ def test_mixed_assay_auto_resolves_per_sample_legacy(snakefile, tmp_path):
         snakefile, workdir, config_path, printshellcmds=True
     )
     assert result.returncode == 0, output
-    # chipseq excludes (markdup removal branch), cuttag retains (symlink branch).
-    assert '[[ "yes" == "yes" ]]' in output, output
-    assert '[[ "no" == "yes" ]]' in output, output
+    assert "REMOVE_DUPLICATES=false" in output, output
+    assert "samtools markdup" not in output, output
+    # chipseq drops marked duplicates; cuttag keeps them.
+    assert '[[ "True" == "True" ]]' in output, output
+    assert '[[ "False" == "True" ]]' in output, output
     assert "duplicate_analysis=auto(chipseq:exclude,cuttag:retain)" in output, output
 
 
@@ -2362,8 +2368,8 @@ def test_cli_duplicate_analysis_retain_overrides_atac_default(snakefile, tmp_pat
     )
     assert result.returncode == 0, output
     assert "duplicate_analysis=retain" in output, output
-    # retain in legacy: final.bam is a symlink of the marked/filtered BAM.
-    assert '[[ "no" == "yes" ]]' in output, output
+    assert "REMOVE_DUPLICATES=false" in output, output
+    assert '[[ "False" == "True" ]]' in output, output
 
     marker_rel = f"{outdir}/.helixweave/analysis_identity.json"
     result, output = _run_snakemake_job(
@@ -2443,7 +2449,6 @@ def _write_single_sample_project(
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",
@@ -2569,7 +2574,6 @@ def test_bowtie2_max_insert_mixed_assay_and_control_resolve_per_sample(
         config.update(
             {
                 "config_schema_version": "2.0.0",
-                "analysis_profile": "updated",
                 "blacklist_mode": "off",
                 "organelle_mode": "auto",
                 "duplicate_backend": "picard",

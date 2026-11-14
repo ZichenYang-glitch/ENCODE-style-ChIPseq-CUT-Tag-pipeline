@@ -1113,9 +1113,9 @@ def _validate_scientific_inputs(
     try:
         validate_picard_reference_resources(validated_config, samples)
         validate_tss_annotation_resources(validated_config, samples)
-        # Always run shared admission. It is lenient for legacy reference
-        # policy, but its updated-profile external-control prohibition must
-        # apply even to bare-bundle inputs without genome_resources.
+        # reference_mode stays lenient unless the caller or platform asks
+        # for strict admission. External control_bam is rejected on every
+        # run, including a bare bundle without genome_resources.
         validate_reference_control_admission(
             samples,
             validated_config,
@@ -1124,9 +1124,7 @@ def _validate_scientific_inputs(
             error_cls=ValidationError,
         )
     except ValidationError as exc:
-        admission_failure = platform_admission or (
-            validated_config.get("analysis_profile") == "updated"
-        )
+        admission_failure = platform_admission or "control_bam" in str(exc)
         return _scientific_validation_failure(
             exc,
             code="ENCODE_REFERENCE_ADMISSION_INVALID"
@@ -1238,7 +1236,6 @@ def _validate_options(options: dict[str, object]) -> Issue | None:
 
 
 _ARTIFACT_RUNTIME_METADATA_KEYS = (
-    "analysis_profile",
     "blacklist_mode",
     "organelle_mode",
     "duplicate_backend",

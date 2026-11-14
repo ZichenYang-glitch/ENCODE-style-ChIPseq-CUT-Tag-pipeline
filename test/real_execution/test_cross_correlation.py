@@ -177,7 +177,6 @@ def test_production_cross_correlation_and_summary(
     _, config, _ = tmp_config(
         config={
             "config_schema_version": "2.0.0",
-            "analysis_profile": profile,
             "outdir": "results",
             "threads": 1,
             "use_control": False,
@@ -310,7 +309,6 @@ def test_empty_bam_production_rule_has_detail_without_fake_tool_artifacts(
     _, config, _ = tmp_config(
         config={
             "config_schema_version": "2.0.0",
-            "analysis_profile": profile,
             "outdir": "results",
             "threads": 1,
             "use_control": False,
@@ -491,7 +489,8 @@ def test_production_detail_policy_summary_manifest_adapter_chain(
     assert result["cross_correlation_status"] == "ok"
     assert float(result["cross_correlation_rsc"]) > 0.8
     policy = json.loads((base / "05_qc/S1.analysis_policy.json").read_text())
-    assert policy["scientific_policy_revision"] == 6 and policy["profile"] == profile
+    assert policy["scientific_policy_revision"] == 7
+    assert "profile" not in policy
     adapter = EncodeStyleWorkflowAdapter()
     inputs = WorkflowInputs(config={})
     artifacts = adapter.extract_artifacts(inputs, tmp_path)

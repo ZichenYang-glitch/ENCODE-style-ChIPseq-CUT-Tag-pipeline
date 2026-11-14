@@ -753,7 +753,7 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
 
     # 12. Updated ATAC fragment CPM
     all_types |= _run_manifest(
-        {"analysis_profile": "updated", "fragment_cpm": "auto"},
+        {"fragment_cpm": "auto"},
         "\t".join(columns_full)
         + "\n"
         + "\t".join(
@@ -777,7 +777,7 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
 
     # 13. Updated MNase fragment CPM
     all_types |= _run_manifest(
-        {"analysis_profile": "updated", "fragment_cpm": "auto"},
+        {"fragment_cpm": "auto"},
         "\t".join(columns_full)
         + "\n"
         + "\t".join(
@@ -802,7 +802,6 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
     # 14. Updated ATAC fragment TSS profile
     all_types |= _run_manifest(
         {
-            "analysis_profile": "updated",
             "fragment_cpm": "auto",
             "tss_fragment_profile": True,
             "genome_resources": {
@@ -1122,8 +1121,8 @@ def test_artifact_instances_are_frozen():
         a.id = "mutated"
 
 
-def test_fragment_cpm_manifest_respects_analysis_profile(tmp_path):
-    """The manifest must not advertise updated-only fragment tracks for legacy."""
+def test_fragment_cpm_manifest_follows_the_mode(tmp_path):
+    """auto advertises fragment tracks; off does not add them."""
     from encode_pipeline.manifest.make import build_manifest_rows
 
     columns = [
@@ -1162,18 +1161,17 @@ def test_fragment_cpm_manifest_respects_analysis_profile(tmp_path):
         encoding="utf-8",
     )
 
-    def types_for(profile):
+    def types_for(mode):
         config = _base_config()
         config.update(
             {
                 "samples": str(samples),
-                "outdir": str(tmp_path / profile),
-                "analysis_profile": profile,
-                "fragment_cpm": "auto",
+                "outdir": str(tmp_path / mode),
+                "fragment_cpm": mode,
             }
         )
         rows, _, _ = build_manifest_rows(config)
         return {row["output_type"] for row in rows}
 
-    assert "fragment_cpm_bigwig" not in types_for("legacy")
-    assert "fragment_cpm_bigwig" in types_for("updated")
+    assert "fragment_cpm_bigwig" not in types_for("off")
+    assert "fragment_cpm_bigwig" in types_for("auto")

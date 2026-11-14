@@ -15,6 +15,7 @@ fastqc_stage
 merge_biorep_bam
 mito_fraction
 mnase_dyad_bigwig
+mnase_fragment_cpm
 mnase_mono_bigwig
 mnase_pooled_dyad_bigwig
 mnase_pooled_mono

@@ -44,7 +44,7 @@ def test_default_policy_arguments_reach_shell_commands(
     output = _dry_run(tmp_path, tmp_config, run_snakemake)
 
     assert "-q 0.01" in output
-    assert "-F 0x904" in output
+    assert "-F 0xb0c" in output
     assert "--quality" not in output
     assert "--length" not in output
     assert "--stringency" not in output

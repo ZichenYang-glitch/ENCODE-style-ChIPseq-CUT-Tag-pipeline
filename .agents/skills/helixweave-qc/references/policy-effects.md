@@ -26,9 +26,8 @@ organelle cells follow the mito table. Use `input_stages` per product.
 ## Duplicate
 
 `POLICY_DUPLICATE_POLICIES` is `exclude` and `retain`. The run selector is
-`duplicate_analysis`: `auto`, `exclude`, or `retain`. The legacy alias
-`remove_dup` maps `yes` to `exclude` and `no` to `retain`; conflicting
-explicit values are rejected (`docs/configuration.md`, "Duplicate policy").
+`duplicate_analysis`: `auto`, `exclude`, or `retain`. `remove_dup` is
+rejected (`docs/configuration.md`, "Duplicate policy").
 
 Read the selector from the validated config. On a direct run, use
 `.helixweave/effective_config.json` (`config.duplicate_analysis` and the
@@ -38,14 +37,11 @@ metadata copies the config selector (`auto`, `exclude`, or `retain`) from
 That field is not the per-sample resolution. The sample policy and the
 sample QC column hold the resolved value only.
 
-Read `profile` on the policy (`legacy` or `updated`) before describing the
-BAM. Legacy exclusion uses Picard `REMOVE_DUPLICATES=true` when Picard is
-available, otherwise the `samtools markdup` fallback; a retained legacy
-sample keeps a symlinked `final.bam`. Updated runs mark duplicates in
-`final.bam`, and `analysis.bam` applies the policy (`-F 0x400` for
-exclude). Every MACS3 call then renders `--keep-dup all`, so the caller
-does not collapse coordinates again. The profile split is
-`docs/configuration.md` ("Duplicate policy").
+Version 3 policy records have no `profile` field. Version 1 and 2 records
+still contain `profile` and stay readable as historical evidence. Current
+runs mark duplicates with Picard in `final.bam` and apply the resolved
+policy in `analysis.bam`. Every MACS3 call renders `--keep-dup all`.
+See `docs/configuration.md` ("Duplicate policy").
 
 `cuttag_fragment_size` counts the canonical analysis BAM and does not itself
 remove `0x400` records (`docs/output-contract.md`). NRF/PBC stays on the
@@ -124,8 +120,8 @@ do not invent one.
 
 `duplicate_analysis: auto` resolves per sample by assay. CUT&Tag retains
 duplicates; ChIP-seq, ATAC-seq, and MNase-seq exclude them. Peak mode does
-not make that choice. An explicit `exclude` or `retain` (including the
-`remove_dup` alias) overrides the assay matrix for the run. The matrix and
+not make that choice. An explicit `exclude` or `retain` overrides the
+assay matrix for the whole run. The matrix and
 the candidate statement are `docs/assay-policy.md` ("CUT&Tag", "Duplicate
 policy") and `docs/configuration.md` ("Duplicate policy").
 

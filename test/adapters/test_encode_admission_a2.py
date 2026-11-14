@@ -122,7 +122,6 @@ def test_updated_tss_fragment_requires_eligible_gtf_sample():
     config = _config(use_control=False)
     config.update(
         {
-            "analysis_profile": "updated",
             "fragment_cpm": "auto",
             "tss_fragment_profile": True,
         }
@@ -141,7 +140,6 @@ def test_updated_tss_fragment_rejects_unknown_cuttag_target_in_auto():
     config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
     config.update(
         {
-            "analysis_profile": "updated",
             "fragment_cpm": "auto",
             "tss_fragment_profile": True,
         }
@@ -160,7 +158,6 @@ def test_updated_tss_fragment_requires_gtf_for_every_candidate():
     config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
     config.update(
         {
-            "analysis_profile": "updated",
             "fragment_cpm": "auto",
             "tss_fragment_profile": True,
         }
@@ -182,7 +179,6 @@ def test_updated_tss_fragment_on_allows_unknown_cuttag_with_gtf():
     config["genome_resources"]["hg38"]["gtf"] = "/tmp/annotation.gtf"
     config.update(
         {
-            "analysis_profile": "updated",
             "fragment_cpm": "on",
             "tss_fragment_profile": True,
         }
@@ -197,7 +193,7 @@ def test_updated_tss_fragment_on_allows_unknown_cuttag_with_gtf():
 
 def test_updated_fragment_cpm_on_requires_eligible_assay():
     config = _config(use_control=False)
-    config.update({"analysis_profile": "updated", "fragment_cpm": "on"})
+    config.update({"fragment_cpm": "on"})
     with pytest.raises(ValidationError, match="fragment_cpm=on requires"):
         _admit(
             [_sample(assay="chipseq")], config, reference_mode="legacy", external="warn"
@@ -208,7 +204,6 @@ def test_updated_fragment_cpm_on_requires_eligible_assay():
 def test_updated_rejects_external_control_with_legacy_reference_mode(tmp_path):
     bam = _write_bam(tmp_path / "control.bam")
     config = _config(use_control=True)
-    config["analysis_profile"] = "updated"
 
     with pytest.raises(ValidationError, match="external control_bam"):
         _admit(
@@ -222,7 +217,6 @@ def test_updated_rejects_external_control_with_legacy_reference_mode(tmp_path):
 def test_updated_ignores_external_control_when_use_control_false(tmp_path):
     bam = _write_bam(tmp_path / "control.bam")
     config = _config(use_control=False)
-    config["analysis_profile"] = "updated"
 
     _admit(
         [_sample(control_bam=str(bam))],
@@ -275,21 +269,23 @@ def test_strict_external_control_accepts_matching_header(tmp_path: Path):
     sizes = _write_sizes(tmp_path / "sizes")
     bam = _write_bam(tmp_path / "control.bam")
     treatment = _sample(control_bam=str(bam))
-    _admit([treatment], _config(sizes))
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
+        _admit([treatment], _config(sizes))
 
 
 def test_strict_external_control_accepts_real_bgzf_bam(tmp_path: Path):
     sizes = _write_sizes(tmp_path / "sizes")
     bam = Path(__file__).resolve().parents[1] / "fixtures/a2/tiny_control.bgzf"
     treatment = _sample(control_bam=str(bam))
-    _admit([treatment], _config(sizes))
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
+        _admit([treatment], _config(sizes))
 
 
 def test_strict_external_control_rejects_text_only_truncated_header(tmp_path: Path):
     sizes = _write_sizes(tmp_path / "sizes")
     bam = _truncate_after_text(tmp_path / "control.bam")
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(ValidationError, match="binary header is truncated"):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
@@ -297,9 +293,7 @@ def test_strict_external_control_rejects_text_binary_mismatch(tmp_path: Path):
     sizes = _write_sizes(tmp_path / "sizes")
     bam = _binary_mismatch(tmp_path / "control.bam")
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(
-        ValidationError, match="text/binary reference dictionary mismatch"
-    ):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
@@ -314,9 +308,7 @@ def test_strict_external_control_rejects_reference_order_mismatch(tmp_path: Path
         refs=[("chr2", 2000), ("chr1", 1000)],
     )
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(
-        ValidationError, match="text/binary reference dictionary mismatch"
-    ):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
@@ -331,7 +323,7 @@ def test_strict_external_control_rejects_duplicate_text_reference(tmp_path: Path
         refs=[("chr1", 1000)],
     )
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(ValidationError, match="duplicate text @SQ"):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
@@ -342,7 +334,7 @@ def test_strict_external_control_rejects_wrong_contig(tmp_path: Path):
         "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr2\tLN:1000\n",
     )
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(ValidationError, match="absent from chrom_sizes"):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
@@ -353,14 +345,14 @@ def test_strict_external_control_rejects_missing_coordinate_sort(tmp_path: Path)
         "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:1000\n",
     )
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(ValidationError, match="coordinate-sorted"):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(sizes))
 
 
 def test_strict_external_control_requires_chrom_sizes(tmp_path: Path):
     bam = _write_bam(tmp_path / "control.bam")
     treatment = _sample(control_bam=str(bam))
-    with pytest.raises(ValidationError, match="requires genome_resources"):
+    with pytest.raises(ValidationError, match="external control_bam is not supported"):
         _admit([treatment], _config(None))
 
 
@@ -451,18 +443,18 @@ def test_platform_admission_overrides_caller_downgrade(tmp_path: Path):
 def test_platform_admission_accepts_updated_execution(tmp_path: Path):
     adapter = EncodeStyleWorkflowAdapter()
     inputs = _inputs(tmp_path)
-    inputs.config["analysis_profile"] = "updated"
     bound = adapter.bind_reference_profile(inputs, _binding(tmp_path))
     assert bound.is_success
     result = bound.value.adapter.validate(bound.value.inputs)
     assert result.is_success, result.issues
-    assert result.value["config"]["analysis_profile"] == "updated"
+    assert "analysis_profile" not in result.value["config"]
+    assert result.value["config"]["duplicate_backend"] == "picard"
 
 
 def test_bare_bundle_rejects_updated_external_control(tmp_path: Path):
     bam = _write_bam(tmp_path / "control.bam")
     inputs = _inputs(tmp_path)
-    inputs.config.update({"analysis_profile": "updated", "use_control": True})
+    inputs.config.update({"use_control": True})
     inputs.samples[0].update(
         {
             "genome": "hg38",
@@ -482,7 +474,7 @@ def test_bare_bundle_rejects_updated_external_control(tmp_path: Path):
 def test_bare_bundle_updated_ignores_external_control_when_disabled(tmp_path: Path):
     bam = _write_bam(tmp_path / "control.bam")
     inputs = _inputs(tmp_path)
-    inputs.config.update({"analysis_profile": "updated", "use_control": False})
+    inputs.config.update({"use_control": False})
     inputs.samples[0].update(
         {
             "genome": "hg38",
@@ -517,7 +509,6 @@ def test_cli_accepts_updated_execution(tmp_path: Path):
         config={
             "threads": 1,
             "use_control": False,
-            "analysis_profile": "updated",
             "blacklist_mode": "off",
             "genome_resources": {"hg38": {"effective_genome_size": "hs"}},
         },

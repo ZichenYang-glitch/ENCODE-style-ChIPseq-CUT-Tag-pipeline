@@ -245,8 +245,6 @@ def test_exported_bundle_writes_policy_and_qc_summary(tmp_path, bundle):
         "chipseq",
         "--genome",
         "hs",
-        "--profile",
-        "legacy",
         "--policy-revision",
         "5",
         "--duplicate-analysis",

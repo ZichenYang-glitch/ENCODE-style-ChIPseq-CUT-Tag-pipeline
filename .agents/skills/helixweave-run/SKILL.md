@@ -57,10 +57,9 @@ the docs.
 - `layout: PE` needs a non-empty `fastq_2` that is a different file from
   `fastq_1`. `layout: SE` needs an empty `fastq_2`. MNase-seq is PE-only.
 - `control_sample` names a `role: control` row. MACS3 uses that row's
-  canonical analysis BAM, not its raw `final.bam`. `control_bam` is an
-  external path: `updated` rejects it; `legacy` still has to pass admission.
-  Both fields apply only when `use_control` is true. Details are in
-  [references/direct-workflow.md](references/direct-workflow.md).
+  canonical analysis BAM, not its raw `final.bam`. External `control_bam`
+  is rejected. Both fields apply only when `use_control` is true. Details
+  are in [references/direct-workflow.md](references/direct-workflow.md).
 - `bowtie2_index` is an index prefix.
 - `genome` matches a key under `genome_resources`.
 
@@ -130,13 +129,12 @@ submit a run, and still leave `start` uncalled until they authorize execution.
 
 ## Evidence
 
-Record the config path, the validated `analysis_profile` and
-`config_schema_version`, the checkout `scientific_policy_revision`, the
+Record the config path, the validated `config_schema_version` and
+`duplicate_analysis`, the checkout `scientific_policy_revision`, the
 outdir, and whether both `.helixweave` run records are present. Take the
-profile, schema version, and policy revision from the workflow stderr summary
+schema version and policy revision from the workflow stderr summary
 that begins `HelixWeave effective run configuration:`, or from the config
-object that validation accepted. Resolve an omitted profile by running the
-validator. The snapshot field `schema_version` is the authoring contract
+object that validation accepted. The snapshot field `schema_version` is the authoring contract
 version and is a different value from `config_schema_version`.
 
 Read `scientific_policy_revision` from
