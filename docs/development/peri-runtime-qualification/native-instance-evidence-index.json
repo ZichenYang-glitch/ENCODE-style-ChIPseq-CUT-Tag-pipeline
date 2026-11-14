@@ -1,0 +1,152 @@
+[
+  {
+    "path": "/home/yangzichen/.helixweave/m15/E_minimum_egress/minimum-egress/evidence.json",
+    "sha256": "88c32e852b9089a2c835dfa4b36a0bf1f5ef0b170c7c75879851d66a262167b3",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_policy_unknown_identity/instance/evidence.json",
+    "sha256": "89e61a698ee39687fc942ef387d7afb17188c25a5b4c8eebc02d349779478621",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_extra_tool/instance/evidence.json",
+    "sha256": "8695e8030efcd5799f1ae2c42b8144a6b1b4503cb8e0456efc03a53ed01021b0",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_replacement_tool/instance/evidence.json",
+    "sha256": "d081632fe5f69d0bba8adad7c0d643e5c2e01813ae516404f2211744390db82a",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/F_native_resource/instance/evidence.json",
+    "sha256": "af0710f094236fc4e3df86c0098df042ad0dc8da33c043c0378133a3631f9512",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/B_changed_catalog/instance/evidence.json",
+    "sha256": "23fc2f04c446a7f851ced383b45396867f6f3cc791814c46f4fd7a3ca433b5ed",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_mode_timeout/instance/evidence.json",
+    "sha256": "def024a88aa21f672ed62dae6aed0ac24f03ccf11803f4d6872e5a7c5de74de5",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_B_permission_tools/permissions/evidence.json",
+    "sha256": "f1bd2283ba251ddde7fa26afa12223646b250b319461a34c6f507fbd06ac4a57",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_approval_disconnect/instance/evidence.json",
+    "sha256": "94987d6931aa108efd91dde5195c2a9a6f312b61f5e22bbaca0da558b7a43bff",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_policy_unknown_field/instance/evidence.json",
+    "sha256": "2acef81ef17bfd6411782bc12b3a050abcd17db18f5d831c6dad80513f7672db",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_missing_broker/instance/evidence.json",
+    "sha256": "63912376f342b70096ba4ae077d5bbe7f6362cd29b2a392528637deb9c04b877",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_missing_tool/instance/evidence.json",
+    "sha256": "ee3c278bfd4f6c35e55632f8b3c60a9a6b458cd94d4fb7baa81b72652b531921",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_approval_timeout/instance/evidence.json",
+    "sha256": "7a476b441fbdf88609305768b98487b1f4c0254b0e9e843e177ea5361456c9f5",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/F_callback_disconnect/instance/evidence.json",
+    "sha256": "b2579d597e0fbd698c5dafdf62f175678fd828b6f3c63fc85816184aed0dc2b3",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/C_independent_instances/instance-b/evidence.json",
+    "sha256": "2cda7250510faa42857f80414e03d1af914e771bf661a51d13ac35e288e01794",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/C_independent_instances/instance-a/evidence.json",
+    "sha256": "cd478be4d5254f930685b9df45fd4e1db3f0f08c3004aee297d90c2b44dc7d1e",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_policy_prediction_typo/instance/evidence.json",
+    "sha256": "41aa940a2ab7a0c6bd4d7ab2c65e57851b7c26603997f6a53231f86c088afb66",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_mode_error/instance/evidence.json",
+    "sha256": "f76d3b2f51936b16126198a7fa7fcd6c46149467669c4a40e55569fef4c8a100",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/F_timeout/instance/evidence.json",
+    "sha256": "6077b6e72046d93e98db45665f43aaa371f931924396e325063b9b302a769367",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_unknown_mode/instance/evidence.json",
+    "sha256": "15720831ba633377f78320553f86234b691bc45e004618a9cbfad0704381eedb",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_prediction_paths/instance/evidence.json",
+    "sha256": "f12974995685f7db6b93796d55e6c23d95bc433617b2326f60bc2cb2dd2f5603",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/A_policy_wrong_schema/instance/evidence.json",
+    "sha256": "de1b3a015540590032ef16372456ce599cf3f488dee2100d2b1ed06f1829f26b",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/F_malformed/instance/evidence.json",
+    "sha256": "0ad70824f8da922fcb374db8c2c9a894ef35fbb54160d3d502a19855e8f1e7d1",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/D_restart/new/evidence.json",
+    "sha256": "db05dc7afc7fa7dfb2a50e2b7cc06d61b2b0eccc5311b04b3c62f6d5a00422d1",
+    "closed": true,
+    "cleanup_errors": []
+  },
+  {
+    "path": "/home/yangzichen/.helixweave/m15/D_restart/old/evidence.json",
+    "sha256": "cffb1e17bb363b023175d2e6f12f491cdaf1e7efbe9906f7a49f263ba9fdf284",
+    "closed": true,
+    "cleanup_errors": []
+  }
+]
