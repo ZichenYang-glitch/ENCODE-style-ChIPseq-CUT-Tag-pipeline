@@ -95,3 +95,16 @@ export function workflowSamplesForSave(plans: readonly WorkflowSamplePlan[]): Wo
     })),
   }));
 }
+
+export function removeWorkflowSamplePlan(
+  plans: readonly WorkflowSamplePlan[],
+  sampleRevisionId: string,
+): WorkflowSamplePlan[] {
+  return plans
+    .filter((plan) => plan.sample_revision_id !== sampleRevisionId)
+    .map((plan) =>
+      plan.control_sample_revision_id === sampleRevisionId
+        ? { ...plan, control_sample_revision_id: null }
+        : plan,
+    );
+}

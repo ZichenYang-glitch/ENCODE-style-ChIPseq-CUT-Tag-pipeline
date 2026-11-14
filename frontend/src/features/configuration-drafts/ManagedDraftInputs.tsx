@@ -11,6 +11,7 @@ interface ManagedDraftInputsProps {
   samplesError: string | null;
   onToggleSample: (revisionId: string, selected: boolean) => void;
   onDropUnlisted: () => void;
+  selectionLocked?: boolean;
   profiles: readonly ReferenceProfileSummary[] | null;
   referenceRevisionId: string | null;
   referenceLoading: boolean;
@@ -30,6 +31,7 @@ export function ManagedDraftInputs({
   samplesError,
   onToggleSample,
   onDropUnlisted,
+  selectionLocked = false,
   profiles,
   referenceRevisionId,
   referenceLoading,
@@ -46,8 +48,9 @@ export function ManagedDraftInputs({
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Sample revisions</legend>
         <p className="text-xs text-[var(--color-text-muted)]">
-          Choose sample revisions from this project. Local file paths are not
-          accepted.
+          {selectionLocked
+            ? 'These checks follow the workflow sample plan. Add or remove a plan row to change them.'
+            : 'Choose sample revisions from this project. Local file paths are not accepted.'}
         </p>
         {sampleRowsAbsent && (
           <p className="text-xs text-[var(--color-text-muted)]">{MISSING_WORKFLOW_SAMPLE_ROWS}</p>
@@ -64,9 +67,11 @@ export function ManagedDraftInputs({
                 <input
                   type="checkbox"
                   checked={selected.has(sample.sample_revision_id)}
-                  onChange={(event) =>
-                    onToggleSample(sample.sample_revision_id, event.target.checked)
-                  }
+                  disabled={selectionLocked}
+                  onChange={(event) => {
+                    if (selectionLocked) return;
+                    onToggleSample(sample.sample_revision_id, event.target.checked);
+                  }}
                 />
                 {sample.display_name}
               </label>

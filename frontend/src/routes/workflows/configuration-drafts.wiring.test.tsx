@@ -1078,6 +1078,206 @@ describe('configuration draft API wiring', () => {
     expect(await screen.findByText(/not for the current draft/i)).toBeInTheDocument();
     expect(screen.queryByText(snapshotId)).not.toBeInTheDocument();
   });
+
+  it.each(['acknowledged', 'lost-response'] as const)(
+    'becomes clean after a PE plan is saved as SE and %s',
+    async (mode) => {
+      const user = userEvent.setup();
+      const sampleA = `smpr_${'1'.repeat(32)}`;
+      const input1 = `inpfr_${'2'.repeat(32)}`;
+      const input2 = `inpfr_${'3'.repeat(32)}`;
+      authoring.listSamples.mockResolvedValue({
+        ok: true,
+        samples: [projectSample(sampleA, 'Sample A')],
+      });
+      authoring.listInputRevisions.mockResolvedValue({
+        ok: true,
+        project_id: PROJECT,
+        revisions: [
+          inputRevision(input1, 'read-one'),
+          inputRevision(input2, 'read-two'),
+        ],
+        next_cursor: null,
+      });
+      const initial = draftSession(SID, { limit: 4 });
+      initial.draft!.sample_revision_ids = [sampleA];
+      initial.draft!.workflow_samples = [
+        {
+          ...savedPlan(sampleA, input1),
+          layout: 'PE',
+          reads: [
+            { read: 1, input_file_revision_id: input1 },
+            { read: 2, input_file_revision_id: input2 },
+          ],
+        },
+      ];
+      let saved: ReturnType<typeof savedFromBody> | null = null;
+      authoring.getSession.mockImplementation(async () => saved ?? initial);
+      authoring.saveDraft.mockImplementation(async (sid: string, body: DraftWriteBody) => {
+        saved = savedFromBody(sid, body);
+        if (mode === 'lost-response') throw new TypeError('response lost after server commit');
+        return saved;
+      });
+      renderPage();
+      await openDraft(SID);
+      expect(await screen.findByLabelText('Sample A layout')).toHaveValue('PE');
+      await user.selectOptions(screen.getByLabelText('Sample A layout'), 'SE');
+      await user.click(screen.getByRole('button', { name: 'Save edits' }));
+      await waitFor(() => expect(authoring.saveDraft).toHaveBeenCalledTimes(1));
+      expect(authoring.saveDraft.mock.calls[0]?.[1].workflow_samples[0]).toMatchObject({
+        layout: 'SE',
+        reads: [{ read: 1, input_file_revision_id: input1 }],
+      });
+      expect(authoring.saveDraft.mock.calls[0]?.[1].workflow_samples[0].reads).toHaveLength(1);
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Validate draft' })).toBeEnabled();
+        expect(
+          screen.queryByText('You have unsaved edits. They are not saved, adopted, or validated.'),
+        ).not.toBeInTheDocument();
+      });
+      expect(screen.queryByLabelText('Sample A read 2')).not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps an edit made while a paired plan is being saved as single-end', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    const input1 = `inpfr_${'2'.repeat(32)}`;
+    const input2 = `inpfr_${'3'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    authoring.listInputRevisions.mockResolvedValue({
+      ok: true,
+      project_id: PROJECT,
+      revisions: [
+        inputRevision(input1, 'read-one'),
+        inputRevision(input2, 'read-two'),
+      ],
+      next_cursor: null,
+    });
+    const initial = draftSession(SID, { limit: 4 });
+    initial.draft!.sample_revision_ids = [sampleA];
+    initial.draft!.workflow_samples = [
+      {
+        ...savedPlan(sampleA, input1),
+        layout: 'PE',
+        reads: [
+          { read: 1, input_file_revision_id: input1 },
+          { read: 2, input_file_revision_id: input2 },
+        ],
+      },
+    ];
+    authoring.getSession.mockResolvedValue(initial);
+    let finish: (value: unknown) => void = () => undefined;
+    authoring.saveDraft.mockImplementation(
+      (_sid: string, body: DraftWriteBody) =>
+        new Promise((resolve) => {
+          finish = () => resolve(savedFromBody(SID, body));
+        }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await user.selectOptions(await screen.findByLabelText('Sample A layout'), 'SE');
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await user.type(screen.getByLabelText('Sample A target'), 'X');
+    finish(undefined);
+    expect(await screen.findByText(/you have unsaved edits/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Sample A target')).toHaveValue('CTCFX');
+    expect(screen.getByRole('button', { name: 'Validate draft' })).toBeDisabled();
+    expect(authoring.saveDraft.mock.calls[0]?.[1].workflow_samples[0].target).toBe('CTCF');
+  });
+
+  it('uses the sample plan as the only editable sample selection', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    const sampleB = `smpr_${'4'.repeat(32)}`;
+    const input1 = `inpfr_${'2'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [
+        projectSample(sampleA, 'Sample A'),
+        projectSample(sampleB, 'Sample B'),
+      ],
+    });
+    authoring.listInputRevisions.mockResolvedValue({
+      ok: true,
+      project_id: PROJECT,
+      revisions: [inputRevision(input1, 'read-one')],
+      next_cursor: null,
+    });
+    const initial = draftSession(SID, { limit: 4 });
+    initial.draft!.sample_revision_ids = [sampleA, sampleB];
+    initial.draft!.workflow_samples = [
+      savedPlan(sampleA, input1),
+      { ...savedPlan(sampleB, input1), target: 'H3K27ac' },
+    ];
+    authoring.getSession.mockResolvedValue(initial);
+    authoring.saveDraft.mockImplementation(async (sid: string, body: DraftWriteBody) =>
+      savedFromBody(sid, body),
+    );
+    renderPage();
+    await openDraft(SID);
+    const checkboxA = await screen.findByRole('checkbox', { name: 'Sample A' });
+    const checkboxB = screen.getByRole('checkbox', { name: 'Sample B' });
+    expect(checkboxA).toBeDisabled();
+    expect(checkboxA).toBeChecked();
+    expect(checkboxB).toBeDisabled();
+    expect(checkboxB).toBeChecked();
+    expect(screen.getByText(/these checks follow the workflow sample plan/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove sample plan 1' }));
+    expect(screen.getByRole('checkbox', { name: 'Sample A' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Sample A' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Sample B' })).toBeChecked();
+    await editLimit(user, '5');
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await waitFor(() => expect(authoring.saveDraft).toHaveBeenCalledTimes(1));
+    expect(authoring.saveDraft.mock.calls[0]?.[1].sample_revision_ids).toEqual([sampleB]);
+    expect(authoring.saveDraft.mock.calls[0]?.[1].workflow_samples).toHaveLength(1);
+    expect(authoring.saveDraft.mock.calls[0]?.[1].workflow_samples[0].sample_revision_id).toBe(
+      sampleB,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Remove sample plan 1' }));
+    expect(screen.getByRole('checkbox', { name: 'Sample B' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Sample B' })).not.toBeChecked();
+    expect(screen.queryByText(/these checks follow the workflow sample plan/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await waitFor(() => expect(authoring.saveDraft).toHaveBeenCalledTimes(2));
+    expect(authoring.saveDraft.mock.calls[1]?.[1].sample_revision_ids).toEqual([]);
+    expect(authoring.saveDraft.mock.calls[1]?.[1].workflow_samples).toEqual([]);
+  });
+
+  it('restores the saved plan when a removed row is discarded', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    const input1 = `inpfr_${'2'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    authoring.listInputRevisions.mockResolvedValue({
+      ok: true,
+      project_id: PROJECT,
+      revisions: [inputRevision(input1, 'read-one')],
+      next_cursor: null,
+    });
+    const initial = draftSession(SID, { limit: 4 });
+    initial.draft!.sample_revision_ids = [sampleA];
+    initial.draft!.workflow_samples = [savedPlan(sampleA, input1)];
+    authoring.getSession.mockResolvedValue(initial);
+    renderPage();
+    await openDraft(SID);
+    await user.click(await screen.findByRole('button', { name: 'Remove sample plan 1' }));
+    expect(screen.getByRole('checkbox', { name: 'Sample A' })).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Discard edits' }));
+    expect(screen.getByRole('checkbox', { name: 'Sample A' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Sample A' })).toBeDisabled();
+    expect(screen.getByLabelText('Sample A layout')).toHaveValue('SE');
+    expect(authoring.saveDraft).not.toHaveBeenCalled();
+  });
 });
 
 function renderPage() {

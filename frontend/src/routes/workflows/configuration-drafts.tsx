@@ -78,6 +78,7 @@ import { WorkflowSamplePlanEditor } from '../../features/configuration-drafts/Wo
 import {
   emptyWorkflowSamplePlan,
   parseWorkflowSamples,
+  removeWorkflowSamplePlan,
   workflowSamplesForSave,
   type WorkflowSamplePlan,
 } from '../../features/configuration-drafts/workflowSamplePlan';
@@ -143,6 +144,8 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   const [extraSamples, setExtraSamples] = useState<ProjectSampleSummaryResponse[]>([]);
   const [referenceId, setReferenceId] = useState<string | null>(null);
   const [plans, setPlans] = useState<WorkflowSamplePlan[]>([]);
+  const plansRef = useRef(plans);
+  plansRef.current = plans;
   const [plansHydratedSid, setPlansHydratedSid] = useState<string | null>(null);
   const [inputCursors, setInputCursors] = useState<Array<string | null>>([null]);
   const [knownInputs, setKnownInputs] = useState<ProjectInputRevisionResponse[]>([]);
@@ -399,7 +402,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       })
     : null;
   const listedSampleIds = new Set(samples.map((sample) => sample.sample_revision_id));
-  const unlistedCount = sampleIds.filter((id) => !listedSampleIds.has(id)).length;
+  const unlistedCount = selectionIds.filter((id) => !listedSampleIds.has(id)).length;
   const referenceMissing = Boolean(
     referenceId && profiles && !profiles.some((profile) => profile.revision_id === referenceId),
   );
@@ -441,19 +444,22 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
     setConfirmedSnapshot(sent);
     setSeedRevision(saved.draft_revision);
     setSeed({ config: saved.draft.config, options: saved.draft.options });
+    const currentPlans = plansRef.current;
+    const planUnchanged =
+      workflowSampleSnapshot(workflowSamplesForSave(currentPlans)) === sentPlanSnapshot;
+    setPlans((current) =>
+      workflowSampleSnapshot(workflowSamplesForSave(current)) === sentPlanSnapshot
+        ? parseWorkflowSamples(saved.draft?.workflow_samples)
+        : current,
+    );
     setSampleIds((current) =>
-      sameMembers(current, sentSamples)
+      sameMembers(current, sentSamples) || (planUnchanged && currentPlans.length > 0)
         ? [...(saved.draft?.sample_revision_ids ?? [])]
         : current,
     );
     setReferenceId((current) =>
       current === sentReference
         ? (saved.draft?.reference_profile_revision_id ?? null)
-        : current,
-    );
-    setPlans((current) =>
-      workflowSampleSnapshot(current) === sentPlanSnapshot
-        ? parseWorkflowSamples(saved.draft?.workflow_samples)
         : current,
     );
     setPlansHydratedSid(saved.sid);
@@ -1168,22 +1174,41 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
             <>
             <ManagedDraftInputs
               samples={samples}
-              selectedRevisionIds={sampleIds}
+              selectedRevisionIds={selectionIds}
               unlistedCount={unlistedCount}
               samplesLoading={samplesQuery.isLoading}
               samplesError={
                 samplesQuery.isError ? classifyAuthoringError(samplesQuery.error).message : null
               }
-              onToggleSample={(revisionId, selected) =>
+              selectionLocked={plans.length > 0}
+              onToggleSample={(revisionId, selected) => {
+                if (plansRef.current.length > 0) return;
                 setSampleIds((current) =>
                   selected
                     ? current.includes(revisionId)
                       ? current
                       : [...current, revisionId]
                     : current.filter((id) => id !== revisionId),
-                )
-              }
-              onDropUnlisted={() => setSampleIds((current) => current.filter((id) => listedSampleIds.has(id)))}
+                );
+              }}
+              onDropUnlisted={() => {
+                if (plansRef.current.length > 0) {
+                  const next = plansRef.current.filter((plan) =>
+                    listedSampleIds.has(plan.sample_revision_id),
+                  );
+                  const kept = new Set(next.map((plan) => plan.sample_revision_id));
+                  const cleaned = next.map((plan) =>
+                    plan.control_sample_revision_id &&
+                    !kept.has(plan.control_sample_revision_id)
+                      ? { ...plan, control_sample_revision_id: null }
+                      : plan,
+                  );
+                  setPlans(cleaned);
+                  if (cleaned.length === 0) setSampleIds([]);
+                  return;
+                }
+                setSampleIds((current) => current.filter((id) => listedSampleIds.has(id)));
+              }}
               profiles={profiles}
               referenceRevisionId={referenceId}
               referenceLoading={referenceQuery.isLoading}
@@ -1218,17 +1243,11 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
                       : [...current, emptyWorkflowSamplePlan(sampleRevisionId)],
                   )
                 }
-                onRemove={(sampleRevisionId) =>
-                  setPlans((current) =>
-                    current
-                      .filter((plan) => plan.sample_revision_id !== sampleRevisionId)
-                      .map((plan) =>
-                        plan.control_sample_revision_id === sampleRevisionId
-                          ? { ...plan, control_sample_revision_id: null }
-                          : plan,
-                      ),
-                  )
-                }
+                onRemove={(sampleRevisionId) => {
+                  const next = removeWorkflowSamplePlan(plansRef.current, sampleRevisionId);
+                  setPlans(next);
+                  if (next.length === 0) setSampleIds([]);
+                }}
                 onChange={(sampleRevisionId, next) =>
                   setPlans((current) =>
                     current.map((plan) => {
