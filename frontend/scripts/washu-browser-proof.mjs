@@ -25,7 +25,11 @@ const reads = [];
 const apiUrls = [];
 const consoleMessages = [];
 const external = [];
+const cspReports = [];
+const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 let browser;
+let page;
+let documentPolicy = '';
 let preflightOk = false;
 let readFailed = false;
 let apiPort = 0;
@@ -121,6 +125,12 @@ async function stopAll(ports) {
     if (!(await portFree(port))) busy.push(port);
   }
   if (busy.length) throw new Error(`proof ports still listening: ${busy.join(',')}`);
+}
+
+function isExternal(url) {
+  const parsed = new URL(url);
+  if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
+  return parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost';
 }
 
 function trackOf(url) {
@@ -263,9 +273,78 @@ function assertProof(viewerText, pageText, geometry, viewHits) {
   };
 }
 
+async function writeEgress() {
+  let violations = [];
+  if (page) {
+    violations = await page.evaluate(() => window.__helixweaveCsp ?? []).catch(() => []);
+  }
+  const reports = cspReports.map((body) => {
+    try {
+      return JSON.parse(body)['csp-report'] ?? { unparsed: body.slice(0, 200) };
+    } catch {
+      return { unparsed: body.slice(0, 200) };
+    }
+  });
+  const egress = {
+    policy: documentPolicy,
+    violations,
+    reports,
+    externalRequests: [...external],
+  };
+  writeFileSync(join(work, 'egress.json'), `${JSON.stringify(egress, null, 2)}\n`);
+  log(`EGRESS ${JSON.stringify(egress)}`);
+  return egress;
+}
+
+function assertBlocked(egress, viewerText, pageText) {
+  const preflight = reads.filter((read) => read.preflight && read.status === 206);
+  for (const track of ['pet', 'peak', 'signal']) {
+    if (!preflight.some((read) => read.track === track)) {
+      throw new Error(`missing ${track} preflight 206`);
+    }
+  }
+  if (egress.policy !== enforcedPolicy) {
+    throw new Error(`production policy was ${JSON.stringify(egress.policy)}`);
+  }
+  if (!pageText.includes('Track failed to load')) {
+    throw new Error(`page did not show a track failure\n${pageText.slice(0, 500)}`);
+  }
+  if (!pageText.includes('PET records') || !pageText.includes('Peaks:')) {
+    throw new Error('failed track labels were not shown');
+  }
+  if (
+    (viewerText.includes('PET records') || viewerText.includes('sample_peaks')) &&
+    !viewerText.includes('Error detecting chromosome naming')
+  ) {
+    throw new Error(`failed tracks stayed in the viewer without an error\n${viewerText.slice(0, 400)}`);
+  }
+  const rejected = reads.filter((read) => !read.preflight && read.status === 409);
+  const rejection = rejected.map((read) => read.body.toString('utf8')).join('\n');
+  if (!rejection.includes('derivative_changed') || rejection.includes(work)) {
+    throw new Error(`index failure was not a closed derivative rejection\n${rejection.slice(0, 300)}`);
+  }
+  for (const track of ['pet', 'peak']) {
+    if (!rejected.some((read) => read.track === track && read.index)) {
+      throw new Error(`missing rejected ${track} index`);
+    }
+  }
+  if (egress.externalRequests.length) {
+    throw new Error(`external request left the browser\n${egress.externalRequests.join('\n')}`);
+  }
+  const blocked = egress.reports.filter(
+    (report) =>
+      report.disposition === 'enforce' &&
+      report['effective-directive'] === 'connect-src' &&
+      String(report['blocked-uri'] ?? '').startsWith('https://epigenome.wustl.edu/cors/'),
+  );
+  if (!blocked.length) {
+    throw new Error(`enforced CSP report did not describe the proxy\n${JSON.stringify(egress.reports)}`);
+  }
+}
+
 try {
   apiPort = await reserve(18765);
-  webPort = await reserve(14174);
+  webPort = apiPort;
   log(`ports api=${apiPort} web=${webPort} negative=${negative} work=${work}`);
   const api = start(
     python,
@@ -283,25 +362,6 @@ try {
   api.stderr.on('data', (chunk) => process.stderr.write(chunk));
   const ready = await waitFor(api.stdout, /WASHU_FIXTURE run_id=(\S+)/, 60_000);
   const runId = ready.match[1];
-  const web = start(
-    'npm',
-    [
-      '--prefix',
-      'frontend',
-      'run',
-      'dev',
-      '--',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(webPort),
-      '--strictPort',
-    ],
-    { VITE_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
-  );
-  web.stdout.on('data', (chunk) => process.stdout.write(chunk));
-  web.stderr.on('data', (chunk) => process.stderr.write(chunk));
-  await waitFor(web.stdout, /Local:/, 60_000);
 
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -323,7 +383,17 @@ try {
       sameSite: 'Lax',
     },
   ]);
-  const page = await context.newPage();
+  page = await context.newPage();
+  await page.addInitScript(() => {
+    window.__helixweaveCsp = [];
+    document.addEventListener('securitypolicyviolation', (event) => {
+      window.__helixweaveCsp.push({
+        blockedURI: event.blockedURI,
+        effectiveDirective: event.effectiveDirective,
+        disposition: event.disposition,
+      });
+    });
+  });
   page.on('console', (message) => {
     consoleMessages.push(`${message.type()}: ${message.text()}`);
   });
@@ -332,6 +402,10 @@ try {
   });
   page.on('request', (request) => {
     const url = request.url();
+    if (isExternal(url)) external.push(`${request.method()} ${url}`);
+    if (request.method() === 'POST' && new URL(url).pathname === '/csp-report') {
+      cspReports.push(request.postData() ?? '');
+    }
     if (url.includes('/api/')) apiUrls.push(`${request.method()} ${request.headers().range ?? '-'} ${url}`);
   });
   page.on('response', (response) => {
@@ -368,23 +442,23 @@ try {
       preflight: (request.headers().range ?? '') === 'bytes=0-0',
     });
   });
-  await page.route('**/*', async (route) => {
-    const url = route.request().url();
-    const host = new URL(url).hostname;
-    if (host !== '127.0.0.1' && host !== 'localhost') {
-      external.push(url);
-      return route.abort();
-    }
-    return route.continue();
-  });
-  await page.goto(`http://127.0.0.1:${webPort}/runs/${runId}?view=artifacts`);
+  const navigation = await page.goto(`http://127.0.0.1:${apiPort}/runs/${runId}?view=artifacts`);
+  documentPolicy = navigation?.headers()['content-security-policy'] ?? '';
+  log(`document-policy ${documentPolicy}`);
   await page.getByRole('button', { name: 'View tracks in genome browser' }).click();
   const viewer = page.getByTestId('washu-genome-viewer');
   await viewer.waitFor({ timeout: 30_000 });
   if (negative) {
     const started = Date.now();
-    while (Date.now() - started < 15_000) {
-      if (reads.some((read) => !read.preflight && read.status >= 400)) break;
+    while (Date.now() - started < 20_000) {
+      const alert = await page.getByText('Track failed to load').count();
+      const rejected = reads.some(
+        (read) =>
+          !read.preflight &&
+          read.status === 409 &&
+          read.body.includes('derivative_changed'),
+      );
+      if (alert > 0 && rejected && cspReports.length > 0) break;
       await page.waitForTimeout(200);
     }
   } else {
@@ -481,10 +555,27 @@ try {
       return { width: box.width, height: box.height };
     }),
   );
-  const evidence = assertProof(viewerText, pageText, geometry, sessionState.hits);
-  if (negative) {
-    throw new Error(`negative case unexpectedly satisfied the proof ${JSON.stringify(evidence)}`);
+  const egress = await writeEgress();
+  if (egress.policy !== enforcedPolicy) {
+    throw new Error(`production policy was ${JSON.stringify(egress.policy)}`);
   }
+  if (negative) {
+    const alerts = (await page.getByRole('alert').allInnerTexts()).join('\n');
+    log(`ALERTS ${alerts}`);
+    if (
+      !alerts.includes('PET records') ||
+      !alerts.includes('Peaks:') ||
+      !alerts.includes('Track failed to load')
+    ) {
+      throw new Error(`failure alert did not name the tracks\n${alerts.slice(0, 500)}`);
+    }
+    assertBlocked(egress, viewerText, pageText);
+    throw new Error('WASHU_PROOF rejected protected track read');
+  }
+  if (egress.violations.length || egress.externalRequests.length || egress.reports.length) {
+    throw new Error(`unexpected egress ${JSON.stringify(egress)}`);
+  }
+  const evidence = assertProof(viewerText, pageText, geometry, sessionState.hits);
   await stopAll([apiPort, webPort]);
   console.log(`WASHU_PROOF ok ${JSON.stringify({ ...evidence, screenshot: screenshotPath })}`);
 } catch (error) {
@@ -492,13 +583,9 @@ try {
   log(apiUrls.join('\n'));
   log(message);
   log(consoleMessages.filter((line) => line.startsWith('error') || line.startsWith('pageerror')).join('\n'));
-  const rejection = reads
-    .filter((read) => !read.preflight && read.status === 409)
-    .map((read) => read.body.toString('utf8'))
-    .join('\n');
-  const replaced = rejection.includes('derivative_changed') && !rejection.includes(work);
-  if (negative && preflightOk && replaced) {
-    console.error(`WASHU_PROOF rejected ${message.split('\n')[0]}`);
+  await writeEgress().catch(() => {});
+  if (negative && message.startsWith('WASHU_PROOF rejected')) {
+    console.error(message.split('\n')[0]);
     console.error(`proof work ${work}`);
     process.exitCode = 1;
   } else {

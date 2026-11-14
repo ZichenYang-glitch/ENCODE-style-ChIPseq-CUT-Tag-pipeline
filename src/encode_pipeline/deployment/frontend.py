@@ -36,7 +36,15 @@ _CONTENT_TYPES = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
 }
+# WashU retries a failed same-origin track read through
+# https://epigenome.wustl.edu/cors/<resource URL>. Workers do that fetch, so
+# the document violation event does not fire. The enforced connect-src blocks
+# the request, and the browser reports the blocked URL only to this origin.
+_CSP_REPORT_PATH = "csp-report"
+_CSP_REPORT_LIMIT = 8192
+_CONNECT_SRC = b"connect-src 'self'; report-uri /csp-report"
 _SECURITY_HEADERS = (
+    (b"content-security-policy", _CONNECT_SRC),
     (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
     (b"referrer-policy", b"no-referrer"),
     (b"x-content-type-options", b"nosniff"),
@@ -60,6 +68,9 @@ class ManifestStaticApplication:
         if scope["type"] != "http":
             return
         method = str(scope.get("method", "")).upper()
+        if method == "POST" and _request_asset_path(scope) == _CSP_REPORT_PATH:
+            await self._discard_csp_report(receive, send)
+            return
         if method not in {"GET", "HEAD"}:
             await self._plain(
                 send,
@@ -147,6 +158,32 @@ class ManifestStaticApplication:
                 "body": b"" if head else content,
             }
         )
+
+    async def _discard_csp_report(self, receive: Receive, send: Send) -> None:
+        """Drop a browser CSP report without echoing or retaining its body."""
+
+        remaining = _CSP_REPORT_LIMIT
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                break
+            body = message.get("body", b"")
+            if isinstance(body, (bytes, bytearray)):
+                remaining -= len(body)
+            if remaining < 0 or not message.get("more_body", False):
+                break
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 204,
+                "headers": (
+                    (b"content-length", b"0"),
+                    (b"cache-control", b"no-store"),
+                    *_SECURITY_HEADERS,
+                ),
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
 
 
 def _header(scope: Scope, name: bytes) -> bytes | None:

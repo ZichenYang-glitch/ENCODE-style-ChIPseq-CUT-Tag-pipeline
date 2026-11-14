@@ -1,4 +1,4 @@
-"""Serve one seeded run so a real WashU page can read same-origin tracks."""
+"""Serve one seeded run and the packaged production page on the same origin."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "test"))
 sys.path.insert(0, str(ROOT / "test" / "api"))
 
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.deployment.frontend import ManifestStaticApplication  # noqa: E402
+from encode_pipeline.frontend_assets import load_packaged_frontend_assets  # noqa: E402
 from encode_pipeline.services.browser_tracks import BrowserTrackService  # noqa: E402
 from conftest import seed_test_authentication  # noqa: E402
 from test_routes_browser_tracks import (  # noqa: E402
@@ -82,6 +84,11 @@ def build_app(database: Path, workspace: Path):
             generation=generation,
             revision=artifact.revision,
         )
+    app.mount(
+        "/",
+        ManifestStaticApplication(load_packaged_frontend_assets()),
+        name="frontend",
+    )
     return app, run_id, signal.artifact_id, pet.artifact_id
 
 

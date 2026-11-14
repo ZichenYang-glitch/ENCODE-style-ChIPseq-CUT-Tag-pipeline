@@ -13,6 +13,12 @@ import type {
 } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
 import { Button } from '../../components/Button';
+import {
+  clearTrackReadFailures,
+  ensureTrackReadGuard,
+  hasTrackReadFailure,
+  subscribeTrackReadFailure,
+} from './trackReadGuard';
 
 const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
 const DRAW_NOTE =
@@ -38,6 +44,7 @@ function messageFromError(error: unknown): string {
 }
 
 export default function GenomeBrowserPanel({ runId }: { runId: string }) {
+  ensureTrackReadGuard();
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({
     queryKey: ['browser-session', runId],
@@ -47,6 +54,19 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
+
+  useEffect(
+    () =>
+      subscribeTrackReadFailure((artifactId) => {
+        setLoadFailures((current) =>
+          current[artifactId]
+            ? current
+            : { ...current, [artifactId]: 'Track failed to load.' },
+        );
+      }),
+    [],
+  );
+  useEffect(() => () => clearTrackReadFailures(), []);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -112,8 +132,21 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
         if (!response.ok && response.status !== 206) {
           throw new Error(`HTTP ${response.status}`);
         }
-        if (!cancelled) {
+        const indexPath = sameOriginPath(track.index_path);
+        if (indexPath) {
+          const indexResponse = await fetch(indexPath, {
+            method: 'GET',
+            headers: { Range: 'bytes=0-1' },
+            credentials: 'same-origin',
+            signal: controller.signal,
+          });
+          if (!indexResponse.ok && indexResponse.status !== 206) {
+            throw new Error(`HTTP ${indexResponse.status}`);
+          }
+        }
+        if (!cancelled && !hasTrackReadFailure(track.artifact_id)) {
           setLoadFailures((current) => {
+            if (!current[track.artifact_id]) return current;
             const next = { ...current };
             delete next[track.artifact_id];
             return next;

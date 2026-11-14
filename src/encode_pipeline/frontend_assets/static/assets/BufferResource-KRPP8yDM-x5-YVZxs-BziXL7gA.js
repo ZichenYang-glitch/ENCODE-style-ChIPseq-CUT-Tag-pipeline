@@ -1,4 +1,4 @@
-import{g as c,R as U,h as g,X as l,d as I,a as M,m as p,D as _}from"./GenomeBrowserPanel-DBc1KYog.js";const x={name:"local-uniform-bit",vertex:{header:`
+import{g as c,R as U,h as g,X as l,d as I,a as M,m as p,D as _}from"./GenomeBrowserPanel-Dxtnjztn.js";const x={name:"local-uniform-bit",vertex:{header:`
 
             struct LocalUniforms {
                 uTransformMatrix:mat3x3<f32>,

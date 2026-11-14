@@ -328,13 +328,21 @@ def test_manifest_static_application_serves_only_verified_bytes_and_spa_routes(
     assert index.headers["x-content-type-options"] == "nosniff"
     assert index.headers["x-frame-options"] == "DENY"
     assert index.headers["referrer-policy"] == "no-referrer"
-    assert "content-security-policy" not in index.headers
+    assert (
+        index.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report"
+    )
+    assert "content-security-policy-report-only" not in index.headers
 
     script = _request(app, "GET", "/assets/app-a1.js")
     assert script.status_code == 200
     assert script.content == assets.content["assets/app-a1.js"]
     assert script.headers["cache-control"].endswith("immutable")
     assert script.headers["etag"].startswith('"')
+    assert (
+        script.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report"
+    )
 
     head = _request(app, "HEAD", "/assets/app-a1.js")
     assert head.status_code == 200
@@ -349,6 +357,10 @@ def test_manifest_static_application_serves_only_verified_bytes_and_spa_routes(
     assert unchanged.status_code == 304
     assert unchanged.content == b""
     assert unchanged.headers["x-frame-options"] == "DENY"
+    assert (
+        unchanged.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report"
+    )
 
     deep_link = _request(
         app,
@@ -358,6 +370,27 @@ def test_manifest_static_application_serves_only_verified_bytes_and_spa_routes(
     )
     assert deep_link.status_code == 200
     assert deep_link.content == index.content
+    assert (
+        deep_link.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report"
+    )
+    private_url = (
+        "https://epigenome.wustl.edu/cors/secret.example/api/v1/runs/private/bytes"
+    )
+    report = _request(
+        app,
+        "POST",
+        "/csp-report",
+        content=private_url.encode("utf-8"),
+    )
+    assert report.status_code == 204
+    assert report.content == b""
+    assert private_url.encode("utf-8") not in report.content
+    assert (
+        report.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report"
+    )
+    assert _request(app, "GET", "/csp-report").status_code == 404
     assert (
         _request(app, "GET", "/settings", headers={"accept": "text/html"}).status_code
         == 404

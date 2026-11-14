@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GenomeBrowserPanel from './GenomeBrowserPanel';
+import { resetTrackReadGuardForTests } from './trackReadGuard';
 import {
   getRunBrowserSession,
   prepareRunBrowserTrack,
@@ -19,11 +20,16 @@ vi.mock('wuepgg', () => ({
     genomeName: string;
     viewRegion?: string;
     tracks: Array<{ name?: string; url?: string }>;
-  }) => (
-    <div data-testid="washu-mock-viewer">
-      {genomeName} {viewRegion} {tracks.map((track) => track.name).join(',')}
-    </div>
-  ),
+  }) => {
+    for (const track of tracks) {
+      if (track.url) void fetch(track.url);
+    }
+    return (
+      <div data-testid="washu-mock-viewer">
+        {genomeName} {viewRegion} {tracks.map((track) => track.name).join(',')}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../api/generated/artifacts/artifacts', () => ({
@@ -98,6 +104,7 @@ function renderPanel() {
 
 describe('GenomeBrowserPanel', () => {
   beforeEach(() => {
+    resetTrackReadGuardForTests();
     sessionMock.mockReset();
     summaryMock.mockReset();
     summaryMock.mockResolvedValue({
@@ -150,6 +157,47 @@ describe('GenomeBrowserPanel', () => {
     expect(await screen.findByText(/not a zero-signal measurement/)).toBeInTheDocument();
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('hg38');
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('chr1:200-2400');
+  });
+
+  it('shows a failure when a later byte read fails after preflight', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const range = new Headers(init?.headers).get('range');
+        if (range === 'bytes=0-0') {
+          return new Response(new Uint8Array([1]), { status: 206 });
+        }
+        return new Response('changed', { status: 409 });
+      }),
+    );
+    sessionMock.mockResolvedValue(session());
+    renderPanel();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Track failed to load');
+    await waitFor(() => {
+      expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows a failure when the index read fails after the content preflight', async () => {
+    const value = session();
+    value.tracks[0] = {
+      ...value.tracks[0],
+      index_path: `${value.tracks[0].content_path}.tbi`,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.endsWith('.tbi')) return new Response('changed', { status: 409 });
+        return new Response(new Uint8Array([1]), { status: 206 });
+      }),
+    );
+    sessionMock.mockResolvedValue(value);
+    renderPanel();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Track failed to load (HTTP 409)');
+    await waitFor(() => {
+      expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
+    });
   });
 
   it('does not mount a track whose byte request failed', async () => {
