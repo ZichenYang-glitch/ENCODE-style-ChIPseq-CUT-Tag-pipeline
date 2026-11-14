@@ -1,9 +1,11 @@
 # 下一批交付：session 分工与验收交接
 
-日期：2026-11-13。排期入口为 [roadmap](workflow-platform-agent-roadmap.md)，
+日期：2026-11-13 的分工仍然有效；2026-11-14 只更新已变化的依赖和交接状态。
+排期入口为 [roadmap](workflow-platform-agent-roadmap.md)，
 准确 PR/SHA 为 [集成清单](current-delivery-integration.md)，新增契约见
 [设计](../architecture/catalog-agent-viewer-boundaries.md)。
-这份计划用于之后逐个发给 session，不表示本轮已经启动 coding、下载、Gate 或合并。
+这份计划不表示本轮已经启动 coding、下载、Gate 或合并。
+它已在 Draft #213 中，该 PR 仍未合并。
 
 ## 通用约定
 
@@ -28,25 +30,28 @@
 | session 名称 | 范围／写入所有权 | 依赖 | 下一步 | 验收标准／交接 | PR |
 | --- | --- | --- | --- | --- | --- |
 | `Cursor-A1-Backend` | 现有 authoring、受管目录/校验、后端测试、其 OpenAPI/client 生成 | `e00130e…` 最新边界定点复审已通过 | 交出目录及样本计划契约，支持前端/C4 集成中的具体问题 | 本轮 41 项检查通过；不加入元数据分类/真实模型/运行操作，不把 C3 可消费写成整个 A1 通过 | #212 |
-| `Cursor-A1-Frontend` | 草稿页、样本行、回执 UI 及相关测试；不手改 generated | `e00130e2d5e55b3197624ef6bff9c25fd687cf87` 可供 C3 消费 | 核对祖先后纳入该契约；接目录→保存→刷新→真实 snapshot；最终新 head 跑 CI | 保留本地编辑/完整基线/操作代次；对照修订在计划行内；桌面移动端真实 HTTP；不得自动连接或启动运行 | #214 |
-| `Cursor-Science-OnePath` | validator、科学 rules、相关身份/schema/docs/skills | `c44c4d6…` Picard 返修定点复审通过 | 支持单路径整体合入审阅与最终 schema 交接；不扩大科学范围 | 本轮 27 项定向检查通过；历史记录不改，默认不宣称生物学冻结 | #216 |
-| `Cursor-WashU-W1` | 当前轨道服务/转换/页面及测试 | 最新 `bcdbd325…` 独立审阅 | 回答实际读取/绘图及身份拒绝问题；维持当前消费者范围 | 真组件读取并展示已知数据，有限资源与清理；不假称独立前端或支持所有接触矩阵 | #217 |
-| `Cursor-Docs-Delivery`（现有维护 session） | roadmap、集成清单、架构设计及文档检查 | #215 已合入；本轮文档工作区和最新交接 | 整合本轮文档，与旧 #213 协调一次纳入；不开新功能或第三批测试精简 | 历史逐字保留，当前状态只一处权威入口；链接、身份、空白检查通过 | #213 或协调后的单一文档 PR |
+| `Cursor-A1-Frontend` | 草稿页、样本行、回执 UI 及相关测试；不手改 generated | `e00130e…` 可供 C3 消费。`399c3b3…` 普通 CI 已通过，不继承 `2c3c439…`；源码审阅待完成 | 审阅该 head 后接目录→保存→刷新→真实 snapshot | 保留本地编辑/完整基线/操作代次；对照修订在计划行内；桌面移动端真实 HTTP；不得自动连接或启动运行 | #214 |
+| `Cursor-Science-OnePath` | validator、科学 rules、相关身份/schema/docs/skills | `85ac7a2…` 整体独立审阅通过。main 已有包含它的 merge 提交；PR 对象当时未标记 merged。merge SHA 无 push 检查，workflow_dispatch CI 当时未结案 | 把该 head 交给 A1 作为已审阅科学 schema；不扩大科学范围 | 旧键拒绝和单路径契约保持；历史记录不改；不宣称生物学冻结或 C4/A1 完成 | #216 |
+| `Cursor-WashU-W1` | 当前轨道服务/转换/页面及测试 | `cbe5a0e…` 普通 CI 通过；该 head 尚无独立审阅 | 回答实际读取/绘图及身份拒绝问题；维持当前消费者范围 | 真组件读取并展示已知数据，有限资源与清理；不假称独立前端或支持所有接触矩阵 | #217 |
+| `Cursor-Docs-Delivery`（现有维护 session） | roadmap、集成清单及当前 session 计划 | 当前入口已在 Draft #213 | 只做有界状态更新；不开新功能或第三批测试精简 | 历史副本逐字保留；Draft 未合并；链接、身份、空白检查通过 | #213 |
 | `Codex-Delivery-Review` | 只读复审、契约裁决和交接清单 | 各 owner 的准确提交与复现 | 区分阻塞缺陷、已满足契约和后续扩展 | 每条 finding 有代码/复现/影响/最小修复边界；不把新产品目标当修复循环 | 上述 PR |
 
-共五个 Cursor owner，加 Codex 主会话为六个。后端本轮复审已完成，前端无需继续
-等待 e00130e 的这两个修复，可开始正式接线；后续新字段仍需单独审阅。
+共五个 Cursor owner，加 Codex 主会话为六个。`e00130e…` 的边界复审仍可供 C3 消费。
+#214 `399c3b3…` 的普通 CI 已通过，源码审阅仍待完成；不把 `2c3c439…` 的检查算到新 head。
 冻结只表示可消费的接口版本，不代替最终实现审阅或 C4。遇到新安全/一致性缺陷继续修；
 遇到新功能需求登记后续，不把它变成当前修复的无限追加项。
 
 ## B. 当前批次集成：准备好后启动
 
-`Cursor-A1-Integration` 使用独立 worktree，消费已审阅的后端、前端和最终科学 schema。
-不让 backend 或 frontend owner 在未告知另一方时更换接口或重写共同历史。
+`Cursor-A1-Integration` 使用独立 worktree，消费已审阅的后端、前端和
+#216 `85ac7a2…` 这个已审阅科学 schema。不让 backend 或 frontend owner
+在未告知另一方时更换接口或重写共同历史。
 
 1. 核对 main、依赖 DAG 和来源提交，#214 已含的 #212 祖先只纳入一次。
 2. 再生 OpenAPI/客户端/前端打包资产只能有一个 owner；报告合并冲突的行为处理。
-3. 用隔离数据库、真实 API、真实浏览器、固定 native 与本地模型 stub 执行 C4：
+3. 用隔离数据库、真实 API、真实浏览器、完成资格验证的 native 与本地模型 stub 执行 C4。
+   原 binary `60144bbe…` 已缺失；候选 `5cc82caf…` 还不能代替它。
+   先在有用户级 systemd 和真实 cgroup 的合格环境完成候选资格验证，再把它用于 C4：
    选择项目/样本/输入修订/参考，保存和回读，显式连接，读工具，提案/解释，采用/拒绝，
    真实 validator snapshot，重新登录发现回执；包含拒绝、冲突、丢响应及断连清理。
 4. 没有真实 snapshot、native 或工具结果时不得用 fixture 成功文案代替。
@@ -79,7 +84,7 @@ P2 与 M1 可在各自前提满足后并行，M2 等二者。真实 provider 参
 
 ## D. 文档、维护与交接
 
-`Cursor-Docs-Delivery` 协调本轮文档与 #213；只处理当前入口、链接和准确证据。
+`Cursor-Docs-Delivery` 继续维护 Draft #213 的当前入口，只处理状态、链接和准确证据。
 原根工作区单路径决策已在历史副本保留。不要在科学或 skills 分支重复写 roadmap。
 #194/#195 先复核内容是否仍适用，不能整批合并过时环境/代理流程建议。
 
@@ -96,5 +101,5 @@ Peri 从零构建、长期 fork、自由文本和第二 viewer 都是独立后�
 - 本任务资源清理；仅清理自己启动的进程、容器和临时文件。
 - 下一个 owner 可以直接消费的契约与仍需审阅项，不用“全部完成”概括多个阶段。
 
-本轮文档 worktree 仅用于交付设计；没有提交、push 或新远端分支。
-后续接手者需先整合这组文档到自己的文档分支，核对最新状态后再开相应实施 goal。
+文档已提交并 push 到 Draft #213，该 PR 仍未合并。后续状态更新继续使用这条分支。
+实施 goal 仍按各自依赖单独开启；当前文档可审阅并不表示开发计划已经完成。
