@@ -113,14 +113,26 @@ def _validate_config_schema_version(config: dict) -> str:
     )
 
 
-def _validate_analysis_profile(config: dict, version: str) -> str:
-    default = "updated" if version == "2.0.0" else "legacy"
-    raw = config.get("analysis_profile", default)
-    return _choice(
-        raw,
-        name="analysis_profile",
-        allowed=defaults.ANALYSIS_PROFILES,
-    )
+def _reject_removed_config_keys(config: dict) -> None:
+    """Fail closed on selectors that used to choose a second analysis path.
+
+    The keys are not ignored and are not rewritten into the single path.
+    Historical files can still be stored and viewed; they cannot execute.
+    """
+    if "analysis_profile" in config:
+        raise ValidationError(
+            "config: analysis_profile is not a configuration key. "
+            "This workflow has one analysis path. Remove analysis_profile. "
+            "Set duplicate_analysis to auto, exclude, or retain."
+        )
+    if "remove_dup" in config:
+        raise ValidationError(
+            "config: remove_dup is not a configuration key. "
+            "Set duplicate_analysis to auto, exclude, or retain. "
+            "auto excludes duplicates for ChIP-seq, ATAC-seq, and MNase-seq "
+            "and retains them for CUT&Tag, including broad peaks. "
+            "An explicit exclude or retain applies to the whole run."
+        )
 
 
 def resolve_blacklist_mode(config: dict, qc_raw: dict | None = None) -> str:
@@ -136,92 +148,47 @@ def _validate_blacklist_mode(config: dict, qc_raw: dict) -> str:
     return mode
 
 
-def _validate_duplicate_settings(config: dict, remove_dup: str, profile: str) -> str:
-    """Resolve the run-level duplicate policy selector for both profiles.
+def _validate_duplicate_settings(config: dict) -> str:
+    """Keep auto unresolved so each sample can use its assay default.
 
-    Resolution order (identical for legacy and updated):
-    1. An explicit duplicate_analysis=exclude/retain wins; the remove_dup
-       yes/no alias must agree with it (conflicts are rejected).
-    2. The remove_dup alias maps yes -> exclude and no -> retain.
-    3. Otherwise the policy stays "auto" and is resolved per sample by assay
-       downstream (CUT&Tag retains, other assays exclude); remove_dup=auto
-       never overrides an explicit value.
+    An omitted key is auto. Explicit exclude or retain applies to the whole
+    run. CUT&Tag auto retains duplicates; ChIP-seq, ATAC-seq, and MNase-seq
+    auto excludes them. Peak mode does not change that choice.
     """
-    raw = config.get("duplicate_analysis")
-    explicit = (
-        None
-        if raw is None
-        else _choice(
-            raw,
-            name="duplicate_analysis",
-            allowed=defaults.DUPLICATE_ANALYSIS_MODES,
-        )
+    return _choice(
+        config.get("duplicate_analysis", "auto"),
+        name="duplicate_analysis",
+        allowed=defaults.DUPLICATE_ANALYSIS_MODES,
     )
-    alias = {"yes": "exclude", "no": "retain", "auto": None}[remove_dup]
-
-    if explicit is not None and explicit != "auto":
-        if alias is not None and alias != explicit:
-            raise ValidationError(
-                f"config: remove_dup={remove_dup} conflicts with "
-                f"duplicate_analysis={explicit}."
-            )
-        return explicit
-    if alias is not None:
-        return alias
-    return "auto"
 
 
-def _validate_advanced_modes(config: dict, profile: str) -> dict:
-    """Parse A2/E1/E2 keys without activating their runtime behavior."""
+def _validate_advanced_modes(config: dict) -> dict:
+    """Normalize the single-path organelle, control, and fragment settings."""
     organelle_mode = _choice(
         config.get("organelle_mode", "auto"),
         name="organelle_mode",
         allowed=defaults.ORGANELLE_MODES,
     )
 
-    control_default = "pooled" if profile == "legacy" else "matched"
     control_mode = _choice(
-        config.get("control_mode", control_default),
+        config.get("control_mode", "matched"),
         name="control_mode",
         allowed=defaults.CONTROL_MODES,
     )
-    if profile == "legacy" and control_mode != "pooled":
-        raise ValidationError(
-            "config: analysis_profile=legacy does not support control_mode "
-            f"{control_mode!r}; use pooled."
-        )
-
-    backend_default = "" if profile == "legacy" else "picard"
     duplicate_backend = _choice(
-        config.get("duplicate_backend", backend_default),
+        config.get("duplicate_backend", "picard"),
         name="duplicate_backend",
         allowed=defaults.DUPLICATE_BACKENDS,
     )
-    if profile == "legacy" and duplicate_backend != "":
-        raise ValidationError(
-            "config: analysis_profile=legacy preserves the original backend "
-            "dispatch; duplicate_backend must be empty."
-        )
-
-    fragment_default = "off" if profile == "legacy" else "auto"
     fragment_cpm = _choice(
-        config.get("fragment_cpm", fragment_default),
+        config.get("fragment_cpm", "auto"),
         name="fragment_cpm",
         allowed=defaults.FRAGMENT_CPM_MODES,
     )
-    if profile == "legacy" and fragment_cpm != "off":
-        raise ValidationError(
-            "config: analysis_profile=legacy does not support fragment_cpm; use off."
-        )
-
     tss_fragment_profile = _strict_bool(
         config.get("tss_fragment_profile", False),
         name="tss_fragment_profile",
     )
-    if profile == "legacy" and tss_fragment_profile:
-        raise ValidationError(
-            "config: analysis_profile=legacy does not support tss_fragment_profile."
-        )
     if tss_fragment_profile and fragment_cpm == "off":
         raise ValidationError(
             "config: tss_fragment_profile=true requires fragment_cpm != off."
@@ -250,15 +217,16 @@ def validate_execution_support(
     validated_config: dict,
     error_cls=ValidationError,
 ) -> None:
-    """Reject configs whose policies are parsed but not executable yet.
+    """Reject a normalized config that cannot execute on the single path.
 
-    ``validate_config`` is the pure parsing layer. Execution entry points
-    (CLI, adapter validation, workspace planning) call this gate so A1 does
-    not accept updated policies and then silently run legacy behavior.
+    ``validate_config`` is the parsing layer. Execution entry points call
+    this gate so a hand-built config cannot reintroduce a second path.
     """
-    profile = validated_config.get("analysis_profile")
-    if profile not in ("legacy", "updated"):
-        raise error_cls("config: analysis_profile is invalid")
+    if "analysis_profile" in validated_config or "remove_dup" in validated_config:
+        raise error_cls(
+            "config: analysis_profile and remove_dup cannot execute. "
+            "Remove them and set duplicate_analysis to auto, exclude, or retain."
+        )
 
     if validated_config.get("blacklist_mode") not in (
         "off",
@@ -270,27 +238,16 @@ def validate_execution_support(
         raise error_cls("config: duplicate_analysis is invalid")
     if validated_config.get("fragment_cpm") not in ("off", "auto", "on"):
         raise error_cls("config: fragment_cpm is invalid")
-    if validated_config.get("tss_fragment_profile") and profile == "legacy":
-        raise error_cls("config: legacy profile requires tss_fragment_profile=false.")
-
-    if profile == "legacy":
-        if validated_config.get("fragment_cpm") != "off":
-            raise error_cls("config: legacy profile requires fragment_cpm=off.")
-        if validated_config.get("duplicate_backend"):
-            raise error_cls(
-                "config: legacy profile preserves the original duplicate dispatch; "
-                "duplicate_backend must be empty."
-            )
-        if validated_config.get("control_mode") != "pooled":
-            raise error_cls("config: legacy profile requires control_mode=pooled.")
-        return
-
-    # updated profile (B2 consumer closure)
     if validated_config.get("duplicate_backend") != "picard":
-        raise error_cls("config: updated profile requires duplicate_backend=picard.")
+        raise error_cls(
+            "config: duplicate_backend must be picard. "
+            "Duplicates are marked with Picard MarkDuplicates."
+        )
     if validated_config.get("control_mode") != "matched":
         raise error_cls(
-            "config: updated profile currently requires control_mode=matched."
+            "config: control_mode must be matched. FASTQ controls are consumed "
+            "from each control sample's analysis BAM. Experiment-level pooling "
+            "is a separate output and is not selected by control_mode."
         )
 
 
@@ -305,6 +262,7 @@ def validate_config(config: dict) -> dict:
             "config: scientific_policy_revision is an internal workflow "
             "identity and cannot be set by user configuration."
         )
+    _reject_removed_config_keys(config)
     validated: dict = {}
 
     # samples — required, path must exist
@@ -342,22 +300,8 @@ def validate_config(config: dict) -> dict:
     )
     validated["binsize"] = binsize
 
-    # config_schema_version / analysis_profile — A1 compatibility surface
     validated["config_schema_version"] = _validate_config_schema_version(config)
-    validated["analysis_profile"] = _validate_analysis_profile(
-        config, validated["config_schema_version"]
-    )
-
-    # remove_dup — "auto", "yes", or "no"
-    remove_dup = str(config.get("remove_dup", "auto"))
-    if remove_dup not in defaults.REMOVE_DUP_KEYWORDS:
-        raise ValidationError(
-            f"config remove_dup must be auto, yes, or no, got {remove_dup!r}"
-        )
-    validated["remove_dup"] = remove_dup
-    validated["duplicate_analysis"] = _validate_duplicate_settings(
-        config, remove_dup, validated["analysis_profile"]
-    )
+    validated["duplicate_analysis"] = _validate_duplicate_settings(config)
 
     # trim — boolean or string boolean, normalize to string
     trim_raw = config.get("trim", True)
@@ -415,8 +359,7 @@ def validate_config(config: dict) -> dict:
         blacklist_mode=validated["blacklist_mode"],
     )
 
-    # A2/E1/E2 keys are normalized in A1 but do not activate behavior.
-    validated.update(_validate_advanced_modes(config, validated["analysis_profile"]))
+    validated.update(_validate_advanced_modes(config))
 
     # replicate_analysis — optional replicate-aware outputs, default true
     replicate_analysis_raw = config.get("replicate_analysis", True)

@@ -10,7 +10,13 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def project(
-    workdir, layout, *, remove_dup="yes", peak_mode="narrow", mapq=17, preseq=True
+    workdir,
+    layout,
+    *,
+    duplicate_analysis="auto",
+    peak_mode="narrow",
+    mapq=17,
+    preseq=True,
 ):
     config_dir = workdir / "config"
     config_dir.mkdir()
@@ -50,7 +56,7 @@ def project(
         outdir="results",
         threads=1,
         mapq=mapq,
-        remove_dup=remove_dup,
+        duplicate_analysis=duplicate_analysis,
         blacklist_mode="off",
         use_control=False,
         multiqc=False,
@@ -100,6 +106,8 @@ def snakemake(
         executable,
         "-s",
         REPO / "workflow/Snakefile",
+        "--profile",
+        "none",
         "--workflow-profile",
         "none",
         "--directory",

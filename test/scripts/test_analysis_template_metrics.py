@@ -326,8 +326,6 @@ def _run_writer(
         assay,
         "--genome",
         "hs",
-        "--profile",
-        "legacy",
         "--policy-revision",
         "5",
         "--duplicate-analysis",
@@ -406,7 +404,8 @@ def test_component_reader_accepts_versionless_v1_and_v2(tmp_path, monkeypatch):
     v2 = tmp_path / "v2.tsv"
     _write_tsv(v2, ANALYSIS_TEMPLATE_METRICS_COLUMNS, _component_row())
     policy = _run_writer(tmp_path, monkeypatch, v2)
-    assert policy["schema_version"] == 2
+    assert policy["schema_version"] == 3
+    assert "profile" not in policy
     assert policy["analysis_template_status"] == "ok"
     assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"
     assert policy["stage_counts"]["analysis_valid_templates"] == 4
@@ -419,7 +418,8 @@ def test_v2_policy_round_trips_through_the_strict_parser(tmp_path, monkeypatch):
     policy = _run_writer(tmp_path, monkeypatch, component)
     parsed = parse_analysis_policy_bytes(json.dumps(policy).encode("utf-8"))
 
-    assert parsed["schema_version"] == 2
+    assert parsed["schema_version"] == 3
+    assert "profile" not in parsed
     assert parsed["analysis_template_status"] == "ok"
     assert parsed["input_stages"]["analysis_template_metrics"] == "analysis_bam"
     assert parsed["stage_counts"]["analysis_valid_templates"] == 4

@@ -107,7 +107,6 @@ def test_config_files_manifest_and_adapter_share_one_qc_contract(tmp_path):
         "multiqc": False,
         "replicate_analysis": False,
         "chipseq_idr": False,
-        "analysis_profile": "updated",
         "blacklist_mode": "off",
         "qc": {
             "summary": True,

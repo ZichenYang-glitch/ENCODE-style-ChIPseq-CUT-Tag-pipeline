@@ -13,7 +13,8 @@ template component and no legacy source), ``parse_failed`` (a source was
 provided but could not be validated), ``no_valid_templates`` (conserved legal
 zero), or ``ok``.  The general analysis-template component is authoritative for
 every PE sample, so ChIP-seq, ATAC-seq and CUT&Tag with fragment QC disabled
-all report counts.  Version 1 policy records remain readable.
+all report counts.  Version 3 drops the selectable analysis profile. Version 1
+and 2 policy records remain readable.
 
 For older runs whose writer inputs predate the general component, the writer
 falls back to the version 2 CUT&Tag fragment or MNase summaries, preserving the
@@ -41,7 +42,7 @@ from qc_common import (
     read_versioned_tsv,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 QC_SCHEMA_VERSIONS = {
     "sample": "2",
     "mnase": "2",
@@ -77,7 +78,6 @@ def main():
     parser.add_argument("--sample", required=True)
     parser.add_argument("--assay", required=True)
     parser.add_argument("--genome", required=True)
-    parser.add_argument("--profile", required=True, choices=("legacy", "updated"))
     parser.add_argument("--policy-revision", type=int, required=True)
     parser.add_argument(
         "--duplicate-analysis", required=True, choices=("exclude", "retain")
@@ -240,7 +240,6 @@ def main():
         "scientific_policy_revision": args.policy_revision,
         "sample": args.sample,
         "assay": args.assay,
-        "profile": args.profile,
         "resolved_duplicate_analysis": args.duplicate_analysis,
         "resolved_max_insert": (
             args.max_insert

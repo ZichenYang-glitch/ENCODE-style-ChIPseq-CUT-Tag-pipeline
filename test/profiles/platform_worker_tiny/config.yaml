@@ -3,7 +3,7 @@ outdir: "results"
 threads: 1
 mapq: 30
 binsize: 10
-remove_dup: "no"
+duplicate_analysis: "retain"
 trim: false
 extend_reads: "auto"
 use_control: false

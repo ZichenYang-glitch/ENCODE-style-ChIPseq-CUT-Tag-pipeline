@@ -119,7 +119,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     schema = _adapter().schema()
     as_dict = schema.to_dict()
 
-    assert as_dict["schema_version"] == "3.1.0"
+    assert as_dict["schema_version"] == "3.2.0"
     assert as_dict["schema_dialect"] == JSON_SCHEMA_DIALECT
     assert as_dict["coverage"] == {
         "config": "partial",
@@ -213,7 +213,7 @@ def test_schema_returns_versioned_renderable_contract_and_strict_options():
     for name in ("config_schema", "sample_schema", "option_schema"):
         document = as_dict[name]
         assert document["$schema"] == JSON_SCHEMA_DIALECT
-        assert document["$id"].endswith("/3.1.0")
+        assert document["$id"].endswith("/3.2.0")
         jsonschema.Draft202012Validator.check_schema(document)
 
 
@@ -749,7 +749,6 @@ def test_adapter_tss_fragment_uses_workflow_eligibility(tmp_path):
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": "updated",
         "fragment_cpm": "auto",
         "tss_fragment_profile": True,
         "blacklist_mode": "off",
@@ -780,7 +779,6 @@ def test_plan_workspace_analysis_mode_survives_snakemake_dryrun(tmp_path):
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": "updated",
         "blacklist_mode": "analysis",
         "genome_resources": {
             "hs": {
@@ -989,7 +987,6 @@ def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
                 "multiqc: false",
                 "replicate_analysis: false",
                 "chipseq_idr: false",
-                "analysis_profile: updated",
                 "blacklist_mode: analysis",
                 "genome_resources:",
                 "  hs:",
@@ -1030,7 +1027,7 @@ def test_extract_artifacts_uses_analysis_filtered_root(tmp_path):
 
     by_path = {item.relative_path: item.metadata for item in result.value}
     filtered_meta = by_path["results/analysis_filtered/S1/03_bigwig/S1.CPM.bw"]
-    assert filtered_meta["analysis_profile"] == "updated"
+    assert "analysis_profile" not in filtered_meta
     assert filtered_meta["analysis_branch"] == "analysis_filtered"
     assert filtered_meta["blacklist_mode"] == "analysis"
     assert filtered_meta["coverage_unit"] == "read"
@@ -1090,7 +1087,6 @@ def test_artifact_metadata_uses_effective_bamcoverage_normalization(
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "tool_parameters:",
             "  bamcoverage:",
             f'    normalize_using: "{normalization}"',
@@ -1126,7 +1122,6 @@ def test_artifact_metadata_does_not_label_fe_ppois_as_read_coverage(tmp_path):
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "genome_resources:",
             "  hs:",
             '    effective_genome_size: "hs"',
@@ -1209,7 +1204,6 @@ def test_artifact_branch_distinguishes_sample_named_analysis_filtered(tmp_path):
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: legacy",
             "blacklist_mode: off",
             "qc:",
             "  signal_tracks: false",
@@ -1249,7 +1243,6 @@ def test_artifact_branch_does_not_mislabel_raw_sample_named_analysis_filtered(
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "blacklist_mode: analysis",
             "genome_resources:",
             "  hs:",
@@ -1317,7 +1310,6 @@ def test_artifact_metadata_mnase_dyad_is_not_read_coverage(tmp_path):
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "tool_parameters:",
             "  bamcoverage:",
             '    normalize_using: "RPKM"',
@@ -1373,7 +1365,6 @@ def test_artifact_metadata_pooled_mnase_dyad_is_not_read_coverage(tmp_path):
             "multiqc: false",
             "replicate_analysis: true",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "genome_resources:",
             "  hs:",
             '    effective_genome_size: "hs"',
@@ -1479,7 +1470,6 @@ def test_extract_artifacts_default_analysis_without_canonical_key(tmp_path):
             "multiqc: false",
             "replicate_analysis: false",
             "chipseq_idr: false",
-            "analysis_profile: updated",
             "qc:",
             "  signal_tracks: false",
             "  summary: false",

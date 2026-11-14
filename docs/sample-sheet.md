@@ -45,7 +45,7 @@ required columns is fully supported.
 | :--- | :--- | :--- |
 | `role` | `treatment` | `treatment` or `control`. Controls skip peak calling. |
 | `control_sample` | (none) | Sample ID of a control row to use as MACS3 input (`-c`). |
-| `control_bam` | (none) | Path to an external control BAM file. |
+| `control_bam` | (none) | Not an accepted input. Rejected when `use_control: true`; ignored when `use_control: false`. |
 
 `control_sample` and `control_bam` are ignored when `use_control: false` in
 `config/config.yaml`. Rows with `role: control` are not scheduled as active
@@ -61,8 +61,9 @@ outputs unless controls are enabled.
 - **`control_sample`**: references another row's `sample` ID. That row must have
   `role: control`. The referenced sample's `final.bam` becomes the MACS3 input
   control (`-c`).
-- **`control_bam`**: an external BAM path, not processed by the pipeline. Used
-  directly as MACS3 input control. The file must exist on disk.
+- **`control_bam`**: not used as MACS3 `-c`. When `use_control: true`,
+  validation rejects it and names `control_sample` as the replacement. When
+  `use_control: false`, a leftover reference is ignored.
 
 ## Examples
 

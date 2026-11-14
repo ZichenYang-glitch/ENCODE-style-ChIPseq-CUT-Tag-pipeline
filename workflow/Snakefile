@@ -274,7 +274,6 @@ def _analysis_identity_marker_payload():
     """Versioned marker content recorded inside the run outdir."""
     return {
         "marker_schema_version": ANALYSIS_MARKER_SCHEMA_VERSION,
-        "analysis_profile": VALIDATED_CONFIG.get("analysis_profile"),
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
     }
@@ -312,7 +311,6 @@ def _effective_config_record_payload():
     """Merged, normalized configuration recorded for the actual run."""
     _wc = lambda sid: type("Wildcards", (), {"sample": sid})()
     return {
-        "analysis_profile": VALIDATED_CONFIG.get("analysis_profile"),
         "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
@@ -327,11 +325,11 @@ def _effective_config_record_payload():
 
 
 def _analysis_identity_inputs(wildcards):
-    """Marker prerequisite for production rules in both profiles."""
+    """Marker prerequisite for production rules."""
     return [str(_analysis_identity_marker())]
 
 
-def _read_analysis_identity_marker(marker, expected_profile):
+def _read_analysis_identity_marker(marker):
     try:
         recorded = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -343,11 +341,10 @@ def _read_analysis_identity_marker(marker, expected_profile):
             "Existing analysis identity marker uses an outdated format; "
             f"refusing to mix new outputs with it: {marker}. Use a fresh outdir."
         )
-    recorded_profile = recorded.get("analysis_profile")
-    if recorded_profile != expected_profile:
+    if "analysis_profile" in recorded:
         raise WorkflowError(
-            f"Existing analysis outdir is owned by analysis_profile={recorded_profile}; "
-            f"use a fresh outdir for {expected_profile} runs."
+            "Existing analysis identity marker records a selectable analysis "
+            f"profile; use a fresh outdir for this workflow version: {marker}"
         )
     if recorded.get("scientific_policy_revision") != SCIENTIFIC_POLICY_REVISION:
         raise WorkflowError(
@@ -380,7 +377,6 @@ def _check_analysis_metadata_boundary():
 
 # Required effective-config record fields and their types.
 _RECORD_FIELD_TYPES = {
-    "analysis_profile": str,
     "config_schema_version": str,
     "scientific_policy_revision": int,
     "identity": str,
@@ -388,7 +384,7 @@ _RECORD_FIELD_TYPES = {
 }
 
 
-def _check_effective_config_record(record, marker_identity, expected_profile):
+def _check_effective_config_record(record, marker_identity):
     """A valid marker requires an intact, truthful effective-config record.
 
     Beyond file integrity, the record must carry the required metadata and a
@@ -414,10 +410,13 @@ def _check_effective_config_record(record, marker_identity, expected_profile):
             raise WorkflowError(f"Effective configuration record field {field!r} has an invalid type: {record}")
     if recorded["identity"] != marker_identity:
         raise WorkflowError("Effective configuration record does not match the run identity; " "use a fresh outdir.")
-    if recorded["analysis_profile"] != expected_profile:
+    if "analysis_profile" in recorded or "analysis_profile" in recorded["config"]:
         raise WorkflowError(
-            f"Effective configuration record is owned by analysis_profile={recorded['analysis_profile']}; "
-            f"use a fresh outdir for {expected_profile} runs."
+            "Effective configuration record contains analysis_profile. " "Use a fresh outdir for this workflow version."
+        )
+    if "remove_dup" in recorded["config"]:
+        raise WorkflowError(
+            "Effective configuration record contains remove_dup. " "Use a fresh outdir for this workflow version."
         )
     if recorded["config_schema_version"] != recorded["config"].get("config_schema_version"):
         raise WorkflowError(
@@ -440,16 +439,12 @@ def _check_effective_config_record(record, marker_identity, expected_profile):
 
 def _check_analysis_outdir_identity():
     marker = _analysis_identity_marker()
-    profile = VALIDATED_CONFIG.get("analysis_profile")
     _check_analysis_metadata_boundary()
     if marker.exists():
-        recorded_identity = _read_analysis_identity_marker(marker, profile)
+        recorded_identity = _read_analysis_identity_marker(marker)
         if recorded_identity != _analysis_identity_hash():
-            raise WorkflowError(
-                "Existing analysis outdir has a different analysis identity; "
-                "use a fresh outdir or the profile that created it."
-            )
-        _check_effective_config_record(_effective_config_record(), recorded_identity, profile)
+            raise WorkflowError("Existing analysis outdir has a different analysis identity; " "use a fresh outdir.")
+        _check_effective_config_record(_effective_config_record(), recorded_identity)
         return
     outdir = Path(RAW_OUTDIR)
     if outdir.exists():
@@ -492,11 +487,9 @@ def _print_effective_config_summary():
     assay_text = ",".join(f"{name}:{count}" for name, count in sorted(assays.items())) or "none"
     lines = [
         "HelixWeave effective run configuration:",
-        f"  analysis_profile={VALIDATED_CONFIG.get('analysis_profile')} "
-        f"config_schema_version={VALIDATED_CONFIG.get('config_schema_version')} "
+        f"  config_schema_version={VALIDATED_CONFIG.get('config_schema_version')} "
         f"scientific_policy_revision={SCIENTIFIC_POLICY_REVISION}",
         f"  mapq={MAPQ} trim={TRIM} binsize={BINSIZE} "
-        f"remove_dup={VALIDATED_CONFIG.get('remove_dup')} "
         f"duplicate_analysis={_duplicate_summary_text()} "
         f"max_insert={_max_insert_summary_text()}",
         f"  organelle_mode={VALIDATED_CONFIG.get('organelle_mode')} "

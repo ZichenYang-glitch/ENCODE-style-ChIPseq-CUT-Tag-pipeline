@@ -177,7 +177,6 @@ def _write_project(
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": profile,
         "config_schema_version": "2.0.0",
         "blacklist_mode": "off",
         "genome_resources": {"hs": {"effective_genome_size": "hs"}},
@@ -359,8 +358,8 @@ def test_pe_assays_record_general_analysis_template_counts(
 
     policy_path = base / "05_qc" / f"{SAMPLE}.analysis_policy.json"
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    assert policy["schema_version"] == 2
-    assert policy["profile"] == profile
+    assert policy["schema_version"] == 3
+    assert "profile" not in policy
     assert policy["analysis_template_status"] == "ok"
     assert set(policy["input_stages"]) == set(ANALYSIS_POLICY_V2_INPUT_STAGE_KEYS)
     assert policy["input_stages"]["analysis_template_metrics"] == "analysis_bam"

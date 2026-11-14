@@ -205,7 +205,7 @@ def _write_project(tmp_path, extra_args):
                 "outdir: results",
                 "threads: 1",
                 "mapq: 30",
-                'remove_dup: "no"',
+                'duplicate_analysis: "retain"',
                 "trim: true",
                 "use_control: false",
                 "multiqc: false",

@@ -170,7 +170,6 @@ def _write_project(
         "use_control": False,
         "multiqc": False,
         "replicate_analysis": False,
-        "analysis_profile": profile,
         "config_schema_version": "2.0.0",
         "blacklist_mode": blacklist_mode,
         "genome_resources": {
