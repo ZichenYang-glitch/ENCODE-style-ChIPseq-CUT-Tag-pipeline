@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import asyncio
+import gzip
 import os
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -492,3 +493,70 @@ def test_replaced_display_index_cannot_be_read(client: ApiTestClient) -> None:
     )
     assert str(client.app.state.workspace_root) not in response.text
     assert "track.gz" not in response.text
+
+
+def test_public_api_reads_every_gzip_member(client: ApiTestClient) -> None:
+    first = b"chr1\t1200\t1400\tchr1\t1600\t1800\tread-a\t211\t+\t+\n"
+    second = b"chr1\t2100\t2200\tchr1\t2400\t2500\tread-b\t42\t+\t+\n"
+    source = gzip.compress(first, mtime=0) + gzip.compress(second, mtime=0)
+    run_id = _create_run(client)
+    _bind_reference(client, run_id, assembly="hg38")
+    artifact = _record(
+        client,
+        run_id,
+        "artifact-pet",
+        source,
+        name="multi-member.bedpe.gz",
+        output_type="hitrac_bedpe_all",
+        revision_kind="content",
+        reference_assembly="hg38",
+    )
+    generation = _generation(client, run_id)
+    prepared = client.post(
+        f"/api/v1/runs/{run_id}/browser-tracks/artifact-pet/derivative",
+        json={"generation": generation, "revision": artifact.revision},
+    )
+    assert prepared.status_code == 200, prepared.text
+    assert prepared.json()["track"]["provenance"]["pair_count"] == 2
+    summary = client.get(
+        f"/api/v1/runs/{run_id}/browser-tracks/artifact-pet/region-summary/"
+        f"{generation}/{artifact.revision}",
+        params={"chrom": "chr1", "start": 2000, "end": 3000},
+    )
+    assert summary.status_code == 200, summary.text
+    body = summary.json()
+    assert body["records"] == 2
+    assert body["complete"] is True
+    assert body["records"] != 0
+
+
+def test_truncated_later_gzip_member_is_not_published(client: ApiTestClient) -> None:
+    first = b"chr1\t1200\t1400\tchr1\t1600\t1800\tread-a\t211\t+\t+\n"
+    second = b"chr1\t2100\t2200\tchr1\t2400\t2500\tread-b\t42\t+\t+\n"
+    source = gzip.compress(first, mtime=0) + gzip.compress(second, mtime=0)[:-6]
+    run_id = _create_run(client)
+    _bind_reference(client, run_id, assembly="hg38")
+    artifact = _record(
+        client,
+        run_id,
+        "artifact-pet",
+        source,
+        name="truncated-member.bedpe.gz",
+        output_type="hitrac_bedpe_all",
+        revision_kind="content",
+        reference_assembly="hg38",
+    )
+    generation = _generation(client, run_id)
+    prepared = client.post(
+        f"/api/v1/runs/{run_id}/browser-tracks/artifact-pet/derivative",
+        json={"generation": generation, "revision": artifact.revision},
+    )
+    assert prepared.status_code == 409, prepared.text
+    assert prepared.json()["issues"][0]["context"]["reason_code"] == "source_unreadable"
+    summary = client.get(
+        f"/api/v1/runs/{run_id}/browser-tracks/artifact-pet/region-summary/"
+        f"{generation}/{artifact.revision}",
+        params={"chrom": "chr1", "start": 2000, "end": 3000},
+    )
+    assert summary.status_code != 200 or summary.json().get("complete") is not True
+    assert summary.json().get("records") != 0 or summary.status_code != 200

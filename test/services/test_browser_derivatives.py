@@ -177,3 +177,74 @@ def test_source_record_cap_stops_before_sorting_extra_pairs() -> None:
             limits=DerivativeLimits(source_records=1, output_rows=10),
         )
     assert caught.value.reason == "source_too_large"
+
+
+_FIRST_MEMBER = b"chr1\t1200\t1400\tchr1\t1600\t1800\tread-a\t211\t+\t+\n"
+_SECOND_MEMBER = b"chr1\t2100\t2200\tchr1\t2400\t2500\tread-b\t42\t+\t+\n"
+
+
+def _concatenated_gzip(*members: bytes) -> bytes:
+    return b"".join(gzip.compress(member, mtime=0) for member in members)
+
+
+def test_concatenated_gzip_keeps_every_pet() -> None:
+    source = _concatenated_gzip(_FIRST_MEMBER, _SECOND_MEMBER)
+    assert gzip.decompress(source) == _FIRST_MEMBER + _SECOND_MEMBER
+    built = build_display_derivative(
+        kind="pet_records",
+        source=source,
+        source_artifact_id="artifact-pet",
+        source_revision=REVISION,
+        source_generation=GENERATION,
+        source_output_type="hitrac_bedpe_all",
+    )
+    assert built.provenance["pair_count"] == 2
+    assert built.provenance["anchor_row_count"] == 4
+    indexed = IndexedText(built.data, built.index, 4)
+    first_window, truncated = query_indexed_bed(indexed, "chr1", 1000, 2000, limit=10)
+    assert truncated is False
+    assert first_window == (
+        "chr1\t1200\t1400\tchr1:1600-1800,1",
+        "chr1\t1600\t1800\tchr1:1200-1400,1",
+    )
+    second_window, truncated = query_indexed_bed(indexed, "chr1", 2000, 3000, limit=10)
+    assert truncated is False
+    assert second_window == (
+        "chr1\t2100\t2200\tchr1:2400-2500,1",
+        "chr1\t2400\t2500\tchr1:2100-2200,1",
+    )
+    assert all(
+        not row.endswith("\t211") and "\t211\t" not in row for row in first_window
+    )
+
+
+def test_decompressed_cap_accumulates_across_gzip_members() -> None:
+    source = _concatenated_gzip(_FIRST_MEMBER, _SECOND_MEMBER)
+    with pytest.raises(DisplayDerivativeError) as caught:
+        build_display_derivative(
+            kind="pet_records",
+            source=source,
+            source_artifact_id="artifact-pet",
+            source_revision=REVISION,
+            source_generation=GENERATION,
+            source_output_type="hitrac_bedpe_all",
+            limits=DerivativeLimits(decompressed_bytes=len(_FIRST_MEMBER) + 1),
+        )
+    assert caught.value.reason == "source_too_large"
+
+
+def test_truncated_later_gzip_member_is_not_a_partial_derivative() -> None:
+    source = (
+        gzip.compress(_FIRST_MEMBER, mtime=0)
+        + gzip.compress(_SECOND_MEMBER, mtime=0)[:-6]
+    )
+    with pytest.raises(DisplayDerivativeError) as caught:
+        build_display_derivative(
+            kind="pet_records",
+            source=source,
+            source_artifact_id="artifact-pet",
+            source_revision=REVISION,
+            source_generation=GENERATION,
+            source_output_type="hitrac_bedpe_all",
+        )
+    assert caught.value.reason == "source_unreadable"

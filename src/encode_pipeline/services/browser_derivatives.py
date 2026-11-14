@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import gzip
 import hashlib
+import io
 import re
 import zlib
 
@@ -17,7 +19,7 @@ MAX_OUTPUT_ROWS = 2_000_000
 DISPLAY_FLAG = "1"
 _CHROM = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _INTEGER = re.compile(r"(?:0|[1-9][0-9]*)$")
-_GZIP_WBITS = 16 + zlib.MAX_WBITS
+_GZIP_READ_CHUNK = 64 * 1024
 
 
 class DisplayDerivativeError(ValueError):
@@ -117,38 +119,25 @@ def build_display_derivative(
 
 
 def _gzip_chunks(source: bytes, limits: DerivativeLimits):
-    decompressor = zlib.decompressobj(_GZIP_WBITS)
-    pending = source
+    """Stream every gzip member, counting decompressed bytes across members."""
+
     produced = 0
-    while True:
-        budget = limits.decompressed_bytes - produced
-        try:
-            chunk = decompressor.decompress(pending, budget + 1)
-        except zlib.error as exc:
-            raise DisplayDerivativeError("source_unreadable") from exc
-        pending = decompressor.unconsumed_tail
-        if len(chunk) > budget:
-            raise DisplayDerivativeError("source_too_large")
-        produced += len(chunk)
-        if chunk:
-            yield chunk
-        if decompressor.eof:
-            if pending:
-                raise DisplayDerivativeError("source_unreadable")
-            return
-        if pending:
-            continue
-        try:
-            flushed = decompressor.flush(budget + 1)
-        except zlib.error as exc:
-            raise DisplayDerivativeError("source_unreadable") from exc
-        if len(flushed) > budget:
-            raise DisplayDerivativeError("source_too_large")
-        if flushed:
-            yield flushed
-        if not decompressor.eof:
-            raise DisplayDerivativeError("source_unreadable")
-        return
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(source)) as reader:
+            while produced < limits.decompressed_bytes:
+                chunk = reader.read(
+                    min(_GZIP_READ_CHUNK, limits.decompressed_bytes - produced)
+                )
+                if not chunk:
+                    return
+                produced += len(chunk)
+                yield chunk
+            if reader.read(1):
+                raise DisplayDerivativeError("source_too_large")
+    except DisplayDerivativeError:
+        raise
+    except (EOFError, gzip.BadGzipFile, zlib.error) as exc:
+        raise DisplayDerivativeError("source_unreadable") from exc
 
 
 def _iter_text_lines(source: bytes, limits: DerivativeLimits):
