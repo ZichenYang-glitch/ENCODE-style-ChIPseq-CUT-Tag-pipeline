@@ -95,6 +95,45 @@ EXPECTED_OPERATIONS = {
         "POST",
         "/api/v1/auth/accounts/{user_id}/sessions/revoke",
     ): "revoke_account_sessions",
+    ("GET", "/api/v1/projects"): "authoringListProjects",
+    ("GET", "/api/v1/projects/{project_id}/samples"): "authoringListProjectSamples",
+    (
+        "GET",
+        "/api/v1/projects/{project_id}/input-revisions",
+    ): "authoringListProjectInputRevisions",
+    ("GET", "/api/v1/agent/authoring-sessions"): "authoringListSessions",
+    ("POST", "/api/v1/agent/authoring-sessions"): "authoringCreateSession",
+    ("GET", "/api/v1/agent/authoring-sessions/{sid}"): "authoringGetSession",
+    (
+        "GET",
+        "/api/v1/agent/authoring-sessions/{sid}/receipts",
+    ): "authoringListReceipts",
+    ("PUT", "/api/v1/agent/authoring-sessions/{sid}/draft"): "authoringSaveDraft",
+    (
+        "POST",
+        "/api/v1/agent/authoring-sessions/{sid}/connection",
+    ): "authoringOpenConnection",
+    (
+        "DELETE",
+        "/api/v1/agent/authoring-sessions/{sid}/connection",
+    ): "authoringCloseConnection",
+    ("POST", "/api/v1/agent/authoring-sessions/{sid}/turns"): "authoringCreateTurn",
+    (
+        "GET",
+        "/api/v1/agent/authoring-sessions/{sid}/turns/{turn_id}",
+    ): "authoringGetTurn",
+    (
+        "POST",
+        "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
+    ): "authoringAdoptProposal",
+    (
+        "POST",
+        "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/reject",
+    ): "authoringRejectProposal",
+    (
+        "POST",
+        "/api/v1/agent/authoring-sessions/{sid}/validate",
+    ): "authoringValidateDraft",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

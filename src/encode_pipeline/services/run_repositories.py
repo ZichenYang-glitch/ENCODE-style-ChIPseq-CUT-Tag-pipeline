@@ -737,9 +737,17 @@ class InMemoryRunRepository:
                             reference_binding,
                         )
                 else:
-                    assert project_sample_selection is not None
-                    assert self._data_registry_repository is not None
-                    assert self._input_registry_repository is not None
+                    if (
+                        project_sample_selection is None
+                        or self._data_registry_repository is None
+                    ):
+                        raise ProjectSampleSelectionError(
+                            "Project/SampleRevision selection is not eligible"
+                        )
+                    if self._input_registry_repository is None:
+                        raise InputBindingSelectionError(
+                            "input-use revision selection is not eligible"
+                        )
                     tentative_binding = (
                         self._data_registry_repository.resolve_project_sample_selection(
                             project_sample_selection,
