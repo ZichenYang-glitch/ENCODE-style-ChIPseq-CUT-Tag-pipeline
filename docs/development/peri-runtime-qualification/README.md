@@ -49,11 +49,23 @@ core, and 128 tasks.
 | `a1-native.log`, `a1-native-2.log`, `a1-independent.log` | Reviewer attempts that failed before a test ran: bootstrap rejected `-p`, the first environment lacked pytest, and a symlink layout failed provenance. |
 | `environment.json`, `independent-tests.json` | The reviewer's checkout and the commands behind those attempts. |
 
-The historical ACP unit test remains a source-level result on the previous
-binary: 1 passed, 0 failed, 0 ignored, crate `peri-acp`, 2026-11-09. It was
-not rerun for this artifact, and it is not a new execution of that unit test
-on `5cc82caf…`. This binary's prediction behavior is the passed
+The historical ACP unit test is source-level evidence from the independent
+`peri-acp` test harness: 1 passed, 0 failed, 0 ignored, crate `peri-acp`,
+2026-11-09. That harness is separate from the runtime binary. The test was
+not executed on the previous binary `60144bbe…` or on `5cc82caf…`, and this
+bind does not recompile it. This binary's prediction behavior is the passed
 `A_prediction_paths` case in the native matrix.
+
+## Attribution for the bind
+
+Commit `a08aa62a3df6a8253b96bd63b1abf2e9b1ffa22e` is the commit that changed
+`BINARY_SHA256` to the reviewed digest. Its own commit metadata lists Cursor
+and does not list Codex. Codex independently reviewed the qualification and
+accepted that digest for the fixed restricted runtime
+(`review-decision.json`, decision
+`accepted_for_fixed_restricted_A1_C4_runtime`). That review is decision
+support for the bind. This later documentation commit records the
+participation. It does not rewrite `a08aa62` or its metadata.
 
 ## Reproduce the pinned check
 
