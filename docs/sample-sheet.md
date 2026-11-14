@@ -90,7 +90,7 @@ INPUT_WT	/data/input_R1.fq.gz	/data/input_R2.fq.gz	PE	chipseq	Input	narrow	hg38	
 
 Set `use_control: true` in `config/config.yaml` for the control reference
 to take effect. The treatment row sets `control_sample: INPUT_WT` to use
-the control row's `final.bam` as MACS3 input.
+the control row's `analysis.bam` as MACS3 input.
 
 ### Biological replicates
 
