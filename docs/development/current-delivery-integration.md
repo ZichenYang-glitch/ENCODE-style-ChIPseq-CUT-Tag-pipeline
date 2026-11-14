@@ -14,11 +14,18 @@
 2026-11-14T15:57:43Z 的 main 为 `101983f9480bb72306da69875e79dc6ad65bca5a`。
 这是 GitHub 生成的 merge 提交，父提交为 `5bc21a040951ba28333bcc04dfb151735089fcd6`
 与 `85ac7a26b9958ead4a9ddde6e56dc38c07adeca2`，说明为 Merge pull request #216。
-该 SHA 没有 push 检查。同时存在的是 workflow_dispatch、attempt 1：
+该 SHA 没有 push 检查。workflow_dispatch、attempt 1 的
 [Lint 43612607625](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612607625)
 与 [Lock Check 43612610860](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612610860)
-为 success，[CI 43612614528](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612614528)
-仍 in progress。commit 当时没有关联 PR。
+在 2026-11-14T15:57:43Z 已是 success。
+[CI 43612614528](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612614528)
+当时 in progress，于 2026-11-14T16:12:17Z 结案为 failure。
+real-execution 失败，步骤名为 Scientific real-execution suite 与
+Require passing, zero-skip scientific outcomes。frontend、browser-e2e、
+platform-real-execution、两个 shard、container-smoke、fast-checks、coverage 为 success；
+bulk-rnaseq-real-execution 为 skipped。本次没有下载失败日志，
+不把该失败写成对 `85ac7a2…` 审阅的否定，也不是新的 Gate。
+commit 在 15:57:43Z 没有关联 PR。
 [#216](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/216)
 的 Pulls API 同时仍是 open、merged=false、非 Draft。
 不把这个 PR 对象写成已关闭，也不把已审阅 head 的 pull_request 检查改记成 merge SHA 的检查。
@@ -94,8 +101,8 @@ bulk-rnaseq-real-execution 为 skipped，不计实际执行通过。
 没有把那次定点复审重跑，也没有把它写成唯一结论。该独立审阅运行 87 项契约和 7 项 DAG，
 是合成 fixture 与 dry-run，不是大规模科学矩阵、真实 Picard 重跑或生物学确认。
 两项非阻塞文档整理建议不改变“可作为 A1 已审阅科学 schema 目标”的结论。
-main 上的 `101983f…` 包含这个 head，但查询时 PR 仍 open、未标记 merged。
-merge SHA 只有 workflow_dispatch，CI 当时未结案。
+main 上的 `101983f…` 包含这个 head，但 15:57:43Z 的 PR 对象仍 open、未标记 merged。
+merge SHA 没有 push 检查；其 workflow_dispatch CI 已于 16:12:17Z failure。
 这不等于 C4、A1 或科学默认冻结。
 
 `c44c4d6…` 上的 Picard 定向回归仍是 27 passed（24 项配置，3 项真实规则测试）：
@@ -137,8 +144,8 @@ arguments_file 的四种既有实测在解析阶段失败，不写成已证实�
 ## 集成安排
 
 1. 原 session 交出准确 head、范围、生成物、测试和未完成项；Codex 独立复审。
-2. #216 `85ac7a2…` 已是已审阅科学 schema 目标。main 的 merge SHA 当时没有 push 检查，
-   workflow_dispatch CI 未结案。
+2. #216 `85ac7a2…` 已是已审阅科学 schema 目标。main 的 merge SHA 没有 push 检查，
+   workflow_dispatch CI 已 failure。
    A1 C4 使用该 schema，
    并等待完成资格验证的 runtime。如公共契约变化，后端正式生成 OpenAPI/client，
    再交前端适配，不手改生成物。

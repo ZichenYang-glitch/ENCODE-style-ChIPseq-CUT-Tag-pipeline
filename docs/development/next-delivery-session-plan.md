@@ -31,7 +31,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `Cursor-A1-Backend` | 现有 authoring、受管目录/校验、后端测试、其 OpenAPI/client 生成 | `e00130e…` 最新边界定点复审已通过 | 交出目录及样本计划契约，支持前端/C4 集成中的具体问题 | 本轮 41 项检查通过；不加入元数据分类/真实模型/运行操作，不把 C3 可消费写成整个 A1 通过 | #212 |
 | `Cursor-A1-Frontend` | 草稿页、样本行、回执 UI 及相关测试；不手改 generated | `e00130e…` 可供 C3 消费。`399c3b3…` 普通 CI 已通过，不继承 `2c3c439…`；源码审阅待完成 | 审阅该 head 后接目录→保存→刷新→真实 snapshot | 保留本地编辑/完整基线/操作代次；对照修订在计划行内；桌面移动端真实 HTTP；不得自动连接或启动运行 | #214 |
-| `Cursor-Science-OnePath` | validator、科学 rules、相关身份/schema/docs/skills | `85ac7a2…` 整体独立审阅通过。main 已有包含它的 merge 提交；PR 对象当时未标记 merged。merge SHA 无 push 检查，workflow_dispatch CI 当时未结案 | 把该 head 交给 A1 作为已审阅科学 schema；不扩大科学范围 | 旧键拒绝和单路径契约保持；历史记录不改；不宣称生物学冻结或 C4/A1 完成 | #216 |
+| `Cursor-Science-OnePath` | validator、科学 rules、相关身份/schema/docs/skills | `85ac7a2…` 整体独立审阅通过。main 已有包含它的 merge 提交；15:57:43Z 的 PR 对象未标记 merged。merge SHA 无 push 检查，workflow_dispatch CI 于 16:12:17Z failure | 把该 head 交给 A1 作为已审阅科学 schema；不扩大科学范围，也不把该 CI 失败写成审阅被推翻 | 旧键拒绝和单路径契约保持；历史记录不改；不宣称生物学冻结或 C4/A1 完成 | #216 |
 | `Cursor-WashU-W1` | 当前轨道服务/转换/页面及测试 | `cbe5a0e…` 普通 CI 通过；该 head 尚无独立审阅 | 回答实际读取/绘图及身份拒绝问题；维持当前消费者范围 | 真组件读取并展示已知数据，有限资源与清理；不假称独立前端或支持所有接触矩阵 | #217 |
 | `Cursor-Docs-Delivery`（现有维护 session） | roadmap、集成清单及当前 session 计划 | 当前入口已在 Draft #213 | 只做有界状态更新；不开新功能或第三批测试精简 | 历史副本逐字保留；Draft 未合并；链接、身份、空白检查通过 | #213 |
 | `Codex-Delivery-Review` | 只读复审、契约裁决和交接清单 | 各 owner 的准确提交与复现 | 区分阻塞缺陷、已满足契约和后续扩展 | 每条 finding 有代码/复现/影响/最小修复边界；不把新产品目标当修复循环 | 上述 PR |

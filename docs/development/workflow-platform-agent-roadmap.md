@@ -11,8 +11,9 @@
 远端 main 于 2026-11-14T15:57:43Z 为
 `101983f9480bb72306da69875e79dc6ad65bca5a`。它是 GitHub 生成的 merge 提交，
 父提交为 #215 merge `5bc21a0…` 与 #216 head `85ac7a2…`。
-同一时刻 #216 的 Pulls API 仍是 open、merged=false。该 merge SHA 没有 push 检查；
-已有的是 workflow_dispatch：Lint/Lock success，CI 仍 in progress。
+同一时刻 #216 的 Pulls API 仍是 open、merged=false。该 merge SHA 没有 push 检查。
+当时的 workflow_dispatch Lint/Lock 已 success，CI 仍 in progress。
+同一 CI run 于 2026-11-14T16:12:17Z 结案为 failure，见集成清单。
 不把 PR 写成已关闭，也不把 `85ac7a2…` 的 pull_request 检查记成 merge SHA 的检查。
 同一窗口查询了 #212、#213、#214、#217。head 没有移动时，原审阅继续只适用于该 SHA；
 head 已经前进的，不继承旧 CI、源码审阅或产品验收。
@@ -75,7 +76,7 @@ A0 通过不代表 A1、真实 provider、生产容量或从零构建通过。
 | 工作线／范围 | 依赖 | 下一步 | 验收标准 | 关联 PR |
 | --- | --- | --- | --- | --- |
 | A1：受限配置建议与校验 | #212 `e00130e…` 的边界复审仍只适用于该 SHA；科学 schema 目标为已审阅的 #216 `85ac7a2…` | #214 新 head 完成自身 CI 与审阅后接目录到真实 snapshot；runtime 候选另行完成资格验证。不加入新分类系统 | 真实 HTTP 保存、回读、snapshot、回执，以及完成资格验证的 native/stub；拒绝路径有效；最终组合 CI 和适用 Gate | #212、#214、#216；集成 PR 待创建 |
-| 科学单路径 | #216 `85ac7a2…` 整体独立审阅通过；main 已有 merge 提交，PR 对象当时未标记 merged | 作为 A1 的已审阅科学 schema 目标；merge SHA 的 workflow_dispatch CI 当时仍 in progress | 一套政策、旧键明确拒绝、历史身份不改；实际 Picard/分析 BAM/MACS3 契约一致。不是生物学确认 | #216 |
+| 科学单路径 | #216 `85ac7a2…` 整体独立审阅通过；main 已有 merge 提交，PR 对象当时未标记 merged | 作为 A1 的已审阅科学 schema 目标。merge SHA 的 workflow_dispatch CI 已 failure，push 检查仍无 | 一套政策、旧键明确拒绝、历史身份不改；实际 Picard/分析 BAM/MACS3 契约一致。不是生物学确认 | #216 |
 | WashU 首版 | #217 `cbe5a0e…` 普通 CI 通过；独立审阅尚未完成 | 独立审阅授权 Range、产物/索引身份、有限转换和真实绘图 | 已知窗口数据可见；错误、空窗口、截断和缺失区分；保留原科学产物 | #217 |
 | 数据目录 M1 | 本轮设计；A1 共享 API/迁移接点稳定 | 字段契约复核后开发课题/样本/实验分类与查询 | 手工管理先可用；组合筛选/分页准确；旧修订不改写；不夸大结果归属 | 独立 PR 待创建 |
 | Viewer 隔离 V2 | WashU 首版通过；版本化轨道契约 | 同仓独立构建与样式/依赖隔离，保持同源认证 | 独立构建可嵌入；不直接查 SQL/调执行；worker/Peri 停止后仍可读已有结果 | 独立 PR 待创建 |
@@ -89,7 +90,8 @@ A0 通过不代表 A1、真实 provider、生产容量或从零构建通过。
 1. 现有五个 Cursor session 为 Backend、Frontend、Science、Viewer 和维护。
    维护继续在 Draft #213 更新当前入口，不另开文档 PR。加 Codex 主会话共六个。
    Codex 复审准确 head；CI 成功不会自动冻结接口或批准合并。
-2. #216 `85ac7a2…` 已是已审阅的科学 schema 目标。main 上的 merge 提交当时只有 workflow_dispatch，CI 未结案。
+2. #216 `85ac7a2…` 已是已审阅的科学 schema 目标。main 上的 merge 提交没有 push 检查，
+   其 workflow_dispatch CI 已 failure。
    A1 最终组合使用该 schema，并单独完成 C4。#212 与 #214 有祖先依赖，集成前检查 DAG。
 3. M1 现在可准备设计/fixture；共享后端契约稳定后再开始数据库与 API 写入。
    M1、V2、P1/P2 在写入目录互不重叠且各自依赖满足后可并行。
