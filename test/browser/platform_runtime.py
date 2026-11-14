@@ -436,11 +436,32 @@ def _write_encode_reference_binding(
     }
 
 
+def prepare_authoring_input_pool(runtime_root: Path) -> Path:
+    """Create one admitted FASTQ and the private pool map before the API starts."""
+    pool_root = runtime_root / "authoring-inputs"
+    (pool_root / "reads").mkdir(parents=True)
+    fastq = pool_root / "reads" / "s1.fastq.gz"
+    fastq.write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    config_path = runtime_root / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "storage-pool-roots-v1",
+                "storage_pool_roots": {"authoring-inputs": str(pool_root)},
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
 def write_manifest(
     runtime_root: Path,
     queue_name: str,
     inputs: ResultsVisibilityInputs,
     bulk_authoring: dict[str, object],
+    storage_pool_config: Path,
 ) -> None:
     """Write the bounded browser-visible fixture contract."""
     manifest = {
@@ -455,6 +476,7 @@ def write_manifest(
         "workspaceRoot": str(runtime_root / "workspaces"),
         "markerRoot": str(runtime_root / "tmp"),
         "queueName": queue_name,
+        "storagePoolConfig": str(storage_pool_config),
     }
     manifest.update(bulk_authoring)
     (runtime_root / "runtime.json").write_text(
@@ -595,7 +617,14 @@ def main() -> None:
     deployment_environment.update(reference_environment)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"
     prepare_auth_admin(runtime_root)
-    write_manifest(runtime_root, queue_name, inputs, bulk_authoring)
+    storage_pool_config = prepare_authoring_input_pool(runtime_root)
+    write_manifest(
+        runtime_root,
+        queue_name,
+        inputs,
+        bulk_authoring,
+        storage_pool_config,
+    )
     redis_url = os.environ.get(
         "ENCODE_PIPELINE_E2E_REDIS_URL", "redis://127.0.0.1:6380/0"
     )
@@ -621,6 +650,7 @@ def main() -> None:
     ]
     child_environment = os.environ.copy()
     child_environment.update(deployment_environment)
+    child_environment["ENCODE_PIPELINE_STORAGE_POOL_CONFIG"] = str(storage_pool_config)
     os.execvpe(sys.executable, argv, child_environment)
 
 

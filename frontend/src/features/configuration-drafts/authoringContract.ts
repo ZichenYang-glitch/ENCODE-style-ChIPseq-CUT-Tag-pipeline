@@ -110,6 +110,30 @@ export interface CanonicalDraftContent {
  * Compare the draft document the server already normalizes.
  * Object key order is ignored. Array order is kept. This is not a success receipt.
  */
+function canonicalWorkflowSampleValue(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const record = item as Record<string, unknown>;
+    const reads = Array.isArray(record.reads)
+      ? [...record.reads].sort((left, right) => {
+          const leftRead = left && typeof left === 'object' ? Number((left as { read?: unknown }).read) : 0;
+          const rightRead = right && typeof right === 'object' ? Number((right as { read?: unknown }).read) : 0;
+          return leftRead - rightRead;
+        })
+      : [];
+    return {
+      ...record,
+      control_sample_revision_id: record.control_sample_revision_id ?? null,
+      reads,
+    };
+  });
+}
+
+export function workflowSampleSnapshot(value: unknown): string {
+  return stableJson(canonicalWorkflowSampleValue(value));
+}
+
 export function canonicalDraftSnapshot(content: CanonicalDraftContent): string {
   return stableJson({
     config: content.config ?? {},
@@ -122,7 +146,7 @@ export function canonicalDraftSnapshot(content: CanonicalDraftContent): string {
     reference_profile_revision_id: content.reference_profile_revision_id ?? null,
     sample_revision_ids: [...(content.sample_revision_ids ?? [])],
     samples: content.samples ?? null,
-    workflow_samples: content.workflow_samples ?? null,
+    workflow_samples: canonicalWorkflowSampleValue(content.workflow_samples),
   });
 }
 
@@ -568,6 +592,7 @@ export function draftWriteRequest(input: {
   referenceProfileRevisionId: string | null;
   preservedSamples: AuthoringDraftDocument['samples'];
   preservedInputSelections: AuthoringDraftDocument['input_selections'];
+  workflowSamples?: unknown;
 }): AuthoringDraftWriteRequest | null {
   if (!isJsonObject(input.config) || !isJsonObject(input.options)) return null;
   return {
@@ -580,6 +605,7 @@ export function draftWriteRequest(input: {
       occurrence: selection.occurrence,
       input_file_revision_ids: [...selection.input_file_revision_ids],
     })),
+    workflow_samples: Array.isArray(input.workflowSamples) ? input.workflowSamples : [],
     ...(input.referenceProfileRevisionId
       ? { reference_profile_revision_id: input.referenceProfileRevisionId }
       : {}),

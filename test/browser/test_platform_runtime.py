@@ -1616,7 +1616,14 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
         cli_command=fake_helixweave,
     )
 
-    write_manifest(runtime_root, "browser-queue", inputs, bulk_authoring)
+    storage_pool_config = runtime_root / "pools.json"
+    write_manifest(
+        runtime_root,
+        "browser-queue",
+        inputs,
+        bulk_authoring,
+        storage_pool_config,
+    )
 
     raw = json.loads((runtime_root / "runtime.json").read_text(encoding="utf-8"))
     assert set(raw) == {
@@ -1631,6 +1638,7 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
         "workspaceRoot",
         "markerRoot",
         "queueName",
+        "storagePoolConfig",
         "bulkWorkflowId",
         "bulkSamplesPath",
         "bulkConfig",
@@ -1645,6 +1653,7 @@ def test_playwright_runtime_manifest_contains_only_controlled_fixture_inputs(
     assert raw["emptyConfig"] == inputs.empty_config
     assert raw["malformedConfig"] == inputs.malformed_config
     assert raw["expectedQcSummary"] == inputs.expected_qc_summary
+    assert raw["storagePoolConfig"] == str(storage_pool_config)
     assert len(observed_admin_commands) == 6
     assert [
         command[command.index("reference-profile") + 1]

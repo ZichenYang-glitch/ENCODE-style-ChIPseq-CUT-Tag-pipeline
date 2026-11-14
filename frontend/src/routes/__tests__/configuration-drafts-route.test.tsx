@@ -23,6 +23,12 @@ const generatedMocks = vi.hoisted(() => ({
   listProjects: vi.fn(),
   listSessions: vi.fn(),
   listSamples: vi.fn(),
+  listInputRevisions: vi.fn(async (projectId: string) => ({
+    ok: true as const,
+    project_id: projectId,
+    revisions: [],
+    next_cursor: null,
+  })),
 }));
 
 vi.mock('../../api/generated/workflows/workflows', () => ({
@@ -38,6 +44,7 @@ vi.mock('../../api/generated/runs/runs', () => ({
 vi.mock('../../api/generated/authoring/authoring', () => ({
   authoringListProjects: generatedMocks.listProjects,
   authoringListProjectSamples: generatedMocks.listSamples,
+  authoringListProjectInputRevisions: generatedMocks.listInputRevisions,
   authoringListSessions: generatedMocks.listSessions,
   authoringCreateSession: generatedMocks.createSession,
   authoringGetSession: vi.fn(),

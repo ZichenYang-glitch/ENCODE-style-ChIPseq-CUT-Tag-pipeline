@@ -111,29 +111,63 @@ async function exerciseControlledDraft(page: Page) {
   await page.getByRole('button', { name: /revision /i }).first().click();
   await expect(page.getByRole('spinbutton', { name: /thread/i })).toHaveValue('4');
 
-  const sample = page.getByRole('checkbox', { name: 'Browser sample' });
-  if (await sample.isVisible()) await sample.check();
+  await expect(page.getByText('browser-sample-r1 · revision 1')).toBeVisible();
+  await expect(page.getByText(/s1\.fastq/)).toHaveCount(0);
+  await expect(page.locator('input[type="file"]')).toHaveCount(0);
+  await page
+    .getByLabel('Add a sample revision to the plan')
+    .selectOption({ label: 'Browser sample' });
+  await page.getByLabel('Browser sample assay').selectOption('chipseq');
+  await page.getByLabel('Browser sample target').fill('CTCF');
+  await page.getByLabel('Browser sample peak_mode').selectOption('narrow');
+  await page.getByLabel('Browser sample layout').selectOption('SE');
+  await page.getByLabel('Browser sample role').selectOption('treatment');
+  await page.getByLabel('Browser sample read 1').selectOption({ label: 'browser-sample-r1' });
   const reference = page.getByRole('combobox', { name: 'Reference profile' });
-  if (await reference.isEnabled()) {
-    const option = reference.locator('option').nth(1);
-    const value = await option.getAttribute('value');
-    if (value) await reference.selectOption(value);
-  }
-  if (await page.getByRole('button', { name: 'Save edits' }).isEnabled()) {
-    const selectionSaved = page.waitForResponse(
-      (response) =>
-        response.url().includes('/draft') && response.request().method() === 'PUT',
-    );
-    await page.getByRole('button', { name: 'Save edits' }).click();
-    expect((await selectionSaved).ok()).toBeTruthy();
-  }
+  await expect(reference).toBeEnabled();
+  const referenceValue = await reference.locator('option').nth(1).getAttribute('value');
+  expect(referenceValue).toBeTruthy();
+  await reference.selectOption(referenceValue!);
+
+  const selectionSaved = page.waitForResponse(
+    (response) =>
+      response.url().includes('/draft') && response.request().method() === 'PUT',
+  );
+  await page.getByRole('button', { name: 'Save edits' }).click();
+  const selectionResponse = await selectionSaved;
+  expect(selectionResponse.ok()).toBeTruthy();
+  const selectionBody = (await selectionResponse.json()) as {
+    draft_revision: number;
+    draft: {
+      workflow_samples: {
+        assay: string;
+        target: string;
+        reads: { input_file_revision_id: string }[];
+        control_sample_revision_id: string | null;
+      }[];
+    };
+  };
+  expect(selectionBody.draft.workflow_samples[0]?.assay).toBe('chipseq');
+  expect(selectionBody.draft.workflow_samples[0]?.target).toBe('CTCF');
+  expect(selectionBody.draft.workflow_samples[0]?.control_sample_revision_id).toBeNull();
+  expect(selectionBody.draft.workflow_samples[0]?.reads[0]?.input_file_revision_id).toMatch(
+    /^inpfr_[0-9a-f]{32}$/,
+  );
+
+  await page.reload();
+  await openDrafts(page);
+  await page.getByRole('button', { name: /revision /i }).first().click();
+  await expect(page.getByLabel('Browser sample target')).toHaveValue('CTCF');
+  await expect(page.getByLabel('Browser sample assay')).toHaveValue('chipseq');
+  await expect(page.getByLabel('Browser sample layout')).toHaveValue('SE');
+  await expect(page.getByLabel('Browser sample read 1')).toHaveValue(/^inpfr_[0-9a-f]{32}$/);
 
   const validated = page.waitForResponse(
     (response) =>
       response.url().includes('/validate') && response.request().method() === 'POST',
   );
   await page.getByRole('button', { name: 'Validate draft' }).click();
-  await assertRealValidation(page, await validated);
+  await assertRealSnapshot(page, await validated);
 
   const connection = page.waitForResponse(
     (response) =>
@@ -147,28 +181,19 @@ async function exerciseControlledDraft(page: Page) {
   await expect(page.getByRole('button', { name: 'Validate draft' })).toBeVisible();
 }
 
-async function assertRealValidation(page: Page, response: Response) {
+async function assertRealSnapshot(page: Page, response: Response) {
+  expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
     ok: boolean;
     draft_revision: number;
-    snapshot: { snapshot_id?: string; expires_at?: string } | null;
-    issues?: { code: string; message: string }[];
+    snapshot: { snapshot_id?: string } | null;
   };
+  expect(body.ok).toBe(true);
   expect(body.draft_revision).toBeGreaterThan(0);
-  if (body.ok && body.snapshot?.snapshot_id) {
-    await expect(page.getByText(body.snapshot.snapshot_id)).toBeVisible();
-    await expect(page.getByText(`Revision ${body.draft_revision}`)).toBeVisible();
-    return;
-  }
-  expect(body.snapshot).toBeNull();
-  const issue = body.issues?.[0];
-  expect(issue?.code).toBeTruthy();
-  const message = issue?.message ?? '';
-  const safe = message.trim().length > 0 && !/[\\/\n]|traceback/i.test(message);
-  if (safe) {
-    await expect(page.getByText(message, { exact: false })).toBeVisible();
-  } else {
-    await expect(page.getByText(/validation reported problems|not accepted/i)).toBeVisible();
-  }
-  await expect(page.getByText(/validation finished/i)).toHaveCount(0);
+  expect(body.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
+  await expect(page.getByText(body.snapshot?.snapshot_id ?? '')).toBeVisible();
+  await expect(
+    page.getByText(`Revision ${body.draft_revision}`, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/s1\.fastq/)).toHaveCount(0);
 }

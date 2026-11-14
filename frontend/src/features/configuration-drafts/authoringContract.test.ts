@@ -307,6 +307,7 @@ describe('authoring contract mapping', () => {
         input_file_revision_ids: ['ifr_' + '3'.repeat(32)],
       },
     ]);
+    expect(body?.workflow_samples).toEqual([]);
   });
 
   it('compares the full normalized draft, including selections', () => {
@@ -361,6 +362,43 @@ describe('authoring contract mapping', () => {
       canonicalDraftSnapshot({
         ...sent,
         workflow_samples: [{ layout: 'SE' }],
+      }),
+    );
+    const plan = {
+      assay: 'chipseq',
+      control_sample_revision_id: null,
+      layout: 'SE',
+      peak_mode: 'narrow',
+      reads: [{ input_file_revision_id: `inpfr_${'a'.repeat(32)}`, read: 1 }],
+      role: 'treatment',
+      sample_revision_id: sampleA,
+      target: 'CTCF',
+    };
+    expect(canonicalDraftSnapshot({ ...sent, workflow_samples: [plan] })).toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: [{ ...plan, control_sample_revision_id: undefined }],
+      }),
+    );
+    const pairedReads = [
+      { read: 1, input_file_revision_id: `inpfr_${'a'.repeat(32)}` },
+      { read: 2, input_file_revision_id: `inpfr_${'b'.repeat(32)}` },
+    ];
+    expect(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: [{ ...plan, reads: [...pairedReads].reverse() }],
+      }),
+    ).toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: [{ ...plan, reads: pairedReads }],
+      }),
+    );
+    expect(canonicalDraftSnapshot({ ...sent, workflow_samples: [plan] })).not.toBe(
+      canonicalDraftSnapshot({
+        ...sent,
+        workflow_samples: [{ ...plan, control_sample_revision_id: sampleB }],
       }),
     );
     expect(workflowSampleRowsAbsent(null)).toBe(true);

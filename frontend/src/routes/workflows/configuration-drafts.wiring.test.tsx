@@ -4,10 +4,12 @@ import { useParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/fetcher';
 import type {
+  AuthoringDraftDocument,
   AuthoringSessionResponse,
   AuthoringTurnCreateRequest,
   AuthoringTurnResponse,
   AuthoringValidationResponse,
+  ProjectInputRevisionListResponse,
 } from '../../api/generated/models';
 import { listCompatibleReferenceProfiles } from '../../api/generated/workflows/workflows';
 import { ConfigurationDraftsPage } from './configuration-drafts';
@@ -26,6 +28,7 @@ const SECRET_PATH = '/tmp/should-not-render/samples.tsv';
 const authoring = vi.hoisted(() => ({
   listProjects: vi.fn(),
   listSamples: vi.fn(),
+  listInputRevisions: vi.fn(),
   listSessions: vi.fn(),
   createSession: vi.fn(),
   getSession: vi.fn(),
@@ -43,6 +46,7 @@ const authoring = vi.hoisted(() => ({
 vi.mock('../../api/generated/authoring/authoring', () => ({
   authoringListProjects: authoring.listProjects,
   authoringListProjectSamples: authoring.listSamples,
+  authoringListProjectInputRevisions: authoring.listInputRevisions,
   authoringListSessions: authoring.listSessions,
   authoringCreateSession: authoring.createSession,
   authoringGetSession: authoring.getSession,
@@ -111,6 +115,12 @@ describe('configuration draft API wiring', () => {
       projects: [{ project_id: PROJECT, display_name: 'Alpha project' }],
     });
     authoring.listSamples.mockResolvedValue({ ok: true, samples: [] });
+    authoring.listInputRevisions.mockImplementation(async (projectId: string) => ({
+      ok: true as const,
+      project_id: projectId,
+      revisions: [],
+      next_cursor: null,
+    }));
     authoring.listSessions.mockResolvedValue({
       ok: true,
       sessions: [summary(SID), summary(OTHER_SID, 2)],
@@ -702,13 +712,20 @@ describe('configuration draft API wiring', () => {
     expect(authoring.openConnection).not.toHaveBeenCalled();
   });
 
-  it('asks before leaving sample-row preparation that cannot be saved yet', async () => {
+  it('asks before leaving an unsaved sample plan', async () => {
     const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
     renderPage();
     await openDraft(SID);
-    expect(screen.getByText(/not connected yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /fastq|read/i })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('layout'), 'SE');
+    expect(await screen.findByText(/no admitted input revisions/i)).toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /fastq/i })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Add a sample revision to the plan'), sampleA);
+    await user.selectOptions(screen.getByLabelText('Sample A layout'), 'SE');
     await user.click(screen.getByRole('button', { name: /revision 2/ }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(authoring.saveDraft).not.toHaveBeenCalled();
@@ -852,6 +869,215 @@ describe('configuration draft API wiring', () => {
     expect(await screen.findByLabelText('Local limit')).toHaveValue(8);
     expect(screen.getByRole('button', { name: 'Connect assistant' })).toBeEnabled();
   });
+
+  it('separates an empty input catalog from a failed catalog load', async () => {
+    const user = userEvent.setup();
+    authoring.listInputRevisions.mockRejectedValueOnce(
+      new ApiError(500, 'INTERNAL', 'raw catalog text'),
+    );
+    renderPage();
+    await openDraft(SID);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The request was not accepted.');
+    expect(screen.queryByText(/raw catalog text/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try the input catalog again' }));
+    expect(await screen.findByText(/no admitted input revisions/i)).toBeInTheDocument();
+    expect(authoring.listInputRevisions.mock.calls[0]?.[1]).toEqual({ limit: 20 });
+  });
+
+  it('pages admitted input revisions without sending a null cursor', async () => {
+    const user = userEvent.setup();
+    const first = inputRevision(`inpfr_${'a'.repeat(32)}`, 'alpha-read');
+    const second = inputRevision(`inpfr_${'b'.repeat(32)}`, 'beta-read');
+    authoring.listInputRevisions.mockImplementation(
+      async (projectId: string, params?: { cursor?: string | null }) => ({
+        ok: true as const,
+        project_id: projectId,
+        revisions: params?.cursor ? [second] : [first],
+        next_cursor: params?.cursor ? null : 'page-2',
+      }),
+    );
+    renderPage();
+    await openDraft(SID);
+    expect(await screen.findByText('alpha-read · revision 1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next input revisions' }));
+    expect(await screen.findByText('beta-read · revision 1')).toBeInTheDocument();
+    expect(screen.queryByText('alpha-read · revision 1')).not.toBeInTheDocument();
+    expect(authoring.listInputRevisions.mock.calls[0]?.[1]).toEqual({ limit: 20 });
+    expect(authoring.listInputRevisions.mock.calls.at(-1)?.[1]).toEqual({
+      cursor: 'page-2',
+      limit: 20,
+    });
+  });
+
+  it('reports a plan input revision that the catalog does not list', async () => {
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    const missing = `inpfr_${'c'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    authoring.listInputRevisions.mockImplementation(async (projectId: string) => ({
+      ok: true as const,
+      project_id: projectId,
+      revisions: [inputRevision(`inpfr_${'a'.repeat(32)}`, 'listed-read')],
+      next_cursor: null,
+    }));
+    authoring.getSession.mockImplementation(async (sid: string) => {
+      const session = draftSession(sid, { limit: sid === OTHER_SID ? 8 : 4 });
+      if (sid === SID && session.draft) {
+        session.draft.workflow_samples = [savedPlan(sampleA, missing)];
+        session.draft.sample_revision_ids = [sampleA];
+      }
+      return session;
+    });
+    renderPage();
+    await openDraft(SID);
+    expect(await screen.findByText(/no longer listed/i)).toBeInTheDocument();
+  });
+
+  it('drops a late input catalog response after the project changes', async () => {
+    const user = userEvent.setup();
+    const beta = `prj_${'d'.repeat(32)}`;
+    let resolveAlpha: (value: ProjectInputRevisionListResponse) => void = () => undefined;
+    authoring.listProjects.mockResolvedValue({
+      ok: true,
+      projects: [
+        { project_id: PROJECT, display_name: 'Alpha project' },
+        { project_id: beta, display_name: 'Beta project' },
+      ],
+    });
+    authoring.listInputRevisions.mockImplementation((projectId: string) => {
+      if (projectId === PROJECT) {
+        return new Promise<ProjectInputRevisionListResponse>((resolve) => {
+          resolveAlpha = resolve;
+        });
+      }
+      return Promise.resolve({
+        ok: true as const,
+        project_id: projectId,
+        revisions: [inputRevision(`inpfr_${'b'.repeat(32)}`, 'beta-read')],
+        next_cursor: null,
+      });
+    });
+    renderPage();
+    await openDraft(SID);
+    expect(screen.getByText(/loading admitted input revisions/i)).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), beta);
+    await openDraft(SID);
+    expect(await screen.findByText('beta-read · revision 1')).toBeInTheDocument();
+    resolveAlpha({
+      ok: true,
+      project_id: PROJECT,
+      revisions: [inputRevision(`inpfr_${'a'.repeat(32)}`, 'alpha-read')],
+      next_cursor: null,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/alpha-read/)).not.toBeInTheDocument();
+    expect(screen.getByText('beta-read · revision 1')).toBeInTheDocument();
+  });
+
+  it('keeps a sample-plan edit made while the save request is in flight', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    let finish: (value: unknown) => void = () => undefined;
+    authoring.saveDraft.mockImplementation(
+      (_sid: string, body: DraftWriteBody) =>
+        new Promise((resolve) => {
+          finish = () => resolve(savedFromBody(SID, body));
+        }),
+    );
+    renderPage();
+    await openDraft(SID);
+    await user.selectOptions(screen.getByLabelText('Add a sample revision to the plan'), sampleA);
+    await user.type(screen.getByLabelText('Sample A target'), 'CTCF');
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await user.type(screen.getByLabelText('Sample A target'), 'X');
+    finish(undefined);
+    expect(await screen.findByText(/you have unsaved edits/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Sample A target')).toHaveValue('CTCFX');
+  });
+
+  it('confirms a lost save only when the readback plan matches and the revision advances', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    let sent: DraftWriteBody | null = null;
+    renderPage();
+    await openDraft(SID);
+    await user.selectOptions(screen.getByLabelText('Add a sample revision to the plan'), sampleA);
+    await user.type(screen.getByLabelText('Sample A target'), 'CTCF');
+    authoring.saveDraft.mockImplementation(async (_sid: string, body: DraftWriteBody) => {
+      sent = body;
+      throw new TypeError('lost');
+    });
+    authoring.getSession.mockImplementation(async (sid: string) =>
+      sent ? savedFromBody(sid, sent, sent.expected_revision + 1) : draftSession(sid, { limit: 4 }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    await waitFor(() => {
+      expect(
+        screen.queryByText('You have unsaved edits. They are not saved, adopted, or validated.'),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Sample A target')).toHaveValue('CTCF');
+
+    await user.type(screen.getByLabelText('Sample A target'), '2');
+    authoring.saveDraft.mockImplementation(async (_sid: string, body: DraftWriteBody) => {
+      sent = body;
+      throw new TypeError('lost');
+    });
+    authoring.getSession.mockImplementation(async (sid: string) => {
+      const recovered = savedFromBody(
+        sid,
+        sent ?? bodyFallback(),
+        (sent?.expected_revision ?? 1) + 1,
+      );
+      const plans = structuredClone(recovered.draft?.workflow_samples ?? []);
+      const plan = plans[0];
+      if (plan && typeof plan === 'object') {
+        (plan as { target?: string }).target = 'OTHER';
+      }
+      if (recovered.draft) recovered.draft.workflow_samples = plans;
+      return recovered;
+    });
+    await user.click(screen.getByRole('button', { name: 'Save edits' }));
+    expect(await screen.findByText(/nothing is overwritten/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Sample A target')).toHaveValue('CTCF2');
+  });
+
+  it('does not keep a validation snapshot current after a sample-plan edit', async () => {
+    const user = userEvent.setup();
+    const sampleA = `smpr_${'1'.repeat(32)}`;
+    const snapshotId = `vsnap_${'a'.repeat(32)}`;
+    authoring.listSamples.mockResolvedValue({
+      ok: true,
+      samples: [projectSample(sampleA, 'Sample A')],
+    });
+    authoring.validate.mockResolvedValueOnce({
+      draft_revision: 1,
+      ok: true,
+      snapshot: {
+        snapshot_id: snapshotId,
+        expires_at: '2026-11-17T00:00:00Z',
+      },
+    });
+    renderPage();
+    await openDraft(SID);
+    await user.click(screen.getByRole('button', { name: 'Validate draft' }));
+    expect(await screen.findByText(snapshotId)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Add a sample revision to the plan'), sampleA);
+    expect(await screen.findByText(/not for the current draft/i)).toBeInTheDocument();
+    expect(screen.queryByText(snapshotId)).not.toBeInTheDocument();
+  });
 });
 
 function renderPage() {
@@ -898,6 +1124,61 @@ async function connectReady() {
   }));
   await user.click(screen.getByRole('button', { name: 'Connect assistant' }));
   expect(await screen.findByText('Assistant available')).toBeInTheDocument();
+}
+
+function projectSample(sampleRevisionId: string, displayName: string) {
+  return {
+    sample_id: `smp_${sampleRevisionId.slice(-32)}`,
+    sample_revision_id: sampleRevisionId,
+    display_name: displayName,
+  };
+}
+
+function inputRevision(inputFileRevisionId: string, stableKey: string) {
+  return {
+    input_file_id: `inpf_${inputFileRevisionId.slice(-32)}`,
+    stable_key: stableKey,
+    input_file_revision_id: inputFileRevisionId,
+    revision_number: 1,
+    size_bytes: 4,
+    content_sha256: 'ab'.repeat(32),
+  };
+}
+
+function savedPlan(sampleRevisionId: string, inputFileRevisionId: string, target = 'CTCF') {
+  return {
+    sample_revision_id: sampleRevisionId,
+    assay: 'chipseq',
+    target,
+    peak_mode: 'narrow',
+    layout: 'SE',
+    role: 'treatment',
+    control_sample_revision_id: null,
+    reads: [{ read: 1, input_file_revision_id: inputFileRevisionId }],
+  };
+}
+
+interface DraftWriteBody {
+  expected_revision: number;
+  config: { limit: number };
+  options: AuthoringDraftDocument['options'];
+  sample_revision_ids?: string[];
+  workflow_samples?: AuthoringDraftDocument['workflow_samples'];
+  reference_profile_revision_id?: string | null;
+}
+
+function bodyFallback(): DraftWriteBody {
+  return { expected_revision: 1, config: { limit: 4 }, options: {} };
+}
+
+function savedFromBody(sid: string, body: DraftWriteBody, revision = body.expected_revision + 1) {
+  const saved = draftSession(sid, body.config, { draft_revision: revision });
+  if (!saved.draft) return saved;
+  saved.draft.options = body.options;
+  saved.draft.sample_revision_ids = [...(body.sample_revision_ids ?? [])];
+  saved.draft.workflow_samples = body.workflow_samples ?? [];
+  saved.draft.reference_profile_revision_id = body.reference_profile_revision_id ?? null;
+  return saved;
 }
 
 function referenceProfile(revisionId: string, displayName: string) {

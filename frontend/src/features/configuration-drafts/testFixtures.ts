@@ -23,6 +23,19 @@ export function createDraftEditorContract(): WorkflowSchemaResponse {
       },
       additionalProperties: false,
     },
+    sample_schema: {
+      ...contract.sample_schema,
+      items: {
+        ...(contract.sample_schema.items as object),
+        properties: {
+          ...((contract.sample_schema.items as { properties: object }).properties),
+          assay: { type: 'string', title: 'assay', enum: ['chipseq', 'atac'] },
+          target: { type: 'string', title: 'target', maxLength: 64 },
+          peak_mode: { type: 'string', title: 'peak_mode', enum: ['narrow', 'broad'] },
+          role: { type: 'string', title: 'role', enum: ['treatment', 'control'] },
+        },
+      },
+    },
     option_schema: {
       ...contract.option_schema,
       properties: {
