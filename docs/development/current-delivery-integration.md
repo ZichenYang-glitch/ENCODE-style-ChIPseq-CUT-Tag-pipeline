@@ -1,6 +1,44 @@
 # 当前 PR 收口与集成清单
 
-## 2026-11-14T17:40:08Z 当前状态
+## 2026-11-14T19:18:06Z 当前状态
+
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。下面是各 owner 本轮最终交接。
+17:40:08Z 及更早的快照保留在后文，不改写成这次才知道的结论。
+本页已在 Draft #213，该 PR 仍未合并。本次更新不写回自身新 SHA。
+
+| 项 | 准确 head | 本轮结论 | 下一步 |
+| --- | --- | --- | --- |
+| [#214](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/214) | `a56694394d6c02d8375ec921b0f3870514c74f71` | 保存返修复审通过。普通 [CI 43622972873](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972873)、[Lint 43622972896](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972896)、[Lock Check 43622972843](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972843) 均为 pull_request attempt 1 success。四个条件执行 job skipped | 进入 C4 准备。不是整个 A1 批准 |
+| [#218](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/218) | `0fef7a2100755f69778771f1a37e6f9632aa9045` | 真实执行 169 passed、0 failures/errors/skips。整次 [CI 43628729299](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43628729299) 为 workflow_dispatch attempt 1 success | 保留该 head。sample-sheet 的 `final.bam` 文案是非阻塞项，不因此重跑科学层 |
+| [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212) | `a08aa62a3df6a8253b96bd63b1abf2e9b1ffa22e` | 摘要绑定的窄增量复审通过。[CI 43629047387](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047387)、[Lint 43629047391](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047391)、[Lock Check 43629047437](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047437) 均为 pull_request attempt 1 success | 供 C4 使用该 head。不是整个 A1，也不是最终 Gate |
+| [#217](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/217) | `aa0ef9fe86caf3aee99e35bae1687afdbf48f2d8` | gzip 与空白返修通过。新 P1：生产读取失败会尝试外部 CORS 代理 | 独立返修该回退。不是 Viewer 全部通过 |
+| #216 | `85ac7a2…` 已在 main `101983f…` | PR 对象仍 open。禁止再次合并 | 不把 PR 异常当成未合入代码 |
+
+#218 的 workflow success 来自整次 run，不是从 real-execution 一个 job 推断。
+该 run 中 real-execution、两个 shard、frontend、browser-e2e、platform-real-execution、
+container-smoke、fast-checks、coverage 为 success；bulk-rnaseq-real-execution 为 skipped。
+复审记录 real-execution job `132550360035` 的 checkout 就是 `0fef7a2…`。
+本次查询核对了 run 与 job 结论，没有重新下载 checkout 日志。skipped 不是执行通过，也没有派发 Gate。
+
+#212 同一 CI 的四个条件执行 job 为 skipped。窄增量没有重跑 23 项 native 矩阵或 ACP 大构建。
+119 个 Bulk 文件相对 `e00130e…` 未变，aggregate 仍是
+`979bf1f410471d2ba3d78fcb473c17c688ba24afe0ecaf1af96ed08528e4d2ae`。
+这次摘要绑定不增加 Gate；整个 A1 最终组合仍要适用的 Gate。
+原 binary `60144bbe…` 的缺失和历史 A0 记录保留。`5cc82caf…` 只在固定受限范围内被接受为替代运行身份。
+
+#214 复审记录其浏览器 job checkout 为 `e86f1ffea90ca7a7df8a2d208def5c7c42ce00d8`，
+PR head 为 `a566943…`。本次没有重下该日志。schema smoke 与浏览器通过数以那次复审为准。
+
+C4 由 Backend 在独立 worktree 主导，Frontend 配合，组合 #212、#214 和 #218 的上述 head。
+Viewer 返修独立推进。#217 未修好时不阻塞 A1 准备，但不能作为已验收 Viewer 纳入交付。
+C4、整个 A1、真实 provider、Agent 运行操作和最终组合 Gate 都还没有执行。
+
+非阻塞文案：#218 `docs/sample-sheet.md` 的对照示例仍写 `final.bam`，应为 `analysis.bam`。
+#212 资格说明把历史 ACP 单测写成旧 binary 上的执行，应改为独立 peri-acp harness 的源码层证据。
+两处都不因此重跑科学层或重新编译。
+
+## 2026-11-14T17:40:08Z 快照
 
 排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
 [session 计划](next-delivery-session-plan.md)。本页保存身份及证据边界，不替代源码审阅。
@@ -174,13 +212,13 @@ Backend 已获得启动 `user@1000.service` 并验证任务资源隔离的限定
 ## 集成安排
 
 1. 原 session 交出准确 head、范围、生成物、测试和未完成项；Codex 独立复审。
-2. #216 不再合并。A1 继续使用 `85ac7a2…` 这个已审阅 schema，同时等待真实执行测试小 PR。
-   A1 C4 使用该 schema，
-   并等待完成资格验证的 runtime。如公共契约变化，后端正式生成 OpenAPI/client，
+2. #216 不再合并。C4 使用 #218 `0fef7a2…` 的已通过科学执行、#212 `a08aa62…`
+   和 #214 `a566943…`。如公共契约变化，后端正式生成 OpenAPI/client，
    再交前端适配，不手改生成物。
 3. #214 已含部分 #212 历史，合成候选前核对祖先关系。只纳入已审阅提交，
    不将整个活动分支盲目拉进候选。候选使用独立 worktree/PR。
-4. #217 先完成新 head 的正式复审，再谈独立验收；它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
+4. #217 的 CORS 返修独立推进。未修好时不阻塞 A1 准备，也不作为已验收 Viewer 进入交付。
+   它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
    最终测试按实际组合执行，不能简单相加来源分支的通过记录。
 5. 普通 CI、C4 和适用 Gate 完成后交回主会话；合并/发布仍单独执行授权。
    本次只更新 Draft #213 的当前状态，不创建、关闭或合并远端 PR，不启动其他 session。
