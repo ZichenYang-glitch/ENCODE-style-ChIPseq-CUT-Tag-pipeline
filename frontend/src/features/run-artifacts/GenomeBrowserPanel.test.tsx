@@ -91,6 +91,15 @@ function session(
   };
 }
 
+function rangeHeader(init?: RequestInit): string | null {
+  const headers = init?.headers;
+  if (!headers || headers instanceof Headers || Array.isArray(headers)) {
+    return new Headers(headers).get('range');
+  }
+  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === 'range');
+  return typeof entry?.[1] === 'string' ? entry[1] : null;
+}
+
 function renderPanel() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -239,5 +248,62 @@ describe('GenomeBrowserPanel', () => {
     expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('checkbox'));
     expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
+  });
+
+  it('does not keep a cancelled preflight as a failure after the track is selected again', async () => {
+    let started = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (rangeHeader(init) === 'bytes=0-0' && ++started === 1) {
+          return await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('cancelled by component', 'AbortError')),
+              { once: true },
+            );
+          });
+        }
+        return new Response(new Uint8Array([1]), { status: 206 });
+      }),
+    );
+    sessionMock.mockResolvedValue(session());
+    renderPanel();
+    await waitFor(() => expect(started).toBe(1));
+    const checkbox = screen.getByRole('checkbox');
+    await userEvent.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+    await userEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    await waitFor(() => expect(started).toBeGreaterThan(1));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
+  });
+
+  it('ignores a superseded preflight failure after a later read succeeds', async () => {
+    let started = 0;
+    let releaseLate: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (rangeHeader(init) === 'bytes=0-0' && ++started === 1) {
+          return await new Promise<Response>((resolve) => {
+            releaseLate = resolve;
+          });
+        }
+        return new Response(new Uint8Array([1]), { status: 206 });
+      }),
+    );
+    sessionMock.mockResolvedValue(session());
+    renderPanel();
+    await waitFor(() => expect(started).toBe(1));
+    const checkbox = screen.getByRole('checkbox');
+    await userEvent.click(checkbox);
+    await userEvent.click(checkbox);
+    await waitFor(() => expect(started).toBeGreaterThan(1));
+    await waitFor(() => expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument());
+    releaseLate(new Response('changed', { status: 409 }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
   });
 });

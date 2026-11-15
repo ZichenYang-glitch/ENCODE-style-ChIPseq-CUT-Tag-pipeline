@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  beginTrackRead,
   ensureTrackReadGuard,
   hasTrackReadFailure,
   resetTrackReadGuardForTests,
@@ -72,5 +73,68 @@ describe('trackReadGuard', () => {
 
     await expect(fetch(proxy)).rejects.toThrow('Failed to fetch');
     expect(seen).toEqual(['artifact-peak']);
+  });
+
+  it('does not record a caller abort, including one that later returns an error', async () => {
+    const seen: string[] = [];
+    const controller = new AbortController();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) =>
+          await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('cancelled', 'AbortError')),
+              { once: true },
+            );
+          }),
+      ),
+    );
+    ensureTrackReadGuard();
+    subscribeTrackReadFailure((artifactId) => {
+      seen.push(artifactId);
+    });
+    beginTrackRead('artifact-pet', controller.signal);
+    const pending = fetch(trackUrl, { signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(seen).toEqual([]);
+    expect(hasTrackReadFailure('artifact-pet')).toBe(false);
+  });
+
+  it('ignores a superseded generation after a newer read has started', async () => {
+    const seen: string[] = [];
+    let release: (response: Response) => void = () => {};
+    let calls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<Response>((resolve) => {
+            release = resolve;
+          });
+        }
+        return Promise.resolve(new Response('changed', { status: 409 }));
+      }),
+    );
+    ensureTrackReadGuard();
+    subscribeTrackReadFailure((artifactId) => {
+      seen.push(artifactId);
+    });
+    const first = new AbortController();
+    beginTrackRead('artifact-pet', first.signal);
+    const firstRead = fetch(trackUrl, { signal: first.signal });
+    const second = new AbortController();
+    beginTrackRead('artifact-pet', second.signal);
+    release(new Response('changed', { status: 409 }));
+    expect((await firstRead).status).toBe(409);
+    expect(seen).toEqual([]);
+    expect(hasTrackReadFailure('artifact-pet')).toBe(false);
+
+    const current = await fetch(trackUrl, { signal: second.signal });
+    expect(current.status).toBe(409);
+    expect(seen).toEqual(['artifact-pet']);
   });
 });

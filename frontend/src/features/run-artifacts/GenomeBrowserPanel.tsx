@@ -14,9 +14,10 @@ import type {
 import { ApiError } from '../../api/fetcher';
 import { Button } from '../../components/Button';
 import {
+  beginTrackRead,
   clearTrackReadFailures,
   ensureTrackReadGuard,
-  hasTrackReadFailure,
+  noteTrackReadSucceeded,
   subscribeTrackReadFailure,
 } from './trackReadGuard';
 
@@ -117,11 +118,14 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
   );
 
   useEffect(() => {
-    const controller = new AbortController();
+    const controllers = new Map<string, AbortController>();
     let cancelled = false;
     async function preflight(track: BrowserTrackResponse) {
       const path = sameOriginPath(track.content_path);
       if (!path) return;
+      const controller = new AbortController();
+      controllers.set(track.artifact_id, controller);
+      const generation = beginTrackRead(track.artifact_id, controller.signal);
       try {
         const response = await fetch(path, {
           method: 'GET',
@@ -144,7 +148,7 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
             throw new Error(`HTTP ${indexResponse.status}`);
           }
         }
-        if (!cancelled && !hasTrackReadFailure(track.artifact_id)) {
+        if (!cancelled && noteTrackReadSucceeded(track.artifact_id, generation)) {
           setLoadFailures((current) => {
             if (!current[track.artifact_id]) return current;
             const next = { ...current };
@@ -154,6 +158,7 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
         }
       } catch (error) {
         if (controller.signal.aborted || cancelled) return;
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         setLoadFailures((current) => ({
           ...current,
           [track.artifact_id]:
@@ -166,7 +171,7 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
     for (const track of readyTracks) void preflight(track);
     return () => {
       cancelled = true;
-      controller.abort();
+      for (const controller of controllers.values()) controller.abort();
     };
   }, [readyTracks]);
 
