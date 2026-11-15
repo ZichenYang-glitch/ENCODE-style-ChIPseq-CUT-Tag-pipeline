@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 from secrets import token_hex
+import sys
 import tempfile
 import threading
 
@@ -335,6 +336,12 @@ class NativeAuthoringBridge:
         )
         if not self._accepts_forwarding(request):
             return _tool_denied()
+        if (
+            name in {"get_authoring_schema", "get_draft_summary"}
+            and isinstance(result, dict)
+            and result.get("ok") is True
+        ):
+            print(f"peri-authoring-tool {name}", file=sys.stderr, flush=True)
         return result
 
     def _close_locked(self, sid: str) -> None:

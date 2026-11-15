@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 from pathlib import Path
+import queue
 import subprocess
+import threading
 from uuid import uuid4
 
 from encode_pipeline.services.peri_runtime.limits import (
@@ -150,6 +153,67 @@ def command(
     return args
 
 
+class NativeLauncher:
+    """Create native processes on one thread that outlives each request.
+
+    bwrap --die-with-parent uses PR_SET_PDEATHSIG. Linux delivers that signal
+    when the creating thread exits, even if the owner process is still alive.
+    Request handlers are short-lived, so they must not be that parent.
+    """
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[
+            tuple[Callable[[], subprocess.Popen[bytes]], queue.Queue[object]] | None
+        ] = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._serve,
+            name="peri-native-launcher",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            action, result = item
+            try:
+                result.put(action())
+            except BaseException as error:
+                result.put(error)
+
+    def popen(self, args: list[str], **kwargs: object) -> subprocess.Popen[bytes]:
+        if threading.get_ident() == self._thread.ident:
+            return subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
+        result: queue.Queue[object] = queue.Queue(maxsize=1)
+
+        def launch() -> subprocess.Popen[bytes]:
+            return subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
+
+        self._queue.put((launch, result))
+        try:
+            outcome = result.get(timeout=30)
+        except queue.Empty:
+            raise OSError("native launcher did not create the process") from None
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome  # type: ignore[return-value]
+
+    def alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def native_id(self) -> int | None:
+        return self._thread.native_id
+
+
+_native_launcher = NativeLauncher()
+
+
+def native_launcher() -> NativeLauncher:
+    return _native_launcher
+
+
 def spawn(
     binary: Path,
     state: Path,
@@ -169,7 +233,7 @@ def spawn(
     }
     if len(scope_env) != 2:
         raise OSError("systemd user session is required for the native scope")
-    process = subprocess.Popen(
+    process = _native_launcher.popen(
         [
             str(SYSTEMD_RUN),
             "--user",

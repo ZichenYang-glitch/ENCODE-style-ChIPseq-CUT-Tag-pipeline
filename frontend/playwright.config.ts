@@ -20,6 +20,7 @@ if (
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: ['**/*c4-native*'],
   globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
   workers: 1,

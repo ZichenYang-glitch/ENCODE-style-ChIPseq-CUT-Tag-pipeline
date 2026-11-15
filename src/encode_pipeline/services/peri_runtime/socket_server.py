@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import select
+import signal
 import socket
 import socketserver
 import threading
@@ -588,9 +589,16 @@ def main() -> None:
     )
     bridge.bind_tool_handler(service.read_tool)
     server = OwnerServer(bridge, repository, Path(socket_path))
+    stop = threading.Event()
+
+    def _request_stop(_signum: int, _frame: object) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
     server.start()
     try:
-        threading.Event().wait()
+        stop.wait()
     finally:
         server.shutdown()
         persistence.close()

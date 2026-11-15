@@ -14,6 +14,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -31,6 +32,43 @@ from encode_pipeline.services.peri_runtime.stub import ModelStub
 
 
 DROP = object()
+
+
+def _record_admitted_scope(session: NativeSession) -> None:
+    root = (
+        None if session.native_pid is None else cgroup_root_for_pid(session.native_pid)
+    )
+    owner_cgroup = ""
+    try:
+        owner_cgroup = Path(f"/proc/{os.getpid()}/cgroup").read_text(encoding="utf-8")
+    except OSError:
+        owner_cgroup = ""
+    print(
+        "peri-authoring-scope "
+        f"unit={session.scope_unit} "
+        f"pid={session.native_pid} "
+        f"path={root} "
+        f"{_scope_limit_text(root)} "
+        f"owner_outside={session.scope_unit not in owner_cgroup}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _scope_limit_text(root: Path | None) -> str:
+    if root is None:
+        return "memory_max= swap_max= pids_max= cpu_max="
+    try:
+        return (
+            f"memory_max={(root / 'memory.max').read_text(encoding='utf-8').strip()} "
+            f"swap_max={(root / 'memory.swap.max').read_text(encoding='utf-8').strip()} "
+            f"pids_max={(root / 'pids.max').read_text(encoding='utf-8').strip()} "
+            f"cpu_max={(root / 'cpu.max').read_text(encoding='utf-8').strip()}"
+        )
+    except OSError:
+        return "memory_max= swap_max= pids_max= cpu_max="
+
+
 ToolHandler = Callable[[str, dict[str, object], "NativeSession"], dict[str, object]]
 
 
@@ -548,6 +586,7 @@ class NativeSession:
                     raise NativeRejected("QUALIFICATION_CLOSED")
                 self.state = "ready"
                 self.approve = True
+            _record_admitted_scope(self)
         except BaseException as error:
             self.invalidate("INITIALIZATION_FAILED")
             if isinstance(error, NativeRejected):

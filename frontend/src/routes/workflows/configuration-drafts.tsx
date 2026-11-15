@@ -813,6 +813,7 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         await authoringAdoptProposal(sid, pending.proposalId, pending.body);
         if (!stillCurrent(captured, sid)) return;
         setDecision('adopted');
+        setReceiptRetry((value) => value + 1);
         setNotice(null);
         try {
           if (turn?.turn_id) {
