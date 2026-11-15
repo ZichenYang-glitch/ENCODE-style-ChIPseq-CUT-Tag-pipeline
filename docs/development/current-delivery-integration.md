@@ -1,6 +1,41 @@
 # 当前 PR 收口与集成清单
 
-## 2026-11-15T07:21:49Z 当前状态
+## 2026-11-15T12:18:06Z 当前状态
+
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。07:21:49Z 的 `23681d9…` 快照及更早记录不倒写。
+本页在 Draft #213，仍未合并。本次更新不写回自身新 SHA。
+同一次查询：main 仍是 `101983f…`；#219 head 为 `6d570822620ccb873c26a1dabad1a8baebe5593b`；
+#217 为 `c4c49098d3c05b4d6913a684b459508c866c39b7`；#214、#218、#212、#216 的 head 未变。
+
+- [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+  已是 open Draft。已审阅 head 是 `6d5708…`。短命创建线程已由常驻 launcher 修复。
+  新的待返修：创建超时后，晚到进程可能无人接管。当前不再把 `d2a0cc…` 加未提交接线当作现状。
+- C4 本地记录有 5 passed，完整验收未完成。没有采用后再校验；丢响应测试在请求到达 API 前中止；
+  未执行 Reject；“过期保存”实际是另一次写入造成的 revision 冲突。
+  原先 2 passed、1 failed、2 skipped 保留为更早历史证据。这次本地 JUnit 早于最终干净 SHA，
+  不是该 SHA 或生产静态包上的运行。
+- #219 的 pull_request [CI 43693526422](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693526422)
+  为 attempt 1 success。两个 shard、frontend、browser-e2e、fast-checks、coverage 成功；
+  四个条件执行 job skipped。
+  同一 head 的 workflow_dispatch [43693536449](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693536449)
+  为 attempt 1 failure。real-execution、platform-real-execution、container-smoke、frontend、
+  browser-e2e、两个 shard 和 fast-checks 成功。
+  Bulk job 步骤数为 0，在 runner 执行前被分支保护拒绝，不是科学执行失败。
+  coverage job `132755072368` 失败：services 全套覆盖率 85.37%，低于 87.28%。
+  该步骤里更后面的门槛没有执行，不能记为通过。不能把这次 dispatch 写成只剩环境准入。
+  本次查询核对了 run 与 job 结论，没有重新下载 coverage 日志，也没有重跑这两次 CI。
+- #217 `c4c4909…` 的取消恢复增量已通过独立定点复审。`db3d8a5…` 的 P2 不再列为未修复。
+  原回归在 `db3d8a5…` 失败、在 `c4c4909…` 通过。准确提交的生产浏览器证据仍待收口；
+  作者浏览器记录仍标在 `db3d8a5…`，这次复审没有重跑浏览器证明。#217 未纳入 #219。
+- #214 `a566943…` 与 #218 `ca40bce…` 已各作为祖先纳入 #219 一次。Frontend 待命。
+  Science 没有新增任务。169 passed 仍属于 `0fef7a2…`。
+- #212 `ff4bdd5…` 仍是已复审的文案与署名增量。C4、整个 A1、最终组合 Gate、
+  真实 provider 和 Agent 运行操作分别记账。
+- `23681d9…` 的 shard 失败里，PID 123 的 SIGKILL 是测试 mock 捕获的 `os.kill` 调用，
+  不是已证明向宿主 PID 123 实际发信号。该 CI 结论仍是 failure，不改写成通过。
+
+## 2026-11-15T07:21:49Z 快照
 
 排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
 [session 计划](next-delivery-session-plan.md)。19:18:06Z 及更早快照不改写。
@@ -236,14 +271,13 @@ Backend 已获得启动 `user@1000.service` 并验证任务资源隔离的限定
 ## 集成安排
 
 1. 原 session 交出准确 head、范围、生成物、测试和未完成项；Codex 独立复审。
-2. #216 不再合并。C4 继续使用已复审的 #214 `a566943…`、#218 `ca40bce…` 文档增量和
-   #212 `ff4bdd5…` 文案增量；169 项真实执行证据仍是 `0fef7a2…`。
-   当前阻断是 native 创建线程生命周期，不是这些 head 需要重做。
+2. #216 不再合并。#219 `6d5708…` 已包含 #214、#218 和 #212 的已复审增量各一次。
+   169 项真实执行证据仍是 `0fef7a2…`。当前返修是创建超时后的进程归属，以及 services 覆盖率。
    如公共契约变化，后端正式生成 OpenAPI/client，再交前端适配，不手改生成物。
 3. #214 已含部分 #212 历史，合成候选前核对祖先关系。只纳入已审阅提交，
    不将整个活动分支盲目拉进候选。候选使用独立 worktree/PR。
-4. #217 `db3d8a5…` 的生产外发 P1 已通过。取消预检后的 P2 仍待窄修复。
-   未修好时不阻塞 A1 准备，也不作为已验收 Viewer 进入交付。
+4. #217 `c4c4909…` 的取消恢复增量已通过定点复审。`db3d8a5…` 的 P2 不再列为未修复。
+   准确提交的生产浏览器证据仍待收口，因此仍不作为已验收 Viewer 进入交付。
    它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
    最终测试按实际组合执行，不能简单相加来源分支的通过记录。
 5. 普通 CI、C4 和适用 Gate 完成后交回主会话；合并/发布仍单独执行授权。

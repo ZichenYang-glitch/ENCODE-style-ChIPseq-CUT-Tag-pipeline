@@ -1,6 +1,40 @@
 # HelixWeave Product Roadmap
 
-## 当前入口：2026-11-15T07:21:49Z
+## 当前入口：2026-11-15T12:18:06Z
+
+2026-11-15T07:21:49Z（#213 `23681d9…`）及更早快照保留在后文，不倒写。
+本次查询 main 仍为 `101983f…`。#216 代码已在 main，PR 对象仍 open，不因此再次合并。
+本文件在 Draft #213，仍未合并，不写回本提交 SHA。
+
+集成 Draft [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+的已审阅 head 是 `6d570822620ccb873c26a1dabad1a8baebe5593b`。
+当前不再把 `d2a0cc…` 加未提交接线、没有集成 Draft 当作现状。
+短命创建线程已由常驻 launcher 修复。新的待返修是创建超时后晚到进程可能无人接管；
+不能靠加长超时掩盖。
+
+C4 本地记录有 5 passed，完整验收未完成：没有采用后再校验；丢响应测试实际阻止请求发送；
+未执行 Reject；所谓过期保存实际是 revision 冲突。原先 2 passed、1 failed、2 skipped 仍是更早历史证据。
+pull_request [CI 43693526422](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693526422)
+attempt 1 success。同一 head 的 workflow_dispatch
+[43693536449](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693536449)
+attempt 1 failure：Bulk 在 runner 执行前被分支保护拒绝，coverage 为 85.37%，低于 87.28%。
+不能写成只剩环境准入。
+
+#217 `c4c4909…` 的取消恢复增量已通过独立定点复审。`db3d8a5…` 的 P2 不再列为未修复。
+该准确提交的生产浏览器证据仍待收口。#214 `a566943…` 与 #218 `ca40bce…` 已纳入 #219。
+Frontend 待命，Science 没有新增任务。169 项真实执行证据仍属于 `0fef7a2…`。
+C4、整个 A1、最终组合 Gate、真实 provider 和 Agent 运行操作仍分别记账。
+
+`23681d9…` 的 CI 里 PID 123 的 SIGKILL 是测试 mock 记录的 `os.kill` 调用，
+不是已证明向宿主 PID 123 实际发信号。
+
+| 工作线 | 下一步 |
+| --- | --- |
+| #219 | 返修创建超时后的进程归属，并补齐尚未执行的 C4 场景。覆盖率按未覆盖行为补齐，不降低门槛 |
+| Viewer | 收口 `c4c4909…` 的生产浏览器证据。不把取消恢复复审写成 Viewer 全部通过 |
+| 前端 / 科学 | Frontend 待命。Science 无新增任务，不重跑 `0fef7a2…` 的 169 项 |
+
+## 快照：2026-11-15T07:21:49Z
 
 2026-11-14T19:18:06Z 及更早快照保留在后文和集成清单，不把后来的结果写进那些段落。
 本次查询 main 仍为 `101983f…`。#216 代码已在 main，PR 对象仍 open，不因此再次合并。
