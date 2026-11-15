@@ -1,6 +1,7 @@
 # 下一批交付：session 分工与验收交接
 
-日期：2026-11-13 的分工仍然有效。2026-11-14T19:18:06Z 只按本轮最终交接更新状态。
+日期：2026-11-13 的分工仍然有效。2026-11-15T07:21:49Z 只追加 Backend 与 Viewer 的最终交接。
+2026-11-14T19:18:06Z 的分工留在集成清单快照，不在这里倒写。
 排期入口为 [roadmap](workflow-platform-agent-roadmap.md)，
 准确 PR/SHA 为 [集成清单](current-delivery-integration.md)，新增契约见
 [设计](../architecture/catalog-agent-viewer-boundaries.md)。
@@ -29,29 +30,28 @@
 
 | session 名称 | 范围／写入所有权 | 依赖 | 下一步 | 验收标准／交接 | PR |
 | --- | --- | --- | --- | --- | --- |
-| `Cursor-A1-Backend` | C4 集成的独立 worktree，以及 #212 已接受 head 的具体问题 | `a08aa62…` 窄增量复审和普通 CI 已通过。`5cc82caf…` 只在固定受限范围被接受 | 主导组合 #212、#214、#218。不扩大公共接口、真实 provider 或运行操作 | 交出准确组合 head。C4、整个 A1 和最终 Gate 分别记账 | #212，集成 PR 待创建 |
-| `Cursor-A1-Frontend` | 草稿页、样本行、回执 UI；配合 C4，不手改 generated | `a566943…` 保存返修和普通 CI 已通过 | 停止重复修复，按 Backend 的集成需要配合。不启动运行 | 不把该 head 写成 C4 或整个 A1 已通过 | #214 |
-| `Cursor-Science-OnePath` | #218 的非阻塞 sample-sheet 文案；不重复合并 #216 | `0fef7a2…` 的整次 workflow `43628729299` success，真实执行 169 passed | 只改对照示例的 `final.bam` 为 `analysis.bam`。不重跑科学层，不改写本次测试身份 | 差异和范围空白检查通过。代码与测试未变 | #218 |
-| `Cursor-WashU-W1` | 生产轨道读取的外部 CORS 回退；不扩大成 V2 | `aa0ef9f…` 的 gzip/空白返修通过。新 P1 待修复 | 在现有生产页面禁止受保护 URL 走外部代理，并用生产约束证明失败路径没有外部请求 | 正例仍可读；失败清楚且无外部请求。不是 Viewer 全部通过 | #217 |
+| `Cursor-A1-Backend` | 现有 C4 worktree 的 native 创建线程生命周期 | `d2a0cc…` 加未提交接线。保存、回读和真实 snapshot 已成功；提案被 SIGKILL 阻断 | 让实际 Popen 的创建线程覆盖 native 生命周期，再完成采用、拒绝、解释和重新登录回执。不提高内存，不删除 `--die-with-parent` | 原 JUnit 仍是 2 passed、1 failed、2 skipped。修复后另交集成 Draft。C4 未完成 | 尚无集成 Draft |
+| `Cursor-A1-Frontend` | 不新开 C3；配合时不手改 generated | `a566943…` 继续可消费 | 没有新的页面缺陷。不另跑一套 C4 | 不把可消费写成 C4 或整个 A1 已通过 | #214 |
+| `Cursor-Science-OnePath` | 不再改 #218 的已复审文档增量 | `ca40bce…` 单行文档复审通过，生产和测试代码未变 | 保留 `0fef7a2…` 的 169 项真实执行身份。不重跑科学层，不重复合并 #216 | 不把文档增量写成新的科学执行 | #218 |
+| `Cursor-WashU-W1` | 取消预检后的失败状态；不扩大成 V2 | `db3d8a5…` 的生产外发 P1 已通过。新 P2 待修 | 区分主动 AbortError 和真实读取失败，使成功重选恢复。保留生产 CSP | 交错回归和最小组件测试通过；真实失败仍显示失败。不是 Viewer 全部通过 | #217 |
 | `Cursor-Docs-Delivery`（现有维护 session） | roadmap、集成清单及当前 session 计划 | 当前入口已在 Draft #213 | 只做有界状态更新；不开新功能或第三批测试精简 | 历史副本逐字保留；Draft 未合并；链接、身份、空白检查通过 | #213 |
 | `Codex-Delivery-Review` | 只读复审、契约裁决和交接清单 | 各 owner 的准确提交与复现 | 区分阻塞缺陷、已满足契约和后续扩展 | 每条 finding 有代码/复现/影响/最小修复边界；不把新产品目标当修复循环 | 上述 PR |
 
-共五个 Cursor owner，加 Codex 主会话为六个。`e00130e…` 的边界复审仍只适用于该 SHA。
-`a08aa62…` 的通过范围只是摘要绑定增量。#214 可以进入 C4 准备，但 C4 尚未执行。
+共五个 Cursor owner，加 Codex 主会话为六个。`ff4bdd5…` 只增加文案和署名，不扩大 `a08aa62…` 的摘要绑定结论。
+#214 没有新的 C3 任务。C4 已经尝试，目前未完成。
 冻结只表示可消费的接口版本，不代替最终实现审阅或 C4。遇到新安全/一致性缺陷继续修；
 遇到新功能需求登记后续，不把它变成当前修复的无限追加项。
 
 ## B. 当前批次集成：准备好后启动
 
-C4 由 `Cursor-A1-Backend` 在独立 worktree 主导，Frontend 配合。
-消费 #212 `a08aa62…`、#214 `a566943…` 和 #218 `0fef7a2…`。
-不让任一方在未告知对方时更换接口或重写共同历史。Viewer 返修不并入这个 worktree。
+C4 仍由 `Cursor-A1-Backend` 在现有集成 worktree 继续。保留 `d2a0cc…` 和未提交接线，
+不另起一份产品实现。Frontend 没有新的 C3 任务。Viewer 的 P2 不并入这个 worktree。
 
 1. 核对 main、依赖 DAG 和来源提交，#214 已含的 #212 祖先只纳入一次。
 2. 再生 OpenAPI/客户端/前端打包资产只能有一个 owner；报告合并冲突的行为处理。
-3. 用隔离数据库、真实 API、真实浏览器、已接受的 `5cc82caf…` runtime 与本地模型 stub 执行 C4。
-   原 binary `60144bbe…` 的缺失和历史 A0 记录保留；新摘要不恢复旧身份。
-   C4 尚未执行：
+3. 手工保存、刷新回读和真实 snapshot 已经成功。提案及后续步骤被 native SIGKILL 阻断。
+   原 binary `60144bbe…` 的缺失和历史 A0 记录保留；`5cc82caf…` 不恢复旧身份。
+   生命周期修复后，继续完成尚未执行的 C4 步骤：
    选择项目/样本/输入修订/参考，保存和回读，显式连接，读工具，提案/解释，采用/拒绝，
    真实 validator snapshot，重新登录发现回执；包含拒绝、冲突、丢响应及断连清理。
 4. 没有真实 snapshot、native 或工具结果时不得用 fixture 成功文案代替。
@@ -59,7 +59,8 @@ C4 由 `Cursor-A1-Backend` 在独立 worktree 主导，Frontend 配合。
 5. 最终组合的普通 CI 通过后，根据准确闭包运行需要的 Protected Bulk Gate。
    #212 已改闭包，不能拿 #210 的 Gate 代替。配置准入沿用已有授权，无授权的管理变更
    先给出具体缺口；不为了拿到绿灯降低保护。
-6. #217 的 CORS 返修独立推进。未修好时不阻塞 A1 准备，也不作为已验收 Viewer 进入组合。
+6. #217 的生产外发 P1 已通过，取消预检后的 P2 仍独立修复。未修好时不阻塞 A1 准备，
+   也不作为已验收 Viewer 进入组合。
    导航和打包资产交给集成 owner，按影响补测。
    最终交可审阅 Draft；合并、发布和关闭旧 PR 由主会话另行安排。
 
