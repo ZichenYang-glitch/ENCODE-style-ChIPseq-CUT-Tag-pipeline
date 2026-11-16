@@ -1,0 +1,58 @@
+[
+  {
+    "test": "a1-independent",
+    "command": [
+      "/tmp/helixweave-peri-qualification-review-20261115-ossu4mss/env/bin/python",
+      "-B",
+      "-I",
+      "-S",
+      "scripts/checkout_bootstrap.py",
+      "--repository-root",
+      ".",
+      "pytest",
+      "-m",
+      "platform_real_execution",
+      "test/services/test_peri_authoring_bridge.py::test_fixed_native_reads_two_tools_and_rejects_an_old_generation",
+      "-v",
+      "--basetemp=/tmp/helixweave-peri-qualification-review-20261115-ossu4mss/pytest-independent",
+      "--junitxml=/tmp/helixweave-peri-qualification-review-20261115-ossu4mss/a1-independent.xml"
+    ],
+    "cwd": "/tmp/helixweave-peri-qualification-review-20261115-ossu4mss/checkout",
+    "exit_code": 2,
+    "seconds": 0.06425727799069136
+  },
+  {
+    "test": "host-contract",
+    "command": [
+      "/usr/bin/python3",
+      "-B",
+      "-S",
+      "/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/scripts/peri_a0_closeout/test_contract.py",
+      "-v"
+    ],
+    "cwd": "/tmp/helixweave-peri-qualification-review-20261115-ossu4mss",
+    "exit_code": 0,
+    "seconds": 0.06463642098242417
+  },
+  {
+    "test": "host-transport",
+    "command": [
+      "systemd-run",
+      "--user",
+      "--scope",
+      "--unit=hw-peri-review-transport-ossu4mss",
+      "--property=MemoryMax=512M",
+      "--property=MemorySwapMax=0",
+      "--property=TasksMax=128",
+      "--property=CPUQuota=100%",
+      "/usr/bin/python3",
+      "-B",
+      "-S",
+      "/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/scripts/peri_a0_closeout/test_runtime.py",
+      "-v"
+    ],
+    "cwd": "/tmp/helixweave-peri-qualification-review-20261115-ossu4mss",
+    "exit_code": 0,
+    "seconds": 1.0684194519999437
+  }
+]

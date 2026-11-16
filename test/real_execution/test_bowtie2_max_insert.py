@@ -5,11 +5,11 @@ production Snakemake workflow rules that:
 
 - Bowtie2 -X controls the concordant proper-pair (0x2) and TLEN boundary at
   500/501/600, 700/701, and 2000/2001 bp in both F1R2 and F2R1 orientations;
-- The production bowtie2_align -> samtools_filter -> macs3_callpeak chain
-  admits >500 bp templates (e.g. 600 bp in CUT&Tag auto=700 and 1200 bp in
-  ChIP-seq/ATAC auto=2000) as proper pairs into BAMPE pileups, whereas
-  max_insert=500 leaves them without 0x2 (dropped by updated samtools_filter
-  and ignored by MACS3 BAMPE in both profiles);
+- The production bowtie2_align -> samtools_filter -> Picard MarkDuplicates
+  -> analysis BAM -> macs3_callpeak chain admits >500 bp templates (e.g. 600 bp
+  in CUT&Tag auto=700 and 1200 bp in ChIP-seq/ATAC auto=2000) as proper pairs
+  into BAMPE pileups, whereas max_insert=500 leaves them without 0x2. The
+  single analysis filter drops those non-proper pairs before MACS3.
 - Mixed-assay auto, SE non-rendering, control samples, YAML/CLI overrides,
   extra_args -X/--maxins migration (preserving quotes, variables, and
   backslash-escaped spaces), and startup conflict/bounds rejections work on
@@ -81,6 +81,11 @@ def macs3_path():
     return _tool("macs3", "MACS3")
 
 
+@pytest.fixture(scope="module")
+def picard_path():
+    return _tool("picard", "PICARD")
+
+
 def _revcomp(seq: str) -> str:
     return seq.translate(COMPLEMENT)[::-1]
 
@@ -96,19 +101,50 @@ def _run(command, *, env=None, cwd=None, check=True):
     return result
 
 
+def _tool_dirs(tool):
+    """Return the tool directory and, for a symlink, the resolved directory.
+
+    CI installs Picard in its own environment. Following only the symlink
+    would hide the ``picard`` name or the Java runtime that sits beside it.
+    """
+    path = Path(tool)
+    dirs = [str(path.parent)]
+    if path.is_symlink():
+        resolved = str(path.resolve().parent)
+        if resolved not in dirs:
+            dirs.append(resolved)
+    return dirs
+
+
 def _snakemake_env(*tool_paths):
+    """Expose resolved tools and the runtimes those tools execute.
+
+    Picard is resolved like the other external tools. Its directory and Java
+    stay on PATH, because the production rule calls ``picard`` directly and
+    the pinned Picard launcher needs its Java runtime.
+    """
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     dirs = []
     for tool in tool_paths:
-        parent = str(Path(tool).parent)
-        if parent not in dirs:
-            dirs.append(parent)
+        for parent in _tool_dirs(tool):
+            if parent not in dirs:
+                dirs.append(parent)
+    java_home = os.environ.get("JAVA_HOME", "")
+    if java_home:
+        java_bin = str(Path(java_home) / "bin")
+        if Path(java_bin).is_dir() and java_bin not in dirs:
+            dirs.append(java_bin)
+    java = shutil.which("java")
+    if java:
+        for parent in _tool_dirs(java):
+            if parent not in dirs:
+                dirs.append(parent)
     conda = shutil.which("conda")
     if conda:
-        conda_dir = str(Path(conda).parent)
-        if conda_dir not in dirs:
-            dirs.append(conda_dir)
+        for parent in _tool_dirs(conda):
+            if parent not in dirs:
+                dirs.append(parent)
     env["PATH"] = ":".join([*dirs, "/usr/bin", "/bin"])
     return env
 
@@ -265,31 +301,34 @@ def _pileup_at(bdg_path: Path, position: int) -> float:
     return 0.0
 
 
-@pytest.mark.parametrize("profile", ["legacy", "updated"])
+@pytest.mark.parametrize("config_schema_version", ["1.0.0", "2.0.0"])
 def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
     tmp_path,
     snakemake_path,
     bowtie2_path,
     samtools_path,
     macs3_path,
+    picard_path,
     reference_bundle,
-    profile,
+    config_schema_version,
 ):
-    """Prove through production Snakemake rules (trim_galore -> bowtie2_align
-    -> samtools_filter -> markdup/prepare_analysis_bam -> macs3_callpeak) that:
-    - a cluster of 600 bp fragments at pos 5000 and 1200 bp fragments at pos 15000
-      both align as proper pairs (0x2) and produce MACS3 BAMPE pileup under
-      chipseq auto (max_insert=2000);
-    - under cuttag auto (max_insert=700), the 600 bp cluster is proper-paired
-      while the 1200 bp cluster is not (and in updated profile is removed from
-      mapq30.bam/analysis.bam by samtools_filter -f 2);
-    - under explicit max_insert=500 (the old implicit Bowtie2 default), neither
-      the 600 bp nor the 1200 bp cluster is proper-paired, and MACS3 BAMPE
-      pileup at both loci drops to 0.0.
+    """Prove the single production path admits long proper pairs into MACS3.
+
+    ``config_schema_version`` 1.0.0 and 2.0.0 are config versions. Both run
+    bowtie2_align, the fixed PE filter, Picard MarkDuplicates, the analysis
+    BAM, and MACS3. Picard marks duplicates and keeps every filtered read.
+    - chipseq auto (max_insert=2000) admits 600 bp and 1200 bp proper pairs
+      and their BAMPE pileups;
+    - cuttag auto (max_insert=700) keeps the 600 bp proper pairs and drops
+      the 1200 bp pairs at the filter;
+    - explicit max_insert=500 leaves both 600 bp and 1200 bp without 0x2,
+      and both BAMPE pileups are 0.0.
     """
     ref_seq = reference_bundle["seq"]
     idx_prefix = reference_bundle["idx_prefix"]
-    env = _snakemake_env(bowtie2_path, samtools_path, macs3_path)
+    env = _snakemake_env(
+        bowtie2_path, samtools_path, macs3_path, picard_path, snakemake_path
+    )
 
     pairs = []
     # 30 short 200 bp background pairs around pos 1000 so MACS3 always has input
@@ -309,7 +348,7 @@ def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
         pairs.append((f"long1200_{i}", r1, r2))
 
     def run_scenario(name: str, assay: str, max_insert_cfg, run_macs3: bool):
-        workdir = tmp_path / f"{profile}_{name}"
+        workdir = tmp_path / f"schema_{config_schema_version}_{name}"
         workdir.mkdir(parents=True)
         raw1 = workdir / "T1_R1.fq.gz"
         raw2 = workdir / "T1_R2.fq.gz"
@@ -337,7 +376,15 @@ def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
             "multiqc": False,
             "replicate_analysis": False,
             "chipseq_idr": False,
+            "config_schema_version": config_schema_version,
             "duplicate_analysis": "retain",
+            "blacklist_mode": "off",
+            "organelle_mode": "keep",
+            "duplicate_backend": "picard",
+            "control_mode": "matched",
+            "reference_mode": "legacy",
+            "fragment_cpm": "off",
+            "tss_fragment_profile": False,
             "tool_parameters": {
                 "bowtie2": {"max_insert": max_insert_cfg},
                 "macs3": {"extra_args": "-B --nomodel"},
@@ -361,83 +408,67 @@ def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
                 "cuttag_fragment_size": False,
             },
         }
-        if profile == "updated":
-            config.update(
-                {
-                    "config_schema_version": "2.0.0",
-                    "analysis_profile": "updated",
-                    "blacklist_mode": "off",
-                    "organelle_mode": "keep",
-                    "duplicate_backend": "picard",
-                    "control_mode": "matched",
-                    "reference_mode": "legacy",
-                    "external_control_policy": "warn",
-                    "fragment_cpm": "off",
-                    "tss_fragment_profile": False,
-                }
-            )
         (workdir / "config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
         )
-        if profile == "legacy":
-            bam_target = "results/T1/02_align/T1.final.bam"
-            targets = [bam_target]
-            if run_macs3:
-                targets.append("results/T1/04_peaks/T1")
+        bam_target = "results/T1/02_align/T1.analysis.bam"
+        targets = [bam_target]
+        if run_macs3:
+            targets.append("results/T1/04_peaks/T1")
+        _run(
+            [
+                snakemake_path,
+                "-s",
+                str(SNAKEFILE),
+                "--profile",
+                "none",
+                "--workflow-profile",
+                "none",
+                "--configfile",
+                str(workdir / "config.yaml"),
+                "-j",
+                "1",
+                *targets,
+            ],
+            env=env,
+            cwd=workdir,
+        )
+        metrics = (workdir / "results/T1/01_qc/T1.dup_metrics.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "MarkDuplicates" in metrics
+        assert "REMOVE_DUPLICATES=false" in metrics.replace(" ", "=")
+        mapq_count = int(
             _run(
                 [
-                    snakemake_path,
-                    "-s",
-                    str(SNAKEFILE),
-                    "--configfile",
-                    str(workdir / "config.yaml"),
-                    "-j",
-                    "1",
-                    *targets,
+                    samtools_path,
+                    "view",
+                    "-c",
+                    str(workdir / "results/T1/02_align/T1.mapq30.bam"),
                 ],
                 env=env,
-                cwd=workdir,
-            )
-        else:
-            # In updated profile, run trim_galore -> bowtie2_align -> samtools_filter (-f 2)
-            mapq_bam = "results/T1/02_align/T1.mapq30.bam"
+            ).stdout
+        )
+        final_count = int(
             _run(
                 [
-                    snakemake_path,
-                    "-s",
-                    str(SNAKEFILE),
-                    "--configfile",
-                    str(workdir / "config.yaml"),
-                    "-j",
-                    "1",
-                    mapq_bam,
+                    samtools_path,
+                    "view",
+                    "-c",
+                    str(workdir / "results/T1/02_align/T1.final.bam"),
                 ],
                 env=env,
-                cwd=workdir,
-            )
-            bam_target = mapq_bam
-            if run_macs3:
-                # Stage T1.final.bam from T1.mapq30.bam so prepare_analysis_bam -> macs3_callpeak
-                # runs without requiring a Picard Java runtime in the minimal test environment.
-                final_bam = workdir / "results/T1/02_align/T1.final.bam"
-                shutil.copy(workdir / mapq_bam, final_bam)
-                _run([samtools_path, "index", str(final_bam)], env=env)
-                bam_target = "results/T1/02_align/T1.analysis.bam"
-                _run(
-                    [
-                        snakemake_path,
-                        "-s",
-                        str(SNAKEFILE),
-                        "--configfile",
-                        str(workdir / "config.yaml"),
-                        "-j",
-                        "1",
-                        bam_target,
-                        "results/T1/04_peaks/T1",
-                    ],
-                    env=env,
-                    cwd=workdir,
-                )
+            ).stdout
+        )
+        analysis_count = int(
+            _run(
+                [samtools_path, "view", "-c", str(workdir / bam_target)],
+                env=env,
+            ).stdout
+        )
+        assert mapq_count > 0
+        assert final_count == mapq_count
+        assert analysis_count == final_count
 
         proper_view = _run(
             [samtools_path, "view", "-f", "2", str(workdir / bam_target)], env=env
@@ -463,18 +494,15 @@ def test_production_workflow_admits_long_pe_fragments_into_macs3_bampe(
     proper_700, all_700, _ = run_scenario("cuttag_auto", "cuttag", "auto", False)
     assert "mid600_0" in proper_700
     assert "long1200_0" not in proper_700
-    if profile == "updated":
-        # updated samtools_filter enforces -f 2 so non-proper pairs are absent from mapq30.bam
-        assert "long1200_0" not in all_700
+    assert "long1200_0" not in all_700
 
     # 3) explicit max_insert=500: excludes both mid (600) and long (1200) from proper pairs and MACS3 BAMPE pileup
     proper_500, all_500, bdg_500 = run_scenario("explicit_500", "chipseq", 500, True)
     assert "short_0" in proper_500
     assert "mid600_0" not in proper_500
     assert "long1200_0" not in proper_500
-    if profile == "updated":
-        assert "mid600_0" not in all_500
-        assert "long1200_0" not in all_500
+    assert "mid600_0" not in all_500
+    assert "long1200_0" not in all_500
     assert _pileup_at(bdg_500, 5_350) == 0.0
     assert _pileup_at(bdg_500, 15_650) == 0.0
 

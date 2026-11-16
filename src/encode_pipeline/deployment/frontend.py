@@ -225,7 +225,9 @@ def _spa_navigation(path: str, scope: Scope) -> bool:
     if parts == ["workflows"] or parts == ["runs"] or parts == ["artifacts"]:
         return True
     if parts[0] == "workflows":
-        return len(parts) == 2 or (len(parts) == 3 and parts[2] == "new-run")
+        return len(parts) == 2 or (
+            len(parts) == 3 and parts[2] in {"new-run", "configuration-drafts"}
+        )
     if parts[0] == "runs":
         return len(parts) == 2
     if parts[0] == "artifacts":

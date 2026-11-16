@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from fastapi import Depends, Request
 
 from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.authoring import AuthoringActor
 from encode_pipeline.services.authentication import (
     CSRF_HEADER_NAME,
     request_requires_csrf,
@@ -172,6 +173,31 @@ async def require_principal(
             "Authentication is required.",
         )
     return principal
+
+
+async def require_authoring_actor(
+    request: Request,
+    principal: "AuthenticatedPrincipal" = Depends(require_principal),
+    policy: "BrowserSessionCookiePolicy" = Depends(get_auth_cookie_policy),
+) -> AuthoringActor:
+    """Resolve the current login without putting its digest on the principal."""
+
+    from encode_pipeline.services.authentication import digest_session_token
+
+    token = _session_token(request, policy)
+    if token is None or principal is None:
+        raise AuthApiError(
+            401, "AUTHENTICATION_REQUIRED", "Authentication is required."
+        )
+    try:
+        digest = digest_session_token(token)
+    except ValueError:
+        raise AuthApiError(
+            401,
+            "AUTHENTICATION_REQUIRED",
+            "Authentication is required.",
+        ) from None
+    return AuthoringActor(user_id=principal.user_id, session_digest=digest)
 
 
 async def require_administrator(

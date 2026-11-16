@@ -14,8 +14,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import stat
+import subprocess
 import sys
+import time
 from uuid import uuid4
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -436,11 +439,32 @@ def _write_encode_reference_binding(
     }
 
 
+def prepare_authoring_input_pool(runtime_root: Path) -> Path:
+    """Create one admitted FASTQ and the private pool map before the API starts."""
+    pool_root = runtime_root / "authoring-inputs"
+    (pool_root / "reads").mkdir(parents=True)
+    fastq = pool_root / "reads" / "s1.fastq.gz"
+    fastq.write_bytes(b"@read\nACGT\n+\n!!!!\n")
+    config_path = runtime_root / "pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "storage-pool-roots-v1",
+                "storage_pool_roots": {"authoring-inputs": str(pool_root)},
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    return config_path
+
+
 def write_manifest(
     runtime_root: Path,
     queue_name: str,
     inputs: ResultsVisibilityInputs,
     bulk_authoring: dict[str, object],
+    storage_pool_config: Path,
 ) -> None:
     """Write the bounded browser-visible fixture contract."""
     manifest = {
@@ -455,6 +479,7 @@ def write_manifest(
         "workspaceRoot": str(runtime_root / "workspaces"),
         "markerRoot": str(runtime_root / "tmp"),
         "queueName": queue_name,
+        "storagePoolConfig": str(storage_pool_config),
     }
     manifest.update(bulk_authoring)
     (runtime_root / "runtime.json").write_text(
@@ -521,11 +546,173 @@ def _make_owned_directories_removable(path: Path, expected_device: int) -> None:
             _make_owned_directories_removable(child_path, expected_device)
 
 
+PERI_BINARY_ENV = "HELIXWEAVE_PERI_BINARY"
+PERI_SOCKET_ENV = "HELIXWEAVE_PERI_OWNER_SOCKET"
+PERI_OWNER_PID_NAME = "peri-owner.pid"
+_UNIX_SOCKET_PATH_LIMIT = 100
+
+
+def peri_owner_command() -> list[str]:
+    """The API process never spawns Peri. This is the separate owner."""
+
+    return [
+        sys.executable,
+        "-m",
+        "encode_pipeline.services.peri_runtime.socket_server",
+    ]
+
+
+def stop_peri_owner(runtime_root: Path) -> None:
+    """Stop only the owner pid recorded for this runtime, if it is still that process."""
+
+    pid_path = runtime_root / PERI_OWNER_PID_NAME
+    if not pid_path.is_file():
+        return
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+    if pid <= 0 or not _pid_is_peri_owner(pid):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not _pid_is_peri_owner(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        return
+
+
+def start_admitted_peri_owner(runtime_root: Path, environment: dict[str, str]) -> None:
+    """Start the fixed owner when the operator supplied a binary.
+
+    A missing variable leaves the assistant unavailable. A supplied binary that
+    the owner rejects stops this runtime instead of selecting another binary.
+    """
+
+    binary = environment.get(PERI_BINARY_ENV, "")
+    if not binary:
+        environment.pop(PERI_SOCKET_ENV, None)
+        return
+    socket_path = runtime_root / "peri-owner.sock"
+    if len(os.fsencode(socket_path)) > _UNIX_SOCKET_PATH_LIMIT:
+        raise RuntimeError("Peri owner socket path exceeds the local Unix socket limit")
+    logs = runtime_root / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    owner_env = dict(environment)
+    owner_env[PERI_SOCKET_ENV] = str(socket_path)
+    owner_env["ENCODE_PIPELINE_DATABASE_URL"] = (
+        f"sqlite:///{runtime_root / 'platform.db'}"
+    )
+    owner_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    log_handle = (logs / "peri-owner.log").open("ab")
+    try:
+        process = subprocess.Popen(
+            peri_owner_command(),
+            cwd=REPOSITORY_ROOT,
+            env=owner_env,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+        )
+    except Exception:
+        log_handle.close()
+        raise
+    log_handle.close()
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if socket_path.exists() and process.poll() is None:
+            (runtime_root / PERI_OWNER_PID_NAME).write_text(
+                str(process.pid), encoding="utf-8"
+            )
+            environment[PERI_SOCKET_ENV] = str(socket_path)
+            environment["ENCODE_PIPELINE_DATABASE_URL"] = owner_env[
+                "ENCODE_PIPELINE_DATABASE_URL"
+            ]
+            return
+        if process.poll() is not None:
+            raise RuntimeError("fixed Peri runtime is not admitted")
+        time.sleep(0.05)
+    if process.poll() is None:
+        process.terminate()
+    raise RuntimeError("Peri owner socket did not become ready")
+
+
+def _pid_is_peri_owner(pid: int) -> bool:
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ")
+    except OSError:
+        return False
+    return b"encode_pipeline.services.peri_runtime.socket_server" in command
+
+
+def stop_runtime_processes(runtime_root: Path) -> None:
+    """Stop processes this runtime launched after the supervisor has already exited."""
+
+    marker = os.fsencode(runtime_root)
+    protected = {os.getpid()}
+    parent = os.getppid()
+    for _ in range(6):
+        if parent <= 1:
+            break
+        protected.add(parent)
+        try:
+            stat_text = Path(f"/proc/{parent}/stat").read_text(encoding="utf-8")
+            parent = int(stat_text[stat_text.rfind(")") + 2 :].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    matched: list[int] = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid in protected:
+            continue
+        try:
+            environ = (entry / "environ").read_bytes()
+        except OSError:
+            continue
+        if marker not in environ:
+            continue
+        matched.append(pid)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            continue
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and any(_process_exists(pid) for pid in matched):
+        time.sleep(0.05)
+    for pid in matched:
+        if not _process_exists(pid):
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            continue
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def cleanup_owned_runtime_root(runtime_value: str, runtime_owner: str) -> None:
     """Remove only a sentinel-owned runtime, including copied read-only trees."""
     runtime_root, expected_device = _validated_owned_runtime_root(
         runtime_value, runtime_owner
     )
+    stop_peri_owner(runtime_root)
+    stop_runtime_processes(runtime_root)
     _make_owned_directories_removable(runtime_root, expected_device)
     shutil.rmtree(runtime_root)
     if os.path.lexists(runtime_root):
@@ -595,7 +782,14 @@ def main() -> None:
     deployment_environment.update(reference_environment)
     queue_name = f"encode-pipeline-browser-{uuid4().hex}"
     prepare_auth_admin(runtime_root)
-    write_manifest(runtime_root, queue_name, inputs, bulk_authoring)
+    storage_pool_config = prepare_authoring_input_pool(runtime_root)
+    write_manifest(
+        runtime_root,
+        queue_name,
+        inputs,
+        bulk_authoring,
+        storage_pool_config,
+    )
     redis_url = os.environ.get(
         "ENCODE_PIPELINE_E2E_REDIS_URL", "redis://127.0.0.1:6380/0"
     )
@@ -621,6 +815,9 @@ def main() -> None:
     ]
     child_environment = os.environ.copy()
     child_environment.update(deployment_environment)
+    child_environment["ENCODE_PIPELINE_STORAGE_POOL_CONFIG"] = str(storage_pool_config)
+    if child_environment.get("HELIXWEAVE_C4_NATIVE") == "1":
+        start_admitted_peri_owner(runtime_root, child_environment)
     os.execvpe(sys.executable, argv, child_environment)
 
 

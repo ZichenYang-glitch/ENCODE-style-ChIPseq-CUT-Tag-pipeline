@@ -3,7 +3,6 @@ outdir: "results"
 threads: 1
 mapq: 30
 binsize: 10
-remove_dup: "auto"
 trim: true
 extend_reads: "auto"
 use_control: true

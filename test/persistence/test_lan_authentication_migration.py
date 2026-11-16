@@ -18,7 +18,7 @@ from encode_pipeline.persistence.migrations import (
 
 PRIOR_REVISION = "20260809_13"
 AUTHENTICATION_REVISION = "20260818_14"
-CURRENT_REVISION = "20260827_15"
+CURRENT_REVISION = "20261110_16"
 AUTHENTICATION_TABLES = {
     "auth_sessions",
     "security_audit_events",

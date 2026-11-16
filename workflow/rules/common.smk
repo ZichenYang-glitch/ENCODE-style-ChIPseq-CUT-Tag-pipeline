@@ -2,7 +2,7 @@
 # ================================================================
 # These rules run for ALL samples (treatment + control).
 # Assay-specific policy is dispatched through params functions
-# (get_remove_dup, get_extend_reads) defined in the Snakefile
+# get_extend_reads is defined in the Snakefile dispatch layer.
 # dispatch layer, which delegates to chipseq.smk / cuttag.smk.
 # MAPQ tag is derived from config (MAPQ_TAG = f"mapq{MAPQ}").
 
@@ -226,35 +226,29 @@ rule samtools_filter:
     threads: THREADS
     params:
         mapq=MAPQ,
-        filter_flags=_filter_flags_arg(),
         layout=lambda wc: SAMPLE_MAP[wc.sample]["layout"],
-        filter_mode=lambda wc: "updated" if is_updated_profile() else "legacy",
         extra=_tool_param("samtools_filter", "extra_args", ""),
     shell:
         """
         set -e -o pipefail
-        if [[ "{params.filter_mode}" == "updated" ]]; then
-            if [[ "{params.layout}" == "PE" ]]; then
-                TMPD=$(mktemp -d)
-                trap 'rm -rf "$TMPD"' EXIT
-                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c -f 2 {params.extra} {input.bam:q} \
-                    >"$TMPD/filtered.bam"
-                samtools view "$TMPD/filtered.bam" \
-                    | cut -f1 \
-                    | LC_ALL=C sort \
-                    | uniq -c \
-                    | awk '$1 == 2 {{print $2}}' \
-                        >"$TMPD/names.txt"
-                if [[ -s "$TMPD/names.txt" ]]; then
-                    samtools view -@ {threads} -b -N "$TMPD/names.txt" "$TMPD/filtered.bam" >{output.bam:q}
-                else
-                    samtools view -@ {threads} -b -N /dev/null "$TMPD/filtered.bam" >{output.bam:q}
-                fi
+        if [[ "{params.layout}" == "PE" ]]; then
+            TMPD=$(mktemp -d)
+            trap 'rm -rf "$TMPD"' EXIT
+            samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c -f 2 {params.extra} {input.bam:q} \
+                >"$TMPD/filtered.bam"
+            samtools view "$TMPD/filtered.bam" \
+                | cut -f1 \
+                | LC_ALL=C sort \
+                | uniq -c \
+                | awk '$1 == 2 {{print $2}}' \
+                    >"$TMPD/names.txt"
+            if [[ -s "$TMPD/names.txt" ]]; then
+                samtools view -@ {threads} -b -N "$TMPD/names.txt" "$TMPD/filtered.bam" >{output.bam:q}
             else
-                samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c {params.extra} {input.bam:q} >{output.bam:q}
+                samtools view -@ {threads} -b -N /dev/null "$TMPD/filtered.bam" >{output.bam:q}
             fi
         else
-            samtools view -@ {threads} -b -q {params.mapq} {params.filter_flags} {params.extra} {input.bam:q} >{output.bam:q}
+            samtools view -@ {threads} -b -q {params.mapq} -F 0xb0c {params.extra} {input.bam:q} >{output.bam:q}
         fi
         """
 
@@ -281,9 +275,6 @@ rule samtools_index_filt:
 # ---------------------------------------------------------------------------
 
 
-DUPLICATE_ENV = "../envs/duplicate.yml" if is_updated_profile() else "../envs/samtools.yml"
-
-
 rule duplicate_handling:
     input:
         bam=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.{MAPQ_TAG}.bam",
@@ -294,11 +285,9 @@ rule duplicate_handling:
         bai=f"{RAW_OUTDIR}/{{sample}}/02_align/{{sample}}.final.bam.bai",
         metrics=f"{RAW_OUTDIR}/{{sample}}/01_qc/{{sample}}.dup_metrics.txt",
     conda:
-        DUPLICATE_ENV
+        "../envs/duplicate.yml"
     threads: THREADS
     params:
-        remove_dup=lambda wc: get_remove_dup(wc),
-        duplicate_mode=lambda wc: get_duplicate_mode(wc),
         picard_od=(
             f"OPTICAL_DUPLICATE_PIXEL_DISTANCE={v}"
             if (v := _tool_param("picard_markduplicates", "optical_duplicate_pixel_distance", "")) != ""
@@ -308,55 +297,17 @@ rule duplicate_handling:
     shell:
         """
         set -e -o pipefail
-        if [[ "{params.duplicate_mode}" == "mark" ]]; then
-            if ! command -v picard >/dev/null 2>&1; then
-                echo "ERROR: updated profile requires Picard MarkDuplicates" >&2
-                exit 1
-            fi
-            picard MarkDuplicates \
-                I={input.bam:q} \
-                O={output.bam:q} \
-                M={output.metrics:q} \
-                REMOVE_DUPLICATES=false \
-                {params.picard_od} {params.picard_extra}
-            samtools index -@ {threads} {output.bam}
-        elif [[ "{params.remove_dup}" == "yes" ]]; then
-            if command -v picard >/dev/null 2>&1; then
-                picard MarkDuplicates \
-                    I={input.bam:q} \
-                    O={output.bam:q} \
-                    M={output.metrics:q} \
-                    REMOVE_DUPLICATES=true \
-                    {params.picard_od} {params.picard_extra}
-            else
-                # samtools markdup fallback
-                OUT_BAM_DIR=$(dirname {output.bam:q})
-                TMP_NAME="$OUT_BAM_DIR/{wildcards.sample}.name.bam"
-                TMP_FIX="$OUT_BAM_DIR/{wildcards.sample}.fixmate.bam"
-                TMP_POS="$OUT_BAM_DIR/{wildcards.sample}.pos.bam"
-                samtools sort -n -@ {threads} -o "$TMP_NAME" {input.bam:q}
-                samtools fixmate -m -@ {threads} "$TMP_NAME" "$TMP_FIX"
-                samtools sort -@ {threads} -o "$TMP_POS" "$TMP_FIX"
-                samtools markdup -r -@ {threads} "$TMP_POS" {output.bam:q}
-                rm -f "$TMP_NAME" "$TMP_FIX" "$TMP_POS"
-                echo "samtools markdup used (picard not found)." >{output.metrics}
-            fi
-            samtools index -@ {threads} {output.bam}
-        else
-            if command -v picard >/dev/null 2>&1; then
-                picard MarkDuplicates \
-                    I={input.bam:q} \
-                    O=/dev/null \
-                    M={output.metrics:q} \
-                    REMOVE_DUPLICATES=false \
-                    {params.picard_od} {params.picard_extra} \
-                    >/dev/null 2>&1 || true
-            else
-                echo "picard not found; duplicate metrics unavailable." >{output.metrics}
-            fi
-            ln -sf $(basename {input.bam}) {output.bam}
-            ln -sf $(basename {input.bai}) {output.bai}
+        if ! command -v picard >/dev/null 2>&1; then
+            echo "ERROR: Picard MarkDuplicates is required to mark duplicates" >&2
+            exit 1
         fi
+        picard MarkDuplicates \
+            I={input.bam:q} \
+            O={output.bam:q} \
+            M={output.metrics:q} \
+            REMOVE_DUPLICATES=false \
+            {params.picard_od} {params.picard_extra}
+        samtools index -@ {threads} {output.bam}
         """
 
 

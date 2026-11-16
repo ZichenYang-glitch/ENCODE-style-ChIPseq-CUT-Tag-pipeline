@@ -129,6 +129,24 @@ FAULTS = {
     "summarizeRunBrowserTrackRegion": ("browser_track_service", "region_summary"),
     "readRunBrowserTrackBytes": ("browser_track_service", "open_bytes"),
     "headRunBrowserTrackBytes": ("browser_track_service", "open_bytes"),
+    "authoringListProjects": ("authoring_service", "list_projects"),
+    "authoringListProjectSamples": ("authoring_service", "list_samples"),
+    "authoringListProjectInputRevisions": (
+        "authoring_service",
+        "list_input_revisions",
+    ),
+    "authoringListSessions": ("authoring_service", "list_sessions"),
+    "authoringCreateSession": ("authoring_service", "create_session"),
+    "authoringGetSession": ("authoring_service", "get_session"),
+    "authoringListReceipts": ("authoring_service", "list_adoption_receipts"),
+    "authoringSaveDraft": ("authoring_service", "save_draft"),
+    "authoringOpenConnection": ("authoring_service", "open_connection"),
+    "authoringCloseConnection": ("authoring_service", "close_connection"),
+    "authoringCreateTurn": ("authoring_service", "start_turn"),
+    "authoringGetTurn": ("authoring_service", "get_turn"),
+    "authoringAdoptProposal": ("authoring_service", "adopt"),
+    "authoringRejectProposal": ("authoring_service", "reject"),
+    "authoringValidateDraft": ("authoring_service", "validate"),
 }
 SPECIAL_MODELS = {
     "createRun": "RunResponse",
@@ -144,6 +162,7 @@ SPECIAL_MODELS = {
     "summarizeRunBrowserTrackRegion": "BrowserErrorResponse",
     "readRunBrowserTrackBytes": "BrowserErrorResponse",
     "headRunBrowserTrackBytes": "BrowserErrorResponse",
+    "authoringValidateDraft": "AuthoringValidationResponse",
 }
 
 
@@ -211,6 +230,10 @@ def error_api(tmp_path):
             generation=GENERATION,
             revision=REVISION,
             file_token=REVISION,
+            project_id="prj_" + "1" * 32,
+            sid="aas_" + "ab" * 16,
+            turn_id="atr_" + "cd" * 16,
+            proposal_id="prop_" + "ef" * 16,
         )
         payloads = {
             "login": {"username": "test-admin", "password": "private-payload-marker"},
@@ -228,6 +251,26 @@ def error_api(tmp_path):
                 "generation": GENERATION,
                 "revision": REVISION,
             },
+            "authoringCreateSession": {
+                "project_id": "prj_" + "1" * 32,
+                "workflow_id": WORKFLOW,
+            },
+            "authoringSaveDraft": {"expected_revision": 0, "config": {}},
+            "authoringCreateTurn": {
+                "client_turn_id": "turn-1",
+                "expected_revision": 0,
+                "question": {
+                    "intent": "suggest",
+                    "field_tokens": ["config.threads"],
+                    "preferences": [],
+                },
+            },
+            "authoringAdoptProposal": {
+                "expected_revision": 0,
+                "proposal_digest": "a" * 64,
+            },
+            "authoringRejectProposal": {"proposal_digest": "b" * 64},
+            "authoringValidateDraft": {"expected_revision": 0},
         }
         params = {}
         if operation in {

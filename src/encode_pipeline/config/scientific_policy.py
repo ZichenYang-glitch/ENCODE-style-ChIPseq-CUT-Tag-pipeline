@@ -19,10 +19,14 @@ scientific behavior.
 # diagnostic stages, analysis policy JSON, and same-policy reporting.
 # 6 = SCI-6 analysis R1/SE cross-correlation input, phantom exclusion and
 # versioned diagnostic interpretation shared by sample/project reports.
-SCIENTIFIC_POLICY_REVISION = 6
+# 7 = one analysis path. analysis_profile and remove_dup are rejected,
+# Picard only marks duplicates, and every run uses the filtered analysis
+# BAM plus matched FASTQ controls.
+SCIENTIFIC_POLICY_REVISION = 7
 
 # Schema version of the .helixweave/analysis_identity.json marker.
 # Version 1 markers were the unversioned {"identity", "analysis_profile"}
-# payloads written before the marker format was versioned; they are
-# rejected as outdated rather than reinterpreted.
-ANALYSIS_MARKER_SCHEMA_VERSION = 2
+# payloads written before the marker format was versioned. Version 2
+# records still carry analysis_profile. Both are rejected as outdated
+# rather than reinterpreted. Version 3 has no selectable analysis profile.
+ANALYSIS_MARKER_SCHEMA_VERSION = 3

@@ -49,7 +49,7 @@ artifacts:
   manifest_output_type: fragment_cpm_bigwig
   pipeline_done: false
   rule_all: true
-  config_gate: 'analysis_profile: updated + fragment_cpm: auto|on + eligible assay'
+  config_gate: 'fragment_cpm: auto|on + eligible assay'
   notes: one fragment per pair (PE adds --samFlagInclude 64); ChIP-seq remains read-level
 - id: mnase_fragment_cpm_bigwig
   description: MNase mono-nucleosome fragment CPM BigWig
@@ -62,7 +62,7 @@ artifacts:
   manifest_output_type: mnase_fragment_cpm_bigwig
   pipeline_done: false
   rule_all: true
-  config_gate: 'analysis_profile: updated + fragment_cpm: auto|on + assay: mnase'
+  config_gate: 'fragment_cpm: auto|on + assay: mnase'
   notes: mono-nucleosome fragment occupancy; PE adds --samFlagInclude 64
 - id: analysis_filtered_fragment_cpm_bigwig
   description: Analysis-filtered fragment-level CPM BigWig
@@ -101,7 +101,7 @@ artifacts:
   manifest_output_type: tss_fragment_matrix
   pipeline_done: true
   rule_all: true
-  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  config_gate: 'tss_fragment_profile: true'
   notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
 - id: tss_fragment_profile_tsv
   description: Fragment-occupancy TSS profile TSV
@@ -114,7 +114,7 @@ artifacts:
   manifest_output_type: tss_fragment_profile_tsv
   pipeline_done: true
   rule_all: true
-  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  config_gate: 'tss_fragment_profile: true'
   notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
 - id: tss_fragment_profile_pdf
   description: Fragment-occupancy TSS profile PDF
@@ -127,7 +127,7 @@ artifacts:
   manifest_output_type: tss_fragment_profile_pdf
   pipeline_done: true
   rule_all: true
-  config_gate: 'analysis_profile: updated + tss_fragment_profile: true'
+  config_gate: 'tss_fragment_profile: true'
   notes: descriptive fragment occupancy, not an ENCODE TSS enrichment score
 - id: analysis_filtered_tss_fragment_matrix
   description: Analysis-filtered fragment TSS matrix

@@ -359,8 +359,6 @@ def test_policy_writer_marks_an_unknown_v2_component_as_parse_failed(
             "chipseq",
             "--genome",
             "hs",
-            "--profile",
-            "legacy",
             "--policy-revision",
             "5",
             "--duplicate-analysis",

@@ -16,7 +16,6 @@ MNASE_QC_SCHEMA_VERSION = "2"
 FRAGMENT_QC_SCHEMA_VERSION = "2"
 MITO_QC_SCHEMA_VERSION = "2"
 ANALYSIS_TEMPLATE_METRICS_SCHEMA_VERSION = "2"
-ANALYSIS_POLICY_SCHEMA_VERSION = "2"
 
 SAMPLE_QC_V1_COLUMNS = (
     "sample",
@@ -267,8 +266,11 @@ ANALYSIS_POLICY_V1_KEYS = (
 )
 
 # Version 2 adds an explicit reason for analysis-template counts that are NA.
-# Version 1 records remain readable and are never rewritten by extraction.
+# Version 1 and 2 records remain readable and are never rewritten.
+# Version 3 drops the selectable analysis profile; scientific_policy_revision
+# identifies the single analysis path.
 ANALYSIS_POLICY_KEYS = ANALYSIS_POLICY_V1_KEYS + ("analysis_template_status",)
+ANALYSIS_POLICY_V3_KEYS = tuple(key for key in ANALYSIS_POLICY_KEYS if key != "profile")
 
 ANALYSIS_POLICY_INPUT_STAGE_KEYS = (
     "fragment_size",

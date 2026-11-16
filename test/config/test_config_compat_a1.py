@@ -1,7 +1,7 @@
-"""A1 config compatibility tests.
+"""Single-path config contract tests.
 
-Pin the additive compatibility surface without activating new analysis
-behavior. Legacy configs must keep their parsed semantics and paths.
+Omitted selectors resolve to one analysis path. analysis_profile and
+remove_dup are rejected instead of being remapped.
 """
 
 import yaml
@@ -42,35 +42,35 @@ def _validate(tmp_path, **overrides):
     return validate_config(config)
 
 
-def test_omitted_new_keys_resolve_to_legacy(tmp_path):
-    validated = _validate(tmp_path)
-
-    assert validated["config_schema_version"] == "1.0.0"
-    assert validated["analysis_profile"] == "legacy"
-    assert validated["blacklist_mode"] == "analysis"
-    assert validated["qc"]["blacklist_filter"] is False
-    assert validated["duplicate_analysis"] == "auto"
-    assert validated["organelle_mode"] == "auto"
-    assert validated["control_mode"] == "pooled"
-    assert validated["duplicate_backend"] == ""
-    assert validated["reference_mode"] == "legacy"
-    assert validated["external_control_policy"] == "warn"
-    assert validated["fragment_cpm"] == "off"
-    assert validated["tss_fragment_profile"] is False
-
-
-def test_explicit_v2_resolves_to_updated_raw(tmp_path):
-    validated = _validate(tmp_path, config_schema_version="2.0.0")
-
-    assert validated["config_schema_version"] == "2.0.0"
-    assert validated["analysis_profile"] == "updated"
+def _assert_single_path_defaults(validated):
+    assert "analysis_profile" not in validated
+    assert "remove_dup" not in validated
     assert validated["blacklist_mode"] == "analysis"
     assert validated["qc"]["blacklist_filter"] is False
     assert validated["duplicate_analysis"] == "auto"
     assert validated["organelle_mode"] == "auto"
     assert validated["control_mode"] == "matched"
     assert validated["duplicate_backend"] == "picard"
+    assert validated["reference_mode"] == "legacy"
+    assert validated["external_control_policy"] == "warn"
     assert validated["fragment_cpm"] == "auto"
+    assert validated["tss_fragment_profile"] is False
+
+
+def test_omitted_version_uses_the_single_path(tmp_path):
+    validated = _validate(tmp_path)
+
+    assert validated["config_schema_version"] == "1.0.0"
+    _assert_single_path_defaults(validated)
+    validate_execution_support(validated)
+
+
+def test_explicit_v2_uses_the_same_path(tmp_path):
+    validated = _validate(tmp_path, config_schema_version="2.0.0")
+
+    assert validated["config_schema_version"] == "2.0.0"
+    _assert_single_path_defaults(validated)
+    validate_execution_support(validated)
 
 
 @pytest.mark.parametrize(
@@ -103,40 +103,17 @@ def test_blacklist_alias_and_canonical_conflict_rejected(tmp_path):
         )
 
 
-def test_updated_alias_true_without_canonical_key_maps_to_copies(tmp_path):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        qc={"blacklist_filter": True},
-    )
+def test_blacklist_alias_without_profile_maps_to_copies(tmp_path):
+    validated = _validate(tmp_path, qc={"blacklist_filter": True})
     assert validated["blacklist_mode"] == "copies"
     assert validated["qc"]["blacklist_filter"] is True
 
 
-def test_legacy_analysis_branch_is_accepted_and_executable(tmp_path):
+def test_analysis_blacklist_branch_is_executable(tmp_path):
     blacklist = tmp_path / "blacklist.bed"
     blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
     validated = _validate(
         tmp_path,
-        analysis_profile="legacy",
-        blacklist_mode="analysis",
-        genome_resources={
-            "hs": {
-                "effective_genome_size": "hs",
-                "blacklist": str(blacklist),
-            }
-        },
-    )
-    assert validated["blacklist_mode"] == "analysis"
-    validate_execution_support(validated)
-
-
-def test_updated_analysis_branch_is_executable(tmp_path):
-    blacklist = tmp_path / "blacklist.bed"
-    blacklist.write_text("chr1\t0\t10\n", encoding="utf-8")
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
         blacklist_mode="analysis",
         genome_resources={
             "hs": {
@@ -150,104 +127,63 @@ def test_updated_analysis_branch_is_executable(tmp_path):
     assert validated["qc"]["blacklist_filter"] is False
 
 
-def test_remove_dup_conflicts_with_duplicate_analysis(tmp_path):
-    with pytest.raises(ValidationError, match="remove_dup=no conflicts"):
-        _validate(
-            tmp_path,
-            analysis_profile="updated",
-            remove_dup="no",
-            duplicate_analysis="exclude",
-        )
-    with pytest.raises(ValidationError, match="remove_dup=yes conflicts"):
-        _validate(
-            tmp_path,
-            analysis_profile="updated",
-            remove_dup="yes",
-            duplicate_analysis="retain",
-        )
+@pytest.mark.parametrize("key", ["analysis_profile", "remove_dup"])
+@pytest.mark.parametrize("value", ["legacy", "updated", "auto", "yes", "no"])
+def test_removed_selectors_are_rejected(tmp_path, key, value):
+    with pytest.raises(ValidationError, match=key) as exc:
+        _validate(tmp_path, **{key: value})
+    message = str(exc.value)
+    assert "duplicate_analysis" in message
+    assert "auto" in message
 
 
-def test_remove_dup_auto_does_not_override_explicit_duplicate_analysis(tmp_path):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        remove_dup="auto",
-        duplicate_analysis="retain",
-    )
-    assert validated["duplicate_analysis"] == "retain"
-
-
-def test_updated_remove_dup_no_maps_to_retain(tmp_path):
-    validated = _validate(tmp_path, analysis_profile="updated", remove_dup="no")
-    assert validated["duplicate_analysis"] == "retain"
-
-
-def test_legacy_explicit_duplicate_analysis_is_accepted(tmp_path):
-    validated = _validate(tmp_path, duplicate_analysis="retain")
-    assert validated["duplicate_analysis"] == "retain"
-
-
-def test_duplicate_policy_resolution_is_idempotent(tmp_path):
-    first = _validate(tmp_path, analysis_profile="updated", remove_dup="auto")
+def test_explicit_duplicate_analysis_is_idempotent(tmp_path):
+    first = _validate(tmp_path, duplicate_analysis="retain")
+    assert first["duplicate_analysis"] == "retain"
+    assert "remove_dup" not in first
     second = validate_config(first)
     assert first == second
+    validate_execution_support(second)
 
 
-def test_updated_remove_dup_no_and_retain_accepted(tmp_path):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        remove_dup="no",
-        duplicate_analysis="retain",
-    )
-    assert validated["duplicate_analysis"] == "retain"
-
-
-def test_legacy_duplicate_policy_is_derived(tmp_path):
-    validated = _validate(tmp_path, remove_dup="no")
-    assert validated["duplicate_analysis"] == "retain"
+def test_duplicate_analysis_auto_stays_unresolved(tmp_path):
+    validated = _validate(tmp_path, duplicate_analysis="auto")
+    assert validated["duplicate_analysis"] == "auto"
+    validate_execution_support(validated)
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("key", "value"),
     [
-        {"analysis_profile": "legacy", "fragment_cpm": "auto"},
-        {"analysis_profile": "legacy", "fragment_cpm": "on"},
-        {"analysis_profile": "legacy", "tss_fragment_profile": True},
-        {"analysis_profile": "legacy", "control_mode": "matched"},
-        {"analysis_profile": "legacy", "duplicate_backend": "picard"},
+        ("control_mode", "pooled"),
+        ("control_mode", "auto"),
+        ("duplicate_backend", "samtools"),
+        ("duplicate_backend", ""),
     ],
 )
-def test_unimplemented_or_legacy_incompatible_modes_rejected(tmp_path, overrides):
-    with pytest.raises(ValidationError):
-        _validate(tmp_path, **overrides)
+def test_non_executable_control_and_backend_are_rejected(tmp_path, key, value):
+    with pytest.raises(ValidationError, match=key):
+        _validate(tmp_path, **{key: value})
 
 
-def test_updated_tss_fragment_profile_requires_fragment_cpm(tmp_path):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        tss_fragment_profile=True,
-    )
+def test_tss_fragment_profile_requires_fragment_cpm(tmp_path):
+    validated = _validate(tmp_path, tss_fragment_profile=True)
     assert validated["tss_fragment_profile"] is True
     validate_execution_support(validated)
     with pytest.raises(ValidationError, match="requires fragment_cpm != off"):
         _validate(
             tmp_path,
-            analysis_profile="updated",
             fragment_cpm="off",
             tss_fragment_profile=True,
         )
 
 
-@pytest.mark.parametrize("mode", ["auto", "on"])
-def test_updated_fragment_cpm_modes_accepted(tmp_path, mode):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        fragment_cpm=mode,
-    )
+@pytest.mark.parametrize("mode", ["off", "auto", "on"])
+def test_fragment_cpm_modes_accepted(tmp_path, mode):
+    validated = _validate(tmp_path, fragment_cpm=mode)
     assert validated["fragment_cpm"] == mode
+    if mode != "off":
+        validate_execution_support(validated)
 
 
 def test_organelle_chroms_resource_is_accepted(tmp_path):
@@ -346,9 +282,7 @@ def test_workspace_render_roundtrip_is_idempotent(tmp_path):
 
     keys = (
         "config_schema_version",
-        "analysis_profile",
         "blacklist_mode",
-        "remove_dup",
         "duplicate_analysis",
         "organelle_mode",
         "control_mode",
@@ -358,6 +292,8 @@ def test_workspace_render_roundtrip_is_idempotent(tmp_path):
         "fragment_cpm",
         "tss_fragment_profile",
     )
+    assert "analysis_profile" not in revalidated
+    assert "remove_dup" not in revalidated
     for key in keys:
         assert revalidated[key] == validated[key], key
     assert revalidated["qc"]["blacklist_filter"] is validated["qc"]["blacklist_filter"]
@@ -374,7 +310,6 @@ def test_analysis_mode_normalizes_and_renders_idempotently(tmp_path):
     }
     validated = _validate(
         tmp_path,
-        analysis_profile="updated",
         blacklist_mode="analysis",
         genome_resources=resources,
     )
@@ -401,14 +336,13 @@ def test_validation_has_no_filesystem_side_effects(tmp_path):
     assert after == before
 
 
-def test_authoring_schema_exposes_a1_keys_and_executable_legacy_defaults():
+def test_authoring_schema_exposes_the_single_path():
     schema = build_encode_authoring_schema()
     assert schema.schema_version == SCHEMA_VERSION
     properties = schema.config_schema["properties"]
 
     for key in (
         "config_schema_version",
-        "analysis_profile",
         "blacklist_mode",
         "organelle_mode",
         "duplicate_backend",
@@ -420,25 +354,19 @@ def test_authoring_schema_exposes_a1_keys_and_executable_legacy_defaults():
         "tss_fragment_profile",
     ):
         assert key in properties
+    assert "analysis_profile" not in properties
+    assert "remove_dup" not in properties
 
     assert properties["config_schema_version"]["default"] == "1.0.0"
-    assert properties["analysis_profile"]["default"] == "legacy"
     assert properties["blacklist_mode"]["default"] == "analysis"
     assert properties["organelle_mode"]["default"] == "auto"
-    assert properties["duplicate_backend"]["default"] == ""
-    assert properties["control_mode"]["default"] == "pooled"
+    assert properties["duplicate_backend"]["default"] == "picard"
+    assert properties["duplicate_backend"]["enum"] == ["picard"]
+    assert properties["duplicate_analysis"]["default"] == "auto"
+    assert properties["control_mode"]["default"] == "matched"
+    assert properties["control_mode"]["enum"] == ["matched"]
+    assert properties["fragment_cpm"]["default"] == "auto"
     assert "blacklist_filter" not in properties["qc"]["properties"]
-    assert "" in properties["duplicate_backend"]["enum"]
-
-
-def test_updated_control_mode_auto_rejected_at_execution(tmp_path):
-    validated = _validate(
-        tmp_path,
-        analysis_profile="updated",
-        control_mode="auto",
-    )
-    with pytest.raises(ValidationError, match="requires control_mode=matched"):
-        validate_execution_support(validated)
 
 
 def test_default_template_canonical_copies_override(tmp_path):

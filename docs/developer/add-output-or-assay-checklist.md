@@ -109,11 +109,13 @@ All of the above (items 1-11), plus:
   assay to the `assay` enum.
 - [ ] **Config:** Add assay-specific config block if needed.
 - [ ] **Policy file:** Create `workflow/rules/<assay>.smk` with
-  `get_remove_dup_<assay>()`, `get_extend_reads_<assay>()`,
-  `get_macs3_args_<assay>()` policy functions. For non-peak-centric assays,
-  the MACS3 function should raise `ValueError`.
+  `get_extend_reads_<assay>()` and `get_macs3_args_<assay>()`. For
+  non-peak-centric assays, the MACS3 function should raise `ValueError`.
+  Duplicate policy is not per peak mode. Add the assay to
+  `get_duplicate_policy_for_assay()` only when its auto default differs
+  from exclude.
 - [ ] **Dispatch functions:** `workflow/rules/metadata.smk` — add `<assay>`
-  branch to `get_remove_dup()`, `get_macs3_args()`, `get_extend_reads()`.
+  branch to `get_macs3_args()` and `get_extend_reads()`.
 - [ ] **Derived lists:** `workflow/Snakefile` — add `<ASSAY>_SAMPLE_IDS` and
   `<ASSAY>_MULTI_BIOREP_EXPERIMENTS`. These are split across
   `workflow/Snakefile` and `workflow/rules/metadata.smk`; follow the

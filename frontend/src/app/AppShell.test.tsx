@@ -224,4 +224,24 @@ describe('AppShell navigation', () => {
       'aria-current',
     );
   });
+
+  it('offers configuration drafts for the workflow in the URL', () => {
+    renderWithRouter(routes, {
+      initialEntries: ['/workflows/rna-seq/configuration-drafts'],
+    });
+
+    const drafts = screen.getByRole('link', { name: 'Configuration drafts' });
+    expect(drafts).toHaveAttribute(
+      'href',
+      '/workflows/rna-seq/configuration-drafts',
+    );
+    expect(drafts).toHaveAttribute('aria-current', 'page');
+    expect(drafts.querySelector('.sm\\:hidden')).toHaveTextContent('Drafts');
+    expect(drafts.querySelector('.sm\\:inline')).toHaveTextContent(
+      'Configuration drafts',
+    );
+    expect(screen.getByRole('link', { name: 'New analysis' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
 });
