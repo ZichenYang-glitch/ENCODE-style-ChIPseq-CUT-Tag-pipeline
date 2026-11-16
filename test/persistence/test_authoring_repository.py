@@ -15,20 +15,29 @@ from encode_pipeline.persistence import (
 from encode_pipeline.persistence.authentication import (
     SqlAlchemyAuthenticationRepository,
 )
-from encode_pipeline.persistence.authoring import (
-    SqlAlchemyAuthoringRepository,
-    TurnCompletion,
-)
 from encode_pipeline.persistence.models import AuthSessionRow
 from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
 from encode_pipeline.platform.authentication import SessionRevocationReason
+from encode_pipeline.persistence.authoring import (
+    SqlAlchemyAuthoringRepository,
+    TurnCompletion,
+    decode_authoring_cursor,
+    decode_receipt_cursor,
+)
 from encode_pipeline.platform.authoring import (
     AUTHENTICATION_REQUIRED,
+    CAPABILITY_CHANGED,
+    CONNECTION_NOT_READY,
+    CONNECTION_OWNED_BY_OTHER_LOGIN,
+    INVALID_REQUEST,
+    NOT_FOUND,
+    PROPOSAL_INVALIDATED,
+    STALE_DRAFT,
+    TURN_REQUEST_CONFLICT,
+    TURN_RESULT_CONFLICT,
     AuthoringActor,
     AuthoringRejected,
     DRAFT_EXPIRED,
-    NOT_FOUND,
-    STALE_DRAFT,
     draft_digest,
     empty_draft_content,
     proposal_digest,
@@ -719,3 +728,292 @@ def _cursor_turn(value: str):
     from encode_pipeline.persistence.authoring import decode_receipt_cursor
 
     return decode_receipt_cursor(value)[1]
+
+
+def _open_ready(repository, actor, project_id, epoch="epoch-1"):
+    created = repository.create_session(
+        actor,
+        project_id=project_id,
+        workflow_id="encode-style-chipseq-cuttag-atac-mnase",
+        schema_digest="a" * 64,
+        projection_digest="b" * 64,
+    )
+    claim = repository.open_connection(
+        actor,
+        created.sid,
+        owner_epoch=epoch,
+        projection_digest="b" * 64,
+    )
+    ready = repository.mark_connection_ready(
+        actor,
+        created.sid,
+        generation=claim.record.generation,
+        instance_id="instance-1",
+        owner_epoch=epoch,
+    )
+    return ready
+
+
+def test_repository_fences_epochs_and_rejects_conflicting_turns(
+    repository, actor, project_id, clock, auth_repository
+):
+    ready = _open_ready(repository, actor, project_id)
+    assert repository.retire_owner_epoch("epoch-1") == 1
+    assert repository.retire_owner_epoch("epoch-1") == 0
+    assert repository.retire_foreign_epochs("other-epoch") == 0
+    with pytest.raises(AuthoringRejected) as closed:
+        repository.start_turn(
+            actor,
+            ready.sid,
+            client_turn_id="after-fence",
+            request_digest="1" * 64,
+            question={"intent": "suggest"},
+            expected_revision=0,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="epoch-1",
+        )
+    assert closed.value.reason_code == CONNECTION_NOT_READY
+
+    live = _open_ready(repository, actor, project_id, epoch="epoch-2")
+    with pytest.raises(AuthoringRejected) as stale:
+        repository.start_turn(
+            actor,
+            live.sid,
+            client_turn_id="stale",
+            request_digest="2" * 64,
+            question={"intent": "suggest"},
+            expected_revision=4,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="epoch-2",
+        )
+    assert stale.value.reason_code == STALE_DRAFT
+    with pytest.raises(AuthoringRejected) as changed:
+        repository.start_turn(
+            actor,
+            live.sid,
+            client_turn_id="changed",
+            request_digest="3" * 64,
+            question={"intent": "suggest"},
+            expected_revision=0,
+            schema_digest="c" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="epoch-2",
+        )
+    assert changed.value.reason_code == CAPABILITY_CHANGED
+    with pytest.raises(AuthoringRejected) as wrong_projection:
+        repository.open_connection(
+            actor,
+            live.sid,
+            owner_epoch="epoch-2",
+            projection_digest="d" * 64,
+        )
+    assert wrong_projection.value.reason_code == CAPABILITY_CHANGED
+    with pytest.raises(AuthoringRejected) as wrong_epoch:
+        repository.start_turn(
+            actor,
+            live.sid,
+            client_turn_id="wrong-epoch",
+            request_digest="4" * 64,
+            question={"intent": "suggest"},
+            expected_revision=0,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="other-epoch",
+        )
+    assert wrong_epoch.value.reason_code == CONNECTION_NOT_READY
+
+    turn, replayed = repository.start_turn(
+        actor,
+        live.sid,
+        client_turn_id="owned-turn",
+        request_digest="5" * 64,
+        question={"intent": "suggest"},
+        expected_revision=0,
+        schema_digest="a" * 64,
+        projection_digest="b" * 64,
+        owner_epoch="epoch-2",
+    )
+    assert replayed is False
+    with pytest.raises(AuthoringRejected) as conflict:
+        repository.start_turn(
+            actor,
+            live.sid,
+            client_turn_id="owned-turn",
+            request_digest="6" * 64,
+            question={"intent": "suggest"},
+            expected_revision=0,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="epoch-2",
+        )
+    assert conflict.value.reason_code == TURN_REQUEST_CONFLICT
+    _again, replayed = repository.start_turn(
+        actor,
+        live.sid,
+        client_turn_id="owned-turn",
+        request_digest="5" * 64,
+        question={"intent": "suggest"},
+        expected_revision=0,
+        schema_digest="a" * 64,
+        projection_digest="b" * 64,
+        owner_epoch="epoch-2",
+    )
+    assert replayed is True
+    with pytest.raises(AuthoringRejected) as busy:
+        repository.start_turn(
+            actor,
+            live.sid,
+            client_turn_id="second-turn",
+            request_digest="7" * 64,
+            question={"intent": "suggest"},
+            expected_revision=0,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            owner_epoch="epoch-2",
+        )
+    assert busy.value.reason_code == CONNECTION_NOT_READY
+    with pytest.raises(AuthoringRejected) as missing_turn:
+        repository.complete_turn(
+            actor,
+            "atr_" + "ab" * 16,
+            _proposal(turn),
+            live_schema_digest="a" * 64,
+            live_projection_digest="b" * 64,
+        )
+    assert missing_turn.value.reason_code == NOT_FOUND
+    stranger = AuthoringActor(user_id="usr_" + "cd" * 16, session_digest="e" * 64)
+    with pytest.raises(AuthoringRejected) as stranger_turn:
+        repository.complete_turn(
+            stranger,
+            turn.turn_id,
+            _proposal(turn),
+            live_schema_digest="a" * 64,
+            live_projection_digest="b" * 64,
+        )
+    assert stranger_turn.value.reason_code == NOT_FOUND
+
+    replacement = _open_ready(repository, actor, project_id, epoch="epoch-3")
+    fresh, _replayed = repository.start_turn(
+        actor,
+        replacement.sid,
+        client_turn_id="fresh",
+        request_digest="8" * 64,
+        question={"intent": "suggest"},
+        expected_revision=0,
+        schema_digest="a" * 64,
+        projection_digest="b" * 64,
+        owner_epoch="epoch-3",
+    )
+    mismatched = repository.complete_turn(
+        actor,
+        fresh.turn_id,
+        _proposal(fresh),
+        live_schema_digest="c" * 64,
+        live_projection_digest="b" * 64,
+    )
+    assert mismatched.status == "failed"
+    assert mismatched.failure_reason == CAPABILITY_CHANGED
+    another, _replayed = repository.start_turn(
+        actor,
+        replacement.sid,
+        client_turn_id="another",
+        request_digest="9" * 64,
+        question={"intent": "suggest"},
+        expected_revision=0,
+        schema_digest="a" * 64,
+        projection_digest="b" * 64,
+        owner_epoch="epoch-3",
+    )
+    completed = repository.complete_turn(
+        actor,
+        another.turn_id,
+        _proposal(another),
+        live_schema_digest="a" * 64,
+        live_projection_digest="b" * 64,
+    )
+    assert completed.status == "completed"
+    other_completion = _proposal(another)
+    other_completion = TurnCompletion(
+        kind="proposal",
+        result_digest="f" * 64,
+        proposal_id=other_completion.proposal_id,
+        proposal=other_completion.proposal,
+        proposal_digest="f" * 64,
+    )
+    with pytest.raises(AuthoringRejected) as result_conflict:
+        repository.complete_turn(
+            actor,
+            another.turn_id,
+            other_completion,
+            live_schema_digest="a" * 64,
+            live_projection_digest="b" * 64,
+        )
+    assert result_conflict.value.reason_code == TURN_RESULT_CONFLICT
+    with pytest.raises(AuthoringRejected) as missing_proposal:
+        repository.get_proposal(actor, replacement.sid, "prop_" + "00" * 16)
+    assert missing_proposal.value.reason_code == NOT_FOUND
+    with pytest.raises(AuthoringRejected) as stale_validation:
+        repository.store_validation(
+            actor,
+            replacement.sid,
+            expected_revision=9,
+            schema_digest="a" * 64,
+            projection_digest="b" * 64,
+            snapshot_id=None,
+            issue_codes=(),
+            issues=(),
+        )
+    assert stale_validation.value.reason_code == STALE_DRAFT
+    with pytest.raises(AuthoringRejected) as changed_validation:
+        repository.store_validation(
+            actor,
+            replacement.sid,
+            expected_revision=replacement.revision,
+            schema_digest="c" * 64,
+            projection_digest="b" * 64,
+            snapshot_id=None,
+            issue_codes=(),
+            issues=(),
+        )
+    assert changed_validation.value.reason_code == CAPABILITY_CHANGED
+
+    passwords = PasswordManager(FAST_PROFILE)
+    second_login = AuthenticationService(
+        repository=auth_repository,
+        password_manager=passwords,
+        now_factory=clock,
+    ).login("owner", "correct horse battery staple", client_identity="127.0.0.1")
+    second = AuthoringActor(
+        user_id=second_login.principal.user_id,
+        session_digest=digest_session_token(second_login.secrets.session_token),
+    )
+    with pytest.raises(AuthoringRejected) as owned_by_other:
+        repository.open_connection(
+            second,
+            replacement.sid,
+            owner_epoch="epoch-3",
+            projection_digest="b" * 64,
+        )
+    assert owned_by_other.value.reason_code == CONNECTION_OWNED_BY_OTHER_LOGIN
+    assert (
+        repository.connection_still_authorized(
+            sid=replacement.sid,
+            generation=99,
+            instance_id="instance-1",
+            owner_epoch="epoch-3",
+            user_id=actor.user_id,
+            auth_session_digest=actor.session_digest,
+        )
+        is False
+    )
+    assert repository.peek_session("aas_" + "0" * 32) is None
+    clock.now = NOW + timedelta(days=400)
+    assert repository.peek_session(replacement.sid) is None
+    with pytest.raises(AuthoringRejected) as bad_cursor:
+        decode_authoring_cursor("not-a-cursor")
+    assert bad_cursor.value.reason_code == INVALID_REQUEST
+    with pytest.raises(AuthoringRejected) as bad_receipt:
+        decode_receipt_cursor(None)  # type: ignore[arg-type]
+    assert bad_receipt.value.reason_code == INVALID_REQUEST
