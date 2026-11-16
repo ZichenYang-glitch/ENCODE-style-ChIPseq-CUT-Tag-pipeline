@@ -1,0 +1,10 @@
+{
+  "head": "e00130e2d5e55b3197624ef6bff9c25fd687cf87",
+  "sole_qualification_change": "candidate BINARY_SHA256",
+  "environment": "/tmp/helixweave-peri-qualification-review-20261115-ossu4mss/env",
+  "locked_dependencies_source": "/tmp/hw-a1-ci-fast-20261112",
+  "lock_match": true,
+  "conda_packages": 175,
+  "symlinked_dependency_entries": 0,
+  "dependencies_copied_locally": 269
+}

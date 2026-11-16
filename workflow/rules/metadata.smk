@@ -20,7 +20,7 @@ CONTROL_SAMPLES_BY_EXPERIMENT: dict[str, list[str]] = {
 
 
 def analysis_bam(sample):
-    """Return the canonical analysis BAM for a sample across both profiles."""
+    """Return the canonical analysis BAM used by MACS3 and downstream QC."""
     return f"{OUTDIR}/{sample}/02_align/{sample}.analysis.bam"
 
 
@@ -755,10 +755,10 @@ def _biorep_control_bai(experiment, bio_rep):
 def _macs3_inputs(wildcards):
     """Return input list for macs3_callpeak.
 
-    Elements: [treatment_final.bam, treatment_final.bam.bai, ...optional_control]
-    - treatment final.bam + final.bam.bai are always included.
-    - use_control gates both FASTQ-based control_sample and external control_bam.
-      When false, control_sample and control_bam are silently ignored.
+    Elements: [treatment analysis BAM, its index, ...optional control analysis BAM]
+    - The treatment analysis BAM and index are always included.
+    - use_control gates a FASTQ ``control_sample``. When false, control
+      references are ignored. An external ``control_bam`` is rejected.
     """
     s = SAMPLE_MAP[wildcards.sample]
     sid = wildcards.sample

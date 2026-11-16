@@ -272,6 +272,18 @@ def _translate_authoring_config(
     return Result.success(translated)
 
 
+def _input_use_contract_issue() -> Issue:
+    return Issue(
+        code="INPUT_USE_CAPABILITY_UNAVAILABLE",
+        message=(
+            "The exact workflow input use does not support managed revision selection."
+        ),
+        severity="error",
+        path="workflow_samples",
+        source="adapter",
+    )
+
+
 class EncodeStyleWorkflowAdapter:
     """Adapter wrapper for the current ENCODE-style Snakemake workflow."""
 
@@ -324,6 +336,89 @@ class EncodeStyleWorkflowAdapter:
         )
 
         return build_encode_authoring_schema()
+
+    def declare_input_uses(
+        self,
+        inputs: WorkflowInputs,
+        validated: object,
+    ) -> Result[object]:
+        """Declare one managed regular file for each occupied sample read.
+
+        Coordinates are the sample id and read number. The declaration does
+        not copy filesystem paths. Execution handoff stays unqualified.
+        """
+
+        del validated
+        from encode_pipeline.platform.input_registry import (
+            AdapterInputUseContract,
+            InputProvenanceMode,
+            InputUseDeclaration,
+        )
+
+        samples = inputs.samples
+        if not isinstance(samples, list) or not samples:
+            return Result.failure([_input_use_contract_issue()])
+        declarations: list[InputUseDeclaration] = []
+        for row in samples:
+            if not isinstance(row, Mapping):
+                return Result.failure([_input_use_contract_issue()])
+            sample = row.get("sample")
+            if not isinstance(sample, str) or not sample:
+                return Result.failure([_input_use_contract_issue()])
+            for occurrence, column in ((1, "fastq_1"), (2, "fastq_2")):
+                present = row.get(column) or ""
+                if not isinstance(present, str):
+                    return Result.failure([_input_use_contract_issue()])
+                if not present:
+                    continue
+                try:
+                    declarations.append(
+                        InputUseDeclaration(
+                            key=sample,
+                            occurrence=occurrence,
+                            capability_version="encode-sample-read-v1",
+                            closure_contract_version="regular_file_v1",
+                            allowed_provenance_modes=(
+                                InputProvenanceMode.MANAGED_REVISION_V1,
+                                InputProvenanceMode.TRANSITIONAL_UNMANAGED_V1,
+                            ),
+                        )
+                    )
+                except (TypeError, ValueError):
+                    return Result.failure([_input_use_contract_issue()])
+        if not declarations:
+            return Result.failure([_input_use_contract_issue()])
+        try:
+            contract = AdapterInputUseContract(
+                adapter_contract_version="encode-sample-reads-v1",
+                declarations=tuple(declarations),
+                allows_mixed=False,
+            )
+        except (TypeError, ValueError):
+            return Result.failure([_input_use_contract_issue()])
+        return Result.success(contract)
+
+    def locate_managed_input_path(
+        self,
+        inputs: WorkflowInputs,
+        *,
+        key: str,
+        occurrence: int,
+    ) -> str:
+        """Return the inline path this validation will read for one read coordinate."""
+
+        column = {1: "fastq_1", 2: "fastq_2"}.get(occurrence)
+        samples = inputs.samples
+        if column is None or not isinstance(samples, list):
+            raise ValueError("managed read coordinate is invalid")
+        for row in samples:
+            if not isinstance(row, Mapping) or row.get("sample") != key:
+                continue
+            value = row.get(column) or ""
+            if not isinstance(value, str) or not value.startswith("/"):
+                raise ValueError("managed read path is invalid")
+            return value
+        raise ValueError("managed read coordinate is missing")
 
     def import_input_bundle(
         self,

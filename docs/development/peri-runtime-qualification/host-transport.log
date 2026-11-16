@@ -1,0 +1,10 @@
+Running as unit: hw-peri-review-transport-ossu4mss.scope; invocation ID: 78d46fd453c24aa2891744b3146b3702
+test_connection_cap_and_close (__main__.RuntimeTests.test_connection_cap_and_close) ... ok
+test_disconnect_closes_forwarder (__main__.RuntimeTests.test_disconnect_closes_forwarder) ... ok
+test_idle_absolute_and_write_backpressure_deadlines (__main__.RuntimeTests.test_idle_absolute_and_write_backpressure_deadlines) ... ok
+test_stub_rejects_oversized_body_and_closes (__main__.RuntimeTests.test_stub_rejects_oversized_body_and_closes) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.938s
+
+OK

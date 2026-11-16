@@ -176,9 +176,23 @@ function reducer(state: InputDraftState, action: InputDraftAction): InputDraftSt
   }
 }
 
-function createInitialState(schema: WorkbenchSchema): InputDraftState {
-  const config = createDefaultObject(schema.configSchema);
-  const options = createDefaultObject(schema.optionSchema);
+export interface InputDraftSeed {
+  config?: unknown;
+  options?: unknown;
+}
+
+function createInitialState(
+  schema: WorkbenchSchema,
+  seed?: InputDraftSeed | null,
+): InputDraftState {
+  const config =
+    seed && isJsonObject(seed.config)
+      ? seed.config
+      : createDefaultObject(schema.configSchema);
+  const options =
+    seed && isJsonObject(seed.options)
+      ? seed.options
+      : createDefaultObject(schema.optionSchema);
   return {
     semanticRevision: 0,
     referenceProfileRevisionId: null,
@@ -198,8 +212,15 @@ function createInitialState(schema: WorkbenchSchema): InputDraftState {
   };
 }
 
-export function useInputDraft(schema: WorkbenchSchema) {
-  const [state, dispatch] = useReducer(reducer, schema, createInitialState);
+export function useInputDraft(
+  schema: WorkbenchSchema,
+  seed: InputDraftSeed | null = null,
+) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    { schema, seed },
+    (initial) => createInitialState(initial.schema, initial.seed),
+  );
   const sampleColumnOrder = useMemo(
     () => schema.sampleColumns.map((column) => column.key),
     [schema.sampleColumns],

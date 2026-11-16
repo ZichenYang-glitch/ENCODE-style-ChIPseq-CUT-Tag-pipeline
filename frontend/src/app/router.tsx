@@ -22,6 +22,12 @@ const NewRunWorkbenchPage = lazy(() =>
   })),
 );
 
+const ConfigurationDraftsPage = lazy(() =>
+  import('../routes/workflows/configuration-drafts').then((module) => ({
+    default: module.ConfigurationDraftsPage,
+  })),
+);
+
 const RunHistoryPage = lazy(() =>
   import('../routes/runs').then((module) => ({
     default: module.RunHistoryPage,
@@ -56,6 +62,18 @@ function NewRunWorkbenchRoute() {
   return (
     <Suspense fallback={<WorkbenchRouteLoading />}>
       <NewRunWorkbenchPage key={workflowId} workflowId={workflowId} />
+    </Suspense>
+  );
+}
+
+function ConfigurationDraftsRoute() {
+  const { workflowId } = useParams<{ workflowId: string }>();
+  if (!workflowId) {
+    return <NotFoundPage />;
+  }
+  return (
+    <Suspense fallback={<ConfigurationDraftsRouteLoading />}>
+      <ConfigurationDraftsPage key={workflowId} workflowId={workflowId} />
     </Suspense>
   );
 }
@@ -112,6 +130,10 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <WorkflowsIndexPage /> },
           { path: ':workflowId/new-run', element: <NewRunWorkbenchRoute /> },
+          {
+            path: ':workflowId/configuration-drafts',
+            element: <ConfigurationDraftsRoute />,
+          },
           { path: ':workflowId', element: <WorkflowDetailRoute /> },
         ],
       },
@@ -149,6 +171,19 @@ export const appRoutes: RouteObject[] = [
 
 export function createAppRouter() {
   return createBrowserRouter(appRoutes);
+}
+
+function ConfigurationDraftsRouteLoading() {
+  return (
+    <section
+      className="min-h-64 min-w-0 flex-1 animate-pulse rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      aria-label="Loading configuration drafts"
+    >
+      <div className="h-5 w-48 rounded-[4px] bg-[var(--color-skeleton)]" />
+      <div className="mt-4 h-10 rounded-[4px] bg-[var(--color-skeleton)]" />
+      <div className="mt-4 h-64 rounded-[4px] bg-[var(--color-skeleton)]" />
+    </section>
+  );
 }
 
 function RunHistoryRouteLoading() {

@@ -23,7 +23,7 @@ PASSWORD_HASH = (
 )
 
 
-def test_rev15_is_sole_head_and_preserves_legacy_rows_with_safe_defaults(
+def test_notification_columns_survive_upgrade_and_current_head_is_unique(
     tmp_path,
 ) -> None:
     database_url = f"sqlite:///{tmp_path / 'platform.db'}"
@@ -39,7 +39,8 @@ def test_rev15_is_sole_head_and_preserves_legacy_rows_with_safe_defaults(
     inspector = inspect(engine)
 
     inventory = verify_migration_execution_inventory()
-    assert inventory.heads == (NOTIFICATION_REVISION,)
+    assert len(inventory.heads) == 1
+    assert inventory.heads != (NOTIFICATION_REVISION,)
     account_columns = {
         column["name"]: column for column in inspector.get_columns("user_accounts")
     }
@@ -66,8 +67,9 @@ def test_rev15_is_sole_head_and_preserves_legacy_rows_with_safe_defaults(
     )
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            NOTIFICATION_REVISION
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version"))
+            == (inventory.heads[0])
         )
         account = connection.execute(
             text(

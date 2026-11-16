@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -12,6 +12,16 @@ function manifest(): RuntimeManifest {
   return JSON.parse(
     readFileSync(join(runtimeRoot, 'runtime.json'), 'utf8'),
   ) as RuntimeManifest;
+}
+
+async function navigationNames(navigation: Locator): Promise<string[]> {
+  return navigation.getByRole('link').evaluateAll((elements) =>
+    elements.map((element) => {
+      const label = element.getAttribute('aria-label');
+      if (label) return label;
+      return (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }),
+  );
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -33,7 +43,7 @@ async function expectNavigationLinksWithinViewport(page: Page) {
     .getByRole('navigation', { name: 'Primary' })
     .getByRole('link');
   const count = await links.count();
-  expect(count).toBe(4);
+  expect(count).toBe(5);
   for (let index = 0; index < count; index += 1) {
     const link = links.nth(index);
     await expect(link).toBeVisible();
@@ -84,7 +94,14 @@ test('global navigation exposes authoring before developer schemas on desktop @d
   const newAnalysisLink = primaryNavigation.getByRole('link', {
     name: 'New analysis',
   });
-  await expect(primaryNavigation.getByRole('link')).toHaveCount(4);
+  await expect(primaryNavigation.getByRole('link')).toHaveCount(5);
+  await expect(await navigationNames(primaryNavigation)).toEqual([
+    'Workflows',
+    'Runs',
+    'Artifacts',
+    'New analysis',
+    'Configuration drafts',
+  ]);
   await expect(workflowsLink).toHaveText('Workflows');
   await expect(runsLink).toHaveText('Runs');
   await expect(artifactsLink).toHaveText('Artifacts');
@@ -101,6 +118,18 @@ test('global navigation exposes authoring before developer schemas on desktop @d
     'href',
     `/workflows/${workflowId}/new-run`,
   );
+  const draftsLink = primaryNavigation.getByRole('link', {
+    name: 'Configuration drafts',
+  });
+  await expect(draftsLink).toHaveAttribute(
+    'href',
+    `/workflows/${workflowId}/configuration-drafts`,
+  );
+  await expect(draftsLink).not.toHaveAttribute('aria-current');
+  await expect(
+    draftsLink.getByText('Configuration drafts', { exact: true }),
+  ).toBeVisible();
+  await expect(draftsLink.getByText('Drafts', { exact: true })).toBeHidden();
 
   const authorInputs = page.getByRole('link', { name: 'Author inputs' });
   const schemaDetails = page.getByTestId('developer-schema-details');
@@ -196,6 +225,21 @@ test('navigation and workflow authoring remain operable without mobile overflow 
       .getByRole('link', { name: 'New analysis' })
       .getByText('New analysis', { exact: true }),
   ).toBeHidden();
+  const draftsLink = primaryNavigation.getByRole('link', {
+    name: 'Configuration drafts',
+  });
+  await expect(draftsLink).toHaveAttribute('title', 'Configuration drafts');
+  await expect(draftsLink.getByText('Drafts', { exact: true })).toBeVisible();
+  await expect(
+    draftsLink.getByText('Configuration drafts', { exact: true }),
+  ).toBeHidden();
+  await expect(await navigationNames(primaryNavigation)).toEqual([
+    'Workflows',
+    'Runs',
+    'Artifacts',
+    'New analysis',
+    'Configuration drafts',
+  ]);
   await capture(
     page,
     testInfo,
