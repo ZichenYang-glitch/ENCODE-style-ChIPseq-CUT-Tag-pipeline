@@ -43,8 +43,12 @@ async function openDrafts(page: Page) {
   const heading = page.getByRole('heading', { level: 1, name: 'Configuration drafts' });
   const username = page.getByLabel('Username');
   await page.goto(`/workflows/${workflowId()}/configuration-drafts`);
-  await expect(heading.or(username)).toBeVisible();
-  if (await username.isVisible()) {
+  const alreadyThere = await heading
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!alreadyThere) {
+    await expect(username).toBeVisible();
     await login(page);
     await page.goto(`/workflows/${workflowId()}/configuration-drafts`);
   }
