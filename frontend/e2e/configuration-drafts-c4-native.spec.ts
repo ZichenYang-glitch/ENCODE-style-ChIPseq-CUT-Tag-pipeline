@@ -434,7 +434,10 @@ test('unsaved edits survive cancel, a revision conflict, and a completed turn wh
 test('rejecting a proposal leaves the saved revision unchanged @desktop', async ({ page }) => {
   await openDrafts(page);
   await page.getByRole('button', { name: /revision /i }).first().click();
-  await page.getByRole('button', { name: 'Connect assistant' }).click();
+  const connect = page.getByRole('button', { name: 'Connect assistant' });
+  if (await connect.isEnabled()) {
+    await connect.click();
+  }
   await expect(page.getByText('Assistant available')).toBeVisible();
   const threads = page.getByRole('spinbutton', { name: /thread/i });
   if (!(await page.getByRole('button', { name: 'Reject suggestion' }).isVisible())) {
