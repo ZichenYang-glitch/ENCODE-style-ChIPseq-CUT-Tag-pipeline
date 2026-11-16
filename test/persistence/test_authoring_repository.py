@@ -31,7 +31,6 @@ from encode_pipeline.platform.authoring import (
     CONNECTION_OWNED_BY_OTHER_LOGIN,
     INVALID_REQUEST,
     NOT_FOUND,
-    PROPOSAL_INVALIDATED,
     STALE_DRAFT,
     TURN_REQUEST_CONFLICT,
     TURN_RESULT_CONFLICT,
