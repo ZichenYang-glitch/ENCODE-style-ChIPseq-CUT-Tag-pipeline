@@ -1,6 +1,55 @@
 # HelixWeave Product Roadmap
 
-## 当前入口：2026-11-15T12:18:06Z
+## 当前入口：2026-11-16T08:22:10Z
+
+2026-11-15T12:18:06Z 及更早快照保留在后文，不倒写。
+本次查询 main 为 `1b1db421ba3172bc39cf31ce0d03976511379fda`，
+即 [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+的普通 merge。父提交是 `101983f…` 与批准 head `e112223…`。
+两者文件树同为 `1f9ac53f6b34625fcbb6c09965427a3d6867e1ef`。
+本文件在 Draft #213，仍未合并，不写回本提交 SHA。根工作区既有修改未动。
+
+**受限配置建议与校验 A1 已交付并进入 main。**
+C4、launcher 生命周期和最终 Bulk Gate 不再是当前阻塞。
+它们的证据分别属于下面的准确 SHA，不能写成在 merge SHA 上重新跑过。
+
+| 证据 | 实际运行身份 |
+| --- | --- |
+| Bulk Gate | `e112223…`，[CI 43792685991](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43792685991) attempt 2 success。job `133061548271` 通过 4 项执行测试和 5 项产品浏览器测试。Artifact `14195706467` 的 ZIP SHA256 为 `54ffa1c4aa24454ffc0dc63e8d6a0728004345c977c2633b0e05b5985adb88a6` |
+| C4 | `82d091278a5cf46f5c33b40f4cbb26d3d12fe2a8`。Vite 页面、真实平台、固定 Peri、模型 API stub，5 passed |
+| 合入后 push | [CI 43816767856](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767856)、[Lint 43816767900](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767900)、[Lock Check 43816767895](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767895) 均为 attempt 1 success，head 是 merge SHA |
+
+相同文件树支持把 `e112223…` 的 Gate 和 `82d0912…` 的 C4 复用到这次 merge。
+push CI 的 real-execution、platform-real-execution、container-smoke、
+bulk-rnaseq-real-execution 为 skipped，不是执行通过。
+本次查询核对了 run、attempt、head 和 job 结论，没有重新下载 Gate artifact。
+
+GitHub 已把 #212、#214、#218 标为 merged，其已审阅内容包含在这个 main 中。
+#216 的内容此前已在 `101983f…`；本次查询它也被标为 merged，记录的 merge 提交仍是那个较早 SHA。
+不需要再次合并。
+
+当前进行中：
+
+- #217 仍是 open Draft，head 仍为 `c4c4909…`。它独立推进，与新 main 的组合仍需核验。
+- #213 本身仍是文档 Draft，未合并。
+
+后续路线。设计尚未实施；ACP 兼容只是接入条件，不是自动通过接入。
+现有 A1 草稿采用权限不因下面的目录或 AI 设计而改变。
+
+| 后续 | 状态 |
+| --- | --- |
+| 真实模型 API | 设计与实施都还没开始。不要求本地模型 |
+| Agent runtime 适配 | 设计要求：平台拥有授权、项目范围、草稿、确认、回执和生命周期；Peri 协议与版本留在适配层。尚未实施 |
+| Agent 提交与取消运行 | 独立操作契约、确认和幂等仍是设计，尚未开始 |
+| 数据目录 | 按课题、细胞类型、实验类型分类与查询仍是设计，尚未实施 |
+| AI 整理 | 设计：成员查询和建议，管理员在网页或终端确认。不改变已有 A1 草稿采用权限 |
+| managed execution、生产容量、科学确认 | 另列，不属于这次 A1 交付 |
+
+非阻塞注记：`test_relay_refuses_a_third_connection_and_closes` 仍只证明某个 handler 启动。
+可用两个 handler 屏障加第三连接结束和计数断言补强，不需要改生产 relay。
+若以后另交测试提交，保留 `82d0912…` 的 C4 身份，不整批改写。
+
+## 快照：2026-11-15T12:18:06Z
 
 2026-11-15T07:21:49Z（#213 `23681d9…`）及更早快照保留在后文，不倒写。
 本次查询 main 仍为 `101983f…`。#216 代码已在 main，PR 对象仍 open，不因此再次合并。

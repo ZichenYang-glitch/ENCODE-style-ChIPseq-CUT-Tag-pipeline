@@ -1,6 +1,63 @@
 # 当前 PR 收口与集成清单
 
-## 2026-11-15T12:18:06Z 当前状态
+## 2026-11-16T08:22:10Z 当前状态
+
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。12:18:06Z 的快照及更早记录不倒写。
+本页在 Draft #213，仍未合并。本次更新不写回自身新 SHA。
+
+受限配置建议与校验 A1 已交付并进入 main
+`1b1db421ba3172bc39cf31ce0d03976511379fda`。
+这是 [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+的普通 merge，父提交为 `101983f9480bb72306da69875e79dc6ad65bca5a`
+与批准 head `e112223fd03795b43cce6c8dce4566dcb4739f4b`。
+merge 与批准 head 的文件树都是 `1f9ac53f6b34625fcbb6c09965427a3d6867e1ef`。
+C4、launcher 生命周期和最终 Bulk Gate 不再写成当前阻塞。
+
+证据身份分开记录：
+
+- Bulk Gate 跑在 `e112223…`。[CI 43792685991](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43792685991)
+  为 workflow_dispatch attempt 2 success，head 就是该批准提交。
+  job `133061548271` success，记录为 4 项执行测试和 5 项产品浏览器测试通过。
+  Artifact `14195706467` 的 ZIP SHA256 为
+  `54ffa1c4aa24454ffc0dc63e8d6a0728004345c977c2633b0e05b5985adb88a6`。
+  本次查询确认了 run、attempt、head 和该 job 的 success，没有重新下载 ZIP。
+- C4 跑在 `82d091278a5cf46f5c33b40f4cbb26d3d12fe2a8`：Vite 页面、真实平台、
+  固定 Peri、模型 API stub，5 passed。
+- 文件树相同，因此这两项证据可以复用到 merge。不能写成 `1b1db4…` 上新跑过 Gate 或 C4。
+- 合入后 push attempt 1 全部 success，head 为 merge SHA：
+  [CI 43816767856](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767856)、
+  [Lint 43816767900](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767900)、
+  [Lock Check 43816767895](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767895)。
+  两个 shard、frontend、browser-e2e、fast-checks、coverage 成功。
+  real-execution、platform-real-execution、container-smoke、bulk-rnaseq-real-execution
+  为 skipped，不是执行通过。
+
+2026-11-16T08:22:10Z，GitHub 把 #212、#214、#218、#219 标为 merged。
+它们的已审阅内容包含在上述 main 中。#216 的科学内容此前已在 `101983f…`；
+同一次查询它也被标为 merged，记录的 merge 提交仍是 `101983f…`，不是一次新的合并。
+
+当前进行中只有两件：
+
+- #217 仍是 open Draft，head 仍为 `c4c49098d3c05b4d6913a684b459508c866c39b7`。
+  它独立推进，与新 main 的组合仍需核验。12:18:06Z 对该 head 的取消恢复复审不改写。
+- #213 仍是文档 Draft，未合并。
+
+后续阶段都还没实施。ACP 兼容不是自动通过接入。已有 A1 草稿采用权限保持不变。
+
+- 真实模型 API：设计和实施尚未开始，不要求本地模型。
+- Agent runtime 适配：平台拥有授权、项目范围、草稿、确认、回执和生命周期；
+  Peri 特有协议与版本留在适配层。这是设计要求。
+- Agent 提交与取消运行：独立操作契约、确认和幂等仍待设计。
+- 数据目录：按课题、细胞类型、实验类型分类与查询仍是设计。
+- AI 整理：成员查询和建议，管理员在网页或终端确认。不把已有 A1 草稿采用改成管理员专属。
+- managed execution、生产容量和科学确认另列，不属于这次 A1 交付。
+
+非阻塞注记：relay 第三连接测试 `test_relay_refuses_a_third_connection_and_closes`
+仍只证明某个 handler 启动。断言补强不改生产 relay。若另交测试提交，
+`82d0912…` 的 C4 证据保留原 SHA。
+
+## 2026-11-15T12:18:06Z 快照
 
 排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
 [session 计划](next-delivery-session-plan.md)。07:21:49Z 的 `23681d9…` 快照及更早记录不倒写。
@@ -271,13 +328,13 @@ Backend 已获得启动 `user@1000.service` 并验证任务资源隔离的限定
 ## 集成安排
 
 1. 原 session 交出准确 head、范围、生成物、测试和未完成项；Codex 独立复审。
-2. #216 不再合并。#219 `6d5708…` 已包含 #214、#218 和 #212 的已复审增量各一次。
-   169 项真实执行证据仍是 `0fef7a2…`。当前返修是创建超时后的进程归属，以及 services 覆盖率。
-   如公共契约变化，后端正式生成 OpenAPI/client，再交前端适配，不手改生成物。
+2. A1 已随 #219 进入 main。#216 不需要再次合并。169 项真实执行证据仍是 `0fef7a2…`。
+   创建超时和当时的覆盖率失败留在 12:18:06Z 快照，不再是当前阻塞。
+   如以后公共契约变化，后端正式生成 OpenAPI/client，再交前端适配，不手改生成物。
 3. #214 已含部分 #212 历史，合成候选前核对祖先关系。只纳入已审阅提交，
    不将整个活动分支盲目拉进候选。候选使用独立 worktree/PR。
-4. #217 `c4c4909…` 的取消恢复增量已通过定点复审。`db3d8a5…` 的 P2 不再列为未修复。
-   准确提交的生产浏览器证据仍待收口，因此仍不作为已验收 Viewer 进入交付。
+4. #217 `c4c4909…` 继续独立推进。它没有进入 #219。与 main `1b1db4…` 的组合仍需核验，
+   因此不作为已经随 A1 交付的 Viewer。
    它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
    最终测试按实际组合执行，不能简单相加来源分支的通过记录。
 5. 普通 CI、C4 和适用 Gate 完成后交回主会话；合并/发布仍单独执行授权。
