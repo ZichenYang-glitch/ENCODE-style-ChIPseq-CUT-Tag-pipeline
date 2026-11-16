@@ -324,7 +324,7 @@ test('an explanation and a closed connection do not create another adoptable pro
   expect(turnsAfterClose).toBe(0);
 });
 
-test('unsaved edits survive cancel, a revision conflict, and a completed turn whose response is hidden @desktop', async ({
+test('unsaved edits, a revision conflict, a hidden completed turn, and rejection stay on one login @desktop', async ({
   page,
 }) => {
   await openDrafts(page);
@@ -433,29 +433,7 @@ test('unsaved edits survive cancel, a revision conflict, and a completed turn wh
     native_summary_reads_before_retry: afterCommit.summary,
     native_summary_reads_after_retry: toolCounts().summary,
   });
-});
-
-test('rejecting a proposal leaves the saved revision unchanged @desktop', async ({ page }) => {
-  // Stay on the signed-in draft. Opening the page again can sign in a second
-  // time, and that login does not own the assistant connection.
-  await expect(page.getByRole('heading', { level: 1, name: 'Configuration drafts' })).toBeVisible();
-  const connect = page.getByRole('button', { name: 'Connect assistant' });
-  if (await connect.isEnabled()) {
-    await connect.click();
-  }
-  await expect(page.getByText('Assistant available')).toBeVisible();
-  const threads = page.getByRole('spinbutton', { name: /thread/i });
-  if (!(await page.getByRole('button', { name: 'Reject suggestion' }).isVisible())) {
-    await page.getByRole('radio', { name: 'Suggest values' }).check();
-    await page.getByRole('checkbox', { name: 'Threads' }).check();
-    await page.getByLabel('Preferred value').fill('5');
-    const suggested = page.waitForResponse(
-      (response) => response.url().includes('/turns') && response.request().method() === 'POST',
-    );
-    await page.getByRole('button', { name: 'Request suggestion' }).click();
-    expect((await suggested).ok()).toBeTruthy();
-  }
-  const before = await threads.inputValue();
+  const beforeReject = await threads.inputValue();
   const rejected = page.waitForResponse(
     (response) => response.url().includes('/reject') && response.request().method() === 'POST',
   );
@@ -465,13 +443,12 @@ test('rejecting a proposal leaves the saved revision unchanged @desktop', async 
   const rejectionBody = (await rejection.json()) as {
     proposal_state?: string;
     adoptable?: boolean;
-    draft_revision?: number;
   };
   expect(rejectionBody.proposal_state).toBe('rejected');
   expect(rejectionBody.adoptable).toBe(false);
   await expect(page.getByText('Suggestion rejected. The draft was not changed.')).toBeVisible();
-  await expect(threads).toHaveValue(before);
-  record('rejection.json', { ...rejectionBody, threads: before });
+  await expect(threads).toHaveValue(beforeReject);
+  record('rejection.json', { ...rejectionBody, threads: beforeReject });
   record('acceptance-scope.json', {
     browser_exercised: [
       'save_and_reread',
