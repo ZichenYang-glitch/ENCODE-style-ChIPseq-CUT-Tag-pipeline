@@ -20,7 +20,10 @@ from encode_pipeline.services.authoring_bridge import (
     BridgeTurnRequest,
 )
 from encode_pipeline.services.peri_runtime.identity import binary_matches
-from encode_pipeline.services.peri_runtime.isolation import isolation_paths_exist
+from encode_pipeline.services.peri_runtime.isolation import (
+    isolation_paths_exist,
+    native_launcher,
+)
 from encode_pipeline.services.peri_runtime.session import NativeRejected, NativeSession
 
 
@@ -368,6 +371,7 @@ class NativeAuthoringBridge:
         shutil.rmtree(session.directory, ignore_errors=True)
 
     def shutdown(self) -> None:
+        native_launcher().abandon_pending()
         with self._lock:
             for sid in list(self._sessions):
                 self._close_locked(sid)

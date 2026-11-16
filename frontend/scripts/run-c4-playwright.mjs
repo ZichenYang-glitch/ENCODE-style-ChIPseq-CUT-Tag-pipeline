@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const evidenceRoot = process.env.HELIXWEAVE_C4_EVIDENCE;
@@ -11,6 +11,37 @@ if (!evidenceRoot) {
   process.exit(1);
 }
 mkdirSync(evidenceRoot, { recursive: true });
+const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url));
+const git = (args) =>
+  execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim();
+const status = execFileSync('git', ['status', '--porcelain'], {
+  cwd: repositoryRoot,
+  encoding: 'utf8',
+});
+if (process.env.HELIXWEAVE_C4_REQUIRE_CLEAN === '1' && status.trim()) {
+  console.error('C4 requires a clean candidate worktree.');
+  process.exit(1);
+}
+const binaryPath = process.env.HELIXWEAVE_PERI_BINARY;
+const binarySha = binaryPath
+  ? createHash('sha256').update(readFileSync(binaryPath)).digest('hex')
+  : null;
+writeFileSync(
+  join(evidenceRoot, 'identity.json'),
+  `${JSON.stringify(
+    {
+      git_sha: git(['rev-parse', 'HEAD']),
+      git_tree: git(['rev-parse', 'HEAD^{tree}']),
+      worktree_status: status,
+      served_frontend: 'vite-dev',
+      served_frontend_note:
+        'The C4 harness starts scripts/run_local_platform.py, which serves this source tree with Vite. It does not serve the packaged production bundle.',
+      binary_sha256: binarySha,
+    },
+    null,
+    2,
+  )}\n`,
+);
 
 const sentinelName = '.encode-platform-playwright-owned';
 const runtimeOwner = randomUUID();
@@ -77,6 +108,19 @@ child.once('exit', (code, signal) => {
       stdio: ['ignore', 'ignore', 'pipe'],
       timeout: 30_000,
     },
+  );
+  writeFileSync(
+    join(evidenceRoot, 'cleanup.json'),
+    `${JSON.stringify(
+      {
+        status: cleanup.status,
+        signal: cleanup.signal,
+        error: cleanup.error ? String(cleanup.error) : null,
+        stderr: cleanup.stderr,
+      },
+      null,
+      2,
+    )}\n`,
   );
   if (cleanup.error || cleanup.status !== 0) {
     console.error('Could not clean the owned C4 runtime.');

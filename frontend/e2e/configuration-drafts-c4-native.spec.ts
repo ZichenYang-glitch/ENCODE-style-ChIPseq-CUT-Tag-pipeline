@@ -248,6 +248,25 @@ test('an explicit connection adopts one native proposal and survives a new login
   );
   record('adoption.json', adoptionBody);
   await expect(page.getByText('Suggestion adopted.')).toBeVisible();
+  const adoptedValidation = page.waitForResponse(
+    (response) => response.url().includes('/validate') && response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Validate draft' }).click();
+  const adoptedValidationResponse = await adoptedValidation;
+  expect(adoptedValidationResponse.ok()).toBeTruthy();
+  const adoptedValidationBody = (await adoptedValidationResponse.json()) as {
+    ok: boolean;
+    draft_revision: number;
+    snapshot?: { snapshot_id?: string; schema_version?: string } | null;
+  };
+  expect(adoptedValidationBody.ok).toBe(true);
+  expect(adoptedValidationBody.draft_revision).toBe(adoptionBody.draft_revision);
+  expect(adoptedValidationBody.draft_revision).toBe(
+    adoptionBody.adoption_receipt?.result_revision,
+  );
+  expect(adoptedValidationBody.snapshot?.snapshot_id).toMatch(/^vsnap_[0-9a-f]{32}$/);
+  expect(adoptedValidationBody.snapshot?.schema_version).toBeTruthy();
+  record('adopted-validation.json', adoptedValidationBody);
   await expect(page.getByRole('article', { name: 'Adopted record' })).toBeVisible();
   await expect(page.getByRole('spinbutton', { name: /thread/i })).toHaveValue('2');
   await page.screenshot({ path: join(evidenceRoot, 'adopted-proposal.png') });
@@ -301,7 +320,7 @@ test('an explanation and a closed connection do not create another adoptable pro
   expect(turnsAfterClose).toBe(0);
 });
 
-test('unsaved edits survive cancel, a stale save, and a lost suggestion response @desktop', async ({
+test('unsaved edits survive cancel, a revision conflict, and a completed turn whose response is hidden @desktop', async ({
   page,
 }) => {
   await openDrafts(page);
@@ -352,24 +371,38 @@ test('unsaved edits survive cancel, a stale save, and a lost suggestion response
   await expect(page.getByRole('spinbutton', { name: /thread/i })).toHaveValue('6');
   await page.getByRole('button', { name: 'Connect assistant' }).click();
   await expect(page.getByText('Assistant available')).toBeVisible();
-  let dropped = false;
+  let hidden = false;
   let lostTurnId = '';
+  let completedTurn = '';
+  const beforeTools = toolCounts();
   await page.route('**/turns', async (route) => {
-    if (!dropped && route.request().method() === 'POST') {
-      dropped = true;
-      lostTurnId = String(
-        (route.request().postDataJSON() as { client_turn_id?: string }).client_turn_id ?? '',
-      );
-      await route.abort('failed');
+    if (hidden || route.request().method() !== 'POST') {
+      await route.continue();
       return;
     }
-    await route.continue();
+    hidden = true;
+    lostTurnId = String(
+      (route.request().postDataJSON() as { client_turn_id?: string }).client_turn_id ?? '',
+    );
+    const completed = await route.fetch();
+    completedTurn = await completed.text();
+    await route.abort('failed');
   });
   await page.getByRole('radio', { name: 'Suggest values' }).check();
   await page.getByRole('checkbox', { name: 'Threads' }).check();
   await page.getByLabel('Preferred value').fill('3');
   await page.getByRole('button', { name: 'Request suggestion' }).click();
   await expect(page.getByText(/suggestion response was not confirmed/i).first()).toBeVisible();
+  const completedBody = JSON.parse(completedTurn) as {
+    client_turn_id?: string;
+    proposal_digest?: string;
+    proposal_id?: string;
+  };
+  const afterCommit = toolCounts();
+  expect(afterCommit.schema).toBe(beforeTools.schema + 1);
+  expect(afterCommit.summary).toBe(beforeTools.summary + 1);
+  expect(completedBody.client_turn_id).toBe(lostTurnId);
+  expect(completedBody.proposal_digest).toMatch(/^[0-9a-f]{64}$/);
   const replayed = page.waitForResponse(
     (response) => response.url().includes('/turns') && response.request().method() === 'POST',
   );
@@ -377,15 +410,88 @@ test('unsaved edits survive cancel, a stale save, and a lost suggestion response
   const replay = await replayed;
   expect(replay.ok()).toBeTruthy();
   const replayRequest = replay.request().postDataJSON() as { client_turn_id?: string };
-  const replayBody = (await replay.json()) as { client_turn_id?: string; proposal_digest?: string };
+  const replayBody = (await replay.json()) as {
+    client_turn_id?: string;
+    proposal_digest?: string;
+    proposal_id?: string;
+  };
   expect(replayRequest.client_turn_id).toBe(lostTurnId);
-  expect(replayBody.client_turn_id).toBe(lostTurnId);
-  expect(replayBody.proposal_digest).toMatch(/^[0-9a-f]{64}$/);
+  expect(replayBody.client_turn_id).toBe(completedBody.client_turn_id);
+  expect(replayBody.proposal_id).toBe(completedBody.proposal_id);
+  expect(replayBody.proposal_digest).toBe(completedBody.proposal_digest);
+  expect(toolCounts()).toEqual(afterCommit);
   record('replayed-turn.json', {
     client_turn_id: replayBody.client_turn_id,
+    proposal_id: replayBody.proposal_id,
     proposal_digest: replayBody.proposal_digest,
+    native_schema_reads_before_retry: afterCommit.schema,
+    native_schema_reads_after_retry: toolCounts().schema,
+    native_summary_reads_before_retry: afterCommit.summary,
+    native_summary_reads_after_retry: toolCounts().summary,
   });
 });
+
+test('rejecting a proposal leaves the saved revision unchanged @desktop', async ({ page }) => {
+  await openDrafts(page);
+  await page.getByRole('button', { name: /revision /i }).first().click();
+  await page.getByRole('button', { name: 'Connect assistant' }).click();
+  await expect(page.getByText('Assistant available')).toBeVisible();
+  const threads = page.getByRole('spinbutton', { name: /thread/i });
+  if (!(await page.getByRole('button', { name: 'Reject suggestion' }).isVisible())) {
+    await page.getByRole('radio', { name: 'Suggest values' }).check();
+    await page.getByRole('checkbox', { name: 'Threads' }).check();
+    await page.getByLabel('Preferred value').fill('5');
+    const suggested = page.waitForResponse(
+      (response) => response.url().includes('/turns') && response.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: 'Request suggestion' }).click();
+    expect((await suggested).ok()).toBeTruthy();
+  }
+  const before = await threads.inputValue();
+  const rejected = page.waitForResponse(
+    (response) => response.url().includes('/reject') && response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Reject suggestion' }).click();
+  const rejection = await rejected;
+  expect(rejection.ok()).toBeTruthy();
+  const rejectionBody = (await rejection.json()) as {
+    proposal_state?: string;
+    adoptable?: boolean;
+    draft_revision?: number;
+  };
+  expect(rejectionBody.proposal_state).toBe('rejected');
+  expect(rejectionBody.adoptable).toBe(false);
+  await expect(page.getByText('Suggestion rejected. The draft was not changed.')).toBeVisible();
+  await expect(threads).toHaveValue(before);
+  record('rejection.json', { ...rejectionBody, threads: before });
+  record('acceptance-scope.json', {
+    browser_exercised: [
+      'save_and_reread',
+      'explicit_connect',
+      'two_read_tools',
+      'proposal_and_explanation',
+      'adopt',
+      'validate_adopted_revision',
+      'receipt_after_login',
+      'unsaved_navigation',
+      'revision_conflict_409',
+      'completed_turn_with_hidden_response',
+      'reject',
+    ],
+    browser_not_exercised: {
+      draft_ttl: 'AuthoringService._require_active and _adoptable; draft TTL is 7 days',
+      proposal_ttl: 'AuthoringService._adoptable and repository.reject; proposal TTL is 30 minutes',
+    },
+  });
+});
+
+function toolCounts(): { schema: number; summary: number } {
+  const log = readFileSync(join(runtimeRoot, 'logs', 'peri-owner.log'), 'utf8');
+  return {
+    schema: log.split('peri-authoring-tool get_authoring_schema').length - 1,
+    summary: log.split('peri-authoring-tool get_draft_summary').length - 1,
+  };
+}
 
 function admittedScopeEvidence(): {
   unit: string;

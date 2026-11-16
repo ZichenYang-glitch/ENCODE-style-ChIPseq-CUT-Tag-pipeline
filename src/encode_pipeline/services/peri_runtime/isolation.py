@@ -18,6 +18,7 @@ from encode_pipeline.services.peri_runtime.limits import (
 from encode_pipeline.services.peri_runtime.policy import process_policy
 
 
+Popen = subprocess.Popen
 BWRAP = Path("/usr/bin/bwrap")
 PRLIMIT = Path("/usr/bin/prlimit")
 SYSTEMD_RUN = Path("/usr/bin/systemd-run")
@@ -153,18 +154,103 @@ def command(
     return args
 
 
+class _LaunchTicket:
+    """One creation. A process has one owner: the caller or the launcher."""
+
+    def __init__(
+        self,
+        start: Callable[[], subprocess.Popen[bytes]],
+        scope_unit: str | None,
+    ) -> None:
+        self.start = start
+        self.scope_unit = scope_unit
+        self._lock = threading.Lock()
+        self.phase = "queued"
+        self.abandoned = False
+        self.box: queue.Queue[object] = queue.Queue(maxsize=1)
+
+    def claim_to_run(self) -> bool:
+        with self._lock:
+            if self.abandoned or self.phase != "queued":
+                return False
+            self.phase = "running"
+            return True
+
+    def settle(self, outcome: object) -> bool:
+        """Return whether the caller still owns a successful process."""
+
+        with self._lock:
+            self.phase = "settled"
+            if self.abandoned:
+                return False
+            self.box.put(outcome)
+            return True
+
+    def give_up(self) -> str:
+        with self._lock:
+            if self.phase == "settled" and not self.abandoned:
+                return "delivered"
+            if self.abandoned:
+                return "abandoned"
+            self.abandoned = True
+            phase = self.phase
+            try:
+                self.box.put_nowait(
+                    OSError("native launcher did not create the process")
+                )
+            except queue.Full:
+                pass
+            return phase
+
+
+def _wait_for_launch(ticket: _LaunchTicket, timeout: float) -> object:
+    try:
+        return ticket.box.get(timeout=timeout)
+    except queue.Empty:
+        if ticket.give_up() != "delivered":
+            raise OSError("native launcher did not create the process") from None
+        try:
+            return ticket.box.get_nowait()
+        except queue.Empty:
+            raise OSError("native launcher did not create the process") from None
+
+
+def _reap_unclaimed(process: subprocess.Popen[bytes], scope_unit: str | None) -> None:
+    """Close a process the caller timed out or shut down before receiving."""
+
+    stop_scope(scope_unit)
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    for stream in (process.stdin, process.stdout):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
 class NativeLauncher:
     """Create native processes on one thread that outlives each request.
 
     bwrap --die-with-parent uses PR_SET_PDEATHSIG. Linux delivers that signal
     when the creating thread exits, even if the owner process is still alive.
     Request handlers are short-lived, so they must not be that parent.
+    A caller that stops waiting does not leave the creation running: a queued
+    request is dropped, and a process already being created is reaped here.
     """
 
     def __init__(self) -> None:
-        self._queue: queue.Queue[
-            tuple[Callable[[], subprocess.Popen[bytes]], queue.Queue[object]] | None
-        ] = queue.Queue()
+        self._queue: queue.Queue[_LaunchTicket | None] = queue.Queue()
+        self._pending: set[_LaunchTicket] = set()
+        self._pending_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._serve,
             name="peri-native-launcher",
@@ -172,33 +258,61 @@ class NativeLauncher:
         )
         self._thread.start()
 
+    def _forget(self, ticket: _LaunchTicket) -> None:
+        with self._pending_lock:
+            self._pending.discard(ticket)
+
     def _serve(self) -> None:
         while True:
-            item = self._queue.get()
-            if item is None:
+            ticket = self._queue.get()
+            if ticket is None:
                 return
-            action, result = item
+            if not ticket.claim_to_run():
+                self._forget(ticket)
+                continue
             try:
-                result.put(action())
+                outcome = ticket.start()
             except BaseException as error:
-                result.put(error)
+                ticket.settle(error)
+                self._forget(ticket)
+                continue
+            if ticket.settle(outcome):
+                self._forget(ticket)
+                continue
+            if isinstance(outcome, Popen):
+                _reap_unclaimed(outcome, ticket.scope_unit)
+            self._forget(ticket)
 
-    def popen(self, args: list[str], **kwargs: object) -> subprocess.Popen[bytes]:
+    def popen(
+        self,
+        args: list[str],
+        *,
+        scope_unit: str | None = None,
+        timeout: float = 30,
+        **kwargs: object,
+    ) -> subprocess.Popen[bytes]:
         if threading.get_ident() == self._thread.ident:
             return subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
-        result: queue.Queue[object] = queue.Queue(maxsize=1)
-
-        def launch() -> subprocess.Popen[bytes]:
-            return subprocess.Popen(args, **kwargs)  # type: ignore[arg-type]
-
-        self._queue.put((launch, result))
-        try:
-            outcome = result.get(timeout=30)
-        except queue.Empty:
-            raise OSError("native launcher did not create the process") from None
+        ticket = _LaunchTicket(
+            lambda: subprocess.Popen(args, **kwargs),  # type: ignore[arg-type]
+            scope_unit,
+        )
+        with self._pending_lock:
+            self._pending.add(ticket)
+        self._queue.put(ticket)
+        outcome = _wait_for_launch(ticket, timeout)
+        self._forget(ticket)
         if isinstance(outcome, BaseException):
             raise outcome
         return outcome  # type: ignore[return-value]
+
+    def abandon_pending(self) -> None:
+        """Drop queued creations and mark in-flight ones for launcher reap."""
+
+        with self._pending_lock:
+            pending = tuple(self._pending)
+        for ticket in pending:
+            ticket.give_up()
 
     def alive(self) -> bool:
         return self._thread.is_alive()
@@ -257,6 +371,7 @@ def spawn(
         stdout=subprocess.PIPE,
         stderr=stderr,
         close_fds=True,
+        scope_unit=unit,
         env=scope_env,
         start_new_session=True,
     )
@@ -266,6 +381,10 @@ def spawn(
         stop_scope(unit)
         if process.poll() is None:
             process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
         raise
     process.peri_scope_unit = unit  # type: ignore[attr-defined]
     process.peri_native_pid = native_pid  # type: ignore[attr-defined]
