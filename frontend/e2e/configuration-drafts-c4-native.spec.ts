@@ -434,11 +434,11 @@ test('unsaved edits, a revision conflict, a hidden completed turn, and rejection
     native_summary_reads_after_retry: toolCounts().summary,
   });
   const beforeReject = await threads.inputValue();
-  const rejected = page.waitForResponse(
+  const rejectionResponse = page.waitForResponse(
     (response) => response.url().includes('/reject') && response.request().method() === 'POST',
   );
   await page.getByRole('button', { name: 'Reject suggestion' }).click();
-  const rejection = await rejected;
+  const rejection = await rejectionResponse;
   expect(rejection.ok()).toBeTruthy();
   const rejectionBody = (await rejection.json()) as {
     proposal_state?: string;
