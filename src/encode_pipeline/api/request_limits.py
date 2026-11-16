@@ -132,3 +132,95 @@ class AuthoringRequestLimitMiddleware:
             headers={"connection": "close"},
         )
         await response(scope, receive, send)
+
+
+_AGENT_AUTHORING_PATH = re.compile(r"^/api/v1/agent/authoring-sessions(?:/.*)?$")
+_AGENT_AUTHORING_METHODS = frozenset({"POST", "PUT"})
+MAX_AGENT_AUTHORING_REQUEST_BYTES = 256 * 1024
+
+
+class AgentAuthoringRequestLimitMiddleware:
+    """Bound new authoring bodies before JSON parsing."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_request_bytes: int = MAX_AGENT_AUTHORING_REQUEST_BYTES,
+    ) -> None:
+        if (
+            isinstance(max_request_bytes, bool)
+            or not isinstance(max_request_bytes, int)
+            or max_request_bytes <= 0
+        ):
+            raise ValueError("max_request_bytes must be a positive integer")
+        self._app = app
+        self._max_request_bytes = max_request_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if not self._matches(scope):
+            await self._app(scope, receive, send)
+            return
+        declared = AuthoringRequestLimitMiddleware._content_length(scope)
+        if declared is not None and declared > self._max_request_bytes:
+            await self._reject(scope, receive, send)
+            return
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > self._max_request_bytes:
+                await self._reject(scope, receive, send)
+                return
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+        replayed = False
+
+        async def replay_receive() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {
+                    "type": "http.request",
+                    "body": bytes(body),
+                    "more_body": False,
+                }
+            return await receive()
+
+        await self._app(scope, replay_receive, send)
+
+    @staticmethod
+    def _matches(scope: Scope) -> bool:
+        return (
+            scope.get("type") == "http"
+            and scope.get("method") in _AGENT_AUTHORING_METHODS
+            and _AGENT_AUTHORING_PATH.fullmatch(str(scope.get("path", ""))) is not None
+        )
+
+    async def _reject(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response = JSONResponse(
+            status_code=413,
+            content={
+                "issues": [
+                    {
+                        "code": "REQUEST_TOO_LARGE",
+                        "context": {"max_request_bytes": self._max_request_bytes},
+                        "hint": None,
+                        "message": "The authoring request exceeds the size limit.",
+                        "path": None,
+                        "severity": "error",
+                        "source": "authoring",
+                        "technical_message": None,
+                    }
+                ],
+                "ok": False,
+                "reason_code": "REQUEST_TOO_LARGE",
+            },
+            headers={"connection": "close"},
+        )
+        await response(scope, receive, send)

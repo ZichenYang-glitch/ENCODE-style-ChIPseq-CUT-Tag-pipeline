@@ -55,12 +55,13 @@ outputs unless controls are enabled.
 
 - **`role: treatment`** (default): The sample flows through the full
   preprocessing pipeline and MACS3 peak calling runs on it.
-- **`role: control`**: The sample is preprocessed (FastQC → align → filter →
-  `final.bam`) but peak calling is skipped. Its `final.bam` can be referenced
-  by treatment rows via `control_sample`.
+- **`role: control`**: The sample is preprocessed through its analysis BAM
+  but peak calling is skipped. A treatment row names that sample with
+  `control_sample`.
 - **`control_sample`**: references another row's `sample` ID. That row must have
-  `role: control`. The referenced sample's `final.bam` becomes the MACS3 input
-  control (`-c`).
+  `role: control`. MACS3 `-c` is that control sample's analysis BAM
+  (`<sample>.analysis.bam`), after Picard has marked duplicates. It is not
+  `final.bam`.
 - **`control_bam`**: not used as MACS3 `-c`. When `use_control: true`,
   validation rejects it and names `control_sample` as the replacement. When
   `use_control: false`, a leftover reference is ignored.
@@ -89,7 +90,7 @@ INPUT_WT	/data/input_R1.fq.gz	/data/input_R2.fq.gz	PE	chipseq	Input	narrow	hg38	
 
 Set `use_control: true` in `config/config.yaml` for the control reference
 to take effect. The treatment row sets `control_sample: INPUT_WT` to use
-the control row's `final.bam` as MACS3 input.
+the control row's `analysis.bam` as MACS3 input.
 
 ### Biological replicates
 

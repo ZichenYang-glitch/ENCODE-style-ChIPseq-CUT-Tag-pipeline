@@ -1,0 +1,50 @@
+{
+  "kind": "candidate_environment_probe",
+  "candidate_sha256": "5cc82caf6e04578f19ff5790fbc4eb8c9e115793ff6950a699c9e2ad28c50f47",
+  "user_manager": {
+    "unit": "user@1000.service",
+    "active_state": "active",
+    "sub_state": "running",
+    "bus": "/run/user/1000/bus",
+    "user_manager_running": true,
+    "linger_enabled": false
+  },
+  "scope": {
+    "unit": "hw-peri-a1-f6c8bfe80ab9",
+    "stopped_after_probe": true,
+    "memory_max": "536870912",
+    "memory_swap_max": "0",
+    "pids_max": "128",
+    "cpu_max": "100000 100000",
+    "peri_in_unit": true,
+    "peri_qualified": true,
+    "owner_in_unit": false
+  },
+  "a1_fixed_native_test": {
+    "result": "passed",
+    "elapsed_seconds": 4.3,
+    "worktree": "/home/yangzichen/workflow/worktrees/helixweave-peri-candidate-qual",
+    "worktree_head": "e00130e2d5e55b3197624ef6bff9c25fd687cf87",
+    "binding": "uncommitted digest rebind only",
+    "pr_212_head": "e00130e2d5e55b3197624ef6bff9c25fd687cf87",
+    "accepted": false
+  },
+  "native_matrix": {
+    "first_attempt": {
+      "evidence": "/home/yangzichen/.helixweave/peri-a0-restore-20261113/qual-matrix-20261115",
+      "passed": false,
+      "cause": "AF_UNIX path too long"
+    },
+    "evidence": "/home/yangzichen/.helixweave/m15",
+    "scope": "hw-peri-a1-m15.scope",
+    "passed_cases": 23,
+    "case_count": 23,
+    "passed": true,
+    "binary_sha256": "5cc82caf6e04578f19ff5790fbc4eb8c9e115793ff6950a699c9e2ad28c50f47"
+  },
+  "host_tests_this_round": {
+    "test_contract": "7 passed; host broker unit tests, not native execution evidence",
+    "test_runtime": "4 passed inside hw-peri-a1-transport15.scope"
+  },
+  "acp_rust_unit_test": "not executed this round; 2026-11-09 result remains source-level on the previous binary"
+}

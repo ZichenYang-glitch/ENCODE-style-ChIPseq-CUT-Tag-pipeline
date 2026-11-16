@@ -1,0 +1,204 @@
+"""Local Unix HTTP stub. Provider traffic cannot leave this socket."""
+
+from __future__ import annotations
+
+from collections import deque
+from collections.abc import Callable
+import http.server
+import json
+from pathlib import Path
+import socket
+import socketserver
+import threading
+
+from encode_pipeline.services.peri_runtime.identity import META_TOOLS
+from encode_pipeline.services.peri_runtime.policy import SYNTHETIC_API_KEY
+
+
+class ModelStub:
+    """Scripted OpenAI-compatible stub bound to one private socket."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.requests: list[dict[str, object]] = []
+        self.failures: deque[str] = deque(maxlen=256)
+        self.responses: deque[object] = deque()
+        self.lock = threading.Lock()
+        self.stopping = threading.Event()
+        self.on_catalog_failure = None
+        self.authorize: Callable[[], bool] | None = None
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(2)
+                self.deadline = threading.Timer(8, self.expire)
+                self.deadline.start()
+
+            def expire(self):
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+            def finish(self):
+                self.deadline.cancel()
+                super().finish()
+
+            def log_message(self, *_args):
+                pass
+
+            def parse_request(self):
+                valid = super().parse_request()
+                with owner.lock:
+                    self.record = {
+                        "method": getattr(self, "command", None),
+                        "path": getattr(self, "path", None),
+                    }
+                    if len(owner.requests) >= 256:
+                        owner.failures.append("request_budget")
+                        return False
+                    owner.requests.append(self.record)
+                    if not valid:
+                        owner.failures.append("malformed_http")
+                return valid
+
+            def deny_method(self):
+                owner.failures.append("unexpected_method")
+                self.send_error(405)
+
+            do_GET = do_PUT = do_DELETE = do_CONNECT = do_OPTIONS = do_PATCH = (
+                do_HEAD
+            ) = deny_method
+
+            def do_POST(self):
+                try:
+                    if self.path != "/v1/chat/completions":
+                        raise ValueError("unexpected_path")
+                    if (
+                        self.headers.get("Authorization")
+                        != f"Bearer {SYNTHETIC_API_KEY}"
+                    ):
+                        raise ValueError("invalid_synthetic_credential")
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 262144:
+                        raise ValueError("request_size")
+                    if owner.authorize is not None and not owner.authorize():
+                        raise ValueError("authorization_revoked")
+                    body = json.loads(self.rfile.read(length))
+                    self.record["body"] = body
+                    if isinstance(body, dict) and "tools" not in body:
+                        raise ValueError("UNAPPROVED_MODEL_REQUEST_CLASS")
+                    names = {
+                        item["function"]["name"]
+                        for item in body.get("tools", [])
+                        if isinstance(item, dict)
+                    }
+                    if names != META_TOOLS:
+                        owner.failures.append("PROVIDER_TOOL_CATALOG_MISMATCH")
+                        if owner.on_catalog_failure:
+                            owner.on_catalog_failure("PROVIDER_TOOL_CATALOG_MISMATCH")
+                        raise ValueError("provider_tool_catalog_mismatch")
+                    with owner.lock:
+                        if not owner.responses:
+                            raise ValueError("unscripted_model_request")
+                        response = owner.responses.popleft()
+                    if response is None:
+                        owner.stopping.wait(8)
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.end_headers()
+                    self.wfile.write(
+                        (
+                            "data: " + json.dumps(response) + "\n\ndata: [DONE]\n\n"
+                        ).encode()
+                    )
+                    self.wfile.flush()
+                except (
+                    ValueError,
+                    OSError,
+                    TypeError,
+                    KeyError,
+                    AttributeError,
+                ) as error:
+                    code = (
+                        str(error)
+                        if isinstance(error, ValueError)
+                        else "malformed_provider_or_io"
+                    )
+                    owner.failures.append(code)
+                    if owner.on_catalog_failure:
+                        owner.on_catalog_failure("PROVIDER_REQUEST_REJECTED")
+                    try:
+                        self.send_error(400)
+                    except OSError:
+                        pass
+
+        class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+            daemon_threads = False
+            block_on_close = True
+            slots = threading.BoundedSemaphore(2)
+
+            def process_request(self, request, address):
+                if not self.slots.acquire(blocking=False):
+                    self.shutdown_request(request)
+                    return
+                super().process_request(request, address)
+
+            def process_request_thread(self, request, address):
+                try:
+                    super().process_request_thread(request, address)
+                finally:
+                    self.slots.release()
+
+        self.server = Server(str(path), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def script(self, *actions: object) -> None:
+        if len(actions) > 128:
+            raise ValueError("response_script_budget")
+        with self.lock:
+            if self.responses:
+                raise RuntimeError("previous script was not fully consumed")
+            for index, action in enumerate(actions):
+                if isinstance(action, str):
+                    delta = {"role": "assistant", "content": action}
+                    finish = "stop"
+                else:
+                    name, arguments = action
+                    delta = {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": f"call-a1-{len(self.requests)}-{index}",
+                                "type": "function",
+                                "function": {
+                                    "name": name,
+                                    "arguments": json.dumps(arguments),
+                                },
+                            }
+                        ],
+                    }
+                    finish = "tool_calls"
+                self.responses.append(
+                    {
+                        "id": f"a1-{index}",
+                        "object": "chat.completion.chunk",
+                        "model": "a1-stub",
+                        "choices": [
+                            {"index": 0, "delta": delta, "finish_reason": finish}
+                        ],
+                        "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+                    }
+                )
+
+    def close(self) -> None:
+        self.stopping.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.path.unlink(missing_ok=True)

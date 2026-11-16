@@ -255,7 +255,10 @@ def test_durable_worker_handles_process_group_lookup_errors(
     refused with a fixed code. ESRCH proves nothing about detached children, so
     it is refused rather than read as "already cleaned".
     """
-    worker = _quiet_worker(123)
+    # A live low pid on a runner would be a real process identity and would
+    # make the fallback signal. This case is the absent-identity path.
+    absent_pid = 1 << 30
+    worker = _quiet_worker(absent_pid)
     signals = []
 
     def fail_lookup(_pid):
@@ -264,7 +267,7 @@ def test_durable_worker_handles_process_group_lookup_errors(
     monkeypatch.setattr(os, "getpgid", fail_lookup)
     monkeypatch.setattr(os, "kill", lambda *args: signals.append(args))
     assert DurableWorker.kill_horse(worker) is None
-    assert worker._nested_cleanup_failed_pid == 123
+    assert worker._nested_cleanup_failed_pid == absent_pid
     if reason is None:
         # The group is already gone, so nothing was signaled on a guess.
         assert signals == []

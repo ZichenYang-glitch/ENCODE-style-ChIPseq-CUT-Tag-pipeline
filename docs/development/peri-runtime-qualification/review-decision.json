@@ -1,0 +1,86 @@
+{
+  "decision": "accepted_for_fixed_restricted_A1_C4_runtime",
+  "candidate_sha256": "5cc82caf6e04578f19ff5790fbc4eb8c9e115793ff6950a699c9e2ad28c50f47",
+  "previous_sha256": "60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517",
+  "scope": "Replacement runtime identity for the already designed restricted Peri integration; not whole A1, C4, real-provider, production-capacity or long-term-fork acceptance.",
+  "identity": {
+    "peri_commit": "c7d154c9985cbe08ba25e964cb7468d15014e6d0",
+    "patch_sha256": "06272e1a66423a9e562509a38d044cd8506a1c10e61ef1fd3fe239107680587b",
+    "cargo_lock_sha256": "0692683359fb75073eca3d14b364071bc02058be7b11e0335ccaf2b0f314f5dd",
+    "build_manifest_sha256": "592c1d8ae26eb8f689dd99911fcfa5ce2e89a6bc0f0a52609648ccaba87946ec",
+    "binary_size": 36175888,
+    "actual_source_matches_archived_patch": true,
+    "patched_files": 8,
+    "source_and_test_wrapper_verified": true,
+    "rustc": "1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "1.99.0 (5f94df478 2026-08-27)"
+  },
+  "runtime_evidence": {
+    "matrix": "native-matrix-report.json",
+    "matrix_baseline": "622778f64e59f935d822d92a91bade78807dabce",
+    "matrix_passed": 23,
+    "matrix_cases": 23,
+    "instance_evidence": 25,
+    "all_closed_and_cleanup_errors_empty": true,
+    "limits": {
+      "memory.max": "536870912",
+      "memory.swap.max": "0",
+      "pids.max": "128",
+      "cpu.max": "100000 100000"
+    },
+    "rerun_by_reviewer": false,
+    "prototype_hashes_match_archived_closeout": 18
+  },
+  "independent_tests": {
+    "A1": {
+      "head": "e00130e2d5e55b3197624ef6bff9c25fd687cf87",
+      "qualification_change": "Only BINARY_SHA256 replaced in a detached review checkout. No product branch changed.",
+      "bootstrap": "canonical bootstrap; verify-checkout succeeded",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "reported_seconds": 4.69,
+      "xml": "a1-final.xml"
+    },
+    "host_contract": {
+      "passed": 7,
+      "log": "host-contract.log"
+    },
+    "transport": {
+      "passed": 4,
+      "log": "host-transport.log",
+      "own_scope": "hw-peri-review-transport-ossu4mss.scope"
+    }
+  },
+  "ACP_source_evidence_reuse": {
+    "decision": "Explicitly reuse the historical source-level test, do not rerun the large compiler job solely due to the runtime artifact hash change.",
+    "why": "Exact upstream commit, all eight patched files, Cargo.lock, prediction test source, wrapper and compiler versions match. Historical ACP unit test ran a separate test harness, not the accepted runtime binary. Candidate-specific behavior was separately exercised by the new native matrix and independent A1 test.",
+    "historical_result": "1 passed, 0 failed, 0 ignored; true peri-acp crate; 2026-11-09",
+    "historical_archive": "/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/scripts/peri_a0_closeout/evidence/acp-final",
+    "archive_checksums_verified": 20,
+    "current_run": "not executed; no claim that this unit test was rerun on the new artifact",
+    "test_source_sha256": "5fa87543e25f94b195f28e658f1232364225d25fa7e361b997a217125c777c64"
+  },
+  "initial_review_attempts": [
+    {
+      "log": "a1-native.log",
+      "result": "bootstrap rejected caller -p flag before testing; reviewer invocation error"
+    },
+    {
+      "log": "a1-native-2.log",
+      "result": "existing qualification venv lacked canonical pytest dependencies; no test executed"
+    },
+    {
+      "log": "a1-independent.log",
+      "result": "review dependency symlink layout rejected by provenance; no test executed; corrected by locally copying matched locked dependencies"
+    }
+  ],
+  "cleanup": {
+    "test_scopes_absent": true,
+    "review_pytest_or_bwrap_processes_remaining": 0,
+    "other_sessions_services_stopped": false
+  },
+  "next_action": "Backend may prepare a narrow reviewed change binding this exact SHA and append qualification evidence. Preserve old acceptance records. Keep API/schema unchanged; assess execution-closure impact from actual diff. C4 still requires final integrated frontend/science and applicable Gate.",
+  "product_state": "PR #212 and production runtime pin not changed by reviewer. Backend qualification worktree left with its original uncommitted digest rebind only."
+}

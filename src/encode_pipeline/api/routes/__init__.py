@@ -6,6 +6,10 @@ from fastapi import APIRouter, Depends
 
 from encode_pipeline.api.dependencies import enforce_csrf, require_principal
 from encode_pipeline.api.routes.agent import router as agent_router
+from encode_pipeline.api.routes.authoring import (
+    projects_router as authoring_projects_router,
+)
+from encode_pipeline.api.routes.authoring import router as authoring_router
 from encode_pipeline.api.routes.artifacts import router as artifacts_router
 from encode_pipeline.api.routes.artifact_publications import (
     router as artifact_publications_router,
@@ -22,6 +26,11 @@ api_v1_router.include_router(auth_router)
 _member_dependencies = [Depends(require_principal), Depends(enforce_csrf)]
 api_v1_router.include_router(workflows_router, dependencies=_member_dependencies)
 api_v1_router.include_router(agent_router, dependencies=_member_dependencies)
+api_v1_router.include_router(
+    authoring_projects_router,
+    dependencies=_member_dependencies,
+)
+api_v1_router.include_router(authoring_router, dependencies=_member_dependencies)
 api_v1_router.include_router(runs_router, dependencies=_member_dependencies)
 api_v1_router.include_router(preflight_router, dependencies=_member_dependencies)
 api_v1_router.include_router(artifacts_router, dependencies=_member_dependencies)
