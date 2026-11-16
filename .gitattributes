@@ -1,6 +1,10 @@
-# Frozen Peri A0 evidence keeps its recorded bytes.
-# Only these files skip blank-at-eol and blank-at-eof. Other whitespace
-# rules stay enabled, and every maintained path keeps the default checks.
+# Two recorded-byte sets skip blank-at-eol and blank-at-eof only.
+# Other whitespace rules stay enabled. Hand-maintained source keeps the
+# default checks.
+#
+# Vite production chunks under frontend_assets/static/assets are copied
+# unchanged by scripts/package_frontend_assets.py. Trailing spaces there are
+# inside bundled payload, so they are not rewritten to satisfy the check.
 scripts/peri_a0_closeout/evidence/acp-final/fat/rust/trusted_prediction_policy_is_strict_and_default_compatible.log whitespace=-blank-at-eol,-blank-at-eof
 scripts/peri_a0_closeout/evidence/acp-final/test-driver.patch whitespace=-blank-at-eol,-blank-at-eof
 scripts/peri_a0_closeout/evidence/candidate-final.patch whitespace=-blank-at-eol,-blank-at-eof
@@ -18,3 +22,4 @@ scripts/peri_a0_revision/evidence/patch-tests-catalog2/session::tool_catalog::te
 scripts/peri_a0_revision/evidence/patch-tests/process_policy_tests.log whitespace=-blank-at-eol,-blank-at-eof
 scripts/peri_a0_revision/evidence/patch-tests/tool_catalog_test.log whitespace=-blank-at-eol,-blank-at-eof
 scripts/peri_a0_revision/evidence/patch-tests/tool_filter_tests.log whitespace=-blank-at-eol,-blank-at-eof
+src/encode_pipeline/frontend_assets/static/assets/* whitespace=-blank-at-eol,-blank-at-eof

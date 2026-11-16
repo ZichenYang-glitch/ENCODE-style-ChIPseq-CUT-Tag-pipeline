@@ -16,6 +16,7 @@ from encode_pipeline.api.dependencies import (
     get_artifact_download_service,
     get_run_service,
 )
+from encode_pipeline.api.routes.browser_tracks import router as browser_track_router
 from encode_pipeline.api.models import (
     ArtifactDownloadIssueContextResponse,
     ArtifactDownloadIssueResponse,
@@ -501,3 +502,6 @@ def _artifact_detail_content(response: RunArtifactDetailResponse) -> dict[str, A
     content = response.model_dump(mode="json", exclude_none=True)
     content["artifact_generation"] = response.artifact_generation
     return content
+
+
+router.include_router(browser_track_router)

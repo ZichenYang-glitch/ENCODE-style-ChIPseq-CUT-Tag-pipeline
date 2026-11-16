@@ -6,11 +6,16 @@
  * OpenAPI spec version: 0.4.1
  */
 import type {
+  BrowserPrepareRequest,
+  BrowserPrepareResponse,
+  BrowserRegionSummaryResponse,
+  BrowserSessionResponse,
   DownloadRunArtifactParams,
   GetRunArtifactParams,
   ListRunArtifactsParams,
   RunArtifactDetailResponse,
-  RunArtifactsResponse
+  RunArtifactsResponse,
+  SummarizeRunBrowserTrackRegionParams
 } from '.././models';
 
 import { fetcher } from '../../fetcher';
@@ -113,6 +118,152 @@ export const downloadRunArtifact = async (runId: string,
   {
     ...options,
     method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Get Run Browser Session
+ */
+export const getGetRunBrowserSessionUrl = (runId: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/browser-session`
+}
+
+export const getRunBrowserSession = async (runId: string, options?: RequestInit): Promise<BrowserSessionResponse> => {
+
+  return fetcher<BrowserSessionResponse>(getGetRunBrowserSessionUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Prepare Run Browser Track
+ */
+export const getPrepareRunBrowserTrackUrl = (runId: string,
+    artifactId: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/browser-tracks/${artifactId}/derivative`
+}
+
+export const prepareRunBrowserTrack = async (runId: string,
+    artifactId: string,
+    browserPrepareRequest: BrowserPrepareRequest, options?: RequestInit): Promise<BrowserPrepareResponse> => {
+
+  return fetcher<BrowserPrepareResponse>(getPrepareRunBrowserTrackUrl(runId,artifactId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      browserPrepareRequest,)
+  }
+);}
+
+
+/**
+ * @summary Summarize Run Browser Track Region
+ */
+export const getSummarizeRunBrowserTrackRegionUrl = (runId: string,
+    artifactId: string,
+    generation: string,
+    revision: string,
+    params: SummarizeRunBrowserTrackRegionParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/runs/${runId}/browser-tracks/${artifactId}/region-summary/${generation}/${revision}?${stringifiedParams}` : `/api/v1/runs/${runId}/browser-tracks/${artifactId}/region-summary/${generation}/${revision}`
+}
+
+export const summarizeRunBrowserTrackRegion = async (runId: string,
+    artifactId: string,
+    generation: string,
+    revision: string,
+    params: SummarizeRunBrowserTrackRegionParams, options?: RequestInit): Promise<BrowserRegionSummaryResponse> => {
+
+  return fetcher<BrowserRegionSummaryResponse>(getSummarizeRunBrowserTrackRegionUrl(runId,artifactId,generation,revision,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Read Run Browser Track Bytes
+ */
+export const getReadRunBrowserTrackBytesUrl = (runId: string,
+    artifactId: string,
+    generation: string,
+    fileToken: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/browser-tracks/${artifactId}/bytes/${generation}/${fileToken}`
+}
+
+export const readRunBrowserTrackBytes = async (runId: string,
+    artifactId: string,
+    generation: string,
+    fileToken: string, options?: RequestInit): Promise<Blob> => {
+
+  return blobFetcher<Blob>(getReadRunBrowserTrackBytesUrl(runId,artifactId,generation,fileToken),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Head Run Browser Track Bytes
+ */
+export const getHeadRunBrowserTrackBytesUrl = (runId: string,
+    artifactId: string,
+    generation: string,
+    fileToken: string,) => {
+
+
+
+
+  return `/api/v1/runs/${runId}/browser-tracks/${artifactId}/bytes/${generation}/${fileToken}`
+}
+
+export const headRunBrowserTrackBytes = async (runId: string,
+    artifactId: string,
+    generation: string,
+    fileToken: string, options?: RequestInit): Promise<Blob> => {
+
+  return blobFetcher<Blob>(getHeadRunBrowserTrackBytesUrl(runId,artifactId,generation,fileToken),
+  {
+    ...options,
+    method: 'HEAD'
 
 
   }

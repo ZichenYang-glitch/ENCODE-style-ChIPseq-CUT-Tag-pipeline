@@ -471,21 +471,32 @@ def test_more_refusals_leave_outputs_unwritten(tmp_path, monkeypatch, capsys):
     assert not (task / "cargo-home").exists()
 
 
+_GENERATED_ASSET_WHITESPACE = "src/encode_pipeline/frontend_assets/static/assets/*"
+
+
 def test_whitespace_attribute_is_limited_to_frozen_evidence():
     attributes = (_REPO / ".gitattributes").read_text(encoding="utf-8")
     assert "* -whitespace" not in attributes
     assert "scripts/peri_a0_reproduce" not in attributes
     listed = []
+    generated = []
     for line in attributes.splitlines():
         if not line or line.startswith("#"):
             continue
         path, rule = line.split(" ", 1)
         assert rule == "whitespace=-blank-at-eol,-blank-at-eof"
+        if path == _GENERATED_ASSET_WHITESPACE:
+            generated.append(path)
+            continue
         assert path.startswith(
             ("scripts/peri_a0_closeout/evidence/", "scripts/peri_a0_revision/evidence/")
         )
         assert (_REPO / path).is_file()
         listed.append(path)
+    assert generated == [_GENERATED_ASSET_WHITESPACE]
+    asset_dir = _REPO / "src/encode_pipeline/frontend_assets/static/assets"
+    assert asset_dir.is_dir()
+    sample = min(path for path in asset_dir.iterdir() if path.is_file())
     assert "scripts/peri_a0_closeout/evidence/candidate-testfix.patch" in listed
 
     output = subprocess.check_output(
@@ -497,6 +508,8 @@ def test_whitespace_attribute_is_limited_to_frozen_evidence():
             "scripts/peri_a0_reproduce/plan.py",
             "docs/development/peri-a0-archive.md",
             "scripts/peri_a0_closeout/evidence/candidate-testfix.patch",
+            "src/encode_pipeline/services/browser_derivatives.py",
+            sample.relative_to(_REPO).as_posix(),
         ],
         cwd=_REPO,
         text=True,
@@ -505,6 +518,14 @@ def test_whitespace_attribute_is_limited_to_frozen_evidence():
     assert "docs/development/peri-a0-archive.md: whitespace: unspecified" in output
     assert (
         "scripts/peri_a0_closeout/evidence/candidate-testfix.patch: "
+        "whitespace: -blank-at-eol,-blank-at-eof"
+    ) in output
+    assert (
+        "src/encode_pipeline/services/browser_derivatives.py: whitespace: unspecified"
+        in output
+    )
+    assert (
+        f"{sample.relative_to(_REPO).as_posix()}: "
         "whitespace: -blank-at-eol,-blank-at-eof"
     ) in output
 

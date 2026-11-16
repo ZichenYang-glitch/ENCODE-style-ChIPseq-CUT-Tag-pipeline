@@ -25,6 +25,18 @@ module.exports = {
               name: 'blobFetcher',
             },
           },
+          readRunBrowserTrackBytes: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
+          headRunBrowserTrackBytes: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
         },
       },
     },
