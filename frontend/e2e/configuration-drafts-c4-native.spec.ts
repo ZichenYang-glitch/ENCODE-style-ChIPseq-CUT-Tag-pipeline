@@ -436,8 +436,9 @@ test('unsaved edits survive cancel, a revision conflict, and a completed turn wh
 });
 
 test('rejecting a proposal leaves the saved revision unchanged @desktop', async ({ page }) => {
-  await openDrafts(page);
-  await page.getByRole('button', { name: /revision /i }).first().click();
+  // Stay on the signed-in draft. Opening the page again can sign in a second
+  // time, and that login does not own the assistant connection.
+  await expect(page.getByRole('heading', { level: 1, name: 'Configuration drafts' })).toBeVisible();
   const connect = page.getByRole('button', { name: 'Connect assistant' });
   if (await connect.isEnabled()) {
     await connect.click();
