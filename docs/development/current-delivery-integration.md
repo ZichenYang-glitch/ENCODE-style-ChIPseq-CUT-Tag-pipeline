@@ -1,373 +1,347 @@
 # 当前 PR 收口与集成清单
 
-## 已合入 main（2026-11-06）
+## 2026-11-16T08:22:10Z 当前状态
 
-本节是当前入口。下方“集成候选（2026-11-06）”和更早快照保留为历史，
-不改写当时的检查记录。
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。12:18:06Z 的快照及更早记录不倒写。
+本页在 Draft #213，仍未合并。本次更新不写回自身新 SHA。
 
-[#207](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/207)
-和 [#209](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/209)
-已用各自的 merge commit 进入 main。没有发布、部署、打 tag，科学默认也没有冻结。
+受限配置建议与校验 A1 已交付并进入 main
+`1b1db421ba3172bc39cf31ce0d03976511379fda`。
+这是 [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+的普通 merge，父提交为 `101983f9480bb72306da69875e79dc6ad65bca5a`
+与批准 head `e112223fd03795b43cce6c8dce4566dcb4739f4b`。
+merge 与批准 head 的文件树都是 `1f9ac53f6b34625fcbb6c09965427a3d6867e1ef`。
+C4、launcher 生命周期和最终 Bulk Gate 不再写成当前阻塞。
 
-| 身份 | 值 |
-| --- | --- |
-| 当前 main | `cc06a039515d79c654e4fcf760ac4c1c630e8432` |
-| #209 合并时间 | 2026-11-07T08:53:06Z |
-| #209 head | `c789d4a56d868be6429b35d2e5dec3c356fdd651` |
-| #207 merge | `8b65684cd139763f1153de2f394630bdc6fc4186` |
-| #207 合并时间 | 2026-11-06T08:52:04Z |
-| #207 head | `7d0cdab70898558c9e1a34a4eae3cd98a317127e` |
+证据身份分开记录：
 
-#209 只调整 `browser-e2e` 的时间预算：job 上限 20 分钟，系统依赖、Chromium 下载、schema smoke 和浏览器测试各自有步骤时限。测试命令、断言、checkout 核对和零跳过检查没有改。
+- Bulk Gate 跑在 `e112223…`。[CI 43792685991](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43792685991)
+  为 workflow_dispatch attempt 2 success，head 就是该批准提交。
+  job `133061548271` success，记录为 4 项执行测试和 5 项产品浏览器测试通过。
+  Artifact `14195706467` 的 ZIP SHA256 为
+  `54ffa1c4aa24454ffc0dc63e8d6a0728004345c977c2633b0e05b5985adb88a6`。
+  本次查询确认了 run、attempt、head 和该 job 的 success，没有重新下载 ZIP。
+- C4 跑在 `82d091278a5cf46f5c33b40f4cbb26d3d12fe2a8`：Vite 页面、真实平台、
+  固定 Peri、模型 API stub，5 passed。
+- 文件树相同，因此这两项证据可以复用到 merge。不能写成 `1b1db4…` 上新跑过 Gate 或 C4。
+- 合入后 push attempt 1 全部 success，head 为 merge SHA：
+  [CI 43816767856](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767856)、
+  [Lint 43816767900](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767900)、
+  [Lock Check 43816767895](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43816767895)。
+  两个 shard、frontend、browser-e2e、fast-checks、coverage 成功。
+  real-execution、platform-real-execution、container-smoke、bulk-rnaseq-real-execution
+  为 skipped，不是执行通过。
 
-#209 合入提交 `cc06a039515d79c654e4fcf760ac4c1c630e8432` 的普通检查：
+2026-11-16T08:22:10Z，GitHub 把 #212、#214、#218、#219 标为 merged。
+它们的已审阅内容包含在上述 main 中。#216 的科学内容此前已在 `101983f…`；
+同一次查询它也被标为 merged，记录的 merge 提交仍是 `101983f…`，不是一次新的合并。
 
-- CI [42357352926](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352926) attempt 2，结论 success。checkout SHA 是这个 merge commit。
-- attempt 1 的 durable browser gate 有 1 个失败：移动端取消断言期望 `cancelled`，实际停在 `failed`。schema smoke 已通过，安装步骤也成功。attempt 2 只重跑了 `browser-e2e`。
-- attempt 2 的 schema smoke 为 2 passed，durable browser gate 为 12 passed。
-- Lint [42357352919](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352919) 与 Lock Check [42357352813](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42357352813) 成功。
-- 四项条件执行 job 仍是 skipped，不算通过。这次没有重跑 Bulk Gate 或真实 FASTQ。
+当前进行中只有两件：
 
-#207 合入提交 `8b65684cd139763f1153de2f394630bdc6fc4186` 的普通检查：
+- #217 仍是 open Draft，head 仍为 `c4c49098d3c05b4d6913a684b459508c866c39b7`。
+  它独立推进，与新 main 的组合仍需核验。12:18:06Z 对该 head 的取消恢复复审不改写。
+- #213 仍是文档 Draft，未合并。
 
-- CI [42190768316](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768316) attempt 2，结论 success。checkout SHA 是 #207 的 merge commit。
-- attempt 1 的 `browser-e2e` 在安装 Playwright 字体依赖时被 10 分钟时限取消，浏览器测试没有开始。attempt 2 只重跑了这个 job。
-- attempt 2 的 `browser-e2e` 实际执行了 schema smoke（2 passed）和 real browser durable execution gate（12 passed）。
-- 两个 fast-check shard、fast-checks、coverage、frontend 在 attempt 1 成功，attempt 2 沿用这些结果。
-- Lint [42190768421](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768421) 与 Lock Check [42190768305](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42190768305) 成功。
-- `real-execution`、`platform-real-execution`、`bulk-rnaseq-real-execution`、`container-smoke` 仍是 skipped，不算通过。
+后续阶段都还没实施。ACP 兼容不是自动通过接入。已有 A1 草稿采用权限保持不变。
 
-证据边界各自独立：
+- 真实模型 API：设计和实施尚未开始，不要求本地模型。
+- Agent runtime 适配：平台拥有授权、项目范围、草稿、确认、回执和生命周期；
+  Peri 特有协议与版本留在适配层。这是设计要求。
+- Agent 提交与取消运行：独立操作契约、确认和幂等仍待设计。
+- 数据目录：按课题、细胞类型、实验类型分类与查询仍是设计。
+- AI 整理：成员查询和建议，管理员在网页或终端确认。不把已有 A1 草稿采用改成管理员专属。
+- managed execution、生产容量和科学确认另列，不属于这次 A1 交付。
 
-- Protected Bulk job 只属于 `815fdb52e09f4237005d3375591a23799a3904d0`。[run 42178753311](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42178753311) attempt 1 的 `bulk-rnaseq-real-execution` 成功。JUnit 是 4 tests、0 failures、0 errors、0 skipped。产品证据 56 个 artifact、93 条 QC、1234 字节下载。同一次 workflow 的总结是 failure，因为当时的 `platform-real-execution` 失败。
-- `7d0cdab70898558c9e1a34a4eae3cd98a317127e` 只把真实 `scripts/source_provenance.py` 复制进取消测试 fixture。Bulk 实现、119 文件 manifest、资格记录和执行接线未变，aggregate 仍是 `6591f3069a5d9cdd0283c330809c7fb221b9d2b3dc6593c2dacadb5a19735f16`。该 head 没有重跑 Bulk Gate。本地真实 Redis 的 `platform_real_execution`（`test/workers`）为 10 passed、312 deselected、0 skipped。
-- 历史 Gate [40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755) 仍只属于 `39a5484119d688a3658c7e5f7d359704ee274866`。
+非阻塞注记：relay 第三连接测试 `test_relay_refuses_a_third_connection_and_closes`
+仍只证明某个 handler 启动。断言补强不改生产 relay。若另交测试提交，
+`82d0912…` 的 C4 证据保留原 SHA。
 
-#184、#190、#201、#204、#205、#206 在合入后由 GitHub 标为 merged。
-#185–#189、#191–#193、#196–#200、#202、#203 的当时 head 已完整包含在 #207 的 merge commit `8b65684cd139763f1153de2f394630bdc6fc4186` 中，没有额外提交；它们被关闭以记录纳入，不是各自再合并进 main。分支都保留。
-#194 与 #195 保持 open，后续单独审阅。
+## 2026-11-15T12:18:06Z 快照
 
-已集成的是这条科学实现、SCI-7 本批测量记录、workflow skills、源码身份、测试精简和 Bulk 运行时接线。
-SCI-7 本批结论仍是 no conclusion。JUND 是跨靶点检查，不是 NR2F2 的生物学重复。
-CUT&Tag、histone、MNase、ATAC 的 confirmation 未执行。MNase 登记的 500-arm 短模板指标未评估。
-后续优先是 Peri 接入的小规模独立验证；SQLite 继续作为生命周期和结果元数据的现有存储。
-这两项都还没有开始。
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。07:21:49Z 的 `23681d9…` 快照及更早记录不倒写。
+本页在 Draft #213，仍未合并。本次更新不写回自身新 SHA。
+同一次查询：main 仍是 `101983f…`；#219 head 为 `6d570822620ccb873c26a1dabad1a8baebe5593b`；
+#217 为 `c4c49098d3c05b4d6913a684b459508c866c39b7`；#214、#218、#212、#216 的 head 未变。
 
-## 历史：集成候选（2026-11-06，合入前）
+- [#219](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/219)
+  已是 open Draft。已审阅 head 是 `6d5708…`。短命创建线程已由常驻 launcher 修复。
+  新的待返修：创建超时后，晚到进程可能无人接管。当前不再把 `d2a0cc…` 加未提交接线当作现状。
+- C4 本地记录有 5 passed，完整验收未完成。没有采用后再校验；丢响应测试在请求到达 API 前中止；
+  未执行 Reject；“过期保存”实际是另一次写入造成的 revision 冲突。
+  原先 2 passed、1 failed、2 skipped 保留为更早历史证据。这次本地 JUnit 早于最终干净 SHA，
+  不是该 SHA 或生产静态包上的运行。
+- #219 的 pull_request [CI 43693526422](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693526422)
+  为 attempt 1 success。两个 shard、frontend、browser-e2e、fast-checks、coverage 成功；
+  四个条件执行 job skipped。
+  同一 head 的 workflow_dispatch [43693536449](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43693536449)
+  为 attempt 1 failure。real-execution、platform-real-execution、container-smoke、frontend、
+  browser-e2e、两个 shard 和 fast-checks 成功。
+  Bulk job 步骤数为 0，在 runner 执行前被分支保护拒绝，不是科学执行失败。
+  coverage job `132755072368` 失败：services 全套覆盖率 85.37%，低于 87.28%。
+  该步骤里更后面的门槛没有执行，不能记为通过。不能把这次 dispatch 写成只剩环境准入。
+  本次查询核对了 run 与 job 结论，没有重新下载 coverage 日志，也没有重跑这两次 CI。
+- #217 `c4c4909…` 的取消恢复增量已通过独立定点复审。`db3d8a5…` 的 P2 不再列为未修复。
+  原回归在 `db3d8a5…` 失败、在 `c4c4909…` 通过。准确提交的生产浏览器证据仍待收口；
+  作者浏览器记录仍标在 `db3d8a5…`，这次复审没有重跑浏览器证明。#217 未纳入 #219。
+- #214 `a566943…` 与 #218 `ca40bce…` 已各作为祖先纳入 #219 一次。Frontend 待命。
+  Science 没有新增任务。169 passed 仍属于 `0fef7a2…`。
+- #212 `ff4bdd5…` 仍是已复审的文案与署名增量。C4、整个 A1、最终组合 Gate、
+  真实 provider 和 Agent 运行操作分别记账。
+- `23681d9…` 的 shard 失败里，PID 123 的 SIGKILL 是测试 mock 捕获的 `os.kill` 调用，
+  不是已证明向宿主 PID 123 实际发信号。该 CI 结论仍是 failure，不改写成通过。
 
-本节在 #207 合入前是当前入口。合入身份见上方。下面保留当时的候选描述。
-main 仍是 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本候选没有合入 main，
-没有发布，也没有冻结科学默认。
+## 2026-11-15T07:21:49Z 快照
 
-来源合并树是 `526e26d1ff8dc6e39807fae9c9406f9bd0a19e7e`。
-技能启动说明对齐是 `b436087176f2c82d7c01f30dca1434eaecab3349`。
-本节首次写入于 `954014fd01e8ed840c0279ffec279718ea42831b`。
-评审身份是 Draft PR head 的完整 SHA，不把任一来源 PR head 写成候选身份。
-候选 CI 是该 head 上新跑的普通 CI、Lint 和 Lock Check，
-不沿用下表里来源 head 的结果。
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。19:18:06Z 及更早快照不改写。
+本页在 Draft #213，仍未合并。本次更新不写回自身新 SHA。
+同一次查询：main 仍是 `101983f…`；#212 head 为 `ff4bdd5…`，#214 为 `a566943…`，
+#217 为 `db3d8a5…`，#218 为 `ca40bce…`，#216 仍 open。没有为这些文档增量另查一套新 CI。
 
-### 纳入
+- C4 已尝试，未完成。手工保存、刷新回读和真实 snapshot 成功。
+  native 创建线程生命周期缺陷阻断提案及后续步骤。原 JUnit 为 2 passed、1 failed、2 skipped。
+  集成 HEAD 是 `d2a0cc683aefd3a05fe507dce0fba60e79ecc320`，另有未提交接线；交接时没有集成 Draft。
+  受控复现确认 SIGKILL 来自短命 handler 线程退出后的 `--die-with-parent`，不是 OOM 或资源不足。
+  两个确认性测试通过只说明缺陷已复现，不表示 C4 通过。
+- #217 `db3d8a51af10c51ba77c5100b4f20e6a58664bf6` 的生产外发 P1 已通过复审。
+  新 P2：取消进行中的预检后再选择，主动 AbortError 被留在失败集合，成功重选不能恢复。
+  等待窄修复。该复审没有跑完整 CI、Gate 或 native 测试，不是 Viewer 全部通过。
+- #212 `ff4bdd5dbb206d653e73fed6627bfc0979cea568` 的文案与署名增量已通过复审，生产和测试代码未变。
+  `a08aa62…` 的摘要绑定结论仍只属于该 SHA。
+- #218 `ca40bced3e0e954b87e7cde82017ca8dfd2d6d53` 的单行文档增量已通过复审，生产和测试代码未变。
+  169 passed 的真实执行证据仍属于 `0fef7a2…`，不改写该测试身份，也不重跑科学层。
+- #214 `a566943…` 继续可消费，没有新的 C3 任务。
+- C4、整个 A1、最终组合 Gate、真实 provider 和 Agent 运行操作分别记账。
+  不因某个 session goal complete 写成全部完成。原 binary `60144bbe…` 的缺失和历史 A0 记录保留。
 
-祖先核对后，子提交已经包含的父提交没有再次叠补丁。#190 的两个 CI 提交
-（`4e7c5a46945f69a703d0d3ec0d90ac8ebc7d599c`、
-`b6f3a49f45a6b8093f8c42db6684bce5f1425475`）与科学链上的
-`978651a45974216066488449f49e43dced5bb40e`、
-`50c28743dfa3693ec90de3d2bd6106cbdbf4ed8a` patch-id 相同，只保留一次。
-#190 独有的清理预算 `32570adf50725206e0bfe40a6af1d3d81391478d` 已进入候选。
+## 2026-11-14T19:18:06Z 快照
 
-| PR | 准确 head | 处理 |
-| --- | --- | --- |
-| #190 | `b6f3a49f45a6b8093f8c42db6684bce5f1425475` | 快进纳入 |
-| #184–#192、#196、#197、#200、#202 | 见 09:50 表，本轮复核未移动 | 由 #203 祖先包含 |
-| #203 | `65760720c4609de633ef9f636ab9d4eea4f3e8c0` | 合并；普通 CI [42154760414](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760414)、Lint [42154760469](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760469)、Lock Check [42154760405](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42154760405) 均为 success |
-| #193 | `39a5484119d688a3658c7e5f7d359704ee274866` | 合并。PR CI [40811304880](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304880) attempt 1 success。Protected Bulk Gate 仍是 dispatch [40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755) attempt 1 success，只属于该 head |
-| #198 | `e9abd5803f60ff07b8606f3dfc5900116d44c022` | 合并 |
-| #199 | `3950c7e77834c28ebde2a09b7b079809a0eacce6` | 合并 |
-| #204 | `ae08bd2544ae47a3691cd30ce299ebaaf96c5a68` | 合并 |
-| #205 | `be4a2db56811adc1e9702382234cdddb5819b998` | 合并 |
-| #206 | `ce86c52cc489825e04e52cef6b268e0a678ceba7` | 合并 |
-| #201 | `ce10b73717af4c602b3210a0ebd6451ed52b50db` | 合并。该 head 的 CI [42146755914](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42146755914) 仍是 failure；Lint 与 Lock Check 成功。失败留在来源 head，不记成候选通过 |
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。下面是各 owner 本轮最终交接。
+17:40:08Z 及更早的快照保留在后文，不改写成这次才知道的结论。
+本页已在 Draft #213，该 PR 仍未合并。本次更新不写回自身新 SHA。
 
-### 排除
-
-#194 `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` 只改 `AGENTS.md` 的 Cloud Agent
-工具链说明。#195 `a64434962c3f497a83188b46f8b2f488a353cd8e` 只新增九份工程审计笔记，
-这些文件只存在于该 PR，不在本候选中。二者都不改变科学行为、
-工作流、CI、测试、锁文件或 API。它们各自的 CI 仍失败。本候选不纳入，避免把
-Cloud 运行手册和一套并行的代理流程路线图写成当前交付。后续应在候选之后单独
-审阅，并先核对已过时的环境、Alembic 和 Actions 陈述。
-
-### 冲突处理
-
-- `docs/development/sci7-public-data/README.md`：保留各 assay 已交付记录，并写入
-  MNase Rep1 的 no conclusion。不再写“MNase 记录留在另一分支”。
-- `workflow/Snakefile`：使用 `import_checkout_package`。包已定位但初始化失败时
-  停止，不退回另一个 checkout。SCI-1～6 的 insert bound、policy revision、
-  run identity 和 effective config 导入全部保留。
-- `test/config/test_validation.py`：删除 `test_mnase_se_still_rejected` 和
-  `test_mnase_narrow_still_rejected`。保留同断言的 `test_mnase_se_rejected`、
-  `test_mnase_narrow_peak_mode_rejected`，以及 `test_scientific_policy_revision_key_rejected`。
-
-#193 的 conda 工具链、profile 隔离和容器 UID/GID 接线在合并后与 gate head 的
-`.github/workflows/ci.yml`、`workflow/envs/ci-conda.lock`、
-`workflow/envs/ci-conda.yml`、`containers/Apptainer.ci-conda.def` 字节相同。
-
-### 闭包与 Gate
-
-相对 `39a5484119d688a3658c7e5f7d359704ee274866`，119 个 bulk 实现路径和
-`execution-implementation-manifest-1.0.0.json` 字节相同，aggregate 仍为
-`15a16a23f8a97afa006b475a9a9be741ba84750ddedd81f96ca10326383c5b86`。
-`default-execution-qualification-1.1.0.json` 也相同。
-`scripts/source_provenance.py` 和 `workflow/Snakefile` 有变化，且不在这 119 个路径里。
-因此本候选不重跑 Protected Bulk Gate，也不把历史 Gate 写成候选已通过。
-
-### 科学边界
-
-SCI-7 本批测量和记录已交付，结论是 no conclusion。JUND 是跨靶点检查，不是
-NR2F2 的生物学重复。CUT&Tag、histone、MNase、ATAC 的 confirmation 未执行。
-MNase 登记的 500-arm 短模板指标未评估。默认未冻结。
-
-## 历史快照与执行计划（2026-11-06 09:50，Asia/Shanghai）
-
-本节在写入时取代当时的历史“当前”和“下一步”。它现在本身是历史，原样保留。
-此次重新查询了 #184～#206 的开放状态、准确 head 的普通工作流结果，
-并读取 #201～#206 的 CI job 列表；本地科学状态只读核对，不接管原 session。
-
-main 仍为 `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。
-23 个 PR 全部 open、未合并：#194/#195 非 Draft，其余 21 个为 Draft。
-17 个 head 的 CI、Lint、Lock Check 成功；#194、#195、#201、#204、#205、
-#206 的 CI 失败，Lint 与 Lock Check 成功。失败不能因“共享基线”而记为通过。
-
-### 准确 head 清单
-
-| PR | 完整 head | 当前 base | CI | Lint / Lock Check |
-| --- | --- | --- | --- | --- |
-| [#184](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/184) | `483a56ed76bda57c7ce50bd61772c33d333e3639` | main | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844720) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844652) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844896) |
-| [#185](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/185) | `5c86076c8f2db1facbe0a6244c1360c8d4b09c69` | #184 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305946) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305954) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305945) |
-| [#186](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/186) | `faa3d1dc714d4bf6105dcb1b004419a0c6c09016` | #185 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397365) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397329) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397346) |
-| [#187](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/187) | `659e849a07f3129065fced1f44e2e2c95972f704` | #186 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518724) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518747) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518788) |
-| [#188](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/188) | `0d7f7fd5c623ae559ff2490356a36fbceba5c29c` | #187 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744887) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744833) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744834) |
-| [#189](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/189) | `66d0ce1004f74fa43321bf5938e5ca61c6ff5eb9` | #188 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315543051) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315542998) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315543096) |
-| [#190](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/190) | `b6f3a49f45a6b8093f8c42db6684bce5f1425475` | main | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125802) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125706) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125866) |
-| [#191](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/191) | `dbc66d6a66cbc6d2ef95783e90203d9b353135a0` | #189 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544641) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544644) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544692) |
-| [#192](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/192) | `f93bf0c110f8c0d859e959be27448e780a79e4c6` | #191 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707037910) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707038007) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707037939) |
-| [#193](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/193) | `39a5484119d688a3658c7e5f7d359704ee274866` | #191 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304880) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811303761) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304064) |
-| [#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194) | `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112759) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112762) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112844) |
-| [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195) | `a64434962c3f497a83188b46f8b2f488a353cd8e` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941637) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941640) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941635) |
-| [#196](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/196) | `28bf02ac11a86a52afe4fce029c3961d32dc9f8d` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841961937) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841962068) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841961973) |
-| [#197](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/197) | `57d8097eb96f431a543ac4d2fba94c513244fa7e` | #196 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845842) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845649) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845874) |
-| [#198](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/198) | `e9abd5803f60ff07b8606f3dfc5900116d44c022` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858966) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858951) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858997) |
-| [#199](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/199) | `3950c7e77834c28ebde2a09b7b079809a0eacce6` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233340) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233337) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233342) |
-| [#200](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/200) | `0ce4ec1ef46eb445a4ae0c2f5b06fb66b0b32be2` | #197 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357034) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357192) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357031) |
-| [#201](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/201) | `4bf6791b38146bc5348dab22977dccd684d5a444` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40996506173) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40996506078) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40996506069) |
-| [#202](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/202) | `634160e0d7c671db466a22a24bbe2287782b9af7` | #200 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41111755339) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41111755211) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41111755539) |
-| [#203](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/203) | `4ce8c6ee7384083b2b6a8e191dd8e383f76437fe` | #202 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41373058173) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41373058168) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/41373058171) |
-| [#204](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/204) | `ae08bd2544ae47a3691cd30ce299ebaaf96c5a68` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42009798710) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42009798683) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42009798739) |
-| [#205](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/205) | `be4a2db56811adc1e9702382234cdddb5819b998` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42028980114) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42028979917) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42028980154) |
-| [#206](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/206) | `ce86c52cc489825e04e52cef6b268e0a678ceba7` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42144947651) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42144947720) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42144947667) |
-
-#201 行记录本次修改前的远端 head；本次文档更新形成的新 head 不继承该行 CI。
-#201～#206 的四项条件 job（real-execution、platform-real-execution、
-container-smoke、bulk-rnaseq-real-execution）均 skipped，不是实际执行通过。
-更早 PR 的执行分层证据保留在下方历史记录。
-
-### 工作线与验收重点
-
-| 工作线 | 范围 | 依赖 | 下一步 | 验收标准 | 关联 PR |
-| --- | --- | --- | --- | --- | --- |
-| 科学批次收口 | 汇总已执行 discovery、TF 跨靶点确认与尚未评估项 | 原科学 session 的比较结果、登记规则、输入/运行身份 | 完成 JUND 三臂后的 duplicate 与 max_insert 比较、审阅并交付结果；随后汇总各 assay 的限制与未评估项 | 比较口径与登记一致，缺失项显式保留；允许 no conclusion；执行成功不等于默认获准 | #192、#196～#198、#200、#202、#203；TF confirmation 尚无已核实的交付 PR |
-| Workflow skills | 已验收显式调用的维护与集成适配 | #199、最终源码及 #204 启动行为 | 集成时核对运行前检查、解释器选择和 profile 指令；只按实际差异补验证 | 区分独立 bootstrap 检查与 Snakemake 进程内检查；不承诺完整工具链身份 | #199、#204 |
-| 文档治理 | 单一当前入口、准确状态与历史证据 | 各 PR、CI 与科学比较交接 | 在 #201 更新当前快照、依赖和验收清单；保留旧记录 | 23 条 PR 的分支交付与 main 状态可区分；不倒改历史运行 SHA | #201；#194/#195 独立审阅 |
-| 测试精简 | 首批去重与第二批构建复用收口 | 保留契约、隔离证据、共享 CI 基线 | #205/#206 保持范围；在更新基线后验收新 head，不自动启动第三批 | 断言不弱化、可独立执行；耗时收益限于实际测量区域 | #205、#206；#195 为审计来源 |
-| 开发方式优化 | 任务范围、独立 worktree、写入边界及交接 | 并行 session 经验、#195 建议 | 将已采用的约定纳入交接；后续独立评估是否还需文档变更 | 无重复计算或交叉写入；源码、进程、产物与负责人可追溯 | #195、#201、#204 |
-| CI 与 Gate 运维 | 共享基线修复和最终组合验收 | #190、#193、候选真实闭包差异 | 优先审阅 #190 的纳入方案；得到集成授权后更新受影响分支并复验 | 新准确 head 的必要 CI 成功；按闭包决定 Gate，历史通过不追认新身份 | #190、#193、#194、#195、#201、#204～#206 |
-
-### 科学计算的最新边界
-
-- TF discovery（NR2F2/HepG2）已交付 #202；ATAC Treg discovery 已交付
-  #203。两个准确 head 的普通 CI 成功，科学结论均为 no conclusion。
-  [ATAC 记录](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/blob/4ce8c6ee7384083b2b6a8e191dd8e383f76437fe/docs/development/sci7-public-data/atac-treg-discovery.md)
-  明确保留同供体、26 bp 读长与 confirmation 未评估的限制。
-- TF confirmation 的本地 `run-state.json` 已为 `ALL_ARMS_DONE`：
-  exclude-x2000、retain-x2000、exclude-x500 均记录 exit 0。
-  最后一臂结束于 2026-11-05 23:52（Asia/Shanghai），日志为 45/45。
-  运行源码为 `4ce8c6ee7384083b2b6a8e191dd8e383f76437fe`，
-  不能用以后结果文档的提交替换该身份。
-- 09:50 只读核查时，比较目录已有共同峰区间，max_insert 日志正在记录
-  500-arm 模板扫描；尚未取得最终比较报告。此状态不证明比较成功完成，
-  也不据日志更新时间断言某个进程仍在运行。由原科学 session 完成比较和交付。
-- JUND/K562（CEBPB deletion 背景）相对 NR2F2/HepG2 是跨靶点稳健性检查，
-  不是同一靶点的独立重复。三臂完成后不自动新增全流程运行。
-- CUT&Tag、H3K36me3、MNase Rep1 的已有结果保留。MNase 原登记的
-  500-arm 指标仍未评估；ATAC confirmation 等未执行项在科学总表中明确列出，
-  不把候选登记写成已经完成，也不为强求默认冻结自动扩张矩阵。
-- 用户此前对范围内科学下载/计算的授权继续有效，不重新逐文件索取授权。
-  本次计划更新只读核对科学任务，不启动、停止或清理它们。默认冻结单独裁决。
-
-### 两批测试与启动修复
-
-- #204 `ae08bd2`：Snakemake 在自身进程检查包来源，仅顶层包无法定位时
-  才 fallback；包初始化 ImportError 明确失败。已补实际 Snakemake 负例，
-  本轮定点审阅通过；这不是完整工具链、子进程或科学验收保证。
-- #205 `be4a2db`：只删除两项与保留案例输入/断言相同的 MNase 校验；
-  本地 41 → 39 passed。不声称显著性能收益。
-- #206 `ce86c52`：模块内各构建一次 wheel/sdist，各测试使用独立副本，
-  安装、venv 和子进程断言保留；PEP 517 构建仍独立执行。9 项测试均在
-  [本次 shard 1](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42144947651/job/127654044537)
-  中通过。作者报告三次同环境测量约减少 3.6 秒，仅属于该模块，
-  不外推为整个 shard 加速。本轮代码审阅与 diff 检查通过。
-
-#206 主 CI 已从排队/运行中变为 failure：shard 1 为 24 failed / 3766 passed，
-24 个失败均位于 bamCoverage fixture，日志为 `conda: command not found`；
-shard 2 为 4 failed / 4027 passed，缺少 `/usr/bin/python3.12`；
-browser 前置 smoke 同样因 conda/profile 失败，fast-checks 与 coverage 连带失败。
-#201 历史 head 的本次日志复核也显示同类 24/4/1 失败。
-#204/#205 既有失败核对结果与此一致；不要复制维护补丁或通过删除测试规避。
-
-### 下一步顺序与交接
-
-1. **并行收口：** 原科学 session 完成 TF 比较及其 Draft PR；文档 session
-   维护本清单。#204/#205/#206 不再自动扩大范围。
-2. **共享基线优先：** 审阅 #190 的纳入方案。实际合并或分支集成仍需授权；
-   当前未做 merge、rebase 或 cherry-pick。基线变化后重新验证红灯 PR 的新 head，
-   不把现有红灯改记为历史噪声。
-3. **按依赖形成候选：** 延续下方 #184→#191、#192/#193 的顺序。
-   科学结果链扩展为 #192→#196→#197→#200→#202→#203；
-   #198/#199 仍分别依赖 #192。#204/#205/#206 均直接基于 main，彼此没有
-   堆叠依赖，#206 不包含 #205 的删除。最终组合时核对 #204 的 Snakefile
-   启动检查与 SCI-1～6 的科学身份逻辑，不能整文件覆盖。
-4. **组合验收：** 在明确候选 SHA 上执行影响范围要求的检查，复核 skills、
-   比较脚本和源码身份。不因文档或测试精简机械重跑全部真实文库。
-   #204 修改共享 provenance 文件，相关 runtime/资格闭包是否受影响须实际比较。
-5. **Gate 与交付：** #193 的 Protected Bulk Gate
-   [run 40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755)，attempt 1，
-   本次查询仍为 success，head 为 `39a5484119d688a3658c7e5f7d359704ee274866`。
-   它是已完成的历史正式验收；最终候选是否需再运行按闭包差异决定。
-   合并、发布和默认冻结保持分别裁决。
-
-本次计划更新没有运行测试套件、科学流程或 Gate，没有修改其他任务分支。
-以下 2026-10-30 快照作为历史保留。
-
-## 历史快照（2026-10-30）
-
-核对日期：2026-10-30。当前远端 main 为
-`fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d`。本清单记录准确 head 的
-远端检查、依赖和拟议交付顺序；本次未合并、重定基线、推送既有 PR，
-也未执行最终组合版本。状态发生变化后必须重新查询，不能沿用本表批准新 head。
-
-## 当前状态
-
-17 个 PR 均 open、未合并；#194、#195 为非 Draft，其余为 Draft。
-其中 15 个准确 head 的 CI、Lint、Lock Check 成功，#194、#195 的 CI 失败。
-本次读取了各 CI 的 job 列表，成功状态不等同于已完成代码审阅、获准合并或科学验收。
-
-| PR | 完整 head | 当前 base | CI | Lint / Lock Check |
-| --- | --- | --- | --- | --- |
-| [#184](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/184) | `483a56ed76bda57c7ce50bd61772c33d333e3639` | main | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844720) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844652) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39736844896) |
-| [#185](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/185) | `5c86076c8f2db1facbe0a6244c1360c8d4b09c69` | #184 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305946) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305954) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39790305945) |
-| [#186](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/186) | `faa3d1dc714d4bf6105dcb1b004419a0c6c09016` | #185 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397365) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397329) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39915397346) |
-| [#187](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/187) | `659e849a07f3129065fced1f44e2e2c95972f704` | #186 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518724) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518747) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/39925518788) |
-| [#188](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/188) | `0d7f7fd5c623ae559ff2490356a36fbceba5c29c` | #187 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744887) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744833) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40180744834) |
-| [#189](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/189) | `66d0ce1004f74fa43321bf5938e5ca61c6ff5eb9` | #188 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315543051) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315542998) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40315543096) |
-| [#190](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/190) | `b6f3a49f45a6b8093f8c42db6684bce5f1425475` | main | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125802) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125706) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40492125866) |
-| [#191](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/191) | `dbc66d6a66cbc6d2ef95783e90203d9b353135a0` | #189 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544641) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544644) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40502544692) |
-| [#192](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/192) | `f93bf0c110f8c0d859e959be27448e780a79e4c6` | #191 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707037910) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707038007) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40707037939) |
-| [#193](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/193) | `39a5484119d688a3658c7e5f7d359704ee274866` | #191 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304880) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811303761) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40811304064) |
-| [#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194) | `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112759) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112762) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112844) |
-| [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195) | `a64434962c3f497a83188b46f8b2f488a353cd8e` | main | [failure](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941637) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941640) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941635) |
-| [#196](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/196) | `28bf02ac11a86a52afe4fce029c3961d32dc9f8d` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841961937) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841962068) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40841961973) |
-| [#197](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/197) | `57d8097eb96f431a543ac4d2fba94c513244fa7e` | #196 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845842) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845649) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40855845874) |
-| [#198](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/198) | `e9abd5803f60ff07b8606f3dfc5900116d44c022` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858966) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858951) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40992858997) |
-| [#199](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/199) | `3950c7e77834c28ebde2a09b7b079809a0eacce6` | #192 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233340) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233337) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40885233342) |
-| [#200](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/200) | `0ce4ec1ef46eb445a4ae0c2f5b06fb66b0b32be2` | #197 | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357034) | [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357192) / [success](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40872357031) |
-
-上述普通 PR CI 中，real-execution、platform-real-execution、container-smoke、
-bulk-rnaseq-real-execution 均为 skipped。它们不记为通过；人工执行的分层证据
-另列于下文，不能把某条文档 PR 的绿色 CI 当作重新执行过科学运行。
-
-所有 PR 当前对各自 base 的 GitHub `mergeable` 为 true；#194、#195 的
-`mergeable_state` 为 unstable，其余为 clean。这不是所有分支组合后的
-冲突或兼容性证明，本次没有执行合并演练。
-
-## 拟议顺序与依赖
-
-| 阶段 | 范围与依赖 | 下一步 | 退出条件 |
+| 项 | 准确 head | 本轮结论 | 下一步 |
 | --- | --- | --- | --- |
-| 1 | #190，共享 CI 与 cleaner 测试维护，base main | 独立审阅后优先纳入集成基线 | 人工批准；最终候选包含对应修复；不放宽生产 Python 准入 |
-| 2 | #184 → #185 → #186 → #187 → #188 → #189 → #191 | 按父到子处理科学计划与 SCI-1～6，实现审阅与验收证据随提交保留 | 每条 PR 的准确差异、依赖、CI 和适用定向证据复核；获得合并授权 |
-| 3 | #193 与 #192 都依赖 #191；前者提供执行 Gate 的维护修复，后者提供 SCI-7 准备材料 | 先确认两者均进入候选，再消费后续验证分支 | 不遗漏 #193 的工具链、profile 与容器身份接线；保留 #192 的 manifest/参考边界 |
-| 4 | #196 → #197 → #200；该链起点依赖 #192 | 收拢 CUT&Tag 对照、扩展与组蛋白结果及比较脚本 | 保留输入、运行源码和比较口径；无结论仍可交付，不将峰数变化等同于优劣 |
-| 5 | #198、#199 各自依赖 #192；与阶段 4 没有互为父分支的关系 | 纳入 MNase 结果与 skills；交叉检查 README、技能引用及最终默认行为 | 保留 MNase 原登记指标未评估；skills 在组合后的实际源码上仍准确 |
-| 6 | #194、#195 各自 base main，现有 CI 失败 | 在具备 #190 修复的基线上另行更新并复验；分别审阅操作指导与审计建议 | 新准确 head 的 CI 成功；审计建议不冒充已确认缺陷或已实现功能 |
-| 7 | 当前独立文档分支 | 更新状态入口与本清单，准备独立文档 PR | 链接、范围和历史记录完整；获得推送/创建 PR 授权 |
-| 8 | 以上获准纳入的最终组合版本 | 形成一个明确候选，执行下节集成验收 | 精确身份、必要检查和证据齐全后，另行决定发布或默认冻结 |
+| [#214](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/214) | `a56694394d6c02d8375ec921b0f3870514c74f71` | 保存返修复审通过。普通 [CI 43622972873](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972873)、[Lint 43622972896](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972896)、[Lock Check 43622972843](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43622972843) 均为 pull_request attempt 1 success。四个条件执行 job skipped | 进入 C4 准备。不是整个 A1 批准 |
+| [#218](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/218) | `0fef7a2100755f69778771f1a37e6f9632aa9045` | 真实执行 169 passed、0 failures/errors/skips。整次 [CI 43628729299](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43628729299) 为 workflow_dispatch attempt 1 success | 保留该 head。sample-sheet 的 `final.bam` 文案是非阻塞项，不因此重跑科学层 |
+| [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212) | `a08aa62a3df6a8253b96bd63b1abf2e9b1ffa22e` | 摘要绑定的窄增量复审通过。[CI 43629047387](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047387)、[Lint 43629047391](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047391)、[Lock Check 43629047437](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43629047437) 均为 pull_request attempt 1 success | 供 C4 使用该 head。不是整个 A1，也不是最终 Gate |
+| [#217](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/217) | `aa0ef9fe86caf3aee99e35bae1687afdbf48f2d8` | gzip 与空白返修通过。新 P1：生产读取失败会尝试外部 CORS 代理 | 独立返修该回退。不是 Viewer 全部通过 |
+| #216 | `85ac7a2…` 已在 main `101983f…` | PR 对象仍 open。禁止再次合并 | 不把 PR 异常当成未合入代码 |
 
-这是依赖顺序，不是要求一次合并全部 17 条 PR。#194/#195 的内容或 CI 未收口时，
-可以继续独立处理，不以红灯分支阻塞其他已获准的交付，也不忽略它们的失败。
+#218 的 workflow success 来自整次 run，不是从 real-execution 一个 job 推断。
+该 run 中 real-execution、两个 shard、frontend、browser-e2e、platform-real-execution、
+container-smoke、fast-checks、coverage 为 success；bulk-rnaseq-real-execution 为 skipped。
+复审记录 real-execution job `132550360035` 的 checkout 就是 `0fef7a2…`。
+本次查询核对了 run 与 job 结论，没有重新下载 checkout 日志。skipped 不是执行通过，也没有派发 Gate。
 
-堆叠 PR 的父提交需要保持可追溯。具体合并方式由维护者决定；若选择 squash
-或重写历史，必须另行授权并安排子分支重建与复验。父 PR 进入 main 后，逐个确认
-子 PR 的 base、祖先关系和剩余 diff，避免直接将子 PR 合回父分支后就声称已交付 main。
-本次不修改任何 PR 的 base、Draft 状态、历史或保护规则。
+#212 同一 CI 的四个条件执行 job 为 skipped。窄增量没有重跑 23 项 native 矩阵或 ACP 大构建。
+119 个 Bulk 文件相对 `e00130e…` 未变，aggregate 仍是
+`979bf1f410471d2ba3d78fcb473c17c688ba24afe0ecaf1af96ed08528e4d2ae`。
+这次摘要绑定不增加 Gate；整个 A1 最终组合仍要适用的 Gate。
+原 binary `60144bbe…` 的缺失和历史 A0 记录保留。`5cc82caf…` 只在固定受限范围内被接受为替代运行身份。
 
-## #194/#195 的已知失败
+#214 复审记录其浏览器 job checkout 为 `e86f1ffea90ca7a7df8a2d208def5c7c42ce00d8`，
+PR head 为 `a566943…`。本次没有重下该日志。schema smoke 与浏览器通过数以那次复审为准。
 
-[#194 CI](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40812112759) 与
-[#195 CI](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40819941637) 均显示：
+C4 由 Backend 在独立 worktree 主导，Frontend 配合，组合 #212、#214 和 #218 的上述 head。
+Viewer 返修独立推进。#217 未修好时不阻塞 A1 准备，但不能作为已验收 Viewer 纳入交付。
+C4、整个 A1、真实 provider、Agent 运行操作和最终组合 Gate 都还没有执行。
 
-- shard 1 的 24 项 bamCoverage fixture 在 `conda info --json` 处失败，
-  日志为 `conda: command not found`；
-- shard 2 的 4 项 deployment 测试找不到 `/usr/bin/python3.12`；
-- browser 的 schema/ENCODE cores 前置 smoke 因 conda/profile 失败；
-- fast-checks 与 coverage 的红灯由其生产者失败向上传递，不能作为独立根因。
+非阻塞文案：#218 `docs/sample-sheet.md` 的对照示例仍写 `final.bam`，应为 `analysis.bam`。
+#212 资格说明把历史 ACP 单测写成旧 binary 上的执行，应改为独立 peri-acp harness 的源码层证据。
+两处都不因此重跑科学层或重新编译。
 
-两条 PR 的差异分别仅为 AGENTS.md 和 9 个审计文档，没有包含 #190 的修复。
-#190 已增加受支持 runner/Python 检查与 tiny Snakemake profile 隔离。
-因此优先复用共享基线，避免在文档 PR 再复制一套维护修复；能否消除全部失败，
-仍以更新后的实际检查为准。本轮没有修改这两条 PR 或替它们重新发起 CI。
+## 2026-11-14T17:40:08Z 快照
 
-#194 在 AGENTS.md 中新增 Cloud 环境说明，其环境假设和可复现性仍需内容审阅；
-#195 的建议进入候选清单后逐项核实，不直接启动测试删除或架构改造。
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。本页保存身份及证据边界，不替代源码审阅。
+下面先给这一时刻的下一步。15:57:43Z 的检查记录留在后文，不改写成新的查询结果。
 
-## 已执行证据与未完成的科学范围
+- main 仍是 `101983f…`。#216 代码已进入 main，PR 对象仍 open、未标记 merged。禁止再次合并。
+  dispatch CI `43612614528` 已 failure。源码核对见测试 PATH 遗漏 Picard，
+  且测试准备仍保留旧 profile 分流和复制 BAM。下一步由 Science 用独立小 PR 修复，
+  并验证完整真实执行层。不以 `--maxfail=1` 已经跑过的数量当作整个套件通过，
+  也不写没有剩余阻塞。`85ac7a2…` 的 schema 审阅不因此被取消。
+- #214 `399c3b3…` 的独立复审要求返修。PE→SE 保存确认后草稿仍 dirty；
+  样本复选框与实际保存成员不一致。原定向测试 100 passed，独立新增的 3 项回归断言失败。
+  这不是 C4 或整个 A1 验收。下一步是返修这两项后再复审。
+- #217 `cbe5a0e…` 的独立审阅已完成：多成员 gzip 在第一个 member 后漏掉后续数据，
+  PR 范围空白检查不干净。`414872e…` 的父提交是该审阅 head；17:40:08Z 的 head 是
+  `aa0ef9fe86caf3aee99e35bae1687afdbf48f2d8`，其父提交为 `414872e…`。
+  新 head 等正式交付和复审，不转移旧裁决，也不提前宣布修复通过。
+- Peri 候选 `5cc82caf…` 仍未通过资格。宿主支持 systemd/cgroup v2，用户服务未启动。
+  启动 `user@1000.service` 并验证任务资源隔离的限定指令已经交给 Backend；
+  没有实际执行证据之前，不更新为环境合格或候选通过。
+- #212 head 仍是 `e00130e…`，本轮没有新审阅。#213 仍是 open Draft，本更新不写回自身新 SHA。
 
-| 范围 | 已有证据 | 当前边界 |
-| --- | --- | --- |
-| SCI-6 合成平台与真实工具集成 | 已报告 platform 10 passed、scientific 170 passed、零失败和 skip；原始交接记录保留 | 历史运行记录，不是本次重新执行；不自动覆盖最终组合版本 |
-| #193 Protected Bulk Gate | [run 40832642755](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/40832642755)，attempt 1；准确 head `39a5484119d688a3658c7e5f7d359704ee274866`，本轮再次查询结论 success | 正式 Gate 已通过；无需继续报告旧的镜像/runner 欠验，也不追认其他身份 |
-| #196/#197 CUT&Tag | 对照与扩展记录、真实运行及比较脚本；当前普通 CI 成功 | inconclusive；缺少足以冻结默认的独立确认，不以普通 CI 代替科学裁决 |
-| #200 组蛋白 H3K36me3 | retain/exclude 两臂及共同 universe 指标已记录；当前普通 CI 成功 | 单组输入；无默认冻结 |
-| #198 MNase Rep1 | 三条 arm 退出 0；额外诊断 `6,883/4,083,944` 已正确标注为 200-arm 基准 | 原登记的 500-arm 短模板指标未评估；no conclusion；没有 confirmation |
-| #199 workflow skills | 真实 validate/dry-run、拒绝未标记输出目录；Codex 目录发现和三个显式调用、Cursor 三个显式调用已核对 | 仅显式调用范围通过；Cursor 交互式菜单与隐式自动触发未测试，不作为本轮阻塞 |
+## 2026-11-14T15:57:43Z 查询快照
 
-以上科学批次的实际运行源码、输入、参考和工具身份以各自结果记录为准，
-文档提交的 head 不能替换历史运行 SHA。默认冻结需要单独证据与裁决；
-允许 inconclusive/no conclusion，不通过新增阈值或重复挑选输入强求结论。
+远端 PR/main 的上一份查询时间是 2026-11-14T15:57:43Z。head 未移动的检查和审阅继续只适用于原 SHA；
+新 head 的 CI、源码审阅和产品验收分开记录，不继承旧 head 的批准。
+新提交出现后，本表只作为本次快照，不自动沿用 CI 或审阅结论。
+本页已在 Draft #213 中，该 PR 仍未合并。本次更新不把随后生成的提交 SHA 写回本文件。
 
-剩余 TF、ATAC discovery、预先定义的 confirmation、必要的重复一致性与最终科学汇总，
-继续沿 [比较设计](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/blob/f93bf0c110f8c0d859e959be27448e780a79e4c6/docs/development/sci7-public-data/comparison-design.md)
-分批推进。本清单没有授权新增数据下载、重跑全部科学矩阵或默认冻结。
+## 已合入基线
 
-## 最终候选的集成验收
+2026-11-14T15:57:43Z 的 main 为 `101983f9480bb72306da69875e79dc6ad65bca5a`。
+这是 GitHub 生成的 merge 提交，父提交为 `5bc21a040951ba28333bcc04dfb151735089fcd6`
+与 `85ac7a26b9958ead4a9ddde6e56dc38c07adeca2`，说明为 Merge pull request #216。
+该 SHA 没有 push 检查。workflow_dispatch、attempt 1 的
+[Lint 43612607625](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612607625)
+与 [Lock Check 43612610860](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612610860)
+在 2026-11-14T15:57:43Z 已是 success。
+[CI 43612614528](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43612614528)
+当时 in progress，于 2026-11-14T16:12:17Z 结案为 failure。
+real-execution 失败，步骤名为 Scientific real-execution suite 与
+Require passing, zero-skip scientific outcomes。frontend、browser-e2e、
+platform-real-execution、两个 shard、container-smoke、fast-checks、coverage 为 success；
+bulk-rnaseq-real-execution 为 skipped。本次没有下载失败日志，
+不把该失败写成对 `85ac7a2…` 审阅的否定，也不是新的 Gate。
+commit 在 15:57:43Z 没有关联 PR。
+[#216](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/216)
+的 Pulls API 同时仍是 open、merged=false、非 Draft。
+不把这个 PR 对象写成已关闭，也不把已审阅 head 的 pull_request 检查改记成 merge SHA 的检查。
 
-1. **锁定组合身份。** 记录最终 commit、干净工作树、准确导入位置、锁定工具和参考身份。
-   在任务本地环境通过 canonical bootstrap 验证；保护已有运行 outdir，不复制或手写
-   marker 绕过身份。文档、科学结果和 skills 的同名文件按内容集成，不能整文件覆盖
-   其他已验收分支的结果。
-2. **检查真实差异。** 比较候选与已验收实现，特别检查 #190/#191 中共享维护补丁、
-   #193 的工具链与容器 UID/GID 接线、比较脚本及 QC/artifact 消费链。
-   重新核对堆叠 PR 去掉祖先后剩余的 diff，保留实际参与者署名。
-3. **执行对应层验证。** 最终候选的 CI、Lint、Lock Check，以及生产代码影响所需的
-   validator、DAG/tiny execution、适用 runtime bundle 和 platform/scientific 集成。
-   比较脚本修改执行针对性测试；skills 若指令依赖的行为改变，补相应显式调用验证。
-   不因合并了一份文档而机械重跑全部真实文库。
-4. **裁定 Gate。** 对比已通过的 #193 身份与候选的 pinned runtime、工具、参考、
-   execution closure 和科学 artifact/QC 语义。只改文档/skills 等且闭包未变时，
-   不自动重跑 Bulk；相关闭包变化则按既有准入与保护入口执行候选的准确身份。
-   历史 Gate 保留原身份，不能改写成候选已通过。
-5. **保存与交接。** 保存准确 SHA、run/attempt、JUnit/命令与退出码，分开记录成功、
-   失败、取消、skip 和未执行。清理本任务进程后再验收；代码集成、科学结论、
-   默认冻结、合并和发布分别裁决。
+`5bc21a0…` 是
+[#215](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/215)
+的 merge，修复 browser-e2e 的 apt 镜像步骤和契约测试。
+该 SHA 的 push 检查均为 attempt 1、success，不是 `101983f…` 的检查：
 
-本轮交付为可审阅的顺序与验收清单。最终组合版本尚未构建或运行，历史证据
-未重写；本清单不代表合并批准、发行验收或新增计算授权。
+- [CI 43210921001](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43210921001)。
+- [Lint 43210921261](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43210921261)。
+- [Lock Check 43210921108](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43210921108)。
+
+上述 job 结论属于已记录的 `5bc21a0…` push 检查。本次没有重新下载这些 job 日志或 artifact。
+两个 shard、frontend、browser-e2e、fast-checks、coverage 成功；四项条件真实执行 job skipped。
+另有同 SHA 的 schedule CI 43336374574 success，不混作上述 push attempt 的证据。
+#210 merge `b2f15868c6f74ab8764a73ae6fe4394f67304475`、
+#211 merge `ff30329607c4b6c9849bfc7369906e81b428937d` 已在此 main 历史中。
+
+## 查询时的 PR
+
+下表是查询时的 PR head 与分支基线，不等于 PR CI 的合成 checkout。
+#212、#213、#214、#217 为 open Draft。#216 为 open、非 Draft；main 已有包含其 head 的 merge 提交，
+PR 对象当时未标记 merged。#194/#195 为 open、非 Draft。本次不合并或关闭任何 PR。
+
+| PR | head | 记录基线 | 当前动作 |
+| --- | --- | --- | --- |
+| [#212](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/212) | `e00130e2d5e55b3197624ef6bff9c25fd687cf87` | `b2f15868c6f74ab8764a73ae6fe4394f67304475` | head 未变。2026-11-13 边界复审仍只适用于该 SHA，可交 C3；本轮无新审阅 |
+| [#214](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/214) | `399c3b34b42810f6a042a8aa3d86f92ae005eb6f` | `ff30329607c4b6c9849bfc7369906e81b428937d` | 17:40:08Z head 未变。独立复审要求返修；C4/A1 未完成 |
+| [#216](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/216) | `85ac7a26b9958ead4a9ddde6e56dc38c07adeca2` | `ff30329607c4b6c9849bfc7369906e81b428937d` | 代码已在 main。PR 仍 open，禁止重复合并。真实执行测试仍有剩余阻塞 |
+| [#217](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/217) | `aa0ef9fe86caf3aee99e35bae1687afdbf48f2d8` | `ff30329607c4b6c9849bfc7369906e81b428937d` | `cbe5a0e…` 审阅要求返修。当前 head 比 `414872e…` 再前进一提交，等正式复审 |
+| [#213](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/213) | `ec7779b4a0771e98f8253f3b1ed8d72c09740f05` | `5bc21a040951ba28333bcc04dfb151735089fcd6` | 当前入口已在该 Draft；查询时未合并。本状态更新不写回自身新 SHA |
+| [#194](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/194) | `4825ed62bf94b86bdb9afe5b3896e97ea46c2cea` | `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d` | head 未变。open、非 Draft；旧 Cloud 工具链说明待内容复核 |
+| [#195](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/195) | `a64434962c3f497a83188b46f8b2f488a353cd8e` | `fa0d8401cbc3fecb765fed6d7e01e18bb8fbc96d` | head 未变。open、非 Draft；审计建议不直接转成新开发批次 |
+
+记录基线不承诺新 session 仍从旧 main 开始；实施前核实目标分支、merge-base 和检查 checkout。
+
+## 已记录 head 的普通检查
+
+以下均为 attempt 1、pull_request，并只覆盖表中写出的 SHA。Lint/Lock 的准确 run 和 head 也已核对。
+
+| PR | CI | Lint / Lock Check | 结论 |
+| --- | --- | --- | --- |
+| #212 | [43383020734](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43383020734) | [43383020771](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43383020771) / [43383020680](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43383020680) | head 未变，三项 success；A1/C4 未验收 |
+| #214 | [43610191318](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43610191318) | [43610191450](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43610191450) / [43610191314](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43610191314) | `399c3b3…` 三项 success。普通 CI 不取消返修结论 |
+| #216 | [43409346164](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409346164) | [43409346644](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409346644) / [43409346283](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409346283) | 只覆盖 `85ac7a2…` 的 pull_request，三项 success |
+| #217 `cbe5a0e…` | [43409373596](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409373596) | [43409373630](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409373630) / [43409373577](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409373577) | 只覆盖该旧 head 的普通 CI。不覆盖 `aa0ef9f…`，本轮未查询新 head 的 CI |
+| #213 | [43409481140](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409481140) | [43409481214](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409481214) / [43409481220](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43409481220) | 只覆盖查询时 head `ec7779b…`，不覆盖本次状态更新 |
+
+#214 旧 head `2c3c439…` 的 [CI 43222397611](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/43222397611)
+为 cancelled，只属于该 SHA。新 head `399c3b3…` 的 CI 已 success：两个 shard、frontend、
+browser-e2e、fast-checks、coverage success；四个条件执行 job skipped。
+这不是该 head 的返修验收或 C4/A1 验收。
+#212 与 `85ac7a2…`、`cbe5a0e…` 的上表 pull_request 普通 jobs 为 success。
+#217 当前 head `aa0ef9f…` 的 CI 本轮没有查询。#216 merge SHA 的 workflow_dispatch CI 已失败。
+这些已完成 PR CI 的 real-execution、platform-real-execution、container-smoke、
+bulk-rnaseq-real-execution 为 skipped，不计实际执行通过。
+#216 的 PR 合成提交元数据为 `5865e552c9fb03858f4dae5868c5bddf88c876da`，
+父提交为 `5bc21a0…` 与 `85ac7a2…`。#217 的对应元数据为
+`5a903d12cd78d5b332c39927ad1a837e41824f6f`，父提交为 `5bc21a0…` 与 `cbe5a0e…`。
+本次没有重新下载这些 job 的 checkout 日志。PR 记录基线仍是 `ff303296…`。
+
+## 已有审阅的适用范围
+
+#212 的下列证据属于未移动的 `e00130e…`，不是 2026-11-14 的新审阅。
+该 head 重跑过原独立边界复现、文件访问和目录到真实 snapshot：
+41 passed。祖先目录移走再恢复仍拒绝生成 snapshot；归档池返回空目录；
+合法输入正例仍通过。F1/F2 复审通过，C3 可消费此版本的目录及样本计划契约。
+`control_sample_revision_id` 位于 `workflow_samples` 的计划行内，不是草稿顶层字段。
+目录不发给模型。监视不覆盖 SQLite 插入，后续执行仍需独立资格核对。
+
+#216 `85ac7a2…` 的 2026-11-14 整体独立审阅当时没有发现继续阻止合入的执行层缺陷。
+该句只描述那次审阅，不是当前“没有剩余阻塞”。审阅核对了 base 到 head 的范围，并复用 `c44c4d6…` 的 Picard 定点证据，
+没有把那次定点复审重跑，也没有把它写成唯一结论。该独立审阅运行 87 项契约和 7 项 DAG，
+是合成 fixture 与 dry-run，不是大规模科学矩阵、真实 Picard 重跑或生物学确认。
+两项非阻塞文档整理建议不改变“可作为 A1 已审阅科学 schema 目标”的结论。
+main 上的 `101983f…` 包含这个 head。17:40:08Z 的 PR 对象仍 open、未标记 merged，禁止再次合并。
+merge SHA 没有 push 检查；其 workflow_dispatch CI 已于 16:12:17Z failure。
+随后的源码核对把失败定位到测试 PATH 遗漏 Picard，以及仍保留旧 profile 分流和复制 BAM 的测试准备。
+这是剩余阻塞。Science 用独立小 PR 修复并验证完整真实执行层。
+`--maxfail=1` 下已经运行的数量不是整个套件通过。这也不等于 C4、A1 或科学默认冻结。
+
+`c44c4d6…` 上的 Picard 定向回归仍是 27 passed（24 项配置，3 项真实规则测试）：
+直接删除开关被拒绝，默认路径只标记且保留输入 records，缺 Picard 不回退。
+arguments_file 的四种既有实测在解析阶段失败，不写成已证实的删模板漏洞，
+也不外推到未来工具版本。正式支持时须另定契约。
+
+#217 `cbe5a0e…` 的独立审阅要求返修。多成员 gzip 在解压到第一个 member 结束时返回，
+没有处理或拒绝后续 member，合法双 member BEDPE 的派生结果少了一行。
+PR 范围空白检查退出码为 2，问题在生成的前端资源尾随空白，不手改 bundle，
+也不因此全局关闭空白检查。`bcdbd32…` 的静态抽查留在更早的 head。
+`414872e…` 和当前 `aa0ef9f…` 都还没有这次审阅之后的正式复审。
+上述状态不替代 C4、最终组合 CI 或 Protected Bulk Gate。
+
+## Peri runtime 候选
+
+历史 A0 接受的运行 binary 是 `60144bbe0919992b8913b9031696b2e30b1e9f82d95048ae3b07c887d5d85517`。
+该产物现已缺失。固定 Peri `c7d154c…`、固定补丁和当时验收结论保留在
+[A0 归档](peri-a0-archive.md)，不改写成历史失败。
+
+新构建候选 SHA256 为
+`5cc82caf6e04578f19ff5790fbc4eb8c9e115793ff6950a699c9e2ad28c50f47`。
+2026-11-13 的只读复核确认产物字节、权限和摘要，以及源码、补丁和锁文件身份；
+它只允许该候选进入隔离的资格验证，没有运行候选或重新编译。
+同一源码和补丁不能单独证明新二进制行为，也不能恢复 `60144bbe…` 的身份或继承其 native 验收。
+宿主支持 systemd 和 cgroup v2，但用户服务未启动，所以还不能把宿主支持写成用户会话合格。
+Backend 已获得启动 `user@1000.service` 并验证任务资源隔离的限定操作指令。
+本轮没有执行该指令，也没有操作服务。只有收到实际执行证据后，才能更新为环境合格或候选通过。
+完成前，该候选不是 A0、A1 或 C4 runtime。
+
+## Gate 与科学边界
+
+- 已有 Gate [42553090512](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/42553090512)
+  对应 `6978349ca515a37a55a93abc3ec65519fd0be2f8`。2026-11-13 查询时 jobs 均 success；
+  本次没有重新下载或核算 artifact。#210 merge 的同树证据见历史交接；这不是后续 SHA 的新 Gate。
+- #212 正文登记 aggregate 为 `979bf1f410471d2ba3d78fcb473c17c688ba24afe0ecaf1af96ed08528e4d2ae`，
+  与旧闭包不同，最终候选需独立 Gate。该值来自交接，本轮未重新生成。
+- #216 `85ac7a2…` 的整体审阅核对 119 个 Bulk 实现文件与已提交 manifest 一致，
+  aggregate 仍为 `94b577b62f31ed53264ccb77b9f4d92d61246bca280398e79d36ff47eb481f36`。
+  该核对不是新 Gate，也不覆盖最终 A1 组合。#217 新 head 本轮没有新的 Bulk 结论。
+  最终组合仍检查文件集合、字节、runtime/参考身份和接线。
+- SCI-7 本批 no conclusion；JUND 跨靶点检查完成。其他未执行 confirmation、
+  MNase 未评估指标及默认未冻结的边界见 roadmap，不由 CI 代替科学裁决。
+
+## 集成安排
+
+1. 原 session 交出准确 head、范围、生成物、测试和未完成项；Codex 独立复审。
+2. A1 已随 #219 进入 main。#216 不需要再次合并。169 项真实执行证据仍是 `0fef7a2…`。
+   创建超时和当时的覆盖率失败留在 12:18:06Z 快照，不再是当前阻塞。
+   如以后公共契约变化，后端正式生成 OpenAPI/client，再交前端适配，不手改生成物。
+3. #214 已含部分 #212 历史，合成候选前核对祖先关系。只纳入已审阅提交，
+   不将整个活动分支盲目拉进候选。候选使用独立 worktree/PR。
+4. #217 `c4c4909…` 继续独立推进。它没有进入 #219。与 main `1b1db4…` 的组合仍需核验，
+   因此不作为已经随 A1 交付的 Viewer。
+   它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
+   最终测试按实际组合执行，不能简单相加来源分支的通过记录。
+5. 普通 CI、C4 和适用 Gate 完成后交回主会话；合并/发布仍单独执行授权。
+   本次只更新 Draft #213 的当前状态，不创建、关闭或合并远端 PR，不启动其他 session。
+
+## 历史证据
+
+[整理前的完整集成记录](current-delivery-integration-history-through-20261112.md)逐字保留。
+`f83bd7d…` 与查询时的 `ec7779b…` 都留在 #213 历史中。当前入口以本文件和 roadmap 为准；
+本次状态更新提交后 head 会前进，该新 SHA 不写入本文件。
