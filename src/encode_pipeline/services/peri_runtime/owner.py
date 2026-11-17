@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
@@ -24,10 +25,26 @@ from encode_pipeline.services.peri_runtime.isolation import (
     isolation_paths_exist,
     native_launcher,
 )
-from encode_pipeline.services.peri_runtime.session import NativeRejected, NativeSession
+from encode_pipeline.services.peri_runtime.runtime import (
+    AuthoringRuntime,
+    PeriAuthoringRuntime,
+    RuntimeSession,
+)
+from encode_pipeline.services.peri_runtime.session import NativeRejected
 
 
 ToolDispatch = Callable[..., dict[str, object]]
+
+
+@dataclass
+class _PlatformGrant:
+    """HelixWeave authority for one live session. The runtime does not own it."""
+
+    capability_token: str
+    user_id: str
+    auth_session_digest: str
+    forwarding: bool = True
+    turn: BridgeTurnRequest | None = None
 
 
 def _tool_denied() -> dict[str, object]:
@@ -54,12 +71,15 @@ class NativeAuthoringBridge:
         binary: Path,
         state_root: Path | None = None,
         repository: object | None = None,
+        runtime: AuthoringRuntime | None = None,
     ) -> None:
         self._binary = binary
         self._repository = repository
+        self._runtime = runtime if runtime is not None else PeriAuthoringRuntime()
         self._epoch = token_hex(16)
         self._lock = threading.Lock()
-        self._sessions: dict[str, NativeSession] = {}
+        self._sessions: dict[str, RuntimeSession] = {}
+        self._grants: dict[str, _PlatformGrant] = {}
         self._handler: ToolDispatch | None = None
         self.closure_notes: dict[str, dict[str, object]] = {}
         self._owned_root = state_root is None
@@ -96,18 +116,18 @@ class NativeAuthoringBridge:
             directory = (
                 self._root / f"{request.sid}-{request.generation}-{token_hex(4)}"
             )
-            session = NativeSession(
+            session = self._runtime.open_session(
                 self._binary,
                 directory,
                 service_generation=request.generation,
                 tool_handler=self._dispatch,
             )
-            session.bound_sid = request.sid
-            session.user_id = request.user_id
-            session.auth_session_digest = request.auth_session_digest
-            session.capability_token = request.capability_token
-            session.forwarding = True
             self._sessions[request.sid] = session
+            self._grants[request.sid] = _PlatformGrant(
+                capability_token=request.capability_token,
+                user_id=request.user_id,
+                auth_session_digest=request.auth_session_digest,
+            )
         try:
             session.initialize()
         except (NativeRejected, OSError):
@@ -123,12 +143,16 @@ class NativeAuthoringBridge:
         if not self._accepts_forwarding(request):
             raise BridgeDisconnected
         answer = _proposal_text(request)
-        session.turn_context = request
+        with self._lock:
+            grant = self._grants.get(request.sid)
+            if grant is None:
+                raise BridgeDisconnected
+            grant.turn = request
         session.authorization_check = lambda: self._egress_allowed(request)
         try:
             text = session.run_authoring_turn(answer)
         except (NativeRejected, OSError):
-            session.turn_context = None
+            self._clear_turn(request)
             self.close(
                 BridgeSessionRequest(
                     sid=request.sid,
@@ -142,7 +166,7 @@ class NativeAuthoringBridge:
             )
             raise BridgeDisconnected from None
         finally:
-            session.turn_context = None
+            self._clear_turn(request)
         if not self._accepts_forwarding(request) or not text:
             raise BridgeDisconnected
         return text
@@ -159,7 +183,9 @@ class NativeAuthoringBridge:
                 and session.instance != request.instance_id
             ):
                 return
-            session.forwarding = False
+            grant = self._grants.get(request.sid)
+            if grant is not None:
+                grant.forwarding = False
             session.authorization_check = lambda: False
 
     def close(self, request: BridgeSessionRequest) -> None:
@@ -183,14 +209,14 @@ class NativeAuthoringBridge:
         with self._lock:
             matched = [
                 sid
-                for sid, session in self._sessions.items()
-                if session.auth_session_digest in wanted
+                for sid, grant in self._grants.items()
+                if grant.auth_session_digest in wanted and sid in self._sessions
             ]
             for sid in matched:
                 self._close_locked(sid)
         return len(matched)
 
-    def sweep(self, allowed: Callable[[NativeSession], bool] | None = None) -> int:
+    def sweep(self, allowed: Callable[[RuntimeSession], bool] | None = None) -> int:
         checker = self._session_allowed if allowed is None else allowed
         with self._lock:
             stale = []
@@ -209,8 +235,10 @@ class NativeAuthoringBridge:
         session = self._sessions.get(sid)
         if session is None:
             return {}
+        stub = getattr(session, "stub", None)
+        requests = [] if stub is None else list(stub.requests)
         return {
-            "pid": session.pid,
+            "pid": getattr(session, "pid", None),
             "instance": session.instance,
             "generation": session.service_generation,
             "state": session.state,
@@ -218,45 +246,44 @@ class NativeAuthoringBridge:
             "tool_arrivals": session.tool_arrivals,
             "approvals": list(session.approvals),
             "denied_callbacks": list(session.denied_callbacks),
-            "argv": session.argv,
-            "model_requests": 0 if session.stub is None else len(session.stub.requests),
-            "provider_requests": []
-            if session.stub is None
-            else list(session.stub.requests),
-            "tool_payloads": list(session.tool_payloads),
-            "native_pid": session.native_pid,
-            "leader_pid": session.leader_pid,
-            "scope_unit": session.scope_unit,
-            "scope_cgroup": session.scope_cgroup,
-            "stub_failures": []
-            if session.stub is None
-            else list(session.stub.failures),
+            "argv": getattr(session, "argv", None),
+            "model_requests": len(requests),
+            "provider_requests": requests,
+            "tool_payloads": list(getattr(session, "tool_payloads", ())),
+            "native_pid": getattr(session, "native_pid", None),
+            "leader_pid": getattr(session, "leader_pid", None),
+            "scope_unit": getattr(session, "scope_unit", None),
+            "scope_cgroup": getattr(session, "scope_cgroup", None),
+            "stub_failures": [] if stub is None else list(stub.failures),
         }
 
     def _stored_capability_token(self, request: BridgeTurnRequest) -> str:
         with self._lock:
             session = self._sessions.get(request.sid)
+            grant = self._grants.get(request.sid)
             if (
                 session is None
+                or grant is None
                 or session.service_generation != request.generation
                 or session.instance != request.instance_id
                 or session.state != "ready"
             ):
                 return ""
-            token = getattr(session, "capability_token", "")
-        return token if isinstance(token, str) else ""
+            return grant.capability_token
 
     def _accepts_forwarding(self, request: BridgeTurnRequest) -> bool:
         with self._lock:
             session = self._sessions.get(request.sid)
+            grant = self._grants.get(request.sid)
             if (
                 session is None
+                or grant is None
                 or session.service_generation != request.generation
                 or session.instance != request.instance_id
                 or session.state != "ready"
             ):
                 return False
-            return getattr(session, "forwarding", True) is not False
+            return grant.forwarding is not False
 
     def _egress_allowed(self, request: BridgeTurnRequest) -> bool:
         if not self._accepts_forwarding(request):
@@ -275,29 +302,34 @@ class NativeAuthoringBridge:
         )
         return reason == "ok"
 
-    def _session_allowed(self, session: NativeSession) -> bool:
-        if not session.user_id or not session.auth_session_digest:
+    def _session_allowed(self, session: RuntimeSession) -> bool:
+        sid = next(
+            (key for key, item in self._sessions.items() if item is session),
+            None,
+        )
+        grant = None if sid is None else self._grants.get(sid)
+        if grant is None or not grant.user_id or not grant.auth_session_digest:
             return False
         if session.state == "blocked":
             live = getattr(self._repository, "login_is_live", None)
             return bool(
-                live is not None and live(session.user_id, session.auth_session_digest)
+                live is not None and live(grant.user_id, grant.auth_session_digest)
             )
         checker = getattr(self._repository, "connection_still_authorized", None)
-        if checker is None or not session.bound_sid:
+        if checker is None or sid is None:
             return False
         return bool(
             checker(
-                sid=session.bound_sid,
+                sid=sid,
                 generation=session.service_generation,
                 instance_id=session.instance,
                 owner_epoch=self._epoch,
-                user_id=session.user_id,
-                auth_session_digest=session.auth_session_digest,
+                user_id=grant.user_id,
+                auth_session_digest=grant.auth_session_digest,
             )
         )
 
-    def _live(self, request: BridgeTurnRequest) -> NativeSession:
+    def _live(self, request: BridgeTurnRequest) -> RuntimeSession:
         with self._lock:
             session = self._sessions.get(request.sid)
         if (
@@ -314,10 +346,19 @@ class NativeAuthoringBridge:
         self,
         name: str,
         arguments: dict[str, object],
-        session: NativeSession,
+        session: RuntimeSession,
     ) -> dict[str, object]:
         del arguments
-        request = session.turn_context
+        with self._lock:
+            grant = next(
+                (
+                    self._grants[sid]
+                    for sid, item in self._sessions.items()
+                    if item is session and sid in self._grants
+                ),
+                None,
+            )
+            request = None if grant is None else grant.turn
         handler = self._handler
         token = (
             self._stored_capability_token(request)
@@ -351,15 +392,15 @@ class NativeAuthoringBridge:
         session = self._sessions.pop(sid, None)
         if session is None:
             return
+        self._grants.pop(sid, None)
+        stub = getattr(session, "stub", None)
         note: dict[str, object] = {
             "errors": list(session.errors),
             "handler_calls": session.handler_calls,
             "tool_arrivals": session.tool_arrivals,
             "approvals": list(session.approvals),
             "denied_callbacks": list(session.denied_callbacks),
-            "stub_failures": []
-            if session.stub is None
-            else list(session.stub.failures),
+            "stub_failures": [] if stub is None else list(stub.failures),
         }
         log_path = session.directory / "stderr.log"
         session.close()
@@ -369,6 +410,12 @@ class NativeAuthoringBridge:
             )[-1500:]
         self.closure_notes[sid] = note
         shutil.rmtree(session.directory, ignore_errors=True)
+
+    def _clear_turn(self, request: BridgeTurnRequest) -> None:
+        with self._lock:
+            grant = self._grants.get(request.sid)
+            if grant is not None and grant.turn is request:
+                grant.turn = None
 
     def shutdown(self) -> None:
         native_launcher().abandon_pending()

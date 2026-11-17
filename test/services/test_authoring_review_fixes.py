@@ -694,6 +694,16 @@ def test_one_owner_serves_two_callers_and_fences_before_listen(stack, tmp_path) 
         server.shutdown()
 
 
+class _IdleRuntime:
+    def open_session(self, binary, directory, *, service_generation, tool_handler):
+        return _IdleNative(
+            binary,
+            directory,
+            service_generation=service_generation,
+            tool_handler=tool_handler,
+        )
+
+
 class _IdleNative:
     def __init__(self, binary, directory, *, service_generation, tool_handler) -> None:
         del binary, tool_handler
@@ -730,11 +740,11 @@ class _IdleNative:
 def test_another_api_worker_runs_the_same_connection(stack, tmp_path, monkeypatch):
     monkeypatch.setattr(owner_module, "binary_matches", lambda _path: True)
     monkeypatch.setattr(owner_module, "isolation_paths_exist", lambda: True)
-    monkeypatch.setattr(owner_module, "NativeSession", _IdleNative)
     bridge = NativeAuthoringBridge(
         binary=tmp_path / "peri",
         state_root=tmp_path / "state",
         repository=stack.repository,
+        runtime=_IdleRuntime(),
     )
     common = {
         "registry": stack.service._registry,
@@ -867,7 +877,7 @@ def test_another_api_worker_runs_the_same_connection(stack, tmp_path, monkeypatc
         assert bridge._egress_allowed(live) is True
         bridge.bind_tool_handler(opener.read_tool)
         native = bridge._sessions[created.sid]
-        native.turn_context = live
+        bridge._grants[created.sid].turn = live
         schema = bridge._dispatch("get_authoring_schema", {}, native)
         summary = bridge._dispatch("get_draft_summary", {}, native)
         assert schema["ok"] is True and summary["ok"] is True
@@ -886,9 +896,9 @@ def test_another_api_worker_runs_the_same_connection(stack, tmp_path, monkeypatc
             name="get_authoring_schema",
         )
         assert denied_tool["ok"] is False
-        native.turn_context = None
+        bridge._grants[created.sid].turn = None
         assert bridge._dispatch("get_authoring_schema", {}, native)["ok"] is False
-        native.turn_context = live
+        bridge._grants[created.sid].turn = live
         original_run = native.run_authoring_turn
         native.run_authoring_turn = lambda _text: ""
         with pytest.raises(BridgeDisconnected):
@@ -912,7 +922,7 @@ def test_another_api_worker_runs_the_same_connection(stack, tmp_path, monkeypatc
         assert bridge._egress_allowed(live) is False
         with pytest.raises(BridgeDisconnected):
             bridge.execute_turn(live)
-        native.forwarding = True
+        bridge._grants[created.sid].forwarding = True
         stack.auth.revoke_session(
             stack.actor.session_digest,
             stack.clock.now,
@@ -1184,11 +1194,11 @@ def test_broken_response_write_fences_before_completion(stack):
 def _live_generating(stack, tmp_path, monkeypatch, client_turn_id: str):
     monkeypatch.setattr(owner_module, "binary_matches", lambda _path: True)
     monkeypatch.setattr(owner_module, "isolation_paths_exist", lambda: True)
-    monkeypatch.setattr(owner_module, "NativeSession", _IdleNative)
     bridge = NativeAuthoringBridge(
         binary=tmp_path / "peri",
         state_root=tmp_path / "state",
         repository=stack.repository,
+        runtime=_IdleRuntime(),
     )
     service = AuthoringService(
         repository=stack.repository,
@@ -1237,7 +1247,7 @@ def _live_generating(stack, tmp_path, monkeypatch, client_turn_id: str):
         base_revision=current.revision,
     )
     native = bridge._sessions[created.sid]
-    native.turn_context = live
+    bridge._grants[created.sid].turn = live
     return service, bridge, current, turn, live, native
 
 
@@ -1303,7 +1313,7 @@ def test_stopped_forwarding_rejects_tool_dispatch_before_the_fence(
             "issues": [],
         }
 
-    native.forwarding = True
+    bridge._grants[current.sid].forwarding = True
     bridge.bind_tool_handler(blocking)
     worker = threading.Thread(
         target=lambda: raced.append(
@@ -1442,7 +1452,7 @@ def test_abandoned_retry_does_not_close_a_newer_connection(
     native.service_generation = ready.generation
     native.instance = "instance02"
     native.state = "ready"
-    native.forwarding = True
+    bridge._grants[current.sid].forwarding = True
     fresh, _replayed = stack.repository.start_turn(
         stack.actor,
         current.sid,

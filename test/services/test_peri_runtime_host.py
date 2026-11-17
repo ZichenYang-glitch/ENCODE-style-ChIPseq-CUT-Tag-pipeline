@@ -226,17 +226,17 @@ def test_fake_native_qualifies_reads_and_rejects_tool_failure(
     monkeypatch.setattr(owner_module, "binary_matches", lambda _path: True)
     monkeypatch.setattr(owner_module, "isolation_paths_exist", lambda: True)
 
-    def build(handler):
-        real = NativeSession
-
-        def wrapped(*args, **kwargs):
-            session = real(*args, **kwargs)
+    class _CaptureRuntime:
+        def open_session(self, binary, directory, *, service_generation, tool_handler):
+            session = NativeSession(
+                binary,
+                directory,
+                service_generation=service_generation,
+                tool_handler=tool_handler,
+            )
             created[-1].session = session
             return session
 
-        return wrapped
-
-    monkeypatch.setattr(owner_module, "NativeSession", build(None))
     repository = type(
         "Repository",
         (),
@@ -250,6 +250,7 @@ def test_fake_native_qualifies_reads_and_rejects_tool_failure(
         binary=tmp_path / "peri",
         state_root=tmp_path / "state",
         repository=repository,
+        runtime=_CaptureRuntime(),
     )
 
     def handler(**_kwargs):
