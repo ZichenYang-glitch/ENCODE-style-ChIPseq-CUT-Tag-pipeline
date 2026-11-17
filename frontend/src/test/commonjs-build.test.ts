@@ -44,6 +44,10 @@ it('keeps CommonJS bytes and require semantics stable across dependency load ord
         plugins: [preload],
         build: {
           ...config.build,
+          rollupOptions: {
+            ...config.build?.rollupOptions,
+            input: undefined,
+          },
           write: false,
           minify: false,
           lib: { entry: path.join(root, 'entry.js'), formats: ['cjs'], fileName: 'fixture' },

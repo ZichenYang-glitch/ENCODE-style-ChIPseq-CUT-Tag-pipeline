@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 
 import httpx
@@ -42,8 +43,14 @@ def _write_build(root: Path) -> Path:
     (root / "index.html").write_bytes(
         b'<!doctype html><div id="root"></div><script src="/assets/app-a1.js"></script>\n'
     )
+    (root / "viewer.html").write_bytes(
+        b'<!doctype html><div id="root"></div><script src="/assets/viewer-a1.js"></script>\n'
+    )
     (root / "favicon.svg").write_bytes(b"<svg></svg>\n")
     (root / "assets" / "app-a1.js").write_bytes(b"window.HELIXWEAVE = true;\n")
+    (root / "assets" / "viewer-a1.js").write_bytes(
+        b"window.HELIXWEAVE_VIEWER = true;\n"
+    )
     (root / "assets" / "app-a1.css").write_bytes(b"body { color: black; }\n")
     return root
 
@@ -126,8 +133,10 @@ def test_manifest_is_canonical_complete_and_content_addressed(tmp_path: Path) ->
     assert [item.path for item in first.manifest.files] == [
         "assets/app-a1.css",
         "assets/app-a1.js",
+        "assets/viewer-a1.js",
         "favicon.svg",
         "index.html",
+        "viewer.html",
     ]
     assert set(first.content) == {item.path for item in first.manifest.files}
     assert first.manifest.entrypoint == "index.html"
@@ -333,6 +342,16 @@ def test_manifest_static_application_serves_only_verified_bytes_and_spa_routes(
         == "connect-src 'self'; report-uri /csp-report"
     )
     assert "content-security-policy-report-only" not in index.headers
+
+    viewer = _request(app, "GET", "/viewer.html")
+    assert viewer.status_code == 200
+    assert viewer.content == assets.content["viewer.html"]
+    assert viewer.headers["cache-control"] == "no-cache"
+    assert viewer.headers["x-frame-options"] == "SAMEORIGIN"
+    assert (
+        viewer.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report; frame-ancestors 'self'"
+    )
 
     script = _request(app, "GET", "/assets/app-a1.js")
     assert script.status_code == 200
@@ -642,6 +661,43 @@ def test_repository_package_assets_are_verified() -> None:
             (REPOSITORY_ROOT / "frontend" / "package-lock.json").read_bytes()
         ).hexdigest()
     )
+
+
+def test_packaged_viewer_stays_out_of_platform_pages() -> None:
+    assets = load_packaged_frontend_assets()
+    platform: set[str] = set()
+    pending = ["index.html"]
+    references = re.compile(rb"assets/[A-Za-z0-9._~+-]+\.(?:js|css)")
+    while pending:
+        path = pending.pop()
+        if path in platform or path not in assets.content:
+            continue
+        platform.add(path)
+        body = assets.content[path]
+        assert b"wuepgg" not in body
+        assert b"epigenome.wustl.edu" not in body
+        pending.extend(match.decode("ascii") for match in references.findall(body))
+
+    assert "viewer.html" in assets.content
+    assert b"/assets/viewer-" not in assets.content["index.html"]
+    assert any(
+        b"epigenome.wustl.edu" in body
+        for path, body in assets.content.items()
+        if path.startswith("assets/viewer-")
+    )
+    app = ManifestStaticApplication(assets)
+    viewer = _request(app, "GET", "/viewer.html?run=run-1")
+    assert viewer.status_code == 200
+    assert viewer.content == assets.content["viewer.html"]
+    assert viewer.headers["cache-control"] == "no-cache"
+    assert viewer.headers["x-frame-options"] == "SAMEORIGIN"
+    assert (
+        viewer.headers["content-security-policy"]
+        == "connect-src 'self'; report-uri /csp-report; frame-ancestors 'self'"
+    )
+    index = _request(app, "GET", "/")
+    assert index.headers["x-frame-options"] == "DENY"
+    assert index.content == assets.content["index.html"]
 
 
 def test_deployed_factory_rejects_old_schema_without_running_migrations(

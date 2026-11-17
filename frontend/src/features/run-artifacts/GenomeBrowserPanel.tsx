@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GenomeHub } from 'wuepgg';
 import washUStyles from 'wuepgg/style.css?raw';
@@ -44,7 +44,25 @@ function messageFromError(error: unknown): string {
   return 'The browser view could not be loaded.';
 }
 
-export default function GenomeBrowserPanel({ runId }: { runId: string }) {
+export default function GenomeBrowserPanel({
+  runId,
+  initialRegion = null,
+  artifactIds = null,
+  showToolbar = true,
+  onReady,
+  onFailed,
+}: {
+  runId: string;
+  initialRegion?: string | null;
+  artifactIds?: readonly string[] | null;
+  showToolbar?: boolean;
+  onReady?: (notice: {
+    runId: string;
+    referenceStatus: 'bound' | 'unbound' | 'unavailable';
+    artifactIds: string[];
+  }) => void;
+  onFailed?: (message: string) => void;
+}) {
   ensureTrackReadGuard();
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({
@@ -55,6 +73,11 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
+
+  const onReadyRef = useRef(onReady);
+  const onFailedRef = useRef(onFailed);
+  onReadyRef.current = onReady;
+  onFailedRef.current = onFailed;
 
   useEffect(
     () =>
@@ -81,30 +104,54 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
   }, [runId]);
 
   useEffect(() => {
+    if (sessionQuery.isError) onFailedRef.current?.(messageFromError(sessionQuery.error));
+  }, [sessionQuery.error, sessionQuery.isError]);
+
+  useEffect(() => {
     if (!session) return;
-    const initial = session.tracks
+    const visible = artifactIds
+      ? session.tracks.filter((track) => artifactIds.includes(track.artifact_id))
+      : session.tracks;
+    const initial = visible
       .filter((track) => track.preparation === 'ready' || track.preparation === 'needed')
       .map((track) => track.artifact_id);
     setSelected(initial);
+    const referenceStatus =
+      session.reference.status === 'bound' ||
+      session.reference.status === 'unbound' ||
+      session.reference.status === 'unavailable'
+        ? session.reference.status
+        : 'unavailable';
+    onReadyRef.current?.({
+      runId: session.run_id,
+      referenceStatus,
+      artifactIds: initial,
+    });
     const suggested = session.tracks.find(
       (track) => track.provenance?.suggested_region,
     )?.provenance?.suggested_region;
-    if (typeof suggested !== 'string') return;
+    const target =
+      initialRegion && REGION.test(initialRegion)
+        ? initialRegion
+        : typeof suggested === 'string'
+          ? suggested
+          : null;
+    if (target === null) return;
     // GenomeHub applies the region it receives on the first mount, then only
     // refetches tracks when that string changes. A short hop makes the mounted
     // viewer query the intended window.
-    const parts = suggested.match(/^(.*:)(\d+)-(\d+)$/);
+    const parts = target.match(/^(.*:)(\d+)-(\d+)$/);
     const hop = parts
       ? `${parts[1]}${Math.max(0, Number(parts[2]) - 400)}-${Math.max(1, Number(parts[3]) - 400)}`
-      : suggested;
-    setRegion(suggested);
+      : target;
+    setRegion(target);
     const move = window.setTimeout(() => setRegion(hop), 600);
-    const settle = window.setTimeout(() => setRegion(suggested), 1100);
+    const settle = window.setTimeout(() => setRegion(target), 1100);
     return () => {
       window.clearTimeout(move);
       window.clearTimeout(settle);
     };
-  }, [session]);
+  }, [artifactIds, initialRegion, session]);
 
   const readyTracks = useMemo(
     () =>
@@ -258,6 +305,7 @@ export default function GenomeBrowserPanel({ runId }: { runId: string }) {
         session={session}
         region={region}
         tracks={readyTracks.filter((track) => !loadFailures[track.artifact_id])}
+        showToolbar={showToolbar}
       />
     </section>
   );
@@ -441,10 +489,12 @@ function Viewer({
   session,
   region,
   tracks,
+  showToolbar,
 }: {
   session: BrowserSessionResponse;
   region: string;
   tracks: BrowserTrackResponse[];
+  showToolbar: boolean;
 }) {
   const scaffold = session.reference.viewer_scaffold;
   if (!scaffold || !REGION.test(region) || tracks.length === 0) return null;
@@ -476,7 +526,7 @@ function Viewer({
         ]}
         showGenomeNavigator={false}
         showNavBar={false}
-        showToolBar={true}
+        showToolBar={showToolbar}
         showDisclosure={false}
       />
     </div>

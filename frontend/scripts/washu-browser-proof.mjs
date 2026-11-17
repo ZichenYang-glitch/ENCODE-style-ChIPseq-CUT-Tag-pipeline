@@ -30,6 +30,8 @@ const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 let browser;
 let page;
 let documentPolicy = '';
+let viewerPolicy = '';
+let viewerFrameOptions = '';
 let preflightOk = false;
 let readFailed = false;
 let apiPort = 0;
@@ -400,8 +402,11 @@ try {
   page.on('pageerror', (error) => {
     consoleMessages.push(`pageerror: ${error.message}`);
   });
+  const viewerAssets = [];
   page.on('request', (request) => {
     const url = request.url();
+    const path = new URL(url).pathname;
+    if (path === '/viewer.html' || path.includes('/assets/viewer-')) viewerAssets.push(url);
     if (isExternal(url)) external.push(`${request.method()} ${url}`);
     if (request.method() === 'POST' && new URL(url).pathname === '/csp-report') {
       cspReports.push(request.postData() ?? '');
@@ -410,6 +415,10 @@ try {
   });
   page.on('response', (response) => {
     const url = response.url();
+    if (new URL(url).pathname === '/viewer.html') {
+      viewerPolicy = response.headers()['content-security-policy'] ?? '';
+      viewerFrameOptions = response.headers()['x-frame-options'] ?? '';
+    }
     if (!url.includes('/bytes/')) return;
     const range = response.request().headers().range ?? '';
     const entry = {
@@ -445,13 +454,33 @@ try {
   const navigation = await page.goto(`http://127.0.0.1:${apiPort}/runs/${runId}?view=artifacts`);
   documentPolicy = navigation?.headers()['content-security-policy'] ?? '';
   log(`document-policy ${documentPolicy}`);
+  if (viewerAssets.length !== 0) {
+    throw new Error(`platform page requested the viewer engine\n${viewerAssets.join('\n')}`);
+  }
   await page.getByRole('button', { name: 'View tracks in genome browser' }).click();
-  const viewer = page.getByTestId('washu-genome-viewer');
+  await page.getByTitle('Genome browser').waitFor();
+  let viewerFrame;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    viewerFrame = page.frames().find((frame) => frame.url().includes('/viewer.html'));
+    if (viewerFrame) break;
+    await page.waitForTimeout(100);
+  }
+  if (!viewerFrame) throw new Error('viewer frame did not load');
+  if (
+    !viewerPolicy.startsWith(enforcedPolicy) ||
+    !viewerPolicy.includes("frame-ancestors 'self'") ||
+    viewerFrameOptions !== 'SAMEORIGIN'
+  ) {
+    throw new Error(
+      `viewer document policy ${JSON.stringify(viewerPolicy)} frame ${viewerFrameOptions}`,
+    );
+  }
+  const viewer = viewerFrame.getByTestId('washu-genome-viewer');
   await viewer.waitFor({ timeout: 30_000 });
   if (negative) {
     const started = Date.now();
     while (Date.now() - started < 20_000) {
-      const alert = await page.getByText('Track failed to load').count();
+      const alert = await viewerFrame.getByText('Track failed to load').count();
       const rejected = reads.some(
         (read) =>
           !read.preflight &&
@@ -490,11 +519,11 @@ try {
     }
   }
   if (!negative) {
-    await page.waitForFunction(() => {
+    await viewerFrame.waitForFunction(() => {
       const input = document.querySelector('[aria-label="Genomic region"]');
       return input instanceof HTMLInputElement && input.value === 'chr1:500-2700';
     }, undefined, { timeout: 5_000 });
-    await page
+    await viewerFrame
       .waitForFunction(() => {
         const viewer = document.querySelector('[data-testid="washu-genome-viewer"]');
         return viewer instanceof HTMLElement && !viewer.innerText.includes('Loading view');
@@ -504,9 +533,9 @@ try {
   }
   await page.screenshot({ path: screenshotPath, fullPage: true });
   const viewerText = await viewer.innerText();
-  const pageText = await page.locator('body').innerText();
+  const pageText = await viewerFrame.locator('body').innerText();
   log(viewerText);
-  const sessionState = await page.evaluate(() => {
+  const sessionState = await viewerFrame.evaluate(() => {
     const root = document.querySelector('[data-testid="washu-genome-viewer"]');
     const key = Object.getOwnPropertyNames(root ?? {}).find((name) =>
       name.startsWith('__reactFiber'),
@@ -560,7 +589,7 @@ try {
     throw new Error(`production policy was ${JSON.stringify(egress.policy)}`);
   }
   if (negative) {
-    const alerts = (await page.getByRole('alert').allInnerTexts()).join('\n');
+    const alerts = (await viewerFrame.getByRole('alert').allInnerTexts()).join('\n');
     log(`ALERTS ${alerts}`);
     if (
       !alerts.includes('PET records') ||
@@ -576,6 +605,35 @@ try {
     throw new Error(`unexpected egress ${JSON.stringify(egress)}`);
   }
   const evidence = assertProof(viewerText, pageText, geometry, sessionState.hits);
+  const embeddedReads = reads.length;
+  await page.goto(`http://127.0.0.1:${apiPort}/viewer.html?run=${runId}`);
+  const fullViewer = page.getByTestId('washu-genome-viewer');
+  await fullViewer.waitFor({ timeout: 30_000 });
+  await fullViewer.getByText(/bp in \d+px/).waitFor({ timeout: 25_000 });
+  const fullStarted = Date.now();
+  while (Date.now() - fullStarted < 20_000) {
+    const fullSignal = reads.slice(embeddedReads).some(
+      (read) =>
+        read.track === 'signal' &&
+        !read.preflight &&
+        !read.index &&
+        (read.status === 200 || read.status === 206) &&
+        read.body.length > 1,
+    );
+    if (fullSignal) break;
+    await page.waitForTimeout(200);
+  }
+  if (
+    !reads.slice(embeddedReads).some(
+      (read) =>
+        read.track === 'signal' &&
+        !read.preflight &&
+        (read.status === 200 || read.status === 206) &&
+        read.body.length > 1,
+    )
+  ) {
+    throw new Error('full page did not read the bigWig through the authorized API');
+  }
   await stopAll([apiPort, webPort]);
   console.log(`WASHU_PROOF ok ${JSON.stringify({ ...evidence, screenshot: screenshotPath })}`);
 } catch (error) {
@@ -585,9 +643,9 @@ try {
   log(consoleMessages.filter((line) => line.startsWith('error') || line.startsWith('pageerror')).join('\n'));
   await writeEgress().catch(() => {});
   if (negative && message.startsWith('WASHU_PROOF rejected')) {
-    console.error(message.split('\n')[0]);
-    console.error(`proof work ${work}`);
-    process.exitCode = 1;
+    console.log(message.split('\n')[0]);
+    console.log(`proof work ${work}`);
+    process.exitCode = 0;
   } else {
     console.error(message);
     console.error(`proof work ${work}`);
