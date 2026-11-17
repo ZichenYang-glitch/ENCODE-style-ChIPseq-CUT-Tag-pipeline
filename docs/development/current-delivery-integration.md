@@ -1,6 +1,37 @@
 # 当前 PR 收口与集成清单
 
-## 2026-11-16T08:22:10Z 当前状态
+## 2026-11-17T08:13:19Z 当前状态
+
+排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
+[session 计划](next-delivery-session-plan.md)。08:22:10Z 及更早快照不倒写。
+本次不写回本提交 SHA，也不把根工作区未提交的 roadmap 搬进来。
+
+origin/main 为 `ff3f7d981592a844750dba502f980a356becc874`。
+[#220](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/220)
+已 merged，merge 时间 2026-11-17T07:32:59Z，head `a299db97a6e7fff8ecaf70bd02012ad8996fadd3`。
+父提交是 `b21d941ecb49a8f6d39a4042c2aac442c74df7a7` 与该 head。
+
+已合入身份：
+
+- A1：`1b1db4…`。Gate 仍是 `e112223…` 的 run `43792685991` attempt 2；C4 仍是 `82d0912…`。
+- Viewer：`2a6c22a…`，批准 head `04e5075…`。
+- roadmap：`b21d941…`，#213 已合并。
+- #220 合入后 push attempt 1 success：
+  [CI 44039567042](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567042)、
+  [Lint 44039567053](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567053)、
+  [Lock Check 44039567123](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567123)。
+  coverage job `133900520618` success。real-execution、platform-real-execution、
+  container-smoke、bulk-rnaseq-real-execution 为 skipped。
+
+下一轮见 roadmap 与 session 计划。P1a 先做 runtime 边界；P1b 的 ENCODE 投影和窄 repository
+以后单独收口。P2 等稳定接点和明确 provider。Viewer V2 独立构建。
+数据目录、AI 整理和 Agent 运行操作仍待各自契约。
+新增目录整理的管理员确认不改变已有 A1 草稿采用。ACP 兼容不等于工具、外发或运行资格。
+
+非阻塞：#220 审查中的全进程 FD 断言应改为本例自己的资源，不证明产品泄漏，也不自动开测试批次。
+relay 第三连接断言补强同样不改生产 relay，不改写 `82d0912…`。
+
+## 2026-11-16T08:22:10Z 快照
 
 排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
 [session 计划](next-delivery-session-plan.md)。12:18:06Z 的快照及更早记录不倒写。
@@ -333,12 +364,9 @@ Backend 已获得启动 `user@1000.service` 并验证任务资源隔离的限定
    如以后公共契约变化，后端正式生成 OpenAPI/client，再交前端适配，不手改生成物。
 3. #214 已含部分 #212 历史，合成候选前核对祖先关系。只纳入已审阅提交，
    不将整个活动分支盲目拉进候选。候选使用独立 worktree/PR。
-4. #217 `c4c4909…` 继续独立推进。它没有进入 #219。与 main `1b1db4…` 的组合仍需核验，
-   因此不作为已经随 A1 交付的 Viewer。
-   它与 #214 的公共导航、前端打包资产由集成 owner 协调重生成。
-   最终测试按实际组合执行，不能简单相加来源分支的通过记录。
-5. 普通 CI、C4 和适用 Gate 完成后交回主会话；合并/发布仍单独执行授权。
-   本次只更新 Draft #213 的当前状态，不创建、关闭或合并远端 PR，不启动其他 session。
+4. #217 已合入 `2a6c22a…`。08:22:10Z 写的“与 main 组合仍需核验”是当时状态。
+   下一轮 Viewer 是独立的 V2，不把旧组合任务重新打开。
+5. 下一轮会话以 session 计划的 2026-11-17 交接为准。不从本页自动启动实现或新测试批次。
 
 ## 历史证据
 

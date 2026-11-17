@@ -1,6 +1,42 @@
 # HelixWeave Product Roadmap
 
-## 当前入口：2026-11-16T08:22:10Z
+## 当前入口：2026-11-17T08:13:19Z
+
+2026-11-16T08:22:10Z 及更早快照保留在后文，不倒写。
+本次查询 origin/main 为 `ff3f7d981592a844750dba502f980a356becc874`，
+即 [#220](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/220)
+的普通 merge。父提交是 roadmap 合入 `b21d941…` 与 #220 head `a299db9…`。
+本文件将由新的文档 Draft 交付，不写回本提交 SHA。根工作区未提交的 roadmap 未搬入。
+
+已合入且不再是当前阻塞：
+
+- A1 在 `1b1db4…`。Gate 与 C4 的实际运行 SHA 仍以 08:22:10Z 入口为准，不改写成在后续 SHA 上新跑。
+- Viewer 在 `2a6c22a…`，批准 head `04e5075…`。
+- roadmap 文档在 `b21d941…`。
+- #220 合入后的 push attempt 1 全部 success：
+  [CI 44039567042](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567042)、
+  [Lint 44039567053](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567053)、
+  [Lock Check 44039567123](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567123)。
+  coverage job `133900520618` success，完整覆盖率门槛通过。
+  四个条件执行 job 为 skipped，不是执行通过。没有派发新的 Bulk Gate。
+
+下一轮分工。下面未列出的实现都还没开始。ACP 兼容不是自动获得工具、外发或运行资格。
+新增目录整理的管理员规则不改变已有 A1 草稿采用权限。
+
+| 会话 | 范围 | 状态 |
+| --- | --- | --- |
+| `HW-Agent-P1-Boundary` | 先做 P1a runtime 边界 | 尚未实施 |
+| P1b | ENCODE authoring 投影与窄 repository 接口 | 后续单独收口，不并进 P1a |
+| P2 | 真实外部模型 API。依赖稳定接点和明确 provider 配置 | 设计与实施尚未开始。不要求本地模型 |
+| `HW-Viewer-V2-Isolation` | 独立构建、同源嵌入与全页 | 尚未实施 |
+| Frontend | 配合 Viewer | 不新开重叠实现 |
+| Science | 无新增任务 | 不启动新确认批次 |
+| 数据目录 M0/M1、AI 整理、Agent 运行操作 | 各自契约和验收 | 仍待开始 |
+
+非阻塞维护，不因此自动开新测试批次：#220 的全进程 FD 断言隔离建议，
+以及 relay 第三连接断言补强。两者都不改生产行为，也不改写已有 C4 或 Gate 身份。
+
+## 快照：2026-11-16T08:22:10Z
 
 2026-11-15T12:18:06Z 及更早快照保留在后文，不倒写。
 本次查询 main 为 `1b1db421ba3172bc39cf31ce0d03976511379fda`，
