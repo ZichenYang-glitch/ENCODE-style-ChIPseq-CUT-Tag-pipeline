@@ -149,7 +149,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Deployment commands: install, status, doctor, verify, upgrade, "
             "rollback, and bundle. Run `helixweave bundle --help` to build "
-            "offline deployment transports."
+            "offline deployment transports. Run `helixweave catalog --help` "
+            "to preview catalog classification changes."
         ),
     )
     parser.add_argument("--project-root", type=Path)
