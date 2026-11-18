@@ -54,7 +54,9 @@ def _generated_catalog_urls(calls: list[dict[str, object]]) -> list[str]:
     )
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
-        raise AssertionError(detail or f"generated client exited {completed.returncode}")
+        raise AssertionError(
+            detail or f"generated client exited {completed.returncode}"
+        )
     urls = json.loads(completed.stdout)
     if not isinstance(urls, list) or len(urls) != len(calls):
         raise AssertionError(completed.stdout)
