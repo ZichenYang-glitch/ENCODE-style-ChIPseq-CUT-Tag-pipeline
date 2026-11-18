@@ -992,35 +992,92 @@ class SyntheticCatalogPreviewStore:
                     return smp_state, rev
         return None
 
+    def _verify_experiment_ref(
+        self,
+        exp_state: _ExperimentState | None,
+        project_id: str,
+        *,
+        path: str,
+        message_missing: str,
+    ) -> None:
+        if exp_state is None or exp_state.project_id != project_id:
+            raise catalog_preview_error(
+                409,
+                "catalog_proposal_invalidated",
+                message_missing,
+                path=path,
+            )
+        if exp_state.archived:
+            raise catalog_preview_error(
+                409,
+                "catalog_experiment_archived",
+                "Cited experiment is archived.",
+                path=path,
+            )
+
+    def _verify_sample_ref(
+        self,
+        smp_state: _SampleState | None,
+        project_id: str,
+        *,
+        path: str,
+        message_missing: str,
+    ) -> None:
+        if smp_state is None or smp_state.project_id != project_id:
+            raise catalog_preview_error(
+                409,
+                "catalog_proposal_invalidated",
+                message_missing,
+                path=path,
+            )
+
+    def _verify_projection_row_ref(
+        self, ref_id: str, project_id: str, *, path: str
+    ) -> None:
+        exp_state = self._experiments.get(ref_id)
+        if exp_state is None:
+            found_exp = self._find_experiment_revision(ref_id)
+            exp_state = None if found_exp is None else found_exp[0]
+        if exp_state is not None:
+            self._verify_experiment_ref(
+                exp_state,
+                project_id,
+                path=path,
+                message_missing="Cited catalog projection row is missing or outside this project.",
+            )
+            return
+        smp_state = self._samples.get(ref_id)
+        if smp_state is None:
+            found_smp = self._find_sample_revision(ref_id)
+            smp_state = None if found_smp is None else found_smp[0]
+        self._verify_sample_ref(
+            smp_state,
+            project_id,
+            path=path,
+            message_missing="Cited catalog projection row does not exist in this project.",
+        )
+
     def _verify_source_references(self, item: ProposalItem, project_id: str) -> None:
         """Verify every cited source reference exists in this active project and is valid."""
 
+        path = f"{item.item_id}.citations.source_refs"
         for ref in item.citation.source_refs:
             if ref.kind == "experiment_revision":
                 found_exp = self._find_experiment_revision(ref.ref_id)
-                if found_exp is None or found_exp[0].project_id != project_id:
-                    raise catalog_preview_error(
-                        409,
-                        "catalog_proposal_invalidated",
-                        "Cited experiment revision is missing or outside this project.",
-                        path=f"{item.item_id}.citations.source_refs",
-                    )
-                if found_exp[0].archived:
-                    raise catalog_preview_error(
-                        409,
-                        "catalog_experiment_archived",
-                        "Cited experiment is archived.",
-                        path=f"{item.item_id}.citations.source_refs",
-                    )
+                self._verify_experiment_ref(
+                    None if found_exp is None else found_exp[0],
+                    project_id,
+                    path=path,
+                    message_missing="Cited experiment revision is missing or outside this project.",
+                )
             elif ref.kind == "sample_revision":
                 found_smp = self._find_sample_revision(ref.ref_id)
-                if found_smp is None or found_smp[0].project_id != project_id:
-                    raise catalog_preview_error(
-                        409,
-                        "catalog_proposal_invalidated",
-                        "Cited sample revision is missing or outside this project.",
-                        path=f"{item.item_id}.citations.source_refs",
-                    )
+                self._verify_sample_ref(
+                    None if found_smp is None else found_smp[0],
+                    project_id,
+                    path=path,
+                    message_missing="Cited sample revision is missing or outside this project.",
+                )
             elif ref.kind == "term_revision":
                 term_rec = self._terms.get(ref.ref_id)
                 if term_rec is None:
@@ -1028,27 +1085,17 @@ class SyntheticCatalogPreviewStore:
                         409,
                         "catalog_proposal_invalidated",
                         "Cited term revision does not exist in the catalog.",
-                        path=f"{item.item_id}.citations.source_refs",
+                        path=path,
                     )
                 if term_rec.archived:
                     raise catalog_preview_error(
                         409,
                         "catalog_term_archived",
                         "Cited term revision is archived.",
-                        path=f"{item.item_id}.citations.source_refs",
+                        path=path,
                     )
             elif ref.kind == "catalog_projection_row":
-                # Projection rows must correspond to a known active target in this project.
-                if (
-                    ref.ref_id not in self._experiments
-                    and ref.ref_id not in self._samples
-                ):
-                    raise catalog_preview_error(
-                        409,
-                        "catalog_proposal_invalidated",
-                        "Cited catalog projection row does not exist in this project.",
-                        path=f"{item.item_id}.citations.source_refs",
-                    )
+                self._verify_projection_row_ref(ref.ref_id, project_id, path=path)
 
     def _lookup_idempotency(
         self,
