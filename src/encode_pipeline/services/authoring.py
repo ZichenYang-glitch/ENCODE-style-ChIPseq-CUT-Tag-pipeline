@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+import importlib
 from pathlib import Path
 import re
 from typing import Any
@@ -1175,10 +1176,11 @@ class AuthoringService:
         adapter: object,
         payload: Mapping[str, Any],
     ) -> AuthoringFieldProjection | None:
-        if not isinstance(adapter, AuthoringFieldProjectingAdapter):
+        projector = _projection_callable(adapter)
+        if projector is None:
             return None
         try:
-            projection = adapter.project_authoring_fields(payload)
+            projection = projector(payload)
         except Exception:
             return None
         if not isinstance(projection, AuthoringFieldProjection):
@@ -1477,6 +1479,29 @@ class AuthoringService:
             self._bridge.close(request)
         except Exception:
             return
+
+
+def _projection_callable(adapter: object) -> Callable[..., Any] | None:
+    """Resolve a suggestion projector without editing a sealed adapter file.
+
+    A method on the adapter wins. Otherwise a package whose class module is
+    named ``adapter`` may export ``project_authoring_fields`` from its
+    sibling ``authoring`` module.
+    """
+
+    if isinstance(adapter, AuthoringFieldProjectingAdapter):
+        method = getattr(adapter, "project_authoring_fields", None)
+        return method if callable(method) else None
+    module_name = type(adapter).__module__
+    suffix = ".adapter"
+    if not module_name.endswith(suffix):
+        return None
+    try:
+        module = importlib.import_module(module_name[: -len(suffix)] + ".authoring")
+    except Exception:
+        return None
+    function = getattr(module, "project_authoring_fields", None)
+    return function if callable(function) else None
 
 
 def _capability(

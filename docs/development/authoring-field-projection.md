@@ -10,16 +10,20 @@ Peri 传输和目录 API 不在本版范围。
 
 ## 接口
 
-实现 `AuthoringFieldProjectingAdapter` 的 adapter 提供：
+adapter 用同一个函数提供建议目录：
 
 ```text
 project_authoring_fields(schema_payload) -> AuthoringFieldProjection | None
 ```
 
+函数可以是 adapter 类上的方法。类文件若已在已验证的执行闭包里，则不要改那个文件，
+改为由同一包的 `authoring` 模块导出同名函数。平台先调用类方法；没有该方法时，
+再加载类模块旁的 `authoring.project_authoring_fields`。
+
 `schema_payload` 是平台刚刚纳入 `schema_digest` 的那份 schema 文档。
 返回值只含建议可以读写的标量字段，以及这些建议可以引用的问题标签。
 字段约束是 adapter 策略和这份 schema 的整数交集。默认值、描述和示例不进入投影。
-返回 `None`，或方法抛错，表示这个工作流没有建议目录。平台因此给出
+返回 `None`，或函数抛错，表示这个工作流没有建议目录。平台因此给出
 `CAPABILITY_UNAVAILABLE`，手工草稿和 adapter 校验仍可用。
 
 `AuthoringFieldProjection` 含有：
@@ -55,7 +59,8 @@ ENCODE 仍只投影 `config.threads` 和 `options.cores`，问题标签的内容
 
 ## 第一个非 ENCODE 字段
 
-Hi-TrAC adapter 投影 `options.mapq`。策略边界是 0 到 255，再与当前 `option_schema` 取更紧的整数范围。
+Hi-TrAC 的 `authoring.py` 投影 `options.mapq`。策略边界是 0 到 255，再与当前 `option_schema` 取更紧的整数范围。
+`hitrac_preprocess/adapter.py` 留在 Bulk 执行实现清单里，本版不改它的字节。
 校验仍调用现有 `validate_hitrac_inputs`。合法值会带上默认 `threads`，但 `threads` 不是建议字段。
 
 ## 产品路径
@@ -82,7 +87,7 @@ Hi-TrAC adapter 投影 `options.mapq`。策略边界是 0 到 255，再与当前
 | --- | --- |
 | Hi-TrAC | `options.threads`、样本列、空的 config、参考配置选择 |
 | ENCODE | 除 `config.threads` 与 `options.cores` 以外的配置、样本计划和参考选择 |
-| bulk RNA-seq | 全部字段；没有投影方法 |
+| bulk RNA-seq | 全部字段；`authoring` 模块没有导出 `project_authoring_fields` |
 
 样本计划继续由 ENCODE adapter 的现有函数处理，公共服务里仍有这一处 ENCODE 分支。
 把它收进 adapter 需要单独一版，本版不改这条行为。

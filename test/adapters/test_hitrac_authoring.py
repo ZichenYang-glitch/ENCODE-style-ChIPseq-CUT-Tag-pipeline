@@ -9,8 +9,12 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 import pytest
 
+from encode_pipeline.adapters.hitrac_preprocess.adapter import (
+    HiTracPreprocessAdapter,
+)
 from encode_pipeline.adapters.hitrac_preprocess.authoring import (
     build_hitrac_authoring_schema,
+    project_authoring_fields,
     project_hitrac_authoring_fields,
 )
 from encode_pipeline.adapters.hitrac_preprocess.validation import validate_hitrac_inputs
@@ -254,3 +258,8 @@ def test_mapq_projection_tightens_to_the_live_schema_and_withholds_a_broken_fiel
 
     payload["option_schema"]["properties"]["mapq"]["type"] = "string"
     assert project_hitrac_authoring_fields(payload) is None
+
+
+def test_mapq_projection_stays_on_the_authoring_module():
+    assert project_authoring_fields is project_hitrac_authoring_fields
+    assert "project_authoring_fields" not in HiTracPreprocessAdapter.__dict__

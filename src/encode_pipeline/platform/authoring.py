@@ -306,6 +306,10 @@ class AuthoringFieldProjectingAdapter(Protocol):
     The authoring service keeps authorization, draft revision, adoption, and
     validation. The adapter names the fields, their bounds, and the issue
     labels a suggestion may cite.
+
+    A class file already covered by a verified execution closure can omit this
+    method. The service then calls ``project_authoring_fields`` exported by
+    that package's ``authoring`` module.
     """
 
     def project_authoring_fields(

@@ -163,6 +163,11 @@ def project_hitrac_authoring_fields(
     )
 
 
+# The adapter class file is inside the bulk execution implementation closure.
+# Export the projector here so that sealed file can stay byte-for-byte.
+project_authoring_fields = project_hitrac_authoring_fields
+
+
 def _document(surface: str) -> dict[str, str]:
     return {
         "$schema": JSON_SCHEMA_DIALECT,
