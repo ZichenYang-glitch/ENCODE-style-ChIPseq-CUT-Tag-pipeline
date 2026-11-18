@@ -2,7 +2,7 @@
 
 本文件是 IRENE-35 的证据台账。它对照仓库里已经版本化的运行资格和 SCI-7 记录，分开写下 ENCODE、Bulk RNA-seq、Hi-TrAC 现在能证明的软件行为，以及仍然没有科学结论的默认值。同事可以按文末步骤核对结果和 QC。软件测试通过、资格文件生成、流程退出码 0 和 Gate 成功，都只说明软件按当时的身份跑完；它们本身不是生物学确认，也不冻结生产默认。
 
-来源读自 main `d85c3b6a50a9de0f108691bd60efc678d851a2be`。下面的 SHA256 是文件内容摘要，文档提交之后仍然可以用文末命令复核。本台账不改默认值，不下载数据，不启动流程。WashU 轨道选择由 IRENE-21 另行验收。11_17 批次不在本仓库；当前 HelixWeave 工单列表里没有 IRENE-9。本单不打开、不重跑该批次。同事从已核验样本定位 PET 和 QC 仍是 IRENE-34。
+来源读自 main `d85c3b6a50a9de0f108691bd60efc678d851a2be`。下面的 SHA256 是文件内容摘要，文档提交之后仍然可以用文末命令复核。本台账不改默认值，不下载数据，不启动流程。WashU 轨道选择由 IRENE-21 另行验收。11_17 的计算与核验跟踪在 IRENE-9，本单不打开、不重跑该批次。试用验收在 IRENE-34：由同事从已核验样本定位 PET 和 QC。
 
 ## 三种说法
 
@@ -39,7 +39,16 @@ QC 说明在 `docs/qc-interpretation.md`：QC 是描述性的，不是统一的�
 
 仍未测量的确认集：CUT&Tag、组蛋白、MNase、ATAC。MNase 预先登记的 500-arm 短模板指标没有评估。JUND 是另一个靶点和细胞背景，不是 NR2F2 的生物学重复。
 
-`docs/development/sci7-public-data/reference-identity.md` 在 2026-10-28 固定了拟用参考的来源和官方压缩 MD5。人类为 GENCODE v44 / GRCh38.p14，小鼠为 GENCODE vM25 / GRCm38.p6。大 FASTA、GTF 和 Bowtie2 索引在该记录里仍是未下载、未构建。`docs/development/sci7-public-data/resource-budget.md` 开头的 “No large FASTQ has been downloaded” 是 2026-10-28 的计划句；后来哪些文库已经测过，以批次摘要为准，不用预算文件的开头句覆盖它。预算文件里的约 1.2 TiB 也不是准入门槛。
+`docs/development/sci7-public-data/reference-identity.md` 是 2026-10-28 的准备记录。它固定拟用参考的来源和官方压缩 MD5，并在自己的状态句里把大 FASTA、GTF 和 Bowtie2 索引写成当时尚未下载、尚未构建。`docs/development/sci7-public-data/README.md` 的参考段仍复述这句准备语句。后来的执行记录另行记下 FASTA 和索引的实测；GTF 和尚未执行的确认文库仍停在准备记录。
+
+| 物种 | 2026-10-28 准备记录 | 后来的实测 | 仍缺 |
+| --- | --- | --- | --- |
+| 人 GRCh38，GENCODE v44 | 压缩 FASTA `GRCh38.primary_assembly.genome.fa.gz`，844,691,642 字节，官方 MD5 `9c3fc2ca260a767530dddb0f26721a6b`。该文件当时把载荷标为未核验 | `minimal-smoke-results.md`：四份 FASTQ 与这份 GRCh38 FASTA 的字节数、官方 MD5 一致，并由该 FASTA 构建 FAI、染色体长度表和六个 Bowtie2 索引。`tf-jund-confirmation.md` 在比对前再次核对同一压缩 FASTA，SHA256 `e9a2d5a5cd225293646ae298998ad4ea8c11e8f22729bc2d6f5c3dcfefbf8ef8` | GTF `gencode.v44.primary_assembly.annotation.gtf.gz`，官方 MD5 `b182a9f3b134b9cc2da566a2b1692557`。准备记录写明两份 GTF 都未下载；`minimal-smoke.md` 写明该次 smoke 不下载 GTF |
+| 小鼠 GRCm38，GENCODE vM25 | 压缩 FASTA `GRCm38.primary_assembly.genome.fa.gz`，773,507,376 字节，官方 MD5 `3bc591be24b77f710b6ba5d41022fc5a`。该文件当时把载荷标为未核验 | `atac-treg-discovery.md`：同一文件，官方 MD5 同上，实测 SHA256 `617b10dc7ef90354c3b6af986e45d6d9621242b64ed3a94c9abeac3e45f18c17`。FAI、`chrom_sizes` 和六个 `.bt2` 由该解压 FASTA 用 samtools 1.23.1 与 Bowtie2 2.5.5 生成 | GTF `gencode.vM25.primary_assembly.annotation.gtf.gz`，官方 MD5 `c5125258a0a2c5250ddb4c192abbf4e8`，准备记录中未下载。确认文库 ENCSR213YKJ（组蛋白）和 ENCSR639PPN（ATAC）未下载、未评估 |
+
+可选 GEO/SRA 的 CUT&Tag 与 MNase 确认集也未用于解释已完成的无结论记录，批次摘要没有把它们算作已评估。人的 JUND 确认文库已经测过，见 `tf-jund-confirmation.md`；那次测量不冻结默认。
+
+`docs/development/sci7-public-data/resource-budget.md` 开头的 “No large FASTQ has been downloaded” 是 2026-10-28 的计划句；后来哪些文库已经测过，以批次摘要为准，不用预算文件的开头句覆盖它。预算文件里的约 1.2 TiB 也不是准入门槛。
 
 Roadmap 对 #218 `0fef7a2…` 的记录是：workflow `43628729299` 成功，真实执行 169 passed、零失败、零跳过。同一段写明这不是生物学确认，也不是 Gate。`docs/development/workflow-platform-agent-roadmap.md` 把科学确认列在 A1 交付之外，并写明本计划不启动新数据批次。
 
@@ -63,7 +72,7 @@ Roadmap 对 #218 `0fef7a2…` 的记录是：workflow `43628729299` 成功，真
 1. 打开 `/runs/<run_id>`。标题下的链接应是 `encode-style-chipseq-cuttag-atac-mnase`。
 2. 有参考绑定时，定义列表 `run-reference-profile` 显示 Reference、Organism / assembly、Revision、Identity digest。没有这块时，只说明这次响应没有 `reference_profile`，不能据此推断运行没用参考。
 3. 打开 QC 标签，或直接访问 `/runs/<run_id>?view=qc`。成功之后才会出现已索引指标；每行有显示名和 `metric_key`。这些数字是描述性 QC。运行状态成功，不把 `duplicate_analysis: auto` 或 `max_insert: auto` 变成已冻结默认。
-4. 把这次运行的参考摘要，和 `reference-identity.md` 里仍标为未核验的大 FASTA 分开。页面上的 Identity digest 是这次修订的身份，不是 SCI-7 参考计划已经下载的证明。
+4. 核对参考时按物种读后续实测。`reference-identity.md` 的状态句和 README 参考段仍把大 FASTA 写成未构建，那是准备记录，不用它覆盖后来的实测。人 GRCh38 看 `minimal-smoke-results.md` 的官方字节数、MD5 和六个索引，以及 `tf-jund-confirmation.md` 比对前再次核对的压缩 FASTA：844,691,642 字节，官方 MD5 `9c3fc2ca260a767530dddb0f26721a6b`，SHA256 `e9a2d5a5cd225293646ae298998ad4ea8c11e8f22729bc2d6f5c3dcfefbf8ef8`。小鼠 GRCm38 看 `atac-treg-discovery.md`：官方 MD5 `3bc591be24b77f710b6ba5d41022fc5a`，SHA256 `617b10dc7ef90354c3b6af986e45d6d9621242b64ed3a94c9abeac3e45f18c17`，以及由此生成的 FAI、染色体长度表和六个 Bowtie2 索引。两份 GTF 仍只有准备记录中的官方 MD5。页面上的 Identity digest 是这一次运行修订的身份；它与上述 SHA256 相同，只说明用了同一压缩 FASTA，不把默认变成科学结论。组蛋白确认 ENCSR213YKJ、ATAC 确认 ENCSR639PPN，以及可选 CUT&Tag/MNase 确认文库，仍按批次摘要视为未评估。
 
 ## Bulk RNA-seq
 
@@ -166,12 +175,12 @@ QC 在 `/runs/<run_id>?view=qc`。成功完成后列出已索引行，每行有�
 
 - ENCODE 的重复政策和 `max_insert` 候选仍是软件默认；SCI-7 结论保持 no conclusion。
 - ENCODE `mapq` 30 没有对应的冻结记录。
-- SCI-7 拟用的大参考 FASTA、GTF 和 Bowtie2 索引仍未按 `reference-identity.md` 下载核验。
+- 人 GRCh38 与小鼠 GRCm38 的压缩 FASTA，以及由它们生成的 FAI、染色体长度表和六个 Bowtie2 索引，已有 `minimal-smoke-results.md`、`tf-jund-confirmation.md` 和 `atac-treg-discovery.md` 的实测。两份 GTF 仍未下载。确认文库 ENCSR213YKJ、ENCSR639PPN 和可选 CUT&Tag/MNase 确认集仍未评估。`reference-identity.md` 的状态句和 README 参考段仍把大 FASTA、GTF 和索引写成未构建，那是 2026-10-28 的准备语句。
 - Bulk 的 `source-enabled` 资格和 `e112223…` Gate 是软件身份与软件测试。没有 Bulk 公共数据科学确认记录。
 - Hi-TrAC 的 H5 原始日志不在 Git 中；本单没有复测 all=8、noBg=5。
 - `adapter-conformance.md` 关于 “publication is implemented” 的句子落后于 `results.py`。
 - `resource-budget.md` 开头的下载状态句落后于 SCI-7 批次摘要。
-- 11_17 的样本、PET 和 QC 不在本单范围。当前工单列表没有 IRENE-9。
+- 11_17 的计算与核验跟踪在 IRENE-9，试用验收在 IRENE-34。这两项都不在本单范围。
 - WashU 选择、加载和移除不在本单范围。
 
 ## 验收

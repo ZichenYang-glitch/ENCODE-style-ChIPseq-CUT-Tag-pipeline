@@ -167,6 +167,32 @@ def main() -> int:
         "adapter-conformance.md lost the publication sentence",
         failures,
     )
+    reference_sources = {
+        "docs/development/sci7-public-data/minimal-smoke-results.md": (
+            "the GRCh38 FASTA matched the official byte counts and MD5",
+            "six Bowtie2 index files",
+        ),
+        "docs/development/sci7-public-data/tf-jund-confirmation.md": (
+            "9c3fc2ca260a767530dddb0f26721a6b",
+            "e9a2d5a5cd225293646ae298998ad4ea8c11e8f22729bc2d6f5c3dcfefbf8ef8",
+        ),
+        "docs/development/sci7-public-data/atac-treg-discovery.md": (
+            "3bc591be24b77f710b6ba5d41022fc5a",
+            "617b10dc7ef90354c3b6af986e45d6d9621242b64ed3a94c9abeac3e45f18c17",
+            "six Bowtie2 `.bt2` files",
+        ),
+        "docs/development/sci7-public-data/reference-identity.md": (
+            "gencode.v44.primary_assembly.annotation.gtf.gz",
+            "b182a9f3b134b9cc2da566a2b1692557",
+            "gencode.vM25.primary_assembly.annotation.gtf.gz",
+            "c5125258a0a2c5250ddb4c192abbf4e8",
+            "Neither GTF was downloaded.",
+        ),
+    }
+    for relative, needles in reference_sources.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        for needle in needles:
+            require(needle in text, f"{relative} lost {needle}", failures)
 
     citations = [
         "5f050c81b28cefe8bacd6b499939f46210d166b4f4fd8630a593017a4637603b",
@@ -188,10 +214,36 @@ def main() -> int:
         "until qualified artifact/QC publication is implemented",
         "IRENE-35",
         "IRENE-21",
+        "IRENE-9",
         "IRENE-34",
+        "11_17 的计算与核验跟踪在 IRENE-9",
+        "试用验收在 IRENE-34",
         "11_17",
         "WashU",
+        "9c3fc2ca260a767530dddb0f26721a6b",
+        "e9a2d5a5cd225293646ae298998ad4ea8c11e8f22729bc2d6f5c3dcfefbf8ef8",
+        "3bc591be24b77f710b6ba5d41022fc5a",
+        "617b10dc7ef90354c3b6af986e45d6d9621242b64ed3a94c9abeac3e45f18c17",
+        "gencode.v44.primary_assembly.annotation.gtf.gz",
+        "gencode.vM25.primary_assembly.annotation.gtf.gz",
+        "b182a9f3b134b9cc2da566a2b1692557",
+        "c5125258a0a2c5250ddb4c192abbf4e8",
+        "minimal-smoke-results.md",
+        "tf-jund-confirmation.md",
+        "atac-treg-discovery.md",
+        "ENCSR213YKJ",
+        "ENCSR639PPN",
     ]
+    require(
+        "工单列表没有 IRENE-9" not in ledger and "工单列表里没有 IRENE-9" not in ledger,
+        "ledger still describes IRENE-9 from a transient issue list",
+        failures,
+    )
+    require(
+        "大 FASTA、GTF 和 Bowtie2 索引仍未按" not in ledger,
+        "ledger still treats the later FASTA and index records as unverified",
+        failures,
+    )
     for citation in citations:
         require(citation in ledger, f"ledger is missing {citation}", failures)
 
