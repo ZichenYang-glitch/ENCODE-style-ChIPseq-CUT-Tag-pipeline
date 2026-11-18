@@ -7,5 +7,6 @@
  */
 
 export interface CatalogArchiveRequest {
-  expected_revision_number: unknown;
+  /** @minimum 1 */
+  expected_revision_number: number;
 }

@@ -375,6 +375,7 @@ def upgrade() -> None:
         sa.Column("project_id", sa.String(length=36), nullable=False),
         sa.Column("sample_id", sa.String(length=36), nullable=False),
         sa.Column("catalog_state", sa.String(length=16), nullable=False),
+        sa.Column("catalog_trusted", sa.Integer(), nullable=False),
         sa.Column("species_status", sa.String(length=32), nullable=True),
         sa.Column("species_term_id", sa.String(length=37), nullable=True),
         sa.Column("species_term_revision_id", sa.String(length=37), nullable=True),
@@ -388,6 +389,14 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "catalog_state IN ('absent', 'present')",
             name="ck_sample_catalog_projection_state",
+        ),
+        sa.CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_catalog_projection_trusted",
+        ),
+        sa.CheckConstraint(
+            "(catalog_trusted = 0 AND catalog_state = 'absent') OR catalog_trusted = 1",
+            name="ck_sample_catalog_projection_trust_source",
         ),
         sa.ForeignKeyConstraint(
             ["sample_revision_id"],
@@ -437,6 +446,7 @@ def upgrade() -> None:
         sa.Column("idempotency_key", sa.String(length=128), nullable=False),
         sa.Column("operation", sa.String(length=64), nullable=False),
         sa.Column("request_sha256", sa.String(length=64), nullable=False),
+        sa.Column("target_key", sa.String(length=64), nullable=False),
         sa.Column("subject_id", sa.String(length=37), nullable=False),
         sa.Column("result_revision_id", sa.String(length=37), nullable=True),
         sa.Column("result_archived_at", sa.DateTime(timezone=True), nullable=True),
@@ -448,6 +458,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'",
             name="ck_catalog_write_receipts_digest",
+        ),
+        sa.CheckConstraint(
+            "length(target_key) BETWEEN 1 AND 64",
+            name="ck_catalog_write_receipts_target",
         ),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],

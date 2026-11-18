@@ -9,9 +9,9 @@ import type { CatalogSampleRunListResponseResultsItem } from './catalogSampleRun
 import type { CatalogSampleRunListResponseNextCursor } from './catalogSampleRunListResponseNextCursor';
 
 export interface CatalogSampleRunListResponse {
+  ok: true;
   project_id: string;
   sample_revision_id: string;
   results: CatalogSampleRunListResponseResultsItem[];
-  next_cursor?: CatalogSampleRunListResponseNextCursor;
-  [key: string]: unknown;
- }
+  next_cursor: CatalogSampleRunListResponseNextCursor;
+}

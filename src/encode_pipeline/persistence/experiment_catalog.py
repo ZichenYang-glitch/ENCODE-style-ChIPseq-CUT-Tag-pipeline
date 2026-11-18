@@ -55,6 +55,7 @@ from encode_pipeline.platform.experiment_catalog import (
     TermLookup,
     TermPin,
     administrator_required,
+    bind_catalog_target,
     block_from_projection,
     build_experiment_revision_payload_digest,
     canonical_alias_json,
@@ -122,6 +123,7 @@ def sync_sample_revision_state(
     revision: SampleRevision,
     *,
     allow_catalog: bool,
+    catalog_trusted: bool | None = None,
 ) -> None:
     """Point the sample head at this revision and refresh its projection."""
 
@@ -148,27 +150,60 @@ def sync_sample_revision_state(
         head.sample_revision_id = revision.sample_revision_id
         head.revision_number = revision.revision_number
         head.project_id = revision.project_id
-    replace_sample_projection(session, revision)
+    if catalog_trusted is None:
+        catalog_trusted = _previous_catalog_trusted(session, revision)
+    replace_sample_projection(
+        session,
+        revision,
+        catalog_trusted=catalog_trusted,
+    )
     session.flush()
 
 
-def replace_sample_projection(session: Session, revision: SampleRevision) -> None:
-    """Rebuild one sample projection from its canonical payload."""
+def replace_sample_projection(
+    session: Session,
+    revision: SampleRevision,
+    *,
+    catalog_trusted: bool,
+) -> None:
+    """Project a sample revision without promoting an untrusted catalog key."""
 
     payload = revision.canonical_payload
     attributes = json.loads(payload)["attributes"]
     block = None
-    if isinstance(attributes, dict) and "catalog" in attributes:
+    if catalog_trusted and isinstance(attributes, dict) and "catalog" in attributes:
         block = interpret_sample_catalog(
             attributes["catalog"],
             SessionTermLookup(session),
             for_write=False,
         )
-    _write_sample_projection(session, revision, block)
+    _write_sample_projection(
+        session,
+        revision,
+        block,
+        catalog_trusted=catalog_trusted,
+    )
     if session.get(SampleRevisionRow, revision.sample_revision_id) is not None:
         stored = session.get(SampleRevisionRow, revision.sample_revision_id)
         if stored is not None and stored.canonical_payload != payload:
             raise catalog_payload_invalid()
+
+
+def _previous_catalog_trusted(session: Session, revision: SampleRevision) -> bool:
+    """A copied block stays classified only when the previous write was trusted."""
+
+    if revision.revision_number <= 1:
+        return False
+    previous_id = session.scalar(
+        select(SampleRevisionRow.sample_revision_id).where(
+            SampleRevisionRow.sample_id == revision.sample_id,
+            SampleRevisionRow.revision_number == revision.revision_number - 1,
+        )
+    )
+    if previous_id is None:
+        return False
+    projection = session.get(SampleCatalogProjectionRow, previous_id)
+    return projection is not None and bool(projection.catalog_trusted)
 
 
 class SqlAlchemyExperimentCatalogRepository:
@@ -238,6 +273,7 @@ class SqlAlchemyExperimentCatalogRepository:
             )
             return _term_body(session, term_id, term_revision_id)
 
+        write = bind_catalog_target(write, "vocabulary")
         return self._write(write, apply)
 
     def revise_term(
@@ -284,6 +320,7 @@ class SqlAlchemyExperimentCatalogRepository:
             )
             return _term_body(session, term_id, term_revision_id)
 
+        write = bind_catalog_target(write, f"term:{term_id}")
         return self._write(write, apply)
 
     def archive_term(
@@ -312,6 +349,7 @@ class SqlAlchemyExperimentCatalogRepository:
             )
             return _term_body(session, term_id, _term_head_id(session, term_id))
 
+        write = bind_catalog_target(write, f"term:{term_id}")
         return self._write(write, apply)
 
     def create_experiment(
@@ -376,6 +414,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"project:{project_id}")
         try:
             return self._write(write, apply)
         except IntegrityError as exc:
@@ -439,6 +478,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"experiment:{experiment_id}")
         return self._write(write, apply)
 
     def archive_experiment(
@@ -474,6 +514,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 "revision_number": head.revision_number,
             }
 
+        write = bind_catalog_target(write, f"experiment:{experiment_id}")
         return self._write(write, apply)
 
     def revise_sample_catalog(
@@ -532,7 +573,12 @@ class SqlAlchemyExperimentCatalogRepository:
             )
             session.add(_sample_revision_row(revision))
             session.flush()
-            sync_sample_revision_state(session, revision, allow_catalog=True)
+            sync_sample_revision_state(
+                session,
+                revision,
+                allow_catalog=True,
+                catalog_trusted=True,
+            )
             _add_receipt(
                 session,
                 write,
@@ -546,6 +592,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"sample:{sample_id}")
         return self._write(write, apply)
 
     def list_experiments(
@@ -595,6 +642,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 for row in selected
             ]
             return {
+                "ok": True,
                 "project_id": filters.project_id,
                 "revision_view": filters.revision_view,
                 "experiments": experiments,
@@ -833,6 +881,7 @@ class SqlAlchemyExperimentCatalogRepository:
                     ),
                 )
             return {
+                "ok": True,
                 "project_id": project_id,
                 "sample_revision_id": sample_revision_id,
                 "results": page,
@@ -862,6 +911,7 @@ class SqlAlchemyExperimentCatalogRepository:
             if position is not None:
                 raise catalog_cursor_not_found()
             return {
+                "ok": True,
                 "project_id": project_id,
                 "experiment_revision_id": experiment_revision_id,
                 "trace_status": "unresolved",
@@ -878,7 +928,16 @@ class SqlAlchemyExperimentCatalogRepository:
                 raise catalog_not_found()
             before = row.canonical_payload
             revision = _sample_revision_from_row(row)
-            replace_sample_projection(session, revision)
+            projection = session.get(
+                SampleCatalogProjectionRow,
+                sample_revision_id,
+            )
+            trusted = projection is not None and bool(projection.catalog_trusted)
+            replace_sample_projection(
+                session,
+                revision,
+                catalog_trusted=trusted,
+            )
             session.flush()
             if row.canonical_payload != before:
                 raise catalog_payload_invalid()
@@ -943,10 +1002,13 @@ class SqlAlchemyExperimentCatalogRepository:
                     CatalogWriteReceiptRow,
                     (write.actor_user_id, write.idempotency_key),
                 )
+                if not write.target_key:
+                    raise ValueError("catalog write target is required")
                 if receipt is not None:
                     if (
                         receipt.request_sha256 != write.request_sha256
                         or receipt.operation != write.operation
+                        or receipt.target_key != write.target_key
                     ):
                         raise catalog_idempotency_conflict()
                     return _replay(self, session, receipt)
@@ -1027,15 +1089,12 @@ class SqlAlchemyExperimentCatalogRepository:
         if row is None:
             raise catalog_not_found()
         decoded = json.loads(row.canonical_payload)
-        raw = (
-            decoded["attributes"].get("catalog")
-            if "catalog" in decoded["attributes"]
-            else None
-        )
+        projection = session.get(SampleCatalogProjectionRow, sample_revision_id)
+        trusted = projection is not None and bool(projection.catalog_trusted)
         block = None
-        if "catalog" in decoded["attributes"]:
+        if trusted and "catalog" in decoded["attributes"]:
             block = interpret_sample_catalog(
-                raw,
+                decoded["attributes"]["catalog"],
                 SessionTermLookup(session),
                 for_write=False,
             )
@@ -1345,6 +1404,8 @@ def _write_sample_projection(
     session: Session,
     revision: SampleRevision,
     block: SampleCatalogBlock | None,
+    *,
+    catalog_trusted: bool,
 ) -> None:
     session.query(SampleCatalogValueRow).filter(
         SampleCatalogValueRow.sample_revision_id == revision.sample_revision_id
@@ -1360,6 +1421,7 @@ def _write_sample_projection(
             project_id=revision.project_id,
             sample_id=revision.sample_id,
             catalog_state=scalar["catalog_state"],
+            catalog_trusted=1 if catalog_trusted else 0,
             species_status=scalar.get("species_status"),
             species_term_id=scalar.get("species_term_id"),
             species_term_revision_id=scalar.get("species_term_revision_id"),
@@ -2020,6 +2082,7 @@ def _add_receipt(
             idempotency_key=write.idempotency_key,
             operation=write.operation,
             request_sha256=write.request_sha256,
+            target_key=write.target_key,
             subject_id=subject_id,
             result_revision_id=result_revision_id,
             result_archived_at=result_archived_at,

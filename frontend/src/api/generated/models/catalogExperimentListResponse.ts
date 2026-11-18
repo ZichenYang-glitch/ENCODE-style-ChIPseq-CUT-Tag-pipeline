@@ -9,8 +9,9 @@ import type { CatalogExperimentResponse } from './catalogExperimentResponse';
 import type { CatalogExperimentListResponseNextCursor } from './catalogExperimentListResponseNextCursor';
 
 export interface CatalogExperimentListResponse {
+  ok: true;
   project_id: string;
   revision_view: string;
   experiments: CatalogExperimentResponse[];
-  next_cursor?: CatalogExperimentListResponseNextCursor;
+  next_cursor: CatalogExperimentListResponseNextCursor;
 }

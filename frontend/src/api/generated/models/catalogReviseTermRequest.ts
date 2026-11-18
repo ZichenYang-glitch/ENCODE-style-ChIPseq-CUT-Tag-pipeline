@@ -9,7 +9,8 @@ import type { CatalogReviseTermRequestNamespace } from './catalogReviseTermReque
 import type { CatalogReviseTermRequestAccession } from './catalogReviseTermRequestAccession';
 
 export interface CatalogReviseTermRequest {
-  expected_revision_number: unknown;
+  /** @minimum 1 */
+  expected_revision_number: number;
   change_kind: string;
   display_name: string;
   namespace?: CatalogReviseTermRequestNamespace;

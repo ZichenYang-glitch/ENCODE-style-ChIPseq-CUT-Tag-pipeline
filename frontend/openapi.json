@@ -1940,7 +1940,7 @@
                 }
               }
             },
-            "description": "Content Too Large"
+            "description": "Request Entity Too Large"
           },
           "422": {
             "content": {
@@ -1950,7 +1950,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -4074,7 +4074,7 @@
             }
           },
           {
-            "name": "species",
+            "name": "species_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4089,11 +4089,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Species"
+              "title": "Species Term Id"
             }
           },
           {
-            "name": "tissue",
+            "name": "tissue_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4108,11 +4108,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Tissue"
+              "title": "Tissue Term Id"
             }
           },
           {
-            "name": "cell_type",
+            "name": "cell_type_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4127,11 +4127,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Cell Type"
+              "title": "Cell Type Term Id"
             }
           },
           {
-            "name": "cell_line",
+            "name": "cell_line_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4146,11 +4146,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Cell Line"
+              "title": "Cell Line Term Id"
             }
           },
           {
-            "name": "treatment",
+            "name": "treatment_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4165,11 +4165,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Treatment"
+              "title": "Treatment Term Id"
             }
           },
           {
-            "name": "tag",
+            "name": "tag_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4184,11 +4184,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Tag"
+              "title": "Tag Term Id"
             }
           },
           {
-            "name": "assay",
+            "name": "assay_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4203,11 +4203,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Assay"
+              "title": "Assay Term Id"
             }
           },
           {
-            "name": "target",
+            "name": "target_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4222,11 +4222,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Target"
+              "title": "Target Term Id"
             }
           },
           {
-            "name": "batch",
+            "name": "batch_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4241,7 +4241,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Batch"
+              "title": "Batch Term Id"
             }
           },
           {
@@ -4448,7 +4448,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -4477,6 +4477,20 @@
               "type": "string",
               "title": "Project Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -4548,7 +4562,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -4663,7 +4677,7 @@
             }
           },
           {
-            "name": "species",
+            "name": "species_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4678,11 +4692,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Species"
+              "title": "Species Term Id"
             }
           },
           {
-            "name": "tissue",
+            "name": "tissue_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4697,11 +4711,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Tissue"
+              "title": "Tissue Term Id"
             }
           },
           {
-            "name": "cell_type",
+            "name": "cell_type_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4716,11 +4730,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Cell Type"
+              "title": "Cell Type Term Id"
             }
           },
           {
-            "name": "cell_line",
+            "name": "cell_line_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4735,11 +4749,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Cell Line"
+              "title": "Cell Line Term Id"
             }
           },
           {
-            "name": "treatment",
+            "name": "treatment_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4754,11 +4768,11 @@
                   "type": "null"
                 }
               ],
-              "title": "Treatment"
+              "title": "Treatment Term Id"
             }
           },
           {
-            "name": "tag",
+            "name": "tag_term_id",
             "in": "query",
             "required": false,
             "schema": {
@@ -4773,7 +4787,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Tag"
+              "title": "Tag Term Id"
             }
           },
           {
@@ -4932,7 +4946,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5056,7 +5070,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5104,7 +5118,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CatalogSampleRevisionResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                    }
+                  ],
+                  "title": "Response Cataloggetsamplerevision"
                 }
               }
             }
@@ -5157,7 +5179,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5297,7 +5319,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5326,6 +5348,20 @@
               "type": "string",
               "title": "Experiment Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -5397,7 +5433,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5498,7 +5534,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5673,7 +5709,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5693,6 +5729,22 @@
         ],
         "summary": "Create Term",
         "operationId": "catalogCreateTerm",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5762,7 +5814,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5854,7 +5906,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5885,6 +5937,20 @@
               "type": "string",
               "title": "Term Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -5956,7 +6022,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -5987,6 +6053,20 @@
               "type": "string",
               "title": "Term Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -6058,7 +6138,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -6089,6 +6169,20 @@
               "type": "string",
               "title": "Experiment Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -6160,7 +6254,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -6191,6 +6285,20 @@
               "type": "string",
               "title": "Sample Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
           }
         ],
         "requestBody": {
@@ -6209,7 +6317,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CatalogSampleRevisionResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                    }
+                  ],
+                  "title": "Response Catalogrevisesamplecatalog"
                 }
               }
             }
@@ -6262,7 +6378,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -6395,7 +6511,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -6528,7 +6644,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "500": {
             "content": {
@@ -9660,6 +9776,73 @@
         ],
         "title": "BrowserUnavailableTrackResponse"
       },
+      "CatalogAmbiguousMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ambiguous",
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "maxItems": 0,
+            "title": "Values"
+          },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CatalogTermPinResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogAmbiguousMultiSlotResponse"
+      },
+      "CatalogAmbiguousSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ambiguous",
+            "title": "Status"
+          },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CatalogTermPinResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CatalogAmbiguousSingleSlotResponse"
+      },
       "CatalogArchiveExperimentResponse": {
         "properties": {
           "experiment_id": {
@@ -9672,6 +9855,7 @@
           },
           "revision_number": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Revision Number"
           }
         },
@@ -9687,6 +9871,8 @@
       "CatalogArchiveRequest": {
         "properties": {
           "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Expected Revision Number"
           }
         },
@@ -9696,6 +9882,329 @@
           "expected_revision_number"
         ],
         "title": "CatalogArchiveRequest"
+      },
+      "CatalogAssociatedRunSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "ordinal"
+        ],
+        "title": "CatalogAssociatedRunSampleResponse"
+      },
+      "CatalogClassifiedExperimentSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "replicate_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Group"
+          },
+          "replicate_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Replicate Role"
+          },
+          "linked_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Sample Revision Id"
+          },
+          "current_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Sample Revision Id"
+          },
+          "species": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Species"
+          },
+          "tissue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Tissue"
+          },
+          "cell_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Type"
+          },
+          "cell_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Line"
+          },
+          "treatment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Treatment"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "ordinal",
+          "replicate_role",
+          "species",
+          "tissue",
+          "cell_type",
+          "cell_line",
+          "treatment",
+          "tag"
+        ],
+        "title": "CatalogClassifiedExperimentSampleResponse"
+      },
+      "CatalogClassifiedSampleRevisionResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "present",
+            "title": "Catalog State"
+          },
+          "species": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Species"
+          },
+          "tissue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Tissue"
+          },
+          "cell_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Type"
+          },
+          "cell_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Line"
+          },
+          "treatment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Treatment"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "display_name",
+          "created_at",
+          "catalog_state",
+          "species",
+          "tissue",
+          "cell_type",
+          "cell_line",
+          "treatment",
+          "tag"
+        ],
+        "title": "CatalogClassifiedSampleRevisionResponse"
       },
       "CatalogCreateExperimentRequest": {
         "properties": {
@@ -9708,15 +10217,311 @@
             "title": "Display Name"
           },
           "assay": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Assay"
           },
           "target": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Target"
           },
           "batch": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Batch"
           },
           "samples": {
+            "items": {
+              "properties": {
+                "sample_revision_id": {
+                  "type": "string"
+                },
+                "replicate_group": {
+                  "type": "string"
+                },
+                "replicate_role": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "not_applicable",
+                            "not_detected"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "ambiguous"
+                        },
+                        "candidates": {
+                          "items": {
+                            "properties": {
+                              "term_id": {
+                                "type": "string"
+                              },
+                              "term_revision_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "type": "object",
+                            "required": [
+                              "term_id",
+                              "term_revision_id"
+                            ]
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "sample_revision_id",
+                "replicate_role"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
             "title": "Samples"
           }
         },
@@ -9799,6 +10604,11 @@
       },
       "CatalogExperimentListResponse": {
         "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
           "project_id": {
             "type": "string",
             "title": "Project Id"
@@ -9829,9 +10639,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "ok",
           "project_id",
           "revision_view",
-          "experiments"
+          "experiments",
+          "next_cursor"
         ],
         "title": "CatalogExperimentListResponse"
       },
@@ -9847,6 +10659,7 @@
           },
           "revision_number": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Revision Number"
           },
           "display_name": {
@@ -9854,24 +10667,63 @@
             "title": "Display Name"
           },
           "assay": {
-            "$ref": "#/components/schemas/CatalogSlotResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Assay"
           },
           "target": {
-            "$ref": "#/components/schemas/CatalogSlotResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Target"
           },
           "batch": {
-            "$ref": "#/components/schemas/CatalogSlotResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Batch"
           },
           "samples": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedExperimentSampleResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedExperimentSampleResponse"
+                }
+              ]
             },
             "type": "array",
             "title": "Samples"
           }
         },
-        "additionalProperties": true,
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "experiment_id",
@@ -9915,6 +10767,11 @@
       },
       "CatalogExperimentRunListResponse": {
         "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
           "project_id": {
             "type": "string",
             "title": "Project Id"
@@ -9925,16 +10782,24 @@
           },
           "trace_status": {
             "type": "string",
+            "const": "unresolved",
             "title": "Trace Status"
           },
           "reason": {
             "type": "string",
+            "const": "experiment_snapshot_binding_absent",
             "title": "Reason"
           },
           "results": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogPublishedRunResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnpublishedRunResponse"
+                }
+              ]
             },
             "type": "array",
             "title": "Results"
@@ -9954,11 +10819,13 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "ok",
           "project_id",
           "experiment_revision_id",
           "trace_status",
           "reason",
-          "results"
+          "results",
+          "next_cursor"
         ],
         "title": "CatalogExperimentRunListResponse"
       },
@@ -10020,9 +10887,191 @@
         "title": "CatalogIssueResponse",
         "description": "Stable catalog failure fields. Codes stay lowercase except auth codes."
       },
+      "CatalogKnownMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "known",
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogKnownMultiSlotResponse"
+      },
+      "CatalogKnownSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "known",
+            "title": "Status"
+          },
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "term_id",
+          "term_revision_id",
+          "display_name"
+        ],
+        "title": "CatalogKnownSingleSlotResponse"
+      },
+      "CatalogNegativeMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_applicable",
+              "not_detected"
+            ],
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "maxItems": 0,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogNegativeMultiSlotResponse"
+      },
+      "CatalogNegativeSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_applicable",
+              "not_detected"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CatalogNegativeSingleSlotResponse"
+      },
+      "CatalogPublishedRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "publication_evidence": {
+            "type": "string",
+            "const": "present",
+            "title": "Publication Evidence"
+          },
+          "artifact_association_kind": {
+            "type": "string",
+            "const": "run_input_scope",
+            "title": "Artifact Association Kind"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "output_type": {
+            "type": "string",
+            "title": "Output Type"
+          },
+          "artifact_generation": {
+            "type": "string",
+            "title": "Artifact Generation"
+          },
+          "artifact_revision": {
+            "type": "string",
+            "title": "Artifact Revision"
+          },
+          "published_at": {
+            "type": "string",
+            "title": "Published At"
+          },
+          "current_artifact_generation": {
+            "type": "string",
+            "title": "Current Artifact Generation"
+          },
+          "generation_status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "superseded"
+            ],
+            "title": "Generation Status"
+          },
+          "run_sample_binding": {
+            "$ref": "#/components/schemas/CatalogRunSampleBindingResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "provenance",
+          "publication_evidence",
+          "artifact_association_kind",
+          "workflow_id",
+          "artifact_id",
+          "output_type",
+          "artifact_generation",
+          "artifact_revision",
+          "published_at",
+          "current_artifact_generation",
+          "generation_status",
+          "run_sample_binding"
+        ],
+        "title": "CatalogPublishedRunResponse"
+      },
       "CatalogReviseExperimentRequest": {
         "properties": {
           "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Expected Revision Number"
           },
           "display_name": {
@@ -10030,15 +11079,311 @@
             "title": "Display Name"
           },
           "assay": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Assay"
           },
           "target": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Target"
           },
           "batch": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
             "title": "Batch"
           },
           "samples": {
+            "items": {
+              "properties": {
+                "sample_revision_id": {
+                  "type": "string"
+                },
+                "replicate_group": {
+                  "type": "string"
+                },
+                "replicate_role": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "not_applicable",
+                            "not_detected"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "ambiguous"
+                        },
+                        "candidates": {
+                          "items": {
+                            "properties": {
+                              "term_id": {
+                                "type": "string"
+                              },
+                              "term_revision_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "type": "object",
+                            "required": [
+                              "term_id",
+                              "term_revision_id"
+                            ]
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "sample_revision_id",
+                "replicate_role"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
             "title": "Samples"
           }
         },
@@ -10057,9 +11402,683 @@
       "CatalogReviseSampleRequest": {
         "properties": {
           "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Expected Revision Number"
           },
           "catalog": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "properties": {
+                  "schema_version": {
+                    "type": "integer",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  "species": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "term_id": {
+                            "type": "string"
+                          },
+                          "term_revision_id": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "term_id",
+                          "term_revision_id"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    ]
+                  },
+                  "tissue": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "term_id": {
+                            "type": "string"
+                          },
+                          "term_revision_id": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "term_id",
+                          "term_revision_id"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    ]
+                  },
+                  "cell_type": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "cell_line": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "treatment": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "tag": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "schema_version",
+                  "species",
+                  "tissue",
+                  "cell_type",
+                  "cell_line",
+                  "treatment",
+                  "tag"
+                ]
+              }
+            ],
             "title": "Catalog"
           },
           "display_name": {
@@ -10085,6 +12104,8 @@
       "CatalogReviseTermRequest": {
         "properties": {
           "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
             "title": "Expected Revision Number"
           },
           "change_kind": {
@@ -10134,6 +12155,33 @@
         ],
         "title": "CatalogReviseTermRequest"
       },
+      "CatalogRunSampleBindingResponse": {
+        "properties": {
+          "binding_mode": {
+            "type": "string",
+            "title": "Binding Mode"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "associated_run_samples": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAssociatedRunSampleResponse"
+            },
+            "type": "array",
+            "title": "Associated Run Samples"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "binding_mode",
+          "provenance",
+          "associated_run_samples"
+        ],
+        "title": "CatalogRunSampleBindingResponse"
+      },
       "CatalogSampleListResponse": {
         "properties": {
           "project_id": {
@@ -10142,7 +12190,14 @@
           },
           "samples": {
             "items": {
-              "$ref": "#/components/schemas/CatalogSampleRevisionResponse"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                }
+              ]
             },
             "type": "array",
             "title": "Samples"
@@ -10171,7 +12226,14 @@
         "properties": {
           "sample_revisions": {
             "items": {
-              "$ref": "#/components/schemas/CatalogSampleRevisionResponse"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                }
+              ]
             },
             "type": "array",
             "title": "Sample Revisions"
@@ -10195,42 +12257,13 @@
         ],
         "title": "CatalogSampleRevisionListResponse"
       },
-      "CatalogSampleRevisionResponse": {
-        "properties": {
-          "sample_id": {
-            "type": "string",
-            "title": "Sample Id"
-          },
-          "sample_revision_id": {
-            "type": "string",
-            "title": "Sample Revision Id"
-          },
-          "revision_number": {
-            "type": "integer",
-            "title": "Revision Number"
-          },
-          "display_name": {
-            "type": "string",
-            "title": "Display Name"
-          },
-          "created_at": {
-            "type": "string",
-            "title": "Created At"
-          }
-        },
-        "additionalProperties": true,
-        "type": "object",
-        "required": [
-          "sample_id",
-          "sample_revision_id",
-          "revision_number",
-          "display_name",
-          "created_at"
-        ],
-        "title": "CatalogSampleRevisionResponse"
-      },
       "CatalogSampleRunListResponse": {
         "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
           "project_id": {
             "type": "string",
             "title": "Project Id"
@@ -10241,8 +12274,14 @@
           },
           "results": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogPublishedRunResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnpublishedRunResponse"
+                }
+              ]
             },
             "type": "array",
             "title": "Results"
@@ -10259,29 +12298,16 @@
             "title": "Next Cursor"
           }
         },
-        "additionalProperties": true,
+        "additionalProperties": false,
         "type": "object",
         "required": [
+          "ok",
           "project_id",
           "sample_revision_id",
-          "results"
+          "results",
+          "next_cursor"
         ],
         "title": "CatalogSampleRunListResponse"
-      },
-      "CatalogSlotResponse": {
-        "properties": {
-          "status": {
-            "type": "string",
-            "title": "Status"
-          }
-        },
-        "additionalProperties": true,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "CatalogSlotResponse",
-        "description": "Known, negative, or ambiguous slot. Extra keys carry pins and candidates."
       },
       "CatalogTermListResponse": {
         "properties": {
@@ -10310,6 +12336,30 @@
           "terms"
         ],
         "title": "CatalogTermListResponse"
+      },
+      "CatalogTermPinResponse": {
+        "properties": {
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_id",
+          "term_revision_id",
+          "display_name"
+        ],
+        "title": "CatalogTermPinResponse"
       },
       "CatalogTermResponse": {
         "properties": {
@@ -10353,6 +12403,7 @@
           },
           "revision_number": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Revision Number"
           },
           "display_name": {
@@ -10425,6 +12476,7 @@
           },
           "revision_number": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "Revision Number"
           },
           "display_name": {
@@ -10453,6 +12505,150 @@
           "display_name"
         ],
         "title": "CatalogTermSummaryResponse"
+      },
+      "CatalogUnclassifiedExperimentSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "replicate_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Group"
+          },
+          "replicate_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Replicate Role"
+          },
+          "linked_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Sample Revision Id"
+          },
+          "current_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Sample Revision Id"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "absent",
+            "title": "Catalog State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "ordinal",
+          "replicate_role",
+          "catalog_state"
+        ],
+        "title": "CatalogUnclassifiedExperimentSampleResponse"
+      },
+      "CatalogUnclassifiedSampleRevisionResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "absent",
+            "title": "Catalog State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "display_name",
+          "created_at",
+          "catalog_state"
+        ],
+        "title": "CatalogUnclassifiedSampleRevisionResponse"
+      },
+      "CatalogUnpublishedRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "publication_evidence": {
+            "type": "string",
+            "const": "absent",
+            "title": "Publication Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "provenance",
+          "publication_evidence"
+        ],
+        "title": "CatalogUnpublishedRunResponse"
       },
       "HTTPValidationError": {
         "properties": {

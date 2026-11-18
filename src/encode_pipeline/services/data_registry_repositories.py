@@ -110,6 +110,7 @@ class InMemoryDataRegistryRepository:
         self._revisions: dict[str, SampleRevision] = {}
         self._revision_ids_by_sample: dict[str, list[str]] = {}
         self._sample_heads: dict[str, tuple[str, int]] = {}
+        self._catalog_trusted: set[str] = set()
         self._lock = RLock()
 
     def create_project(self, project: Project) -> Project:
@@ -314,6 +315,7 @@ class InMemoryDataRegistryRepository:
                 raise DataRegistryConflictError("Duplicate sample_revision_id")
             revision_ids = self._revision_ids_by_sample[sample.sample_id]
             previous = self._revisions[revision_ids[-1]]
+            previous_trusted = previous.sample_revision_id in self._catalog_trusted
             if previous.revision_number != expected_previous_revision_number:
                 raise DataRegistryConflictError("Sample revision changed concurrently")
             if revision.revision_number != previous.revision_number + 1:
@@ -323,6 +325,8 @@ class InMemoryDataRegistryRepository:
 
             self._revisions[revision.sample_revision_id] = revision
             revision_ids.append(revision.sample_revision_id)
+            if previous_trusted:
+                self._catalog_trusted.add(revision.sample_revision_id)
             self._sync_sample_head(revision, allow_catalog=True)
             return revision
 
@@ -352,6 +356,20 @@ class InMemoryDataRegistryRepository:
             revision.sample_revision_id,
             revision.revision_number,
         )
+
+    def catalog_revision_trusted(self, sample_revision_id: str) -> bool:
+        """True only after a catalog command or a copy of one."""
+
+        with self._lock:
+            return sample_revision_id in self._catalog_trusted
+
+    def mark_catalog_revision_trusted(self, sample_revision_id: str) -> None:
+        """Record that this revision's catalog key came from the catalog command."""
+
+        with self._lock:
+            if sample_revision_id not in self._revisions:
+                raise KeyError(f"Unknown sample_revision_id: {sample_revision_id!r}")
+            self._catalog_trusted.add(sample_revision_id)
 
     def resolve_project_sample_selection(
         self,

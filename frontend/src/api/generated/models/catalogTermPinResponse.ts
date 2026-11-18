@@ -6,11 +6,8 @@
  * OpenAPI spec version: 0.4.1
  */
 
-export interface CatalogSampleRevisionResponse {
-  sample_id: string;
-  sample_revision_id: string;
-  revision_number: number;
+export interface CatalogTermPinResponse {
+  term_id: string;
+  term_revision_id: string;
   display_name: string;
-  created_at: string;
-  [key: string]: unknown;
- }
+}

@@ -9,5 +9,6 @@
 export interface CatalogArchiveExperimentResponse {
   experiment_id: string;
   archived_at: string;
+  /** @minimum 1 */
   revision_number: number;
 }

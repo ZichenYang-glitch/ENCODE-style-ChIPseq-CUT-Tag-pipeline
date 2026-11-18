@@ -11,6 +11,7 @@ export interface CatalogTermSummaryResponse {
   term_id: string;
   term_type: string;
   term_revision_id: string;
+  /** @minimum 1 */
   revision_number: number;
   display_name: string;
   archived_at?: CatalogTermSummaryResponseArchivedAt;

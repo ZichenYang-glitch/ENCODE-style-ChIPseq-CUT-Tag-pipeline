@@ -5,12 +5,17 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
+import type { CatalogCreateExperimentRequestAssay } from './catalogCreateExperimentRequestAssay';
+import type { CatalogCreateExperimentRequestTarget } from './catalogCreateExperimentRequestTarget';
+import type { CatalogCreateExperimentRequestBatch } from './catalogCreateExperimentRequestBatch';
+import type { CatalogCreateExperimentRequestSamplesItem } from './catalogCreateExperimentRequestSamplesItem';
 
 export interface CatalogCreateExperimentRequest {
   stable_key: string;
   display_name: string;
-  assay: unknown;
-  target: unknown;
-  batch: unknown;
-  samples: unknown;
+  assay: CatalogCreateExperimentRequestAssay;
+  target: CatalogCreateExperimentRequestTarget;
+  batch: CatalogCreateExperimentRequestBatch;
+  /** @minItems 1 */
+  samples: CatalogCreateExperimentRequestSamplesItem[];
 }

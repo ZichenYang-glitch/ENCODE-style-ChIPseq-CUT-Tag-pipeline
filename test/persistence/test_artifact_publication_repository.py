@@ -756,6 +756,10 @@ def test_catalog_sample_trace_orders_publications_before_unpublished_runs(
         cursor=None,
         limit=20,
     )
+    assert page["ok"] is True
+    from encode_pipeline.api.catalog_models import CatalogSampleRunListResponse
+
+    CatalogSampleRunListResponse.model_validate(page)
     results = page["results"]
     assert [item["run_id"] for item in results] == [
         "run-published",

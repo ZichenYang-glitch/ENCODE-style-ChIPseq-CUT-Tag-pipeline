@@ -7,7 +7,7 @@ bindings belong to Slice B and are intentionally absent here.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import base64
@@ -93,6 +93,20 @@ class CatalogWrite:
     request_sha256: str
     operation: str
     now: datetime
+    target_key: str = ""
+
+
+def bind_catalog_target(write: CatalogWrite, target_key: str) -> CatalogWrite:
+    """Bind one receipt to the project or resource the request names."""
+
+    if (
+        not isinstance(target_key, str)
+        or not target_key
+        or len(target_key) > 64
+        or any(character.isspace() for character in target_key)
+    ):
+        raise ValueError("catalog target must identify one write scope")
+    return replace(write, target_key=target_key)
 
 
 class CatalogBlockRequiresCatalogCommand(ValueError):

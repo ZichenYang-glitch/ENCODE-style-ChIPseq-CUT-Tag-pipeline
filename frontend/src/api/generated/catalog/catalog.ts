@@ -6,14 +6,19 @@
  * OpenAPI spec version: 0.4.1
  */
 import type {
+  CatalogArchiveExperimentHeaders,
   CatalogArchiveExperimentResponse,
   CatalogArchiveRequest,
+  CatalogArchiveTermHeaders,
+  CatalogCreateExperimentHeaders,
   CatalogCreateExperimentRequest,
+  CatalogCreateTermHeaders,
   CatalogCreateTermRequest,
   CatalogExperimentListResponse,
   CatalogExperimentResponse,
   CatalogExperimentRevisionListResponse,
   CatalogExperimentRunListResponse,
+  CatalogGetSampleRevision200,
   CatalogListExperimentRevisionRunResultsParams,
   CatalogListExperimentRevisionsParams,
   CatalogListExperimentsParams,
@@ -21,12 +26,15 @@ import type {
   CatalogListSampleRevisionsParams,
   CatalogListSamplesParams,
   CatalogListTermsParams,
+  CatalogReviseExperimentHeaders,
   CatalogReviseExperimentRequest,
+  CatalogReviseSampleCatalog200,
+  CatalogReviseSampleCatalogHeaders,
   CatalogReviseSampleRequest,
+  CatalogReviseTermHeaders,
   CatalogReviseTermRequest,
   CatalogSampleListResponse,
   CatalogSampleRevisionListResponse,
-  CatalogSampleRevisionResponse,
   CatalogSampleRunListResponse,
   CatalogTermListResponse,
   CatalogTermResponse
@@ -78,13 +86,14 @@ export const getCatalogCreateExperimentUrl = (projectId: string,) => {
 }
 
 export const catalogCreateExperiment = async (projectId: string,
-    catalogCreateExperimentRequest: CatalogCreateExperimentRequest, options?: RequestInit): Promise<CatalogExperimentResponse> => {
+    catalogCreateExperimentRequest: CatalogCreateExperimentRequest,
+    headers: CatalogCreateExperimentHeaders, options?: RequestInit): Promise<CatalogExperimentResponse> => {
 
   return fetcher<CatalogExperimentResponse>(getCatalogCreateExperimentUrl(projectId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogCreateExperimentRequest,)
   }
@@ -168,9 +177,9 @@ export const getCatalogGetSampleRevisionUrl = (sampleId: string,
 }
 
 export const catalogGetSampleRevision = async (sampleId: string,
-    sampleRevisionId: string, options?: RequestInit): Promise<CatalogSampleRevisionResponse> => {
+    sampleRevisionId: string, options?: RequestInit): Promise<CatalogGetSampleRevision200> => {
 
-  return fetcher<CatalogSampleRevisionResponse>(getCatalogGetSampleRevisionUrl(sampleId,sampleRevisionId),
+  return fetcher<CatalogGetSampleRevision200>(getCatalogGetSampleRevisionUrl(sampleId,sampleRevisionId),
   {
     ...options,
     method: 'GET'
@@ -224,13 +233,14 @@ export const getCatalogReviseExperimentUrl = (experimentId: string,) => {
 }
 
 export const catalogReviseExperiment = async (experimentId: string,
-    catalogReviseExperimentRequest: CatalogReviseExperimentRequest, options?: RequestInit): Promise<CatalogExperimentResponse> => {
+    catalogReviseExperimentRequest: CatalogReviseExperimentRequest,
+    headers: CatalogReviseExperimentHeaders, options?: RequestInit): Promise<CatalogExperimentResponse> => {
 
   return fetcher<CatalogExperimentResponse>(getCatalogReviseExperimentUrl(experimentId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogReviseExperimentRequest,)
   }
@@ -303,13 +313,14 @@ export const getCatalogCreateTermUrl = () => {
   return `/api/v1/catalog/terms`
 }
 
-export const catalogCreateTerm = async (catalogCreateTermRequest: CatalogCreateTermRequest, options?: RequestInit): Promise<CatalogTermResponse> => {
+export const catalogCreateTerm = async (catalogCreateTermRequest: CatalogCreateTermRequest,
+    headers: CatalogCreateTermHeaders, options?: RequestInit): Promise<CatalogTermResponse> => {
 
   return fetcher<CatalogTermResponse>(getCatalogCreateTermUrl(),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogCreateTermRequest,)
   }
@@ -351,13 +362,14 @@ export const getCatalogReviseTermUrl = (termId: string,) => {
 }
 
 export const catalogReviseTerm = async (termId: string,
-    catalogReviseTermRequest: CatalogReviseTermRequest, options?: RequestInit): Promise<CatalogTermResponse> => {
+    catalogReviseTermRequest: CatalogReviseTermRequest,
+    headers: CatalogReviseTermHeaders, options?: RequestInit): Promise<CatalogTermResponse> => {
 
   return fetcher<CatalogTermResponse>(getCatalogReviseTermUrl(termId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogReviseTermRequest,)
   }
@@ -376,13 +388,14 @@ export const getCatalogArchiveTermUrl = (termId: string,) => {
 }
 
 export const catalogArchiveTerm = async (termId: string,
-    catalogArchiveRequest: CatalogArchiveRequest, options?: RequestInit): Promise<CatalogTermResponse> => {
+    catalogArchiveRequest: CatalogArchiveRequest,
+    headers: CatalogArchiveTermHeaders, options?: RequestInit): Promise<CatalogTermResponse> => {
 
   return fetcher<CatalogTermResponse>(getCatalogArchiveTermUrl(termId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogArchiveRequest,)
   }
@@ -401,13 +414,14 @@ export const getCatalogArchiveExperimentUrl = (experimentId: string,) => {
 }
 
 export const catalogArchiveExperiment = async (experimentId: string,
-    catalogArchiveRequest: CatalogArchiveRequest, options?: RequestInit): Promise<CatalogArchiveExperimentResponse> => {
+    catalogArchiveRequest: CatalogArchiveRequest,
+    headers: CatalogArchiveExperimentHeaders, options?: RequestInit): Promise<CatalogArchiveExperimentResponse> => {
 
   return fetcher<CatalogArchiveExperimentResponse>(getCatalogArchiveExperimentUrl(experimentId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogArchiveRequest,)
   }
@@ -426,13 +440,14 @@ export const getCatalogReviseSampleCatalogUrl = (sampleId: string,) => {
 }
 
 export const catalogReviseSampleCatalog = async (sampleId: string,
-    catalogReviseSampleRequest: CatalogReviseSampleRequest, options?: RequestInit): Promise<CatalogSampleRevisionResponse> => {
+    catalogReviseSampleRequest: CatalogReviseSampleRequest,
+    headers: CatalogReviseSampleCatalogHeaders, options?: RequestInit): Promise<CatalogReviseSampleCatalog200> => {
 
-  return fetcher<CatalogSampleRevisionResponse>(getCatalogReviseSampleCatalogUrl(sampleId),
+  return fetcher<CatalogReviseSampleCatalog200>(getCatalogReviseSampleCatalogUrl(sampleId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       catalogReviseSampleRequest,)
   }

@@ -6,10 +6,7 @@
  * OpenAPI spec version: 0.4.1
  */
 
-/**
- * Known, negative, or ambiguous slot. Extra keys carry pins and candidates.
- */
-export interface CatalogSlotResponse {
-  status: string;
-  [key: string]: unknown;
- }
+export type CatalogReviseSampleRequestCatalogAnyOfCellTypeOneOfThreeValuesItem = {
+  term_id: string;
+  term_revision_id: string;
+};

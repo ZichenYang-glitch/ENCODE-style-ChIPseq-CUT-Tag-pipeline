@@ -5,5 +5,7 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
+import type { CatalogPublishedRunResponse } from './catalogPublishedRunResponse';
+import type { CatalogUnpublishedRunResponse } from './catalogUnpublishedRunResponse';
 
-export type CatalogSampleRunListResponseResultsItem = { [key: string]: unknown };
+export type CatalogSampleRunListResponseResultsItem = CatalogPublishedRunResponse | CatalogUnpublishedRunResponse;

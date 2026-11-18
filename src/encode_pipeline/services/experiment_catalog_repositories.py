@@ -30,6 +30,7 @@ from encode_pipeline.platform.experiment_catalog import (
     TermLookup,
     TermPin,
     administrator_required,
+    bind_catalog_target,
     block_matches,
     catalog_already_archived,
     catalog_cursor_not_found,
@@ -158,6 +159,7 @@ class _Experiment:
 class _Receipt:
     operation: str
     request_sha256: str
+    target_key: str
     subject_id: str
     result_revision_id: str | None
     result_archived_at: datetime | None
@@ -246,6 +248,7 @@ class InMemoryExperimentCatalogRepository:
             )
             return self._term_body(term_id, term_revision_id)
 
+        write = bind_catalog_target(write, "vocabulary")
         return self._write(write, apply)
 
     def revise_term(
@@ -291,6 +294,7 @@ class InMemoryExperimentCatalogRepository:
             )
             return self._term_body(term_id, term_revision_id)
 
+        write = bind_catalog_target(write, f"term:{term_id}")
         return self._write(write, apply)
 
     def archive_term(
@@ -317,6 +321,7 @@ class InMemoryExperimentCatalogRepository:
             )
             return self._term_body(term_id, term.revisions[-1].term_revision_id)
 
+        write = bind_catalog_target(write, f"term:{term_id}")
         return self._write(write, apply)
 
     def create_experiment(
@@ -384,6 +389,7 @@ class InMemoryExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"project:{project_id}")
         return self._write(write, apply)
 
     def revise_experiment(
@@ -440,6 +446,7 @@ class InMemoryExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"experiment:{experiment_id}")
         return self._write(write, apply)
 
     def archive_experiment(
@@ -471,6 +478,7 @@ class InMemoryExperimentCatalogRepository:
                 "revision_number": current,
             }
 
+        write = bind_catalog_target(write, f"experiment:{experiment_id}")
         return self._write(write, apply)
 
     def revise_sample_catalog(
@@ -536,6 +544,7 @@ class InMemoryExperimentCatalogRepository:
                 )
             except DataRegistryConflictError:
                 raise catalog_revision_conflict() from None
+            self._registry.mark_catalog_revision_trusted(sample_revision_id)
             self._add_receipt(
                 write,
                 subject_id=sample_id,
@@ -547,6 +556,7 @@ class InMemoryExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+        write = bind_catalog_target(write, f"sample:{sample_id}")
         return self._write(write, apply)
 
     def list_experiments(
@@ -574,6 +584,7 @@ class InMemoryExperimentCatalogRepository:
                 object_id=lambda item: item.experiment_id,
             )
             return {
+                "ok": True,
                 "project_id": filters.project_id,
                 "revision_view": filters.revision_view,
                 "experiments": [
@@ -782,6 +793,7 @@ class InMemoryExperimentCatalogRepository:
             if position is not None:
                 raise catalog_cursor_not_found()
             return {
+                "ok": True,
                 "project_id": project_id,
                 "sample_revision_id": sample_revision_id,
                 "results": [],
@@ -811,6 +823,7 @@ class InMemoryExperimentCatalogRepository:
             if position is not None:
                 raise catalog_cursor_not_found()
             return {
+                "ok": True,
                 "project_id": project_id,
                 "experiment_revision_id": experiment_revision_id,
                 "trace_status": "unresolved",
@@ -849,10 +862,13 @@ class InMemoryExperimentCatalogRepository:
             if not self._is_administrator(write.actor_user_id):
                 raise administrator_required()
             receipt = self._receipts.get((write.actor_user_id, write.idempotency_key))
+            if not write.target_key:
+                raise ValueError("catalog write target is required")
             if receipt is not None:
                 if (
                     receipt.request_sha256 != write.request_sha256
                     or receipt.operation != write.operation
+                    or receipt.target_key != write.target_key
                 ):
                     raise catalog_idempotency_conflict()
                 return self._replay(receipt)
@@ -903,6 +919,7 @@ class InMemoryExperimentCatalogRepository:
         self._receipts[(write.actor_user_id, write.idempotency_key)] = _Receipt(
             operation=write.operation,
             request_sha256=write.request_sha256,
+            target_key=write.target_key,
             subject_id=subject_id,
             result_revision_id=result_revision_id,
             result_archived_at=result_archived_at,
@@ -1055,6 +1072,8 @@ class InMemoryExperimentCatalogRepository:
         return self._block_for_revision(revision_id)
 
     def _block_for_revision(self, sample_revision_id: str) -> SampleCatalogBlock | None:
+        if not self._registry.catalog_revision_trusted(sample_revision_id):
+            return None
         revision = self._registry.get_sample_revision(sample_revision_id)
         decoded = json.loads(revision.canonical_payload)
         attributes = decoded["attributes"]

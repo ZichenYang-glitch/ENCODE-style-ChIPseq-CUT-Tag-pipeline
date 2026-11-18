@@ -9,10 +9,11 @@ import type { CatalogExperimentRunListResponseResultsItem } from './catalogExper
 import type { CatalogExperimentRunListResponseNextCursor } from './catalogExperimentRunListResponseNextCursor';
 
 export interface CatalogExperimentRunListResponse {
+  ok: true;
   project_id: string;
   experiment_revision_id: string;
-  trace_status: string;
-  reason: string;
+  trace_status: 'unresolved';
+  reason: 'experiment_snapshot_binding_absent';
   results: CatalogExperimentRunListResponseResultsItem[];
-  next_cursor?: CatalogExperimentRunListResponseNextCursor;
+  next_cursor: CatalogExperimentRunListResponseNextCursor;
 }

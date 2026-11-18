@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import TypeAdapter
 
 pytest.importorskip("fastapi")
 
@@ -17,6 +18,14 @@ from conftest import (  # noqa: E402
     TEST_AUTH_PASSWORD_HASH,
     TEST_AUTH_USER_ID,
     seed_test_authentication,
+)
+from encode_pipeline.api.catalog_models import (  # noqa: E402
+    CatalogExperimentListResponse,
+    CatalogExperimentResponse,
+    CatalogExperimentRunListResponse,
+    CatalogSampleListResponse,
+    CatalogSampleRevisionResponse,
+    CatalogSampleRunListResponse,
 )
 from encode_pipeline.api.main import create_app  # noqa: E402
 from encode_pipeline.platform.results import Result  # noqa: E402
@@ -90,6 +99,40 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
         seeded_app.state.test_auth_tokens = tokens
         assert anonymous.status_code == 401
         assert anonymous.json()["issues"][0]["code"] == "AUTHENTICATION_REQUIRED"
+        missing_key = client.post(
+            "/api/v1/catalog/terms",
+            json={"term_type": "tag", "display_name": "x"},
+        )
+        assert missing_key.status_code == 400
+        assert missing_key.json()["issues"][0]["code"] == "API_REQUEST_INVALID"
+        schema = seeded_app.openapi()
+        write_operations = {
+            ("/api/v1/catalog/terms", "post"),
+            ("/api/v1/catalog/terms/{term_id}/revisions", "post"),
+            ("/api/v1/catalog/terms/{term_id}/archive", "post"),
+            ("/api/v1/catalog/projects/{project_id}/experiments", "post"),
+            ("/api/v1/catalog/experiments/{experiment_id}/revisions", "post"),
+            ("/api/v1/catalog/experiments/{experiment_id}/archive", "post"),
+            ("/api/v1/catalog/samples/{sample_id}/catalog-revisions", "post"),
+        }
+        for path, method in write_operations:
+            parameters = schema["paths"][path][method]["parameters"]
+            header = next(
+                item
+                for item in parameters
+                if item["name"] == "Idempotency-Key" and item["in"] == "header"
+            )
+            assert header["required"] is True
+        experiment_query = {
+            item["name"]
+            for item in schema["paths"][
+                "/api/v1/catalog/projects/{project_id}/experiments"
+            ]["get"]["parameters"]
+        }
+        assert {"cell_type_term_id", "assay_term_id", "cell_type_status"} <= (
+            experiment_query
+        )
+        assert {"cell_type", "assay"}.isdisjoint(experiment_query)
 
         def term(term_type: str, name: str, key: str) -> dict:
             response = _post(
@@ -263,17 +306,48 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
             _known(cuttag),
             unknown_sample["sample_revision_id"],
         )
+
+        def experiment_ids(response) -> list[str]:
+            assert response.status_code == 200, response.text
+            return [item["experiment_id"] for item in response.json()["experiments"]]
+
         matched = client.get(
             f"/api/v1/catalog/projects/{project.project_id}/experiments",
             params=[
-                ("assay", cuttag["term_id"]),
-                ("cell_type", treg["term_id"]),
+                ("assay_term_id", cuttag["term_id"]),
+                ("cell_type_term_id", treg["term_id"]),
             ],
         )
-        assert matched.status_code == 200
-        assert [item["experiment_id"] for item in matched.json()["experiments"]] == [
-            cut_treg["experiment_id"]
-        ]
+        assert matched.json()["ok"] is True
+        CatalogExperimentListResponse.model_validate(matched.json())
+        CatalogExperimentResponse.model_validate(cut_treg)
+        assert experiment_ids(matched) == [cut_treg["experiment_id"]]
+        either_cell = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/experiments",
+            params=[
+                ("cell_type_term_id", treg["term_id"]),
+                ("cell_type_term_id", keratinocyte["term_id"]),
+                ("assay_term_id", cuttag["term_id"]),
+            ],
+        )
+        assert experiment_ids(either_cell) == [cut_treg["experiment_id"]]
+        unknown_cut = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/experiments",
+            params=[
+                ("cell_type_status", "unknown"),
+                ("assay_term_id", cuttag["term_id"]),
+            ],
+        )
+        assert experiment_ids(unknown_cut) == [unknown["experiment_id"]]
+        mixed_dimension = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/experiments",
+            params=[
+                ("cell_type_status", "unknown"),
+                ("cell_type_term_id", treg["term_id"]),
+            ],
+        )
+        assert mixed_dimension.status_code == 400
+        assert mixed_dimension.json()["issues"][0]["code"] == "catalog_filter_invalid"
         assert "candidates" not in matched.json()["experiments"][0]["assay"]
         ambiguous = experiment(
             "ambiguous-assay",
@@ -311,12 +385,26 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
         assert [item["sample_id"] for item in absent.json()["samples"]] == [
             plain.sample.sample_id
         ]
+        CatalogSampleListResponse.model_validate(absent.json())
+        sample_revision = TypeAdapter(CatalogSampleRevisionResponse)
+        sample_revision.validate_python(pinned.json())
+        sample_revision.validate_python(treg_sample)
+        sample_trace = client.get(
+            "/api/v1/catalog/projects/"
+            f"{project.project_id}/sample-revisions/"
+            f"{treg_sample['sample_revision_id']}/run-results"
+        )
+        assert sample_trace.status_code == 200
+        assert sample_trace.json()["ok"] is True
+        CatalogSampleRunListResponse.model_validate(sample_trace.json())
         trace = client.get(
             "/api/v1/catalog/projects/"
             f"{project.project_id}/experiment-revisions/"
             f"{cut_treg['experiment_revision_id']}/run-results"
         )
         assert trace.status_code == 200
+        assert trace.json()["ok"] is True
+        CatalogExperimentRunListResponse.model_validate(trace.json())
         assert trace.json()["trace_status"] == "unresolved"
         assert trace.json()["reason"] == "experiment_snapshot_binding_absent"
         assert trace.json()["results"] == []

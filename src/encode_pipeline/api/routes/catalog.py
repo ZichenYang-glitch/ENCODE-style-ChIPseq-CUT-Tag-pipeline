@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.catalog_models import (
@@ -136,8 +136,19 @@ async def _raw_body(request: Request) -> bytes:
     return await request.body()
 
 
-def _idempotency_key(request: Request) -> str | None:
-    return request.headers.get("Idempotency-Key")
+def _idempotency_key(
+    idempotency_key: Annotated[
+        str,
+        Header(
+            alias="Idempotency-Key",
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+            description="Required key for one catalog write.",
+        ),
+    ],
+) -> str:
+    return idempotency_key
 
 
 @router.get(
@@ -146,7 +157,7 @@ def _idempotency_key(request: Request) -> str | None:
     operation_id="catalogListExperiments",
     responses=_ERRORS,
 )
-def list_experiments(
+async def list_experiments(
     project_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),
     cursor: str | None = Query(default=None),
@@ -155,15 +166,15 @@ def list_experiments(
     include_archived: bool = Query(default=False),
     created_from: datetime | None = Query(default=None),
     created_before: datetime | None = Query(default=None),
-    species: list[str] | None = Query(default=None),
-    tissue: list[str] | None = Query(default=None),
-    cell_type: list[str] | None = Query(default=None),
-    cell_line: list[str] | None = Query(default=None),
-    treatment: list[str] | None = Query(default=None),
-    tag: list[str] | None = Query(default=None),
-    assay: list[str] | None = Query(default=None),
-    target: list[str] | None = Query(default=None),
-    batch: list[str] | None = Query(default=None),
+    species_term_id: list[str] | None = Query(default=None),
+    tissue_term_id: list[str] | None = Query(default=None),
+    cell_type_term_id: list[str] | None = Query(default=None),
+    cell_line_term_id: list[str] | None = Query(default=None),
+    treatment_term_id: list[str] | None = Query(default=None),
+    tag_term_id: list[str] | None = Query(default=None),
+    assay_term_id: list[str] | None = Query(default=None),
+    target_term_id: list[str] | None = Query(default=None),
+    batch_term_id: list[str] | None = Query(default=None),
     species_status: str | None = Query(default=None),
     tissue_status: str | None = Query(default=None),
     cell_type_status: str | None = Query(default=None),
@@ -186,15 +197,15 @@ def list_experiments(
                 created_before=created_before,
                 catalog_state=None,
                 field_terms=_terms(
-                    species,
-                    tissue,
-                    cell_type,
-                    cell_line,
-                    treatment,
-                    tag,
-                    assay,
-                    target,
-                    batch,
+                    species_term_id,
+                    tissue_term_id,
+                    cell_type_term_id,
+                    cell_line_term_id,
+                    treatment_term_id,
+                    tag_term_id,
+                    assay_term_id,
+                    target_term_id,
+                    batch_term_id,
                 ),
                 field_statuses=_statuses(
                     species_status,
@@ -219,7 +230,7 @@ def list_experiments(
     operation_id="catalogListSamples",
     responses=_ERRORS,
 )
-def list_samples(
+async def list_samples(
     project_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),
     cursor: str | None = Query(default=None),
@@ -227,12 +238,12 @@ def list_samples(
     created_from: datetime | None = Query(default=None),
     created_before: datetime | None = Query(default=None),
     catalog_state: str | None = Query(default=None),
-    species: list[str] | None = Query(default=None),
-    tissue: list[str] | None = Query(default=None),
-    cell_type: list[str] | None = Query(default=None),
-    cell_line: list[str] | None = Query(default=None),
-    treatment: list[str] | None = Query(default=None),
-    tag: list[str] | None = Query(default=None),
+    species_term_id: list[str] | None = Query(default=None),
+    tissue_term_id: list[str] | None = Query(default=None),
+    cell_type_term_id: list[str] | None = Query(default=None),
+    cell_line_term_id: list[str] | None = Query(default=None),
+    treatment_term_id: list[str] | None = Query(default=None),
+    tag_term_id: list[str] | None = Query(default=None),
     species_status: str | None = Query(default=None),
     tissue_status: str | None = Query(default=None),
     cell_type_status: str | None = Query(default=None),
@@ -252,7 +263,12 @@ def list_samples(
                 created_before=created_before,
                 catalog_state=catalog_state,
                 field_terms=_terms(
-                    species, tissue, cell_type, cell_line, treatment, tag
+                    species_term_id,
+                    tissue_term_id,
+                    cell_type_term_id,
+                    cell_line_term_id,
+                    treatment_term_id,
+                    tag_term_id,
                 ),
                 field_statuses=_statuses(
                     species_status,
@@ -274,7 +290,7 @@ def list_samples(
     operation_id="catalogListSampleRevisions",
     responses=_ERRORS,
 )
-def list_sample_revisions(
+async def list_sample_revisions(
     sample_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),
     cursor: str | None = Query(default=None),
@@ -305,7 +321,7 @@ def list_sample_revisions(
     operation_id="catalogGetSampleRevision",
     responses=_ERRORS,
 )
-def get_sample_revision(
+async def get_sample_revision(
     sample_id: str,
     sample_revision_id: str,
     _principal: AuthenticatedPrincipal = Depends(require_administrator),
@@ -322,7 +338,7 @@ def get_sample_revision(
     operation_id="catalogListExperimentRevisions",
     responses=_ERRORS,
 )
-def list_experiment_revisions(
+async def list_experiment_revisions(
     experiment_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),
     cursor: str | None = Query(default=None),
@@ -354,7 +370,7 @@ def list_experiment_revisions(
     operation_id="catalogGetExperimentRevision",
     responses=_ERRORS,
 )
-def get_experiment_revision(
+async def get_experiment_revision(
     experiment_id: str,
     experiment_revision_id: str,
     _principal: AuthenticatedPrincipal = Depends(require_administrator),
@@ -371,7 +387,7 @@ def get_experiment_revision(
     operation_id="catalogListTerms",
     responses=_ERRORS,
 )
-def list_terms(
+async def list_terms(
     service: ExperimentCatalogService = Depends(get_catalog_service),
     cursor: str | None = Query(default=None),
     limit: int | None = Query(default=None),
@@ -404,7 +420,7 @@ def list_terms(
     operation_id="catalogGetTerm",
     responses=_ERRORS,
 )
-def get_term(
+async def get_term(
     term_id: str,
     _principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
@@ -421,12 +437,13 @@ def get_term(
 async def create_term(
     request: Request,
     body: CatalogCreateTermRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.create_term(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         term_type=body.term_type,
         display_name=body.display_name,
@@ -447,12 +464,13 @@ async def revise_term(
     term_id: str,
     request: Request,
     body: CatalogReviseTermRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.revise_term(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         term_id=term_id,
         expected_revision_number=body.expected_revision_number,
@@ -475,12 +493,13 @@ async def archive_term(
     term_id: str,
     request: Request,
     body: CatalogArchiveRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.archive_term(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         term_id=term_id,
         expected_revision_number=body.expected_revision_number,
@@ -498,12 +517,13 @@ async def create_experiment(
     project_id: str,
     request: Request,
     body: CatalogCreateExperimentRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.create_experiment(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         project_id=project_id,
         stable_key=body.stable_key,
@@ -526,12 +546,13 @@ async def revise_experiment(
     experiment_id: str,
     request: Request,
     body: CatalogReviseExperimentRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.revise_experiment(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         experiment_id=experiment_id,
         expected_revision_number=body.expected_revision_number,
@@ -554,12 +575,13 @@ async def archive_experiment(
     experiment_id: str,
     request: Request,
     body: CatalogArchiveRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.archive_experiment(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         experiment_id=experiment_id,
         expected_revision_number=body.expected_revision_number,
@@ -577,12 +599,13 @@ async def revise_sample_catalog(
     sample_id: str,
     request: Request,
     body: CatalogReviseSampleRequest,
+    idempotency_key: str = Depends(_idempotency_key),
     principal: AuthenticatedPrincipal = Depends(require_administrator),
     service: ExperimentCatalogService = Depends(get_catalog_service),
 ) -> JSONResponse:
     result = service.revise_sample_catalog(
         actor_user_id=principal.user_id,
-        idempotency_key=_idempotency_key(request),
+        idempotency_key=idempotency_key,
         raw_body=await _raw_body(request),
         sample_id=sample_id,
         expected_revision_number=body.expected_revision_number,
@@ -598,7 +621,7 @@ async def revise_sample_catalog(
     operation_id="catalogListSampleRevisionRunResults",
     responses=_ERRORS,
 )
-def list_sample_run_results(
+async def list_sample_run_results(
     project_id: str,
     sample_revision_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),
@@ -631,7 +654,7 @@ def list_sample_run_results(
     operation_id="catalogListExperimentRevisionRunResults",
     responses=_ERRORS,
 )
-def list_experiment_run_results(
+async def list_experiment_run_results(
     project_id: str,
     experiment_revision_id: str,
     service: ExperimentCatalogService = Depends(get_catalog_service),

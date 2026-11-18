@@ -10,6 +10,7 @@ import type { CatalogTermRevisionResponseAccession } from './catalogTermRevision
 
 export interface CatalogTermRevisionResponse {
   term_revision_id: string;
+  /** @minimum 1 */
   revision_number: number;
   display_name: string;
   namespace?: CatalogTermRevisionResponseNamespace;

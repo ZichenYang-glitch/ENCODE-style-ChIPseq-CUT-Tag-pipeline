@@ -5,10 +5,12 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
+import type { CatalogReviseSampleRequestCatalog } from './catalogReviseSampleRequestCatalog';
 import type { CatalogReviseSampleRequestDisplayName } from './catalogReviseSampleRequestDisplayName';
 
 export interface CatalogReviseSampleRequest {
-  expected_revision_number: unknown;
-  catalog: unknown;
+  /** @minimum 1 */
+  expected_revision_number: number;
+  catalog: CatalogReviseSampleRequestCatalog;
   display_name?: CatalogReviseSampleRequestDisplayName;
 }

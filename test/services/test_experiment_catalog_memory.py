@@ -229,9 +229,10 @@ def test_combination_query_keeps_historical_names_and_unresolved_traces() -> Non
         cut_treg["experiment_id"]
     ]
     assert "candidates" not in listed["experiments"][0]["assay"]
-    assert listed["experiments"][0]["samples"][0]["cell_type"]["values"][0][
-        "display_name"
-    ] == "regulatory T cell"
+    assert (
+        listed["experiments"][0]["samples"][0]["cell_type"]["values"][0]["display_name"]
+        == "regulatory T cell"
+    )
 
     either_cell = catalog.list_experiments(
         project_id=project.project_id,
@@ -309,6 +310,7 @@ def test_combination_query_keeps_historical_names_and_unresolved_traces() -> Non
         experiment_revision_id=cut_treg["experiment_revision_id"],
     )
     assert trace == {
+        "ok": True,
         "project_id": project.project_id,
         "experiment_revision_id": cut_treg["experiment_revision_id"],
         "trace_status": "unresolved",
@@ -399,3 +401,239 @@ def test_same_key_replays_and_conflict_does_not_store_a_receipt() -> None:
     )
     assert revised["revision_number"] == 2
     assert revised["catalog_state"] == "absent"
+
+
+def _plant_historical_catalog(data, revision, catalog_value):
+    payload = __import__("json").loads(revision.canonical_payload)
+    attributes = dict(payload["attributes"])
+    attributes["catalog"] = catalog_value
+    canonical = __import__(
+        "encode_pipeline.platform.data_registry",
+        fromlist=["canonical_sample_revision_payload"],
+    ).canonical_sample_revision_payload(
+        display_name=payload["display_name"],
+        attributes=attributes,
+    )
+    digest = __import__(
+        "encode_pipeline.platform.data_registry",
+        fromlist=["build_sample_revision_payload_digest"],
+    ).build_sample_revision_payload_digest(canonical)
+    planted = __import__("dataclasses").replace(
+        revision,
+        canonical_payload=canonical,
+        payload_digest=digest,
+    )
+    data._repository._revisions[revision.sample_revision_id] = planted
+    return planted
+
+
+def test_historical_catalog_keys_stay_free_attributes() -> None:
+    data, catalog = _stack()
+    project = data.create_project("Notebook")
+    lookalike = {
+        "schema_version": 1,
+        "species": {"status": "unknown"},
+        "tissue": {"status": "unknown"},
+        "cell_type": {
+            "status": "known",
+            "values": [
+                {
+                    "term_id": "term_" + "a" * 32,
+                    "term_revision_id": "trmv_" + "a" * 32,
+                }
+            ],
+        },
+        "cell_line": {"status": "not_applicable", "values": []},
+        "treatment": {"status": "not_applicable", "values": []},
+        "tag": {"status": "not_applicable", "values": []},
+    }
+    cell = _term(catalog, "cell_type", "regulatory T cell")
+    species = _term(catalog, "species", "human")
+    tissue = _term(catalog, "tissue", "blood")
+    for key, value in (("notebook", "paper notebook 17"), ("lookalike", lookalike)):
+        imported = data.import_sample(
+            project.project_id,
+            stable_key=key,
+            display_name=key,
+            attributes={"organism": "human"},
+        )
+        planted = _plant_historical_catalog(data, imported.revision, value)
+        before = planted.canonical_payload
+        before_digest = planted.payload_digest
+        listed = catalog.list_samples(project_id=project.project_id)
+        matched = [
+            item
+            for item in listed["samples"]
+            if item["sample_id"] == imported.sample.sample_id
+        ]
+        assert matched[0]["catalog_state"] == "absent"
+        assert "cell_type" not in matched[0]
+        historical = catalog.get_sample_revision(
+            imported.sample.sample_id,
+            planted.sample_revision_id,
+        )
+        assert historical["catalog_state"] == "absent"
+        renamed = data.revise_sample(
+            imported.sample.sample_id,
+            display_name=f"{key} renamed",
+            attributes={"organism": "human"},
+        )
+        assert renamed.revision_number == 2
+        stored = data._repository.get_sample_revision(planted.sample_revision_id)
+        assert stored.canonical_payload == before
+        assert stored.payload_digest == before_digest
+        catalog._repository.rebuild_sample_projection(planted.sample_revision_id)
+        rebuilt = data._repository.get_sample_revision(planted.sample_revision_id)
+        assert rebuilt.canonical_payload == before
+        assert rebuilt.payload_digest == before_digest
+        assert (
+            catalog.get_sample_revision(
+                imported.sample.sample_id,
+                planted.sample_revision_id,
+            )["catalog_state"]
+            == "absent"
+        )
+        classified = catalog.revise_sample_catalog(
+            **_write(f"classify-{key}", {"catalog": "pending"}),
+            sample_id=imported.sample.sample_id,
+            expected_revision_number=2,
+            display_name=None,
+            catalog={
+                "schema_version": 1,
+                "species": {
+                    "status": "known",
+                    "term_id": species["term_id"],
+                    "term_revision_id": species["revision"]["term_revision_id"],
+                },
+                "tissue": {
+                    "status": "known",
+                    "term_id": tissue["term_id"],
+                    "term_revision_id": tissue["revision"]["term_revision_id"],
+                },
+                "cell_type": {
+                    "status": "known",
+                    "values": [
+                        {
+                            "term_id": cell["term_id"],
+                            "term_revision_id": cell["revision"]["term_revision_id"],
+                        }
+                    ],
+                },
+                "cell_line": {"status": "not_applicable", "values": []},
+                "treatment": {"status": "not_applicable", "values": []},
+                "tag": {"status": "not_applicable", "values": []},
+            },
+        )
+        assert classified["catalog_state"] == "present"
+        assert classified["revision_number"] == 3
+        assert classified["cell_type"]["values"][0]["term_id"] == cell["term_id"]
+        assert (
+            catalog.get_sample_revision(
+                imported.sample.sample_id,
+                planted.sample_revision_id,
+            )["catalog_state"]
+            == "absent"
+        )
+        assert (
+            data._repository.get_sample_revision(
+                planted.sample_revision_id
+            ).canonical_payload
+            == before
+        )
+
+
+def test_receipt_target_rejects_a_different_object() -> None:
+    data, catalog = _stack()
+    actor = "usr_" + "b" * 32
+    first = _term(catalog, "tag", "alpha")
+    second = _term(catalog, "tag", "beta")
+    archive = {"expected_revision_number": 1}
+    raw = __import__("json").dumps(archive).encode()
+    archived = catalog.archive_term(
+        actor_user_id=actor,
+        idempotency_key="archive-once",
+        raw_body=raw,
+        term_id=first["term_id"],
+        expected_revision_number=1,
+    )
+    with pytest.raises(CatalogError) as conflict:
+        catalog.archive_term(
+            actor_user_id=actor,
+            idempotency_key="archive-once",
+            raw_body=raw,
+            term_id=second["term_id"],
+            expected_revision_number=1,
+        )
+    assert conflict.value.status_code == 409
+    assert conflict.value.code == "catalog_idempotency_conflict"
+    assert catalog.get_term(second["term_id"])["archived_at"] is None
+    replay = catalog.archive_term(
+        actor_user_id=actor,
+        idempotency_key="archive-once",
+        raw_body=raw,
+        term_id=first["term_id"],
+        expected_revision_number=1,
+    )
+    assert replay["term_id"] == archived["term_id"]
+    assert replay["archived_at"] == archived["archived_at"]
+
+    left = data.create_project("Left")
+    right = data.create_project("Right")
+    sample = data.import_sample(
+        left.project_id,
+        stable_key="shared",
+        display_name="Shared",
+        attributes={},
+    )
+    assay = _term(catalog, "assay", "CUT&Tag")
+    target = _term(catalog, "target", "H3K27ac")
+    batch = _term(catalog, "batch", "batch-1")
+    role = _term(catalog, "replicate_role", "biological replicate")
+
+    def known(term: dict) -> dict:
+        return {
+            "status": "known",
+            "term_id": term["term_id"],
+            "term_revision_id": term["revision"]["term_revision_id"],
+        }
+
+    body = {
+        "stable_key": "shared-exp",
+        "display_name": "Shared",
+        "assay": known(assay),
+        "target": known(target),
+        "batch": known(batch),
+        "samples": [
+            {
+                "sample_revision_id": sample.revision.sample_revision_id,
+                "replicate_role": known(role),
+            }
+        ],
+    }
+    created = catalog.create_experiment(
+        actor_user_id=actor,
+        idempotency_key="create-once",
+        raw_body=__import__("json").dumps(body).encode(),
+        project_id=left.project_id,
+        **body,
+    )
+    with pytest.raises(CatalogError) as project_conflict:
+        catalog.create_experiment(
+            actor_user_id=actor,
+            idempotency_key="create-once",
+            raw_body=__import__("json").dumps(body).encode(),
+            project_id=right.project_id,
+            **body,
+        )
+    assert project_conflict.value.code == "catalog_idempotency_conflict"
+    assert catalog.list_experiments(project_id=right.project_id)["experiments"] == []
+    again = catalog.create_experiment(
+        actor_user_id=actor,
+        idempotency_key="create-once",
+        raw_body=__import__("json").dumps(body).encode(),
+        project_id=left.project_id,
+        **body,
+    )
+    assert again["experiment_id"] == created["experiment_id"]
+    assert again["experiment_revision_id"] == created["experiment_revision_id"]
+    assert catalog.list_experiments(project_id=left.project_id)["ok"] is True

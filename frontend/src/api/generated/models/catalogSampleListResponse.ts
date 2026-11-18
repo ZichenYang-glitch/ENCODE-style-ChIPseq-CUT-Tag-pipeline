@@ -5,11 +5,11 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
-import type { CatalogSampleRevisionResponse } from './catalogSampleRevisionResponse';
+import type { CatalogSampleListResponseSamplesItem } from './catalogSampleListResponseSamplesItem';
 import type { CatalogSampleListResponseNextCursor } from './catalogSampleListResponseNextCursor';
 
 export interface CatalogSampleListResponse {
   project_id: string;
-  samples: CatalogSampleRevisionResponse[];
+  samples: CatalogSampleListResponseSamplesItem[];
   next_cursor?: CatalogSampleListResponseNextCursor;
 }

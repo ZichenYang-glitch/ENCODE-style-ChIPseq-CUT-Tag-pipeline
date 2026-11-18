@@ -2784,6 +2784,14 @@ class SampleCatalogProjectionRow(Base):
             "catalog_state IN ('absent', 'present')",
             name="ck_sample_catalog_projection_state",
         ),
+        CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_catalog_projection_trusted",
+        ),
+        CheckConstraint(
+            "(catalog_trusted = 0 AND catalog_state = 'absent') OR catalog_trusted = 1",
+            name="ck_sample_catalog_projection_trust_source",
+        ),
         ForeignKeyConstraint(
             ["sample_revision_id"],
             ["sample_revisions.sample_revision_id"],
@@ -2802,6 +2810,7 @@ class SampleCatalogProjectionRow(Base):
     project_id: Mapped[str] = mapped_column(String(36), nullable=False)
     sample_id: Mapped[str] = mapped_column(String(36), nullable=False)
     catalog_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    catalog_trusted: Mapped[int] = mapped_column(Integer, nullable=False)
     species_status: Mapped[str | None] = mapped_column(String(32))
     species_term_id: Mapped[str | None] = mapped_column(String(37))
     species_term_revision_id: Mapped[str | None] = mapped_column(String(37))
@@ -2862,6 +2871,10 @@ class CatalogWriteReceiptRow(Base):
             "length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'",
             name="ck_catalog_write_receipts_digest",
         ),
+        CheckConstraint(
+            "length(target_key) BETWEEN 1 AND 64",
+            name="ck_catalog_write_receipts_target",
+        ),
         ForeignKeyConstraint(
             ["actor_user_id"],
             ["user_accounts.user_id"],
@@ -2879,6 +2892,7 @@ class CatalogWriteReceiptRow(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
     operation: Mapped[str] = mapped_column(String(64), nullable=False)
     request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(64), nullable=False)
     subject_id: Mapped[str] = mapped_column(String(37), nullable=False)
     result_revision_id: Mapped[str | None] = mapped_column(String(37))
     result_archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
