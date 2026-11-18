@@ -49,8 +49,7 @@ from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
 from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.api.authoring_models import AuthoringValidationResponse
-from encode_pipeline.services.authoring_bridge import UnavailableAuthoringBridge
-from encode_pipeline.services.peri_runtime.socket_server import RemoteAuthoringBridge
+from encode_pipeline.services.authoring_owner_client import load_authoring_bridge
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
@@ -99,16 +98,6 @@ from encode_pipeline.workers.settings import (
 
 
 AUTH_SECURE_COOKIES_ENV = "ENCODE_PIPELINE_AUTH_SECURE_COOKIES"
-PERI_OWNER_SOCKET_ENV = "HELIXWEAVE_PERI_OWNER_SOCKET"
-
-
-def _load_authoring_bridge(environ: dict[str, str]):
-    """Connect to the single owner. This process does not spawn natives."""
-
-    raw_socket = environ.get(PERI_OWNER_SOCKET_ENV)
-    if not raw_socket:
-        return UnavailableAuthoringBridge()
-    return RemoteAuthoringBridge(Path(raw_socket))
 
 
 def create_app(
@@ -282,7 +271,7 @@ def create_app(
     authoring_repository = SqlAlchemyAuthoringRepository(
         create_session_factory(persistence.engine)
     )
-    authoring_bridge = _load_authoring_bridge(settings_environment)
+    authoring_bridge = load_authoring_bridge(settings_environment)
     app.state.authoring_bridge = authoring_bridge
     app.state.authoring_service = AuthoringService(
         repository=authoring_repository,

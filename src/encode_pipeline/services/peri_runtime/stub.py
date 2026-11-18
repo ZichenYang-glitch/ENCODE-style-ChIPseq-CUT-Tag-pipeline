@@ -15,8 +15,18 @@ from encode_pipeline.services.peri_runtime.identity import META_TOOLS
 from encode_pipeline.services.peri_runtime.policy import SYNTHETIC_API_KEY
 
 
+def open_qualification_model_transport(path: Path) -> ModelStub:
+    """Open the labeled qualification stub.
+
+    P2 can replace this seam with a real provider transport. This function
+    does not admit a production model.
+    """
+
+    return ModelStub(path)
+
+
 class ModelStub:
-    """Scripted OpenAI-compatible stub bound to one private socket."""
+    """Scripted OpenAI-compatible qualification stub bound to one private socket."""
 
     def __init__(self, path: Path) -> None:
         self.path = path

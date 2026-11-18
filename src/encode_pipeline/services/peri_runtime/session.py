@@ -28,7 +28,10 @@ from encode_pipeline.services.peri_runtime.identity import (
 from encode_pipeline.services.peri_runtime.isolation import spawn
 from encode_pipeline.services.peri_runtime.limits import cgroup_root_for_pid, stop_scope
 from encode_pipeline.services.peri_runtime.policy import TOOLS, process_policy, settings
-from encode_pipeline.services.peri_runtime.stub import ModelStub
+from encode_pipeline.services.peri_runtime.stub import (
+    ModelStub,
+    open_qualification_model_transport,
+)
 
 
 DROP = object()
@@ -91,6 +94,9 @@ class NativeSession:
         *,
         service_generation: int,
         tool_handler: ToolHandler,
+        model_transport: Callable[[Path], ModelStub] = (
+            open_qualification_model_transport
+        ),
     ) -> None:
         self.binary = binary
         self.directory = directory
@@ -141,7 +147,7 @@ class NativeSession:
         self.socket_dir = Path(tempfile.mkdtemp(prefix="hw-peri-sock-"))
         try:
             self.log = (directory / "stderr.log").open("wb")
-            self.stub = ModelStub(self.socket_dir / "model.sock")
+            self.stub = model_transport(self.socket_dir / "model.sock")
             self.stub.on_catalog_failure = self.invalidate
             self.stub.authorize = self._egress_allowed
             self.process = spawn(
