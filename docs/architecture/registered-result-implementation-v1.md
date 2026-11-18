@@ -1,0 +1,51 @@
+# 登记结果实现 v1
+
+IRENE-39 把 [读取契约](registered-result-read-contract.md) 落到临时 SQLite。
+登记只追加目录元数据。源文件的路径、文件名和字节保持不动，也不创建 Run。
+
+## 写路由
+
+| operationId | 方法与路径 |
+| --- | --- |
+| `catalogRegisterRegisteredResult` | `POST /api/v1/catalog/projects/{project_id}/registered-results` |
+| `catalogReviseRegisteredResult` | `POST /api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions` |
+| `catalogArchiveRegisteredResult` | `POST /api/v1/catalog/projects/{project_id}/registered-results/{result_id}/archive` |
+
+读路由保持契约中的四个 operationId。写请求要求管理员、CSRF 和 `Idempotency-Key`。
+相同键和相同规范化请求返回原来的修订。相同键配不同请求返回 `409 catalog_idempotency_conflict`。
+`expected_revision_number` 与当前头不一致时返回 `409 catalog_revision_conflict`，并且不写回执。
+
+客户端不提交摘要。服务用已有的不跟随打开方式计算 `size_bytes` 和 `content_sha256`。
+只改显示名时重新观察同一池内相对路径；大小或摘要变化则 `409`，不会静默变成新字节。
+调用方显式给出新的 `pool_relative_path` 时，才按新文件登记。
+
+缺来源、方法或参考保持 `{"status":"unknown"}`。参考 pin 必须等于该 `refpr_` 修订已存储的身份，而不是当前启用修订。
+
+## 表与迁移
+
+`20261119_18` 的父修订是当时 main 的唯一头 `20261110_16`。它创建：
+
+- `registered_results`
+- `registered_result_revisions`
+- `registered_result_revision_heads`
+- `registered_result_parents`
+- `registered_result_write_receipts`
+
+同时把 `registered_result.download` 和资源种类 `registered_result` 加入审计约束。
+成功下载的资源身份只由 `(project_id, result_id, result_revision_id)` 经现有封闭工厂派生。
+
+实验目录 Slice A 使用 `20261118_17`。本分支不包含那份迁移。若 #225 先合并，合并前把本修订的 `down_revision` 改到 `20261118_17`，不要改 #225 的修订号。
+
+## 下载
+
+每次 `GET .../content` 重新检查会话、账号启用状态，以及路径中的 Project 是否就是该修订的 Project。
+匿名、撤销或停用账号是 `401`。Project 不匹配、修订不存在、Project 已归档是 `404 catalog_not_found`，此时不解析存储坐标。
+字节缺失或摘要不符是 `409 registered_result_bytes_unavailable`。这些失败都不写成功审计。
+
+`200` 只在两件事都完成后发出：响应私有副本（目录 `0700`、文件 `0600`）在复制过程中完成摘要核对，以及成功审计写入。审计失败时删除副本并失败关闭。响应头是 `application/octet-stream`、`Accept-Ranges: none`、`Cache-Control: no-store`，文件名只使用 `registered-result.{format}`。副本路径不进入 SQLite、公开 DTO、审计或日志。副本在响应结束后删除，不是新的长期位置。
+
+因此，核对完成后源文件被原地改写，已经密封的响应体不变，其 SHA-256 仍等于所请求修订。核对完成前源文件变了，则返回 `409`，没有 `200`。
+
+## 第一份外部文件
+
+`test/fixtures/irene39/fixture39.tsv` 是合成单细胞簇计数。登记格式为 `tsv`，来源、方法和参考都是 unknown。验收解析下载体，确认 `synthetic-A=3`、`synthetic-B=2`，并核对服务器计算的字节摘要。这个夹具不是 h5ad，也没有查看器。

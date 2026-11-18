@@ -1940,7 +1940,7 @@
                 }
               }
             },
-            "description": "Request Entity Too Large"
+            "description": "Content Too Large"
           },
           "422": {
             "content": {
@@ -1950,7 +1950,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           },
           "500": {
             "content": {
@@ -3963,6 +3963,778 @@
           }
         }
       }
+    },
+    "/api/v1/catalog/projects/{project_id}/registered-results": {
+      "get": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog List Registered Results",
+        "description": "List current revisions for one visible project.",
+        "operationId": "catalogListRegisteredResults",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog Register Registered Result",
+        "description": "Record one external or downstream file without copying or running it.",
+        "operationId": "catalogRegisterRegisteredResult",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRegisteredResultRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions": {
+      "get": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog List Registered Result Revisions",
+        "description": "List every revision of one result, oldest first.",
+        "operationId": "catalogListRegisteredResultRevisions",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rreg_[0-9a-f]{32}$",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog Revise Registered Result",
+        "description": "Append one revision. A rename re-reads the same bytes before it commits.",
+        "operationId": "catalogReviseRegisteredResult",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rreg_[0-9a-f]{32}$",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviseRegisteredResultRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/archive": {
+      "post": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog Archive Registered Result",
+        "description": "Stop new revisions. Historical reads stay available.",
+        "operationId": "catalogArchiveRegisteredResult",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rreg_[0-9a-f]{32}$",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRegisteredResultRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultArchiveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}": {
+      "get": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog Get Registered Result Revision",
+        "description": "Read one exact revision, including a superseded name.",
+        "operationId": "catalogGetRegisteredResultRevision",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "result_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rrev_[0-9a-f]{32}$",
+              "title": "Result Revision Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredResultDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content": {
+      "get": {
+        "tags": [
+          "registered-results"
+        ],
+        "summary": "Catalog Download Registered Result Revision",
+        "description": "Send the request's verified copy. The source file is not the body.",
+        "operationId": "catalogDownloadRegisteredResultRevision",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9a-f]{32}$",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "result_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^rrev_[0-9a-f]{32}$",
+              "title": "Result Revision Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified private copy of the requested revision.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4366,6 +5138,21 @@
         ],
         "title": "AgentToolCall",
         "description": "Transparent record of a read-only tool invocation by the agent."
+      },
+      "ArchiveRegisteredResultRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "title": "Expected Revision Number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number"
+        ],
+        "title": "ArchiveRegisteredResultRequest",
+        "description": "Retire one result at its current head without appending a revision."
       },
       "ArtifactDownloadIssueContextResponse": {
         "properties": {
@@ -7888,6 +8675,352 @@
         ],
         "title": "ReferenceProfileRevisionResponse",
         "description": "Allowlisted public identity for one immutable reference revision."
+      },
+      "RegisterRegisteredResultRequest": {
+        "properties": {
+          "stable_key": {
+            "type": "string",
+            "title": "Stable Key"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "origin": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Origin"
+          },
+          "method": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Method"
+          },
+          "reference": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Reference"
+          },
+          "pool_relative_path": {
+            "type": "string",
+            "title": "Pool Relative Path"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "const": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stable_key",
+          "display_name",
+          "format",
+          "origin",
+          "method",
+          "reference",
+          "pool_relative_path"
+        ],
+        "title": "RegisterRegisteredResultRequest",
+        "description": "Metadata plus the pool-relative path of a file that is already present."
+      },
+      "RegisteredResultArchiveResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "result_id": {
+            "type": "string",
+            "title": "Result Id"
+          },
+          "archived_at": {
+            "type": "string",
+            "title": "Archived At"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "result_id",
+          "archived_at"
+        ],
+        "title": "RegisteredResultArchiveResponse",
+        "description": "Archive acknowledgement. Archiving does not create a revision."
+      },
+      "RegisteredResultByteResponse": {
+        "properties": {
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "content_sha256": {
+            "type": "string",
+            "title": "Content Sha256"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "size_bytes",
+          "content_sha256"
+        ],
+        "title": "RegisteredResultByteResponse",
+        "description": "Size and digest the server computed from the registered file."
+      },
+      "RegisteredResultDetailResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/RegisteredResultRevisionResponse"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "revision"
+        ],
+        "title": "RegisteredResultDetailResponse",
+        "description": "One revision read, registration, or rename."
+      },
+      "RegisteredResultListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/RegisteredResultRevisionResponse"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/IssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "results",
+          "next_cursor"
+        ],
+        "title": "RegisteredResultListResponse",
+        "description": "One page of current revisions, or one result's history."
+      },
+      "RegisteredResultRevisionResponse": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "result_id": {
+            "type": "string",
+            "title": "Result Id"
+          },
+          "result_revision_id": {
+            "type": "string",
+            "title": "Result Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "title": "Revision Number"
+          },
+          "revision_status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "superseded"
+            ],
+            "title": "Revision Status"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version"
+          },
+          "origin": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Origin"
+          },
+          "method": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Method"
+          },
+          "reference": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Reference"
+          },
+          "bytes": {
+            "$ref": "#/components/schemas/RegisteredResultByteResponse"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "result_id",
+          "result_revision_id",
+          "revision_number",
+          "revision_status",
+          "display_name",
+          "format",
+          "schema_version",
+          "origin",
+          "method",
+          "reference",
+          "bytes",
+          "created_at"
+        ],
+        "title": "RegisteredResultRevisionResponse",
+        "description": "One exact revision. Storage coordinates are not part of this object."
+      },
+      "ReviseRegisteredResultRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "title": "Expected Revision Number"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "pool_relative_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool Relative Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number"
+        ],
+        "title": "ReviseRegisteredResultRequest",
+        "description": "A new revision. Omitted description fields stay as they are on the head."
       },
       "RunArtifactDetailResponse": {
         "properties": {

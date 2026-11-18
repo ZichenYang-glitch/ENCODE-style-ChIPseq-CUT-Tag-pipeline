@@ -147,6 +147,34 @@ FAULTS = {
     "authoringAdoptProposal": ("authoring_service", "adopt"),
     "authoringRejectProposal": ("authoring_service", "reject"),
     "authoringValidateDraft": ("authoring_service", "validate"),
+    "catalogListRegisteredResults": (
+        "registered_result_service",
+        "list_current",
+    ),
+    "catalogListRegisteredResultRevisions": (
+        "registered_result_service",
+        "list_revisions",
+    ),
+    "catalogGetRegisteredResultRevision": (
+        "registered_result_service",
+        "get_revision",
+    ),
+    "catalogDownloadRegisteredResultRevision": (
+        "registered_result_service",
+        "prepare_download",
+    ),
+    "catalogRegisterRegisteredResult": (
+        "registered_result_service",
+        "register",
+    ),
+    "catalogReviseRegisteredResult": (
+        "registered_result_service",
+        "revise",
+    ),
+    "catalogArchiveRegisteredResult": (
+        "registered_result_service",
+        "archive",
+    ),
 }
 SPECIAL_MODELS = {
     "createRun": "RunResponse",
@@ -234,6 +262,8 @@ def error_api(tmp_path):
             sid="aas_" + "ab" * 16,
             turn_id="atr_" + "cd" * 16,
             proposal_id="prop_" + "ef" * 16,
+            result_id="rreg_" + "2" * 32,
+            result_revision_id="rrev_" + "3" * 32,
         )
         payloads = {
             "login": {"username": "test-admin", "password": "private-payload-marker"},
@@ -271,6 +301,20 @@ def error_api(tmp_path):
             },
             "authoringRejectProposal": {"proposal_digest": "b" * 64},
             "authoringValidateDraft": {"expected_revision": 0},
+            "catalogRegisterRegisteredResult": {
+                "stable_key": "contract-result",
+                "display_name": "Contract result",
+                "format": "tsv",
+                "origin": {
+                    "kind": "external",
+                    "source": {"status": "unknown"},
+                },
+                "method": {"status": "unknown"},
+                "reference": {"status": "unknown"},
+                "pool_relative_path": "external/contract.tsv",
+            },
+            "catalogReviseRegisteredResult": {"expected_revision_number": 1},
+            "catalogArchiveRegisteredResult": {"expected_revision_number": 1},
         }
         params = {}
         if operation in {
@@ -283,6 +327,13 @@ def error_api(tmp_path):
             params["revision"] = REVISION
         if operation == "summarizeRunBrowserTrackRegion":
             params.update(chrom="chr1", start=0, end=1)
+        headers = {}
+        if operation in {
+            "catalogRegisterRegisteredResult",
+            "catalogReviseRegisteredResult",
+            "catalogArchiveRegisteredResult",
+        }:
+            headers["Idempotency-Key"] = "contract-key-1"
         app.state.test_auth_tokens = (
             member_tokens if "terminal_email_preference" in operation else admin_tokens
         )
@@ -294,12 +345,20 @@ def error_api(tmp_path):
             if method.lower() == "head":
                 # httpx drops HEAD bodies. Keep the JSON envelope the app emitted.
                 prepared = client.build_request(
-                    method, path, json=payloads.get(operation), params=params
+                    method,
+                    path,
+                    json=payloads.get(operation),
+                    params=params,
+                    headers=headers,
                 )
                 response = await _application_response(app, prepared)
             else:
                 response = await client.request(
-                    method, path, json=payloads.get(operation), params=params
+                    method,
+                    path,
+                    json=payloads.get(operation),
+                    params=params,
+                    headers=headers,
                 )
         responses.append(
             {
