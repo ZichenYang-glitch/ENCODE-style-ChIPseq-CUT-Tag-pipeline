@@ -20,7 +20,6 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 
 _SESSION_ENV = "HELIXWEAVE_CATALOG_SESSION_TOKEN"
-_PAGE_SIZE = 100
 _TSV_COLUMNS = (
     "experiment_id",
     "expected_experiment_revision_id",
@@ -140,7 +139,7 @@ class _CatalogReader:
     def _rows(
         self, path: str, field: str, *, project_id: str | None = None
     ) -> Iterator[dict]:
-        params = {"revision_view": "linked", "limit": str(_PAGE_SIZE)}
+        params = {"revision_view": "linked"}
         seen_cursors: set[str] = set()
         while True:
             page = self._get(path, params)

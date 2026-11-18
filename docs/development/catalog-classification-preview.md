@@ -18,7 +18,7 @@ experiment_id	expected_experiment_revision_id	assay_term_revision_id
 exp_11111111111111111111111111111111	expr_22222222222222222222222222222222	trmv_33333333333333333333333333333333
 ```
 
-一次只读一个活动项目。本命令沿用 [M0 契约](../architecture/experiment-catalog-m0-contract.md) 与 Slice A `438a943`：按 `experiment_id` 精确匹配，按 `expected_experiment_revision_id` 比较目录列表里的实验修订；不按名称、词条别名或行序匹配。只调用项目实验列表和实验修订列表，显式使用 `revision_view=linked` 并跟随 `next_cursor`；不请求仅管理员可读的修订明细。
+一次只读一个活动项目。本命令沿用 [M0 契约](../architecture/experiment-catalog-m0-contract.md) 与 Slice A `438a943`：按 `experiment_id` 精确匹配，按 `expected_experiment_revision_id` 比较目录列表里的实验修订；不按名称、词条别名或行序匹配。只调用项目实验列表和实验修订列表，显式使用 `revision_view=linked`，沿用服务端默认页长并跟随 `next_cursor`；不请求仅管理员可读的修订明细。
 
 成功读取后输出一个 JSON 对象，`rows` 保留 TSV 顺序和源行号。对于已匹配实验，报告读到的当前实验修订和当前 assay 词条修订（没有已钉住的 assay 则为 `null`）。每行状态如下：
 
@@ -34,6 +34,7 @@ exp_11111111111111111111111111111111	expr_22222222222222222222222222222222	trmv_
 
 ## 验收
 
+- 已安装的 `helixweave catalog preview` 用有效会话、单行 TSV 和真实服务端默认页长运行，退出 `0`，报告 `matched` 及正确的当前实验修订。
 - 小 TSV 覆盖当前、重复、未匹配、已知旧修订和外部修订；保持顺序。真实 HTTP 的后续页能够命中实验和旧修订。
 - 匿名收到 `401`；成员和管理员可得到相同的列表预览，且成员不能读取旧修订明细。预览仅发 GET 请求，报告不含会话值、服务端错误正文、候选或别名。
 - 不改变目录服务、迁移、生成客户端或写规则。只比较 assay 的修订 ID，不校验词条可采用性，也不支持样本分类或其他实验字段。显式提交、写入冲突处理和回执是单独的后续契约。

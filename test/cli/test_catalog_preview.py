@@ -6,7 +6,11 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
+import os
+from pathlib import Path
 import socket
+import subprocess
+import sysconfig
 from threading import Event, Thread
 
 import pytest
@@ -67,31 +71,136 @@ def _serve(application):
             assert not thread.is_alive(), "catalog HTTP test server failed to stop"
 
 
-def test_preview_matches_catalog_permissions_and_revision_history(
-    tmp_path, monkeypatch, capsys
-):
-    httpx = pytest.importorskip("httpx")
+@pytest.fixture
+def preview_catalog(tmp_path, monkeypatch):
     pytest.importorskip("fastapi")
-    from conftest import (
-        TEST_AUTH_CSRF_TOKEN,
-        TEST_AUTH_SESSION_TOKEN,
-        seed_test_authentication,
-    )
+    from conftest import seed_test_authentication
     from encode_pipeline.api.main import create_app
-    from encode_pipeline.platform.authentication import UserRole
-    from encode_pipeline.services.authentication import (
-        new_session_record,
-        new_session_secrets,
-    )
     from encode_pipeline.services.data_registry import DataRegistryService
 
     monkeypatch.setenv("ENCODE_PIPELINE_AUTH_SECURE_COOKIES", "0")
-    monkeypatch.setattr(catalog, "_PAGE_SIZE", 1)
     application = create_app(
         database_url=f"sqlite:///{tmp_path / 'catalog.db'}",
         workspace_root=tmp_path / "workspaces",
     )
     admin = seed_test_authentication(application)
+    registry = DataRegistryService(
+        repository=application.state.persistence.data_registry_repository
+    )
+    yield application, admin, registry
+    application.state.persistence.close()
+
+
+@contextmanager
+def _admin_client(origin):
+    httpx = pytest.importorskip("httpx")
+    from conftest import TEST_AUTH_CSRF_TOKEN, TEST_AUTH_SESSION_TOKEN
+
+    with httpx.Client(base_url=origin, trust_env=False) as client:
+        client.cookies.set("helixweave_session", TEST_AUTH_SESSION_TOKEN)
+        client.cookies.set("helixweave_csrf", TEST_AUTH_CSRF_TOKEN)
+        client.headers["X-CSRF-Token"] = TEST_AUTH_CSRF_TOKEN
+        yield client
+
+
+def _post(client, path, key, payload):
+    response = client.post(
+        _PREFIX + path, json=payload, headers={"Idempotency-Key": key}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _classification(name, sample_id, assay):
+    return {
+        "display_name": name,
+        "assay": assay,
+        "target": {"status": "unknown"},
+        "batch": {"status": "unknown"},
+        "samples": [
+            {"sample_revision_id": sample_id, "replicate_role": {"status": "unknown"}}
+        ],
+    }
+
+
+def test_installed_preview_matches_one_row_with_default_pagination(
+    tmp_path, preview_catalog
+):
+    from conftest import TEST_AUTH_SESSION_TOKEN
+
+    application, _, registry = preview_catalog
+    project = registry.create_project("Default preview").project_id
+    sample = registry.import_sample(
+        project, stable_key="sample", display_name="Sample", attributes={}
+    ).revision.sample_revision_id
+    with _serve(application) as origin, _admin_client(origin) as client:
+        term = _post(
+            client, "/terms", "assay", {"term_type": "assay", "display_name": "Assay"}
+        )
+        assay_revision = term["revision"]["term_revision_id"]
+        experiment = _post(
+            client,
+            f"/projects/{project}/experiments",
+            "experiment",
+            {
+                "stable_key": "experiment",
+                **_classification(
+                    "Experiment",
+                    sample,
+                    {
+                        "status": "known",
+                        "term_id": term["term_id"],
+                        "term_revision_id": assay_revision,
+                    },
+                ),
+            },
+        )
+        current_revision = experiment["experiment_revision_id"]
+        args = _preview_args(
+            tmp_path,
+            origin,
+            project,
+            [(experiment["experiment_id"], current_revision, assay_revision)],
+        )
+        executable = Path(sysconfig.get_path("scripts")) / (
+            "helixweave.exe" if os.name == "nt" else "helixweave"
+        )
+        environment = {
+            **os.environ,
+            _SESSION_ENV: TEST_AUTH_SESSION_TOKEN,
+            "PYTHONNOUSERSITE": "1",
+        }
+        environment.pop("PYTHONPATH", None)
+        result = subprocess.run(
+            [str(executable), *args],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    (row,) = json.loads(result.stdout)["rows"]
+    assert row["status"] == "matched"
+    assert row["current_experiment_revision_id"] == current_revision
+
+
+def test_preview_matches_catalog_permissions_and_revision_history(
+    tmp_path, monkeypatch, capsys, preview_catalog
+):
+    from conftest import TEST_AUTH_SESSION_TOKEN
+    from encode_pipeline.platform import experiment_catalog
+    from encode_pipeline.platform.authentication import UserRole
+    from encode_pipeline.services.authentication import (
+        new_session_record,
+        new_session_secrets,
+    )
+
+    monkeypatch.setattr(experiment_catalog, "DEFAULT_PAGE_SIZE", 1)
+    application, admin, registry = preview_catalog
     member = replace(
         admin,
         user_id="usr_" + "1" * 32,
@@ -108,9 +217,6 @@ def test_preview_matches_catalog_permissions_and_revision_history(
             created_at=datetime.now(timezone.utc),
             lifetime=timedelta(minutes=10),
         )
-    )
-    registry = DataRegistryService(
-        repository=application.state.persistence.data_registry_repository
     )
     project = registry.create_project("Preview fixture").project_id
     other_project = registry.create_project("Other project").project_id
@@ -129,23 +235,11 @@ def test_preview_matches_catalog_permissions_and_revision_history(
             requests.append((scope["method"], scope["path"], scope["query_string"]))
         await application(scope, receive, send)
 
-    with (
-        _serve(observed) as origin,
-        httpx.Client(base_url=origin, trust_env=False) as client,
-    ):
-        client.cookies.set("helixweave_session", TEST_AUTH_SESSION_TOKEN)
-        client.cookies.set("helixweave_csrf", TEST_AUTH_CSRF_TOKEN)
-        client.headers["X-CSRF-Token"] = TEST_AUTH_CSRF_TOKEN
-
-        def post(path, key, payload):
-            response = client.post(
-                _PREFIX + path, json=payload, headers={"Idempotency-Key": key}
-            )
-            assert response.status_code == 200, response.text
-            return response.json()
+    with _serve(observed) as origin, _admin_client(origin) as client:
 
         def assay_pin(name):
-            term = post(
+            term = _post(
+                client,
                 "/terms",
                 "assay-" + name.lower().replace(" ", "-"),
                 {"term_type": "assay", "display_name": name},
@@ -159,37 +253,25 @@ def test_preview_matches_catalog_permissions_and_revision_history(
         first_assay = assay_pin("First assay")
         second_assay = assay_pin("Second assay")
 
-        def classification(name, sample_id, assay):
-            return {
-                "display_name": name,
-                "assay": assay,
-                "target": {"status": "unknown"},
-                "batch": {"status": "unknown"},
-                "samples": [
-                    {
-                        "sample_revision_id": sample_id,
-                        "replicate_role": {"status": "unknown"},
-                    }
-                ],
-            }
-
         def experiment(key, project_id=project, sample_id=sample, assay=first_assay):
-            return post(
+            return _post(
+                client,
                 f"/projects/{project_id}/experiments",
                 key,
-                {"stable_key": key, **classification(key, sample_id, assay)},
+                {"stable_key": key, **_classification(key, sample_id, assay)},
             )
 
         revised = experiment("revised")
         revised_id = revised["experiment_id"]
         history_path = f"/experiments/{revised_id}/revisions"
         for number, assay in enumerate((first_assay, second_assay), start=1):
-            revised = post(
+            revised = _post(
+                client,
                 history_path,
                 f"revise-{number}",
                 {
                     "expected_revision_number": number,
-                    **classification(f"Revision {number + 1}", sample, assay),
+                    **_classification(f"Revision {number + 1}", sample, assay),
                 },
             )
             if number == 1:
@@ -243,7 +325,7 @@ def test_preview_matches_catalog_permissions_and_revision_history(
             (
                 "GET",
                 f"{_PREFIX}/projects/{project}/experiments",
-                b"revision_view=linked&limit=1",
+                b"revision_view=linked",
             )
         ]
 
