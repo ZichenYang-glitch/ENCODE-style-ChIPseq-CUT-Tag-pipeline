@@ -1047,3 +1047,211 @@ def test_m2_preview_validation_and_error_branches() -> None:
         )
     assert bad_field_exc.value.status_code == 422
     assert bad_field_exc.value.code == "catalog_payload_invalid"
+
+
+def test_m2_projection_row_source_ref_ownership_and_archival_checks() -> None:
+    """Cited catalog_projection_row refs must belong to the active project and not be archived."""
+
+    from encode_pipeline.platform.catalog_curation_preview import compute_preview_digest
+
+    now = SYNTHETIC_BASE_TIME + timedelta(minutes=2)
+
+    def build_exp2_proposal_with_projection_ref(
+        proposal_id: str, cited_ref_id: str
+    ) -> CatalogProposal:
+        base_item_2 = (
+            build_synthetic_m2_preview_fixture()
+            ._proposals[SYNTHETIC_PROPOSAL_ID]
+            .items[1]
+        )
+        item = ProposalItem(
+            item_id="item_proj_ref",
+            target_kind="experiment",
+            target_id=SYNTHETIC_EXP_2_ID,
+            base_revision_id=base_item_2.base_revision_id,
+            base_revision_number=base_item_2.base_revision_number,
+            allowed_fields=base_item_2.allowed_fields,
+            before=base_item_2.before,
+            after=base_item_2.after,
+            citation=ProposalCitation(
+                rule_version=M2_RULE_VERSION,
+                vocabulary_version=M2_VOCABULARY_VERSION,
+                reason_codes=("TARGET_TERM_MATCH",),
+                source_refs=(
+                    SourceReference(
+                        kind="catalog_projection_row",
+                        ref_id=cited_ref_id,
+                        evidence_token="proj-row-source-check",
+                    ),
+                ),
+            ),
+        )
+        return CatalogProposal.create(
+            proposal_id=proposal_id,
+            project_id=SYNTHETIC_PROJECT_ID,
+            created_by_user_id="usr_member_01",
+            source="offline_suggestion",
+            items=(item,),
+            created_at=SYNTHETIC_BASE_TIME,
+        )
+
+    # 1. Positive case: active same-project catalog_projection_row succeeds in preview and adoption.
+    ok_store = build_synthetic_m2_preview_fixture()
+    ok_prop = build_exp2_proposal_with_projection_ref(
+        "cprop_66666666666666666666666666666666", SYNTHETIC_EXP_1_ID
+    )
+    ok_store._proposals[ok_prop.proposal_id] = ok_prop
+    ok_preview = ok_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=ok_prop.proposal_id,
+        selected_item_ids=["item_proj_ref"],
+        now=now,
+    )
+    ok_receipt = ok_store.adopt_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=ok_prop.proposal_id,
+        preview_digest=ok_preview["preview_digest"],
+        selected_item_ids=ok_preview["selected_item_ids"],
+        expected_revisions=ok_preview["expected_revisions"],
+        idempotency_key="idem-proj-row-ok",
+        now=now,
+    )
+    assert ok_receipt["replayed"] is False
+    assert ok_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 2
+
+    # 2. Cross-project experiment projection row: target exp_2 is in SYNTHETIC_PROJECT_ID,
+    #    but cited exp_1 moved to SYNTHETIC_OTHER_PROJECT_ID -> rejected in preview & adopt.
+    cross_exp_store = build_synthetic_m2_preview_fixture()
+    cross_exp_prop = build_exp2_proposal_with_projection_ref(
+        "cprop_77777777777777777777777777777777", SYNTHETIC_EXP_1_ID
+    )
+    cross_exp_store._proposals[cross_exp_prop.proposal_id] = cross_exp_prop
+    cross_exp_digest = compute_preview_digest(
+        proposal_id=cross_exp_prop.proposal_id,
+        proposal_digest=cross_exp_prop.proposal_digest,
+        selected_item_ids=["item_proj_ref"],
+        expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+    )
+    cross_exp_store._experiments[
+        SYNTHETIC_EXP_1_ID
+    ].project_id = SYNTHETIC_OTHER_PROJECT_ID
+    with pytest.raises(CatalogPreviewError) as cross_exp_preview_exc:
+        cross_exp_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=cross_exp_prop.proposal_id,
+            selected_item_ids=["item_proj_ref"],
+            now=now,
+        )
+    assert cross_exp_preview_exc.value.status_code == 409
+    assert cross_exp_preview_exc.value.code == "catalog_proposal_invalidated"
+
+    with pytest.raises(CatalogPreviewError) as cross_exp_adopt_exc:
+        cross_exp_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=cross_exp_prop.proposal_id,
+            preview_digest=cross_exp_digest,
+            selected_item_ids=["item_proj_ref"],
+            expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+            idempotency_key="idem-proj-row-cross-exp",
+            now=now,
+        )
+    assert cross_exp_adopt_exc.value.status_code == 409
+    assert cross_exp_adopt_exc.value.code == "catalog_proposal_invalidated"
+    assert (
+        cross_exp_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
+    )
+    assert (
+        cross_exp_store.list_adoption_receipts(
+            actor_user_id="usr_admin_a", project_id=SYNTHETIC_PROJECT_ID
+        )["receipts"]
+        == []
+    )
+
+    # 3. Cross-project sample projection row -> rejected in preview & adopt, zero writes/receipts.
+    cross_smp_store = build_synthetic_m2_preview_fixture()
+    cross_smp_prop = build_exp2_proposal_with_projection_ref(
+        "cprop_88888888888888888888888888888888", SYNTHETIC_SMP_1_ID
+    )
+    cross_smp_store._proposals[cross_smp_prop.proposal_id] = cross_smp_prop
+    cross_smp_digest = compute_preview_digest(
+        proposal_id=cross_smp_prop.proposal_id,
+        proposal_digest=cross_smp_prop.proposal_digest,
+        selected_item_ids=["item_proj_ref"],
+        expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+    )
+    cross_smp_store._samples[SYNTHETIC_SMP_1_ID].project_id = SYNTHETIC_OTHER_PROJECT_ID
+    for call_fn in (
+        lambda: cross_smp_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=cross_smp_prop.proposal_id,
+            selected_item_ids=["item_proj_ref"],
+            now=now,
+        ),
+        lambda: cross_smp_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=cross_smp_prop.proposal_id,
+            preview_digest=cross_smp_digest,
+            selected_item_ids=["item_proj_ref"],
+            expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+            idempotency_key="idem-proj-row-cross-smp",
+            now=now,
+        ),
+    ):
+        with pytest.raises(CatalogPreviewError) as exc:
+            call_fn()
+        assert exc.value.status_code == 409
+        assert exc.value.code == "catalog_proposal_invalidated"
+    assert (
+        cross_smp_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
+    )
+    assert (
+        cross_smp_store.list_adoption_receipts(
+            actor_user_id="usr_admin_a", project_id=SYNTHETIC_PROJECT_ID
+        )["receipts"]
+        == []
+    )
+
+    # 4. Archived same-project experiment projection row -> rejected in preview & adopt, zero writes.
+    archived_ref_store = build_synthetic_m2_preview_fixture()
+    archived_ref_prop = build_exp2_proposal_with_projection_ref(
+        "cprop_99999999999999999999999999999999", SYNTHETIC_EXP_1_ID
+    )
+    archived_ref_store._proposals[archived_ref_prop.proposal_id] = archived_ref_prop
+    archived_ref_digest = compute_preview_digest(
+        proposal_id=archived_ref_prop.proposal_id,
+        proposal_digest=archived_ref_prop.proposal_digest,
+        selected_item_ids=["item_proj_ref"],
+        expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+    )
+    archived_ref_store._experiments[SYNTHETIC_EXP_1_ID].archived = True
+    for call_fn in (
+        lambda: archived_ref_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=archived_ref_prop.proposal_id,
+            selected_item_ids=["item_proj_ref"],
+            now=now,
+        ),
+        lambda: archived_ref_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=archived_ref_prop.proposal_id,
+            preview_digest=archived_ref_digest,
+            selected_item_ids=["item_proj_ref"],
+            expected_revisions={SYNTHETIC_EXP_2_ID: 1},
+            idempotency_key="idem-proj-row-archived",
+            now=now,
+        ),
+    ):
+        with pytest.raises(CatalogPreviewError) as exc:
+            call_fn()
+        assert exc.value.status_code == 409
+        assert exc.value.code == "catalog_experiment_archived"
+    assert (
+        archived_ref_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"]
+        == 1
+    )
+    assert (
+        archived_ref_store.list_adoption_receipts(
+            actor_user_id="usr_admin_a", project_id=SYNTHETIC_PROJECT_ID
+        )["receipts"]
+        == []
+    )
