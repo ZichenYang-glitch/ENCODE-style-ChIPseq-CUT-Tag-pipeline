@@ -61,7 +61,12 @@ interface AppliedSearch {
 }
 
 function errorMessage(caught: unknown): string {
-  if (caught instanceof ApiError) return caught.message;
+  if (caught instanceof ApiError) {
+    if (caught.code === 'catalog_revision_conflict') {
+      return '冲突。这次提交没有写入。';
+    }
+    return caught.message;
+  }
   return 'The catalog request failed.';
 }
 
@@ -97,6 +102,7 @@ export function ExperimentCatalogPage() {
   );
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [pinnedRevisionId, setPinnedRevisionId] = useState<string | null>(null);
+  const [followHeadAfter, setFollowHeadAfter] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -154,22 +160,42 @@ export function ExperimentCatalogPage() {
     enabled: selectedExperimentId !== null,
     queryFn: () => {
       if (selectedExperimentId === null) throw new Error('No experiment.');
-      return catalogListExperimentRevisions(selectedExperimentId, {
-        limit: CATALOG_PAGE_SIZE,
+      const experimentId = selectedExperimentId;
+      return collectPages(async (cursor) => {
+        const page = await catalogListExperimentRevisions(
+          experimentId,
+          cursor === undefined
+            ? { limit: CATALOG_PAGE_SIZE }
+            : { limit: CATALOG_PAGE_SIZE, cursor },
+        );
+        return {
+          items: page.experiment_revisions,
+          nextCursor: page.next_cursor,
+        };
       });
     },
   });
 
-  const revisions = revisionsQuery.data?.experiment_revisions ?? [];
-  const head = headRevision(revisions);
+  const revisions = revisionsQuery.data?.items ?? [];
+  const historyTruncated = revisionsQuery.data?.truncated ?? false;
+  const head = historyTruncated ? null : headRevision(revisions);
+  const revisionsUpdatedAt = revisionsQuery.dataUpdatedAt;
   const selected =
     revisions.find((item) => item.experiment_revision_id === selectedRevisionId) ??
     null;
 
   useEffect(() => {
     if (revisions.length === 0) return;
+    if (followHeadAfter !== null && revisionsUpdatedAt !== followHeadAfter && head !== null) {
+      setFollowHeadAfter(null);
+      if (selectedRevisionId !== head.experiment_revision_id) {
+        setSelectedRevisionId(head.experiment_revision_id);
+      }
+      return;
+    }
     if (
       pinnedRevisionId !== null &&
+      !historyTruncated &&
       revisions.some((item) => item.experiment_revision_id === pinnedRevisionId)
     ) {
       if (selectedRevisionId !== pinnedRevisionId) {
@@ -183,14 +209,21 @@ export function ExperimentCatalogPage() {
     ) {
       return;
     }
-    const nextHead = headRevision(revisions);
-    if (
-      nextHead !== null &&
-      selectedRevisionId !== nextHead.experiment_revision_id
-    ) {
-      setSelectedRevisionId(nextHead.experiment_revision_id);
+    const nextId = historyTruncated
+      ? revisions[0]?.experiment_revision_id
+      : head?.experiment_revision_id;
+    if (nextId !== undefined && selectedRevisionId !== nextId) {
+      setSelectedRevisionId(nextId);
     }
-  }, [pinnedRevisionId, revisions, selectedRevisionId]);
+  }, [
+    followHeadAfter,
+    head,
+    historyTruncated,
+    pinnedRevisionId,
+    revisions,
+    revisionsUpdatedAt,
+    selectedRevisionId,
+  ]);
 
   const traceQuery = useQuery({
     queryKey: [
@@ -434,7 +467,13 @@ export function ExperimentCatalogPage() {
         </section>
       )}
 
-      {selected !== null && head !== null && (
+      {historyTruncated && (
+        <p role="alert" className="text-sm text-[var(--color-error)]">
+          修订历史还没有读到当前头修订，此页不会提交修订号。
+        </p>
+      )}
+
+      {selected !== null && (head !== null || historyTruncated) && (
         <RevisionDetail
           head={head}
           selected={selected}
@@ -468,8 +507,15 @@ export function ExperimentCatalogPage() {
           projectId={projectId}
           terms={terms}
           head={head}
+          historyTruncated={historyTruncated}
           onNotice={setNotice}
           onError={setFormError}
+          onConflict={async () => {
+            setPinnedRevisionId(null);
+            setFollowHeadAfter(revisionsUpdatedAt);
+            await refreshCatalog();
+            setFormError('冲突。这次提交没有写入。');
+          }}
           onRevised={(revision) => {
             setPinnedRevisionId(revision.experiment_revision_id);
             setSelectedExperimentId(revision.experiment_id);
@@ -496,7 +542,7 @@ function RevisionDetail({
   sampleRuns,
   sampleRunsError,
 }: {
-  head: CatalogExperimentResponse;
+  head: CatalogExperimentResponse | null;
   selected: CatalogExperimentResponse;
   revisions: CatalogExperimentResponse[];
   onSelectRevision: (revisionId: string) => void;
@@ -516,7 +562,6 @@ function RevisionDetail({
           trace_status: trace.trace_status,
           reason: trace.reason,
         });
-  const historical = selected.revision_number < head.revision_number;
 
   return (
     <section aria-label="Experiment revision" className="space-y-3 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
@@ -524,7 +569,7 @@ function RevisionDetail({
         <div>
           <h3 className="text-lg font-semibold">{selected.display_name}</h3>
           <p className="text-xs text-[var(--color-text-muted)]">
-            {historical ? '旧版' : '当前'} {selected.revision_number}
+            {revisionMark(selected, head)} {selected.revision_number}
             {' · '}
             {singleSlotLabel(selected.assay)}
             {' · '}
@@ -546,7 +591,7 @@ function RevisionDetail({
                 key={revision.experiment_revision_id}
                 value={revision.experiment_revision_id}
               >
-                {revision.revision_number === head.revision_number ? '当前' : '旧版'}{' '}
+                {revisionMark(revision, head)}{' '}
                 {revision.revision_number}: {revision.display_name}
               </option>
             ))}
@@ -631,12 +676,28 @@ function runResultKey(row: CatalogSampleRunListResponseResultsItem): string {
   return `${row.run_id}:unpublished`;
 }
 
+function isCurrentRevision(
+  revision: { experiment_revision_id: string },
+  head: CatalogExperimentResponse | null,
+): boolean {
+  return head !== null && revision.experiment_revision_id === head.experiment_revision_id;
+}
+
+function revisionMark(
+  revision: { experiment_revision_id: string },
+  head: CatalogExperimentResponse | null,
+): string {
+  return isCurrentRevision(revision, head) ? '当前' : '旧版';
+}
+
 function AdminMaintenance({
   projectId,
   terms,
   head,
+  historyTruncated,
   onNotice,
   onError,
+  onConflict,
   onRevised,
   onCreated,
   refresh,
@@ -644,8 +705,10 @@ function AdminMaintenance({
   projectId: string;
   terms: readonly CatalogTermSummaryResponse[];
   head: CatalogExperimentResponse | null;
+  historyTruncated: boolean;
   onNotice: (notice: string) => void;
   onError: (message: string | null) => void;
+  onConflict: () => Promise<void>;
   onRevised: (revision: CatalogExperimentResponse) => void;
   onCreated: (revision: CatalogExperimentResponse) => void;
   refresh: () => Promise<void>;
@@ -694,8 +757,10 @@ function AdminMaintenance({
       <ReviseForm
         key={head?.experiment_revision_id ?? 'closed'}
         head={head}
+        historyTruncated={historyTruncated}
         assayTerms={assayTerms}
         onError={onError}
+        onConflict={onConflict}
         onRevised={async (revision) => {
           await refresh();
           onRevised(revision);
@@ -942,13 +1007,17 @@ function TermSelect({
 
 function ReviseForm({
   head,
+  historyTruncated,
   assayTerms,
   onRevised,
+  onConflict,
   onError,
 }: {
   head: CatalogExperimentResponse | null;
+  historyTruncated: boolean;
   assayTerms: readonly CatalogTermSummaryResponse[];
   onRevised: (revision: CatalogExperimentResponse) => Promise<void>;
+  onConflict: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
   const [displayName, setDisplayName] = useState(head?.display_name ?? '');
@@ -1003,7 +1072,13 @@ function ReviseForm({
       onError(null);
       await onRevised(revision);
     },
-    onError: (caught) => onError(errorMessage(caught)),
+    onError: async (caught) => {
+      if (caught instanceof ApiError && caught.code === 'catalog_revision_conflict') {
+        await onConflict();
+        return;
+      }
+      onError(errorMessage(caught));
+    },
   });
 
   return (
@@ -1019,7 +1094,7 @@ function ReviseForm({
       <p className="text-xs text-[var(--color-text-muted)]">
         A revision appends a new experiment revision. Older revisions stay as they were.
       </p>
-      {head === null && (
+      {head === null && !historyTruncated && (
         <p className="text-xs text-[var(--color-text-muted)]">
           Open an experiment before revising it.
         </p>
@@ -1048,7 +1123,7 @@ function ReviseForm({
       <Button
         type="submit"
         variant="primary"
-        disabled={mutation.isPending || head === null || !canCopy}
+        disabled={mutation.isPending || head === null || historyTruncated || !canCopy}
       >
         Revise classification
       </Button>

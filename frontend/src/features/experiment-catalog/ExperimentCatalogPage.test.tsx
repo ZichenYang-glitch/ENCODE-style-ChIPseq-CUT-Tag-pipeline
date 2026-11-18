@@ -21,6 +21,7 @@ import type {
   CatalogPublishedRunResponse,
   CatalogTermSummaryResponse,
 } from '../../api/generated/models';
+import { ApiError } from '../../api/fetcher';
 import { ExperimentCatalogPage } from './ExperimentCatalogPage';
 
 vi.mock('../../api/generated/catalog/catalog', () => ({
@@ -414,5 +415,151 @@ describe('Experiment catalog page', () => {
     await search(user);
     expect(catalogListExperiments).toHaveBeenCalled();
     expect(catalogListSamples).not.toHaveBeenCalled();
+  });
+
+  it('reads later revision pages before treating the newest as current', async () => {
+    const history = Array.from({ length: 24 }, (_, index) => {
+      const number = index + 1;
+      return experiment({
+        experimentId: EXPERIMENT_ID,
+        revisionId: `expr_${number.toString(16).padStart(32, '0')}`,
+        revisionNumber: number,
+        displayName: `History ${number}`,
+      });
+    });
+    const headRevision = history[23];
+    if (headRevision === undefined) throw new Error('missing head revision');
+    vi.mocked(catalogListExperimentRevisions).mockImplementation(async (_id, params) => {
+      if (params?.cursor === 'revcur_page2') {
+        return { experiment_revisions: history.slice(20), next_cursor: null };
+      }
+      return {
+        experiment_revisions: history.slice(0, 20),
+        next_cursor: 'revcur_page2',
+      };
+    });
+    vi.mocked(catalogReviseExperiment).mockResolvedValue({
+      ...headRevision,
+      experiment_revision_id: `expr_${'f'.repeat(32)}`,
+      revision_number: 25,
+      display_name: 'History 25',
+    });
+
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+
+    expect(await screen.findByRole('heading', { name: 'History 24' })).toBeInTheDocument();
+    const detail = screen.getByRole('region', { name: 'Experiment revision' });
+    expect(detail).toHaveTextContent('当前 24');
+    expect(detail.querySelectorAll('option')).toHaveLength(24);
+    expect(detail).toHaveTextContent('旧版 1: History 1');
+
+    await user.selectOptions(screen.getByLabelText('Revision'), history[0]?.experiment_revision_id ?? '');
+    expect(await screen.findByRole('heading', { name: 'History 1' })).toBeInTheDocument();
+    expect(detail).toHaveTextContent('旧版 1');
+
+    const revise = screen.getByRole('form', { name: 'Revise experiment classification' });
+    const name = within(revise).getByLabelText('Display name');
+    expect(name).toHaveValue('History 24');
+    await user.clear(name);
+    await user.type(name, 'History 25');
+    await user.click(within(revise).getByRole('button', { name: 'Revise classification' }));
+    expect(await screen.findByText('Revised classification to History 25.')).toBeInTheDocument();
+    expect(catalogReviseExperiment).toHaveBeenCalledWith(
+      EXPERIMENT_ID,
+      expect.objectContaining({
+        expected_revision_number: 24,
+        display_name: 'History 25',
+      }),
+      expect.any(Object),
+    );
+    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
+      limit: 20,
+    });
+    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
+      limit: 20,
+      cursor: 'revcur_page2',
+    });
+  });
+
+  it('reports a concurrent revision conflict without writing', async () => {
+    const winner = experiment({
+      experimentId: EXPERIMENT_ID,
+      revisionId: `expr_${'f'.repeat(32)}`,
+      revisionNumber: 3,
+      displayName: 'Winner',
+    });
+    let conflicted = false;
+    vi.mocked(catalogReviseExperiment).mockImplementation(async () => {
+      conflicted = true;
+      throw new ApiError(
+        409,
+        'catalog_revision_conflict',
+        'The catalog revision changed before this write.',
+      );
+    });
+    vi.mocked(catalogListExperimentRevisions).mockImplementation(async () => ({
+      experiment_revisions: conflicted
+        ? [olderRevision, currentRevision, winner]
+        : [olderRevision, currentRevision],
+      next_cursor: null,
+    }));
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    const revise = await screen.findByRole('form', {
+      name: 'Revise experiment classification',
+    });
+    await user.clear(within(revise).getByLabelText('Display name'));
+    await user.type(within(revise).getByLabelText('Display name'), 'Losing name');
+    await user.click(within(revise).getByRole('button', { name: 'Revise classification' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('冲突。这次提交没有写入。');
+    expect(await screen.findByRole('heading', { name: 'Winner' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Experiment revision' })).toHaveTextContent(
+      '当前 3',
+    );
+    expect(screen.queryByText('Revised classification to Losing name.')).not.toBeInTheDocument();
+    expect(catalogReviseExperiment).toHaveBeenCalledWith(
+      EXPERIMENT_ID,
+      expect.objectContaining({ expected_revision_number: 2 }),
+      expect.any(Object),
+    );
+  });
+
+  it('does not submit when revision history stops before the head', async () => {
+    let calls = 0;
+    vi.mocked(catalogListExperimentRevisions).mockImplementation(async () => {
+      calls += 1;
+      return {
+        experiment_revisions: [
+          experiment({
+            experimentId: EXPERIMENT_ID,
+            revisionId: `expr_${calls.toString(16).padStart(32, '0')}`,
+            revisionNumber: calls,
+            displayName: `Partial ${calls}`,
+          }),
+        ],
+        next_cursor: 'revcur_more',
+      };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('修订历史还没有读到当前头修订，此页不会提交修订号。');
+    const detail = screen.getByRole('region', { name: 'Experiment revision' });
+    expect(detail).not.toHaveTextContent('当前');
+    expect(
+      screen.getByRole('button', { name: 'Revise classification' }),
+    ).toBeDisabled();
+    expect(calls).toBe(20);
+    expect(catalogReviseExperiment).not.toHaveBeenCalled();
   });
 });

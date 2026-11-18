@@ -196,9 +196,55 @@ def _experiments(seed: dict, project_id: str, sample_revision_id: str) -> dict:
     return {"first": first, "revised": revised}
 
 
+def _long_history(seed: dict, project_id: str, sample_revision_id: str) -> dict:
+    post = seed["post"]
+    first = post(
+        f"/api/v1/catalog/projects/{project_id}/experiments",
+        {
+            "stable_key": "history",
+            "display_name": "History 1",
+            "assay": _known(seed["cuttag"]),
+            "target": _known(seed["target"]),
+            "batch": _known(seed["batch"]),
+            "samples": [
+                {
+                    "sample_revision_id": sample_revision_id,
+                    "replicate_role": _known(seed["role"]),
+                }
+            ],
+        },
+        "history-01",
+    )
+    current = first
+    for number in range(1, 24):
+        current = post(
+            f"/api/v1/catalog/experiments/{first['experiment_id']}/revisions",
+            {
+                "expected_revision_number": number,
+                "display_name": f"History {number + 1}",
+                "assay": _known(seed["cuttag"]),
+                "target": _known(seed["target"]),
+                "batch": _known(seed["batch"]),
+                "samples": [
+                    {
+                        "sample_revision_id": sample_revision_id,
+                        "replicate_role": _known(seed["role"]),
+                    }
+                ],
+            },
+            f"history-{number + 1:02d}",
+        )
+    return {"first": first, "revised": current}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--long-history",
+        action="store_true",
+        help="Seed one experiment with 24 revisions instead of the paging fixture.",
+    )
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="catalog-page-"))
     database = root / "catalog.sqlite"
@@ -263,11 +309,17 @@ def main() -> None:
             },
             "catalog-treg",
         )
-        created = _experiments(
-            seeded,
-            project.project_id,
-            classified["sample_revision_id"],
-        )
+        sample_revision_id = classified["sample_revision_id"]
+        if args.long_history:
+            created = _long_history(seeded, project.project_id, sample_revision_id)
+            current_name = "History 24"
+            older_name = "History 1"
+            head_revision_number = 24
+        else:
+            created = _experiments(seeded, project.project_id, sample_revision_id)
+            current_name = "Treg CUT&Tag v2"
+            older_name = "Treg CUT&Tag v1"
+            head_revision_number = 2
     except Exception:
         server.should_exit = True
         raise
@@ -284,13 +336,21 @@ def main() -> None:
         "assay_name": "CUT&Tag",
         "cell_type_term_id": seeded["cell_type"]["term_id"],
         "cell_type_name": "regulatory T cell",
-        "sample_revision_id": classified["sample_revision_id"],
+        "sample_revision_id": sample_revision_id,
         "experiment_id": created["revised"]["experiment_id"],
         "older_revision_id": created["first"]["experiment_revision_id"],
-        "current_name": "Treg CUT&Tag v2",
-        "older_name": "Treg CUT&Tag v1",
+        "current_name": current_name,
+        "older_name": older_name,
+        "head_revision_number": head_revision_number,
         "page_two_name": "CUT&Tag page 20",
         "excluded_name": "ATAC excluded",
+        "write": {
+            "assay": _known(seeded["cuttag"]),
+            "target": _known(seeded["target"]),
+            "batch": _known(seeded["batch"]),
+            "sample_revision_id": sample_revision_id,
+            "replicate_role": _known(seeded["role"]),
+        },
     }
     print(f"CATALOG_PAGE_READY {json.dumps(manifest)}", flush=True)
     try:
