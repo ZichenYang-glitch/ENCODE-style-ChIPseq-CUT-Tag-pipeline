@@ -7,14 +7,17 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from itertools import count
 import json
+from unittest.mock import patch
 
 import pytest
 
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.api.catalog_models import CatalogExperimentRunListResponse
 from encode_pipeline.platform.experiment_catalog import (
     CatalogError,
     ExperimentRevisionFreezeSource,
+    association_pins_match,
     freeze_experiment_snapshot_binding,
 )
 from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
@@ -333,6 +336,35 @@ def test_memory_omitted_experiment_stays_unbound_on_replay() -> None:
     assert trace["reason"] == "experiment_snapshot_binding_absent"
 
 
+def test_association_pins_match_requires_ordinal_group_and_role() -> None:
+    first = (
+        0,
+        "smpr_" + "1" * 32,
+        "a" * 64,
+        None,
+        "known",
+        "term_" + "1" * 32,
+        "trmv_" + "1" * 32,
+    )
+    second = (
+        1,
+        "smpr_" + "2" * 32,
+        "b" * 64,
+        "group-a",
+        "known",
+        "term_" + "2" * 32,
+        "trmv_" + "2" * 32,
+    )
+    assert association_pins_match((first, second), (second, first))
+    drifted = (
+        (11, *first[1:]),
+        (*first[:3], "drifted-group", *first[4:]),
+        (*first[:4], "not_applicable", None, None),
+    )
+    for mirror in drifted:
+        assert not association_pins_match((first, second), (mirror, second))
+
+
 def test_freeze_rejects_a_mirror_that_drops_a_payload_pin() -> None:
     revision_id = "expr_" + "d" * 32
     sample_ids = ("smpr_" + "1" * 32, "smpr_" + "2" * 32)
@@ -459,3 +491,170 @@ def test_memory_trace_reads_bindings_only_after_the_store_is_attached() -> None:
     assert hidden["trace_status"] == "experiment_snapshot"
     assert "reason" not in hidden
     assert hidden["results"] == []
+
+
+def _publish(
+    runs,
+    run_id: str,
+    stamp: datetime,
+    artifact_ids: tuple[str, ...],
+) -> None:
+    current = runs.get_run(run_id)
+    if current.status is RunStatus.CREATED:
+        runs.update_run(
+            replace(
+                current,
+                status=RunStatus.SUCCEEDED,
+                updated_at=stamp,
+                ended_at=stamp,
+            ),
+            expected_status=RunStatus.CREATED,
+            event=RunEventDraft(
+                event_type="status_changed",
+                message="Scientific execution succeeded.",
+                status=RunStatus.SUCCEEDED,
+                context={"previous_status": "created", "new_status": "succeeded"},
+            ),
+        )
+    attempt_id = (
+        "resultattempt-"
+        + sha256(f"{run_id}|{'|'.join(artifact_ids)}".encode()).hexdigest()
+    )
+    runs.begin_artifact_result_attempt(
+        run_id,
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+
+    class PublicationClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return stamp.astimezone(tz)
+
+    with patch("encode_pipeline.services.run_repositories.datetime", PublicationClock):
+        runs.replace_artifacts(
+            run_id,
+            tuple(
+                RunArtifactRef(
+                    artifact_id=artifact_id,
+                    run_id=run_id,
+                    artifact_type="file",
+                    name=f"{artifact_id}.bed",
+                    uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
+                    mime_type="text/plain",
+                    produced_at=stamp,
+                    revision="artifactrev-" + sha256(artifact_id.encode()).hexdigest(),
+                    metadata={"output_type": artifact_id},
+                )
+                for artifact_id in artifact_ids
+            ),
+            attempt_id=attempt_id,
+            expected_status=RunStatus.SUCCEEDED,
+            event=RunEventDraft(
+                event_type="artifacts_indexed",
+                message="Workflow artifacts indexed.",
+                status=RunStatus.SUCCEEDED,
+            ),
+        )
+
+
+def test_memory_trace_pages_by_publication_instant() -> None:
+    data, catalog, runs, _ = _world()
+    seeded = _experiment(data, catalog, 2)
+    revision_id = seeded["experiment"]["experiment_revision_id"]
+    selection = ProjectSampleSelection(
+        project_id=seeded["project_id"],
+        sample_revision_ids=tuple(seeded["sample_revision_ids"]),
+    )
+    for digit, run_id, micros in (("1", "run-a", 0), ("2", "run-b", 500_000)):
+        snapshot = _snapshot("vsnap_" + digit * 32)
+        runs.create_validated_input_snapshot(
+            snapshot,
+            project_sample_selection=selection,
+            experiment_revision_id=revision_id,
+        )
+        runs.consume_validated_input_snapshot(
+            snapshot.snapshot_id,
+            workflow_id="workflow-a",
+            expected_build_identity=snapshot.workflow_build_identity,
+            record=_record(run_id, snapshot),
+            consumed_at=NOW + timedelta(minutes=1),
+            event=_event(),
+        )
+        _publish(
+            runs,
+            run_id,
+            NOW + timedelta(minutes=2, microseconds=micros),
+            ("peaks",),
+        )
+    cursor = None
+    seen: list[tuple[str, str]] = []
+    for _ in range(2):
+        page = catalog.list_experiment_run_results(
+            project_id=seeded["project_id"],
+            experiment_revision_id=revision_id,
+            cursor=cursor,
+            limit=1,
+        )
+        CatalogExperimentRunListResponse.model_validate(page)
+        assert page["trace_status"] == "experiment_snapshot"
+        assert len(page["results"]) == 1
+        row = page["results"][0]
+        seen.append((row["run_id"], row["published_at"]))
+        cursor = page["next_cursor"]
+        assert (cursor is not None) == (len(seen) == 1)
+    assert seen == [
+        ("run-b", "2026-11-19T00:02:00.500000Z"),
+        ("run-a", "2026-11-19T00:02:00Z"),
+    ]
+    assert cursor is None
+
+
+def test_memory_trace_orders_the_same_instant_by_run_then_artifact() -> None:
+    data, catalog, runs, _ = _world()
+    seeded = _experiment(data, catalog, 2)
+    revision_id = seeded["experiment"]["experiment_revision_id"]
+    selection = ProjectSampleSelection(
+        project_id=seeded["project_id"],
+        sample_revision_ids=tuple(seeded["sample_revision_ids"]),
+    )
+    stamp = NOW + timedelta(minutes=2)
+    for digit, run_id, artifact_ids in (
+        ("3", "run-a", ("peaks",)),
+        ("4", "run-b", ("peaks", "signal")),
+    ):
+        snapshot = _snapshot("vsnap_" + digit * 32)
+        runs.create_validated_input_snapshot(
+            snapshot,
+            project_sample_selection=selection,
+            experiment_revision_id=revision_id,
+        )
+        runs.consume_validated_input_snapshot(
+            snapshot.snapshot_id,
+            workflow_id="workflow-a",
+            expected_build_identity=snapshot.workflow_build_identity,
+            record=_record(run_id, snapshot),
+            consumed_at=NOW + timedelta(minutes=1),
+            event=_event(),
+        )
+        _publish(runs, run_id, stamp, artifact_ids)
+    cursor = None
+    seen: list[tuple[str, str]] = []
+    for _ in range(3):
+        page = catalog.list_experiment_run_results(
+            project_id=seeded["project_id"],
+            experiment_revision_id=revision_id,
+            cursor=cursor,
+            limit=1,
+        )
+        CatalogExperimentRunListResponse.model_validate(page)
+        assert len(page["results"]) == 1
+        row = page["results"][0]
+        seen.append((row["run_id"], row["artifact_id"]))
+        cursor = page["next_cursor"]
+    assert seen == [
+        ("run-b", "signal"),
+        ("run-b", "peaks"),
+        ("run-a", "peaks"),
+    ]
+    assert cursor is None

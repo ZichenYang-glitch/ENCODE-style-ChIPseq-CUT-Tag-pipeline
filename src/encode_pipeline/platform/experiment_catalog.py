@@ -362,23 +362,55 @@ def sample_revision_sets_equal(
     return set(left_ids) == set(right_ids)
 
 
-def association_pins_match(
-    payload_pins: Sequence[tuple[str, str]],
-    mirror_pins: Sequence[tuple[str, str]],
-) -> bool:
-    """True when the association mirror carries the payload pins exactly.
+def experiment_sample_pin_identity(
+    pin: ExperimentSamplePin,
+) -> tuple[int, str, str, str | None, str, str | None, str | None]:
+    """Ordinal, revision, digest, replicate group, and role stored on one pin."""
 
-    Each pin is ``(sample_revision_id, payload_digest)``. Order is ignored.
-    A missing pin, an extra pin, a duplicate, or a different digest does not match.
+    term = pin.replicate_role.term
+    return (
+        pin.ordinal,
+        pin.sample_revision_id,
+        pin.payload_digest,
+        pin.replicate_group,
+        pin.replicate_role.status,
+        None if term is None else term.term_id,
+        None if term is None else term.term_revision_id,
+    )
+
+
+def association_pins_match(
+    payload_pins: Sequence[
+        tuple[int, str, str, str | None, str, str | None, str | None]
+    ],
+    mirror_pins: Sequence[
+        tuple[int, str, str, str | None, str, str | None, str | None]
+    ],
+) -> bool:
+    """True when every mirror row is one canonical sample pin.
+
+    Each pin is ``(ordinal, sample_revision_id, payload_digest, replicate_group,
+    role_status, role_term_id, role_term_revision_id)``. Order is ignored. A
+    different ordinal, digest, replicate group, or role does not match, nor do
+    a missing pin, an extra pin, or a duplicate ordinal or revision id.
     """
 
     payload = tuple(payload_pins)
     mirror = tuple(mirror_pins)
     if not payload or len(payload) != len(mirror):
         return False
-    payload_ids = {item[0] for item in payload}
-    mirror_ids = {item[0] for item in mirror}
-    if len(payload_ids) != len(payload) or len(mirror_ids) != len(mirror):
+    if len(set(payload)) != len(payload) or len(set(mirror)) != len(mirror):
+        return False
+    payload_ordinals = {item[0] for item in payload}
+    mirror_ordinals = {item[0] for item in mirror}
+    payload_ids = {item[1] for item in payload}
+    mirror_ids = {item[1] for item in mirror}
+    if (
+        len(payload_ordinals) != len(payload)
+        or len(mirror_ordinals) != len(mirror)
+        or len(payload_ids) != len(payload)
+        or len(mirror_ids) != len(mirror)
+    ):
         return False
     return set(payload) == set(mirror)
 
@@ -393,11 +425,11 @@ def freeze_experiment_snapshot_binding(
 
     Missing revisions, inactive projects, and cross-project ids are not found.
     An archived experiment is rejected before the sample-set comparison. The
-    sample set is the canonical payload. The association mirror must carry those
-    same revision ids and payload digests; a drifted mirror is rejected before
-    the request is compared. Equality ignores order and fails closed on an empty
-    side, a duplicate, a missing pin, an extra pin, or the same sample at a
-    different revision.
+    sample set is the canonical payload. The association mirror must match each
+    pin's ordinal, revision id, digest, replicate group, and role; a drifted
+    mirror is rejected before the request is compared. Equality ignores order
+    and fails closed on an empty side, a duplicate, a missing pin, an extra pin,
+    or the same sample at a different revision.
     """
 
     if (

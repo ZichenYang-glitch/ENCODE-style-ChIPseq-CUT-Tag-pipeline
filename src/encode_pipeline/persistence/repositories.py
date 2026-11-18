@@ -76,6 +76,7 @@ from encode_pipeline.platform.experiment_catalog import (
     ExperimentSnapshotBinding,
     association_pins_match,
     build_experiment_revision_payload_digest,
+    experiment_sample_pin_identity,
     catalog_not_found,
     freeze_experiment_snapshot_binding,
     interpret_stored_experiment_payload,
@@ -2505,18 +2506,37 @@ def _experiment_revision_freeze_source(
         return None
     mirror_rows = session.execute(
         select(
+            ExperimentRevisionSampleRow.ordinal,
             ExperimentRevisionSampleRow.sample_revision_id,
             ExperimentRevisionSampleRow.payload_digest,
+            ExperimentRevisionSampleRow.replicate_group,
+            ExperimentRevisionSampleRow.replicate_role_status,
+            ExperimentRevisionSampleRow.replicate_role_term_id,
+            ExperimentRevisionSampleRow.replicate_role_term_revision_id,
         ).where(
             ExperimentRevisionSampleRow.experiment_revision_id == experiment_revision_id
         )
     ).all()
-    payload_pins = tuple(
-        (pin.sample_revision_id, pin.payload_digest) for pin in payload.samples
-    )
+    payload_pins = tuple(experiment_sample_pin_identity(pin) for pin in payload.samples)
     mirror_pins = tuple(
-        (sample_revision_id, payload_digest)
-        for sample_revision_id, payload_digest in mirror_rows
+        (
+            int(ordinal),
+            sample_revision_id,
+            payload_digest,
+            replicate_group,
+            role_status,
+            role_term_id,
+            role_term_revision_id,
+        )
+        for (
+            ordinal,
+            sample_revision_id,
+            payload_digest,
+            replicate_group,
+            role_status,
+            role_term_id,
+            role_term_revision_id,
+        ) in mirror_rows
     )
     return ExperimentRevisionFreezeSource(
         experiment_revision_id=revision.experiment_revision_id,

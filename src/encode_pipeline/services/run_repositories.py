@@ -931,7 +931,7 @@ class InMemoryRunRepository:
                 if item.experiment_revision_id == experiment_revision_id
                 and item.payload_digest == payload_digest
             }
-            rows: list[dict[str, Any]] = []
+            rows: list[tuple[datetime, dict[str, Any]]] = []
             binding_cache: dict[str, ArtifactPublicationRunSampleBinding] = {}
             for publication in self._artifact_publications.values():
                 if publication.run_id not in trusted_runs:
@@ -948,46 +948,49 @@ class InMemoryRunRepository:
                     continue
                 binding = summary.run_sample_binding
                 rows.append(
-                    {
-                        "run_id": summary.run_id,
-                        "provenance": binding.provenance.value,
-                        "publication_evidence": "present",
-                        "artifact_association_kind": "run_input_scope",
-                        "workflow_id": summary.workflow_id,
-                        "artifact_id": summary.artifact_id,
-                        "output_type": summary.output_type,
-                        "artifact_generation": summary.artifact_generation,
-                        "artifact_revision": summary.artifact_revision,
-                        "published_at": _trace_stamp(summary.published_at),
-                        "current_artifact_generation": (
-                            summary.current_artifact_generation
-                        ),
-                        "generation_status": summary.generation_status,
-                        "run_sample_binding": {
-                            "binding_mode": binding.binding_mode.value,
+                    (
+                        summary.published_at.astimezone(timezone.utc),
+                        {
+                            "run_id": summary.run_id,
                             "provenance": binding.provenance.value,
-                            "associated_run_samples": [
-                                {
-                                    "sample_id": sample.sample_id,
-                                    "sample_revision_id": sample.sample_revision_id,
-                                    "revision_number": sample.revision_number,
-                                    "ordinal": sample.ordinal,
-                                }
-                                for sample in binding.associated_run_samples
-                            ],
+                            "publication_evidence": "present",
+                            "artifact_association_kind": "run_input_scope",
+                            "workflow_id": summary.workflow_id,
+                            "artifact_id": summary.artifact_id,
+                            "output_type": summary.output_type,
+                            "artifact_generation": summary.artifact_generation,
+                            "artifact_revision": summary.artifact_revision,
+                            "published_at": _trace_stamp(summary.published_at),
+                            "current_artifact_generation": (
+                                summary.current_artifact_generation
+                            ),
+                            "generation_status": summary.generation_status,
+                            "run_sample_binding": {
+                                "binding_mode": binding.binding_mode.value,
+                                "provenance": binding.provenance.value,
+                                "associated_run_samples": [
+                                    {
+                                        "sample_id": sample.sample_id,
+                                        "sample_revision_id": sample.sample_revision_id,
+                                        "revision_number": sample.revision_number,
+                                        "ordinal": sample.ordinal,
+                                    }
+                                    for sample in binding.associated_run_samples
+                                ],
+                            },
                         },
-                    }
+                    )
                 )
             rows.sort(
                 key=lambda item: (
-                    str(item["published_at"]),
-                    str(item["run_id"]),
-                    str(item["artifact_generation"]),
-                    str(item["artifact_id"]),
+                    item[0],
+                    item[1]["run_id"],
+                    item[1]["artifact_generation"],
+                    item[1]["artifact_id"],
                 ),
                 reverse=True,
             )
-            return rows
+            return [item[1] for item in rows]
 
     def consume_validated_input_snapshot(
         self,

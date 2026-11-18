@@ -197,6 +197,46 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         before = _count(app, "validated_input_snapshots")
         identity = _revision_identity(app, experiment_revision_id)
         assert _mirror_count(app, experiment_revision_id) == 2
+        for statement in (
+            "ordinal = 11",
+            "replicate_group = 'drifted-group'",
+            "replicate_role_status = 'not_applicable', "
+            "replicate_role_term_id = NULL, "
+            "replicate_role_term_revision_id = NULL",
+        ):
+            with app.state.persistence.engine.begin() as connection:
+                updated = connection.execute(
+                    text(
+                        "UPDATE experiment_revision_samples SET "
+                        + statement
+                        + " WHERE experiment_revision_id = :experiment_revision_id "
+                        "AND ordinal = 0"
+                    ),
+                    {"experiment_revision_id": experiment_revision_id},
+                )
+            assert updated.rowcount == 1
+            assert _revision_identity(app, experiment_revision_id) == identity
+            drifted_pin = _validate(
+                client,
+                app,
+                tmp_path,
+                project.project_id,
+                list(reversed(samples)),
+                experiment_revision_id=experiment_revision_id,
+            )
+            assert drifted_pin.status_code == 409, drifted_pin.text
+            assert (
+                drifted_pin.json()["issues"][0]["code"] == "catalog_sample_set_mismatch"
+            )
+            assert drifted_pin.json()["snapshot"] is None
+            assert _count(app, "validated_input_snapshots") == before
+            assert _count(app, "snapshot_experiment_bindings") == 0
+            assert _revision_identity(app, experiment_revision_id) == identity
+            app.state.persistence.catalog_repository.rebuild_experiment_projection(
+                experiment_revision_id
+            )
+            assert _mirror_count(app, experiment_revision_id) == 2
+            assert _revision_identity(app, experiment_revision_id) == identity
         with app.state.persistence.engine.begin() as connection:
             deleted = connection.execute(
                 text(

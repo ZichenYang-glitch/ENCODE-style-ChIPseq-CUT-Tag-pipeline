@@ -31,6 +31,7 @@ from encode_pipeline.platform.experiment_catalog import (
     TermPin,
     administrator_required,
     association_pins_match,
+    experiment_sample_pin_identity,
     bind_catalog_target,
     block_matches,
     catalog_already_archived,
@@ -920,8 +921,7 @@ class InMemoryExperimentCatalogRepository:
                 and kind_value == "user"
             )
             payload_pins = tuple(
-                (pin.sample_revision_id, pin.payload_digest)
-                for pin in revision.payload.samples
+                experiment_sample_pin_identity(pin) for pin in revision.payload.samples
             )
             return ExperimentRevisionFreezeSource(
                 experiment_revision_id=revision.experiment_revision_id,
@@ -931,7 +931,9 @@ class InMemoryExperimentCatalogRepository:
                 payload_digest=build_experiment_revision_payload_digest(
                     revision.canonical_payload
                 ),
-                sample_revision_ids=tuple(item[0] for item in payload_pins),
+                sample_revision_ids=tuple(
+                    pin.sample_revision_id for pin in revision.payload.samples
+                ),
                 association_matches_payload=association_pins_match(
                     payload_pins,
                     payload_pins,
