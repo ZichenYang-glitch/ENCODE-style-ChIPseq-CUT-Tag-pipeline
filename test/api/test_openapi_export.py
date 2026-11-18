@@ -151,6 +151,34 @@ EXPECTED_OPERATIONS = {
         "POST",
         "/api/v1/agent/authoring-sessions/{sid}/validate",
     ): "authoringValidateDraft",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogListRegisteredResults",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogRegisterRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogListRegisteredResultRevisions",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogReviseRegisteredResult",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/archive",
+    ): "catalogArchiveRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}",
+    ): "catalogGetRegisteredResultRevision",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content",
+    ): "catalogDownloadRegisteredResultRevision",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

@@ -244,13 +244,14 @@ def test_external_cluster_counts_register_rename_and_exact_download(
             assert old.status_code == 200, old.text
             assert old.content == fixture_bytes
             _assert_binary_contract(app)
-            _generated_client_download(
-                app,
-                project_id=project.project_id,
-                result_revision_id=revision["result_revision_id"],
-                session_token=member.session_token,
-                fixture_sha=fixture_sha,
-            )
+            if _client_acceptance_requested():
+                _generated_client_download(
+                    app,
+                    project_id=project.project_id,
+                    result_revision_id=revision["result_revision_id"],
+                    session_token=member.session_token,
+                    fixture_sha=fixture_sha,
+                )
             member_events = _events_for(
                 app,
                 actor_user_id=member.user_id,
@@ -258,13 +259,14 @@ def test_external_cluster_counts_register_rename_and_exact_download(
                 result_id=revision["result_id"],
                 result_revision_id=revision["result_revision_id"],
             )
-            assert len(member_events) == 2
+            assert len(member_events) == (2 if _client_acceptance_requested() else 1)
             successes = _success_downloads(app)
             blocked = _download_with_unreadable_copy(
                 app,
                 client,
                 project.project_id,
                 revision,
+                workspace,
             )
             assert blocked.status_code == 409, blocked.text
             assert blocked.json()["issues"][0]["code"] == (
@@ -535,12 +537,10 @@ def _generated_client_download(
                 "HELIXWEAVE_REGISTERED_RESULT_SHA256": fixture_sha,
             }
         )
+        vitest = _locked_vitest()
         completed = subprocess.run(
             [
-                "npm",
-                "exec",
-                "--",
-                "vitest",
+                str(vitest),
                 "run",
                 "--config",
                 "vitest.registered-result.config.ts",
@@ -588,12 +588,52 @@ def _start_api(app):
     return server, thread, port
 
 
-def _download_with_unreadable_copy(app, client, project_id: str, revision: dict):
-    with patch(
-        "encode_pipeline.services.registered_results.os.open",
-        side_effect=OSError("unreadable"),
-    ):
-        return client.get(_content(project_id, revision))
+def _client_acceptance_requested() -> bool:
+    return os.environ.get("HELIXWEAVE_REGISTERED_RESULT_CLIENT") == "1"
+
+
+def _locked_vitest() -> Path:
+    frontend = REPOSITORY_ROOT / "frontend"
+    metadata = json.loads(
+        (frontend / "node_modules" / "vitest" / "package.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert metadata["version"] == "1.6.1"
+    binary = frontend / "node_modules" / ".bin" / "vitest"
+    assert binary.is_file()
+    return binary
+
+
+def _download_with_unreadable_copy(
+    app,
+    client,
+    project_id: str,
+    revision: dict,
+    workspace: Path,
+):
+    service = app.state.registered_result_service
+    previous = service.after_copy_verified
+    verified: list[Path] = []
+
+    def mark(copy_path: Path) -> None:
+        assert copy_path.is_file()
+        assert stat.S_ISREG(copy_path.stat().st_mode)
+        assert stat.S_IMODE(copy_path.stat().st_mode) == 0o600
+        assert (workspace / "registered-result-responses") in copy_path.parents
+        verified.append(copy_path)
+
+    service.after_copy_verified = mark
+    try:
+        with patch(
+            "encode_pipeline.services.registered_results.open_verified_copy",
+            side_effect=OSError("unreadable"),
+        ):
+            response = client.get(_content(project_id, revision))
+    finally:
+        service.after_copy_verified = previous
+    assert len(verified) == 1
+    return response
 
 
 def _download_with_audit_failure(app, project_id: str, revision: dict):

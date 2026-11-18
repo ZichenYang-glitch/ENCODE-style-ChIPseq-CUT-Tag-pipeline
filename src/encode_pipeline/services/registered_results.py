@@ -65,6 +65,12 @@ _MAX_PAGE = 50
 _CURSOR_PREFIX = "rcur1."
 
 
+def open_verified_copy(copy_path: Path) -> int:
+    """Open one sealed response file for the caller to send and close."""
+
+    return os.open(copy_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+
+
 class RegisteredResultAPIError(Exception):
     """Closed HTTP failure that carries no path, pool, or source text."""
 
@@ -225,10 +231,7 @@ class RegisteredResultService:
             raise
         descriptor: int | None = None
         try:
-            descriptor = os.open(
-                copy_path,
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
-            )
+            descriptor = open_verified_copy(copy_path)
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_size != record.size_bytes:
                 raise OSError
