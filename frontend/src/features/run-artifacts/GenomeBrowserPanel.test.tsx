@@ -315,6 +315,25 @@ describe('GenomeBrowserPanel', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
   });
+
+  it('shows a retry when the first session request fails, then an empty selection', async () => {
+    sessionMock.mockRejectedValue(
+      new ApiError(
+        503,
+        'BROWSER_TRACK_UNAVAILABLE',
+        'The browser view is temporarily unavailable.',
+      ),
+    );
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'Retry browser view' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('temporarily unavailable');
+    expect(screen.queryByText('Loading genome browser…')).not.toBeInTheDocument();
+    expect(sessionMock).toHaveBeenCalledTimes(4);
+
+    sessionMock.mockResolvedValue(session());
+    await userEvent.click(screen.getByRole('button', { name: 'Retry browser view' }));
+    expect(await screen.findByRole('checkbox', { name: /PET records/ })).not.toBeChecked();
+  });
 });
 
 function namedTrack(

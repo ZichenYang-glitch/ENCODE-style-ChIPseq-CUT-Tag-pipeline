@@ -146,6 +146,8 @@ export default function GenomeBrowserPanel({
     // load the new catalog by itself and hide that choice.
     retry: (failureCount, error) =>
       !isGenerationConflict(error) && failureCount < 3,
+    // Tests observe the exhausted retries immediately. Production keeps the backoff.
+    retryDelay: import.meta.env.MODE === 'test' ? 0 : undefined,
   });
   const session =
     sessionQuery.data?.run_id === runId ? sessionQuery.data : undefined;
@@ -431,10 +433,7 @@ export default function GenomeBrowserPanel({
       </div>
     );
   }
-  if (sessionQuery.isPending || !session) {
-    return <p role="status">Loading genome browser…</p>;
-  }
-  if (sessionQuery.isError || !session.ok) {
+  if (sessionQuery.isError || (session !== undefined && !session.ok)) {
     return (
       <div role="alert">
         <p>{messageFromError(sessionQuery.error)}</p>
@@ -443,6 +442,9 @@ export default function GenomeBrowserPanel({
         </Button>
       </div>
     );
+  }
+  if (sessionQuery.isPending || session === undefined) {
+    return <p role="status">Loading genome browser…</p>;
   }
 
   return (
