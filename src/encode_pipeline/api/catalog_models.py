@@ -20,10 +20,24 @@ class CatalogIssueResponse(BaseModel):
     hint: str | None = None
 
 
+class CatalogRevisionConflictDetail(BaseModel):
+    """One selected target whose head revision differs from the proposal baseline."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_kind: str
+    target_id: str
+    expected_revision_number: int
+    current_revision_number: int
+    current_revision_id: str
+    expected_revision_id: str | None = None
+
+
 class CatalogErrorResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     issues: list[CatalogIssueResponse]
+    conflicts: list[CatalogRevisionConflictDetail] | None = None
 
 
 _REQUEST_PIN_SCHEMA: dict[str, Any] = {
@@ -527,3 +541,141 @@ class CatalogExperimentRunListResponse(BaseModel):
         ):
             raise ValueError("bound experiment trace lists published rows only")
         return self
+
+
+class CatalogRegisterProposalRequest(BaseModel):
+    """Offline suggestion package. The server assigns the proposal id and digest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["offline_suggestion", "agent", "manual"]
+    rule_version: str | None = None
+    vocabulary_version: str | None = None
+    projection_version: str | None = None
+    items: list[dict[str, Any]]
+
+
+class CatalogPreviewProposalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selected_item_ids: list[str]
+
+
+class CatalogAdoptProposalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preview_digest: str
+    selected_item_ids: list[str]
+    expected_revisions: dict[str, Any]
+
+
+class CatalogProposalItemView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    target_kind: str
+    target_id: str
+    base_revision_id: str
+    base_revision_number: int
+    current_revision_id: str
+    current_revision_number: int
+    allowed_fields: list[str]
+    before: dict[str, Any]
+    after: dict[str, Any]
+    citations: dict[str, Any]
+
+
+class CatalogProposalResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    contract_version: str
+    proposal_id: str
+    project_id: str
+    source: str
+    proposal_state: str
+    adoptable_by_caller: bool
+    rule_version: str
+    vocabulary_version: str
+    projection_version: str
+    proposal_digest: str
+    created_at: str
+    expires_at: str
+    retention_until: str
+    adoption_receipt: dict[str, Any] | None = None
+    items: list[CatalogProposalItemView]
+
+
+class CatalogPreviewItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    target_kind: str
+    target_id: str
+    expected_revision_number: int
+    base_revision_id: str
+    current_revision_number: int
+    current_revision_id: str
+    conflict_detected: bool
+    allowed_fields: list[str]
+    before: dict[str, Any]
+    after: dict[str, Any]
+    citations: dict[str, Any]
+
+
+class CatalogProposalPreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    contract_version: str
+    proposal_id: str
+    project_id: str
+    proposal_digest: str
+    preview_digest: str
+    selected_item_ids: list[str]
+    excluded_item_ids: list[str]
+    expected_revisions: dict[str, int]
+    has_conflicts: bool
+    conflicts: list[CatalogRevisionConflictDetail]
+    expires_at: str
+    items: list[CatalogPreviewItemResponse]
+
+
+class CatalogAppliedTargetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    target_kind: str
+    target_id: str
+    base_revision_id: str
+    base_revision_number: int
+    result_revision_id: str
+    result_revision_number: int
+    changed_fields: list[str]
+
+
+class CatalogAdoptionReceiptResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    replayed: bool
+    contract_version: str
+    receipt_id: str
+    proposal_id: str
+    project_id: str
+    proposal_digest: str
+    preview_digest: str
+    actor_user_id: str
+    idempotency_key: str
+    selected_item_ids: list[str]
+    excluded_item_ids: list[str]
+    applied_targets: list[CatalogAppliedTargetResponse]
+    adopted_at: str
+
+
+class CatalogAdoptionReceiptListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    project_id: str
+    receipts: list[CatalogAdoptionReceiptResponse]
