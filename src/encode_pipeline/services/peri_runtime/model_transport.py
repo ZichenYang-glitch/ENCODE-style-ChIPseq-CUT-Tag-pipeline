@@ -32,6 +32,7 @@ _TOKEN = re.compile(r"syn\.[a-z][a-z0-9_]{0,31}\Z")
 _VALUE = re.compile(r"[A-Za-z0-9_.:-]{1,64}\Z")
 _CALL_ID = re.compile(r"call_[a-z0-9]{8,32}\Z")
 _RESPONSE_ID = re.compile(r"resp_[a-z0-9]{8,32}\Z")
+_GRANT_PERIOD = re.compile(r"grant_[a-z0-9]{8,32}\Z")
 
 _DELIVER_REASONS = frozenset(
     {
@@ -53,9 +54,10 @@ _EXCEPTION_REASONS = _DELIVER_REASONS | {
     "timeout_not_configured",
     "vendor_unselected",
     "malformed_suggestion",
+    "authorization_period_mismatch",
 }
 
-Authorize = Callable[[], bool]
+Authorize = Callable[[], str | None]
 Clock = Callable[[], float]
 Cancel = Callable[[], bool]
 
@@ -159,6 +161,9 @@ class _Pending:
     call_id: str
     response_id: str
     fields: tuple[SyntheticField, ...]
+    delivered_at: float
+    deadline: float
+    period: str
 
 
 Responder = Callable[[TransportProjection], ModelResponse]
@@ -239,9 +244,10 @@ class SyntheticSuggestionTransport:
         refusal = _request_refusal(request)
         if refusal is not None:
             return refusal
-        reason = _gate_reason(self._authorization_reason(), self._cancellation_reason())
-        if reason is not None:
-            return Refusal(reason)
+        period, reason = self._read_period()
+        reason = _gate_reason(reason, self._cancellation_reason())
+        if reason is not None or period is None:
+            return Refusal(reason or "authorization_revoked")
         try:
             started = self._clock()
         except Exception:
@@ -264,7 +270,13 @@ class SyntheticSuggestionTransport:
             return Refusal("malformed_clock")
         if finished - started > self._timeout_seconds:
             return Refusal("timeout")
-        reason = _gate_reason(self._authorization_reason(), self._cancellation_reason())
+        deadline = finished + self._timeout_seconds
+        if not _finite(deadline):
+            return Refusal("malformed_clock")
+        period_after, reason = self._read_period()
+        if reason is not None or period_after != period:
+            return Refusal(reason or "authorization_revoked")
+        reason = self._cancellation_reason()
         if reason is not None:
             return Refusal(reason)
         if not isinstance(response, ModelResponse):
@@ -277,6 +289,9 @@ class SyntheticSuggestionTransport:
             call_id=request.call_id,
             response_id=response.response_id,
             fields=tuple(response.fields),
+            delivered_at=finished,
+            deadline=deadline,
+            period=period,
         )
         with self._lock:
             self._pending[delivery_id] = pending
@@ -289,7 +304,7 @@ class SyntheticSuggestionTransport:
         )
 
     def adopt(self, delivery: Delivery) -> Suggestion:
-        """Return the stored suggestion, or refuse when the grant is gone."""
+        """Adopt one delivery before its own deadline and grant period lapse."""
 
         if type(delivery) is not Delivery or delivery.source != TEST_SOURCE:
             raise TransportRejected("unknown_delivery")
@@ -297,7 +312,7 @@ class SyntheticSuggestionTransport:
             pending = self._pending.get(delivery.delivery_id)
         if pending is None:
             raise TransportRejected("not_delivered")
-        reason = _gate_reason(self._authorization_reason(), self._cancellation_reason())
+        reason = self._adoption_refusal(pending)
         if reason is not None:
             self._drop(delivery.delivery_id)
             raise TransportRejected(reason)
@@ -323,14 +338,32 @@ class SyntheticSuggestionTransport:
                 adopted=self._adopted,
             )
 
-    def _authorization_reason(self) -> str | None:
+    def _read_period(self) -> tuple[str | None, str | None]:
         try:
-            allowed = bool(self._authorize())
+            period = self._authorize()
         except Exception:
-            return "authorization_failed"
-        if not allowed:
-            return "authorization_revoked"
-        return None
+            return None, "authorization_failed"
+        if period is None:
+            return None, "authorization_revoked"
+        if not isinstance(period, str) or _GRANT_PERIOD.fullmatch(period) is None:
+            return None, "authorization_failed"
+        return period, None
+
+    def _adoption_refusal(self, pending: _Pending) -> str | None:
+        try:
+            now = self._clock()
+        except Exception:
+            return "malformed_clock"
+        if not _finite(now) or now < pending.delivered_at:
+            return "malformed_clock"
+        if now > pending.deadline:
+            return "timeout"
+        period, reason = self._read_period()
+        if reason is not None:
+            return reason
+        if period != pending.period:
+            return "authorization_period_mismatch"
+        return self._cancellation_reason()
 
     def _cancellation_reason(self) -> str | None:
         if self._cancel is None:

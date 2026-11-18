@@ -67,13 +67,13 @@ def _response(
 def _transport(
     responder: Responder,
     *,
-    authorize: Callable[[], bool] | None = None,
+    authorize: Callable[[], str | None] | None = None,
     clock: Callable[[], float] | None = None,
     timeout_seconds: float = 1,
     cancelled: Callable[[], bool] | None = None,
 ) -> SyntheticSuggestionTransport:
     return SyntheticSuggestionTransport(
-        authorize=authorize or (lambda: True),
+        authorize=authorize or (lambda: "grant_aaaaaaaa"),
         clock=clock or (lambda: 0.0),
         timeout_seconds=timeout_seconds,
         responder=responder,
@@ -260,7 +260,7 @@ def test_revocation_before_send_does_not_call_the_responder() -> None:
         del projection
         raise AssertionError("responder ran after revocation")
 
-    transport = _transport(responder, authorize=lambda: False)
+    transport = _transport(responder, authorize=lambda: None)
     outcome = transport.deliver(_request())
     assert isinstance(outcome, Refusal)
     assert outcome.reason == "authorization_revoked"
@@ -271,9 +271,11 @@ def test_revocation_before_send_does_not_call_the_responder() -> None:
 def test_revocation_after_the_response_does_not_deliver() -> None:
     checks = {"count": 0}
 
-    def authorize() -> bool:
+    def authorize() -> str | None:
         checks["count"] += 1
-        return checks["count"] == 1
+        if checks["count"] == 1:
+            return "grant_aaaaaaaa"
+        return None
 
     def responder(projection: TransportProjection) -> ModelResponse:
         del projection
@@ -291,16 +293,19 @@ def test_revocation_after_the_response_does_not_deliver() -> None:
 
 
 def test_revocation_before_adopt_drops_the_suggestion() -> None:
-    gate = {"open": True}
+    grant = {"period": "grant_aaaaaaaa"}
 
     def responder(projection: TransportProjection) -> ModelResponse:
         del projection
         return _response("adopt_me", response_id="resp_11111111")
 
-    transport = _transport(responder, authorize=lambda: gate["open"])
+    def authorize() -> str | None:
+        return grant["period"]
+
+    transport = _transport(responder, authorize=authorize)
     delivery = _deliver(transport, _request())
     assert "adopt_me" not in repr(delivery)
-    gate["open"] = False
+    grant["period"] = None
     with pytest.raises(TransportRejected) as caught:
         transport.adopt(delivery)
     assert caught.value.reason == "authorization_revoked"
@@ -309,6 +314,85 @@ def test_revocation_before_adopt_drops_the_suggestion() -> None:
         transport.adopt(delivery)
     assert repeated.value.reason == "not_delivered"
     assert transport.usage().adopted == 0
+
+
+def test_expired_delivery_cannot_be_adopted() -> None:
+    now = {"t": 0.0}
+
+    def clock() -> float:
+        return now["t"]
+
+    def responder(projection: TransportProjection) -> ModelResponse:
+        del projection
+        return _response("stale_value", response_id="resp_33333333")
+
+    transport = _transport(responder, clock=clock, timeout_seconds=1)
+    delivery = _deliver(transport, _request())
+    now["t"] = 2.0
+    with pytest.raises(TransportRejected) as caught:
+        transport.adopt(delivery)
+    assert caught.value.reason == "timeout"
+    assert "stale_value" not in str(caught.value)
+    with pytest.raises(TransportRejected) as repeated:
+        transport.adopt(delivery)
+    assert repeated.value.reason == "not_delivered"
+    assert transport.usage().delivered == 1
+    assert transport.usage().adopted == 0
+
+
+def test_adopt_at_the_deadline_succeeds() -> None:
+    now = {"t": 0.0}
+
+    def clock() -> float:
+        return now["t"]
+
+    def responder(projection: TransportProjection) -> ModelResponse:
+        del projection
+        return _response("on_time", response_id="resp_44444444")
+
+    transport = _transport(responder, clock=clock, timeout_seconds=1)
+    delivery = _deliver(transport, _request())
+    now["t"] = 1.0
+    suggestion = transport.adopt(delivery)
+    assert suggestion.fields == (_field("syn.alpha", "on_time"),)
+    assert transport.usage().adopted == 1
+
+
+def test_reauthorization_adopts_only_a_new_delivery() -> None:
+    grant = {"period": "grant_aaaaaaaa"}
+    queued = deque(
+        [
+            _response("old_value", response_id="resp_55555555"),
+            _response("new_value", response_id="resp_66666666"),
+        ]
+    )
+
+    def authorize() -> str | None:
+        return grant["period"]
+
+    def responder(projection: TransportProjection) -> ModelResponse:
+        del projection
+        return queued.popleft()
+
+    transport = _transport(responder, authorize=authorize)
+    old = _deliver(transport, _request())
+    grant["period"] = "grant_bbbbbbbb"
+    with pytest.raises(TransportRejected) as caught:
+        transport.adopt(old)
+    assert caught.value.reason == "authorization_period_mismatch"
+    assert "old_value" not in str(caught.value)
+    assert "grant_bbbbbbbb" not in str(caught.value)
+    with pytest.raises(TransportRejected) as repeated:
+        transport.adopt(old)
+    assert repeated.value.reason == "not_delivered"
+    assert transport.usage().adopted == 0
+    fresh = _deliver(transport, _request(call_id="call_bbbbbbbb"))
+    suggestion = transport.adopt(fresh)
+    assert suggestion.fields == (_field("syn.alpha", "new_value"),)
+    assert transport.usage().adopted == 1
+    with pytest.raises(TransportRejected) as still_old:
+        transport.adopt(old)
+    assert still_old.value.reason == "not_delivered"
 
 
 def test_cancellation_stops_delivery_and_adopt() -> None:
@@ -339,7 +423,7 @@ def test_cancellation_stops_delivery_and_adopt() -> None:
 
 
 def test_failed_callbacks_do_not_leak_or_deliver() -> None:
-    def explode_auth() -> bool:
+    def explode_auth() -> str | None:
         raise RuntimeError("token=secret-marker")
 
     def responder(projection: TransportProjection) -> ModelResponse:

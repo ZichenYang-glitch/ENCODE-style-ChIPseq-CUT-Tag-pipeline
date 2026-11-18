@@ -25,21 +25,24 @@
 - `call_id`，形如 `call_` 加 8–32 位小写字母或数字。
 - `allowed`：本次允许的合成 token，1–8 个，互不重复。
 - `projected`：实际交给 responder 的合成字段，必须是 `allowed` 的子集。
-- `authorize()`、`clock()`、`timeout_seconds`，以及可选的 `cancelled()`。
+- `authorize()` 返回当前授权期，形如 `grant_` 加 8–32 位小写字母或数字。`None` 表示已撤权。不合文法的返回值是 `authorization_failed`，文本不含该值。
+- `clock()`、`timeout_seconds`，以及可选的 `cancelled()`。
 
 Token 形如 `syn.alpha`。值是 1–64 位的 `A-Za-z0-9_.:-`。这是离线夹具文法，不是目录字段名，也不是供应商 schema。8 个字段是夹具形状，不是花费额度。
 
 `deliver` 按这个顺序处理：
 
 1. 请求不合法则拒绝，reason `malformed_request`，不调用 responder。投影里出现允许集之外的 token 时 reason 为 `field_not_allowed`，同样不调用 responder。
-2. 调用 responder 之前检查授权和取消。已撤权则 `authorization_revoked`；授权回调抛错则 `authorization_failed`；已取消则 `cancelled`。这三种情况都不调用 responder。
+2. 调用 responder 之前读取授权期和取消。已撤权则 `authorization_revoked`；授权回调抛错或返回不合文法的期则 `authorization_failed`；已取消则 `cancelled`。这三种情况都不调用 responder。
 3. responder 只收到 `TransportProjection`：`call_id` 和 `projected`。它看不到允许集里未投影的字段。
 4. responder 返回后再次读时钟。耗时大于 `timeout_seconds` 则丢弃返回值，reason `timeout`。等于时限仍算及时。时钟倒退或非有限值则 `malformed_clock`，同样丢弃返回值。
-5. 返回之后再次检查授权和取消。失败则丢弃返回值。
+5. 返回之后授权期必须仍是进入调用时的那一期，取消也必须仍未发生。撤权、换成别的期或取消都丢弃返回值。
 6. 响应至少包含一个字段，token 必须全部属于 `allowed`，值必须符合夹具文法。任一 token 越界则整份拒绝，reason `field_not_allowed`，不保留其余字段。
-7. 通过后字段暂存在这个 transport 实例里。返回的 `Delivery` 只有 `delivery_id`、`call_id`、`response_id` 和 `source`，不含字段值。
+7. 通过后把字段、交付时钟、截止时间（交付时钟加上 `timeout_seconds`）和当时的授权期暂存在这个 transport 实例里。返回的 `Delivery` 只有 `delivery_id`、`call_id`、`response_id` 和 `source`，不含字段值。
 
-`adopt` 再次检查授权和取消。通过则返回 `Suggestion` 并删掉实例内的暂存；失败则先删掉暂存再拒绝。同一次投递只能采用一次，再次采用的 reason 是 `not_delivered`。撤权后即使授权恢复，也不能用旧 `Delivery` 再采用，需要一次新的 `deliver`。
+`adopt` 核对本轮投递自己的截止时间和授权期，再检查取消。晚于截止时间则拒绝并删除暂存，reason 为 `timeout`；再次采用得到 `not_delivered`，采用计数不变。等于截止时间仍可采用。时钟早于交付时刻则 `malformed_clock`，同样删除暂存。
+
+当前授权期必须等于这次投递记下的期。撤权是 `authorization_revoked`。已经换成新的期是 `authorization_period_mismatch`，旧暂存删除。新的期只能采用它自己的新 `deliver`。布尔“当前是否允许”不能代替这一期：重新授权即使仍然允许，也不能采用上一期已经送达的建议。同一次投递只能采用一次。
 
 建议字段等于被接受的响应字段，顺序也保留。因此同一请求配上两份不同响应，会得到两份不同建议。建议不复制 `projected` 里的值，除非响应自己写了同样的值。`source` 固定为 `test_transport`。契约版本写在建议上。
 
@@ -58,6 +61,8 @@ Token 形如 `syn.alpha`。值是 1–64 位的 `A-Za-z0-9_.:-`。这是离线�
 - responder 看见的投影只含调用方给出的允许字段；越界 token 不会被投递或采用。
 - 时钟越过本次时限后，即使 responder 已经返回，也不投递、不能采用。
 - 撤权发生在调用前、响应返回后、或 `adopt` 之前时，相应步骤停止；`adopt` 前撤权会丢掉已暂存的字段。
+- 时钟停在 0 完成投递、时限为 1 时，等于 1 仍可采用；时钟走到 2 时首次采用被拒绝，重试仍被拒绝，采用计数为 0。
+- 授权期从 `grant_aaaaaaaa` 换成 `grant_bbbbbbbb` 后，旧投递不能采用；同一新期里的新投递可以。
 - 取消与撤权使用同一道门，reason 为 `cancelled`。
 - 拒绝文本不包含被拒的合成值。
 
