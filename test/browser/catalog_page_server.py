@@ -11,6 +11,7 @@ from http.cookiejar import CookieJar
 import json
 from pathlib import Path
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -196,7 +197,12 @@ def _experiments(seed: dict, project_id: str, sample_revision_id: str) -> dict:
     return {"first": first, "revised": revised}
 
 
-def _long_history(seed: dict, project_id: str, sample_revision_id: str) -> dict:
+def _history(
+    seed: dict,
+    project_id: str,
+    sample_revision_id: str,
+    revision_count: int,
+) -> dict:
     post = seed["post"]
     first = post(
         f"/api/v1/catalog/projects/{project_id}/experiments",
@@ -213,10 +219,10 @@ def _long_history(seed: dict, project_id: str, sample_revision_id: str) -> dict:
                 }
             ],
         },
-        "history-01",
+        "history-0001",
     )
     current = first
-    for number in range(1, 24):
+    for number in range(1, revision_count):
         current = post(
             f"/api/v1/catalog/experiments/{first['experiment_id']}/revisions",
             {
@@ -232,8 +238,10 @@ def _long_history(seed: dict, project_id: str, sample_revision_id: str) -> dict:
                     }
                 ],
             },
-            f"history-{number + 1:02d}",
+            f"history-{number + 1:04d}",
         )
+        if number % 100 == 0:
+            print(f"catalog history seeded {number + 1}", file=sys.stderr, flush=True)
     return {"first": first, "revised": current}
 
 
@@ -244,6 +252,12 @@ def main() -> None:
         "--long-history",
         action="store_true",
         help="Seed one experiment with 24 revisions instead of the paging fixture.",
+    )
+    parser.add_argument(
+        "--head-revision",
+        type=int,
+        default=0,
+        help="Seed one experiment with this many revisions.",
     )
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="catalog-page-"))
@@ -310,11 +324,17 @@ def main() -> None:
             "catalog-treg",
         )
         sample_revision_id = classified["sample_revision_id"]
-        if args.long_history:
-            created = _long_history(seeded, project.project_id, sample_revision_id)
-            current_name = "History 24"
+        history_count = args.head_revision or (24 if args.long_history else 0)
+        if history_count > 0:
+            created = _history(
+                seeded,
+                project.project_id,
+                sample_revision_id,
+                history_count,
+            )
+            current_name = f"History {history_count}"
             older_name = "History 1"
-            head_revision_number = 24
+            head_revision_number = history_count
         else:
             created = _experiments(seeded, project.project_id, sample_revision_id)
             current_name = "Treg CUT&Tag v2"

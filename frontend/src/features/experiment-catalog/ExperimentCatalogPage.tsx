@@ -27,10 +27,11 @@ import {
   STABLE_KEY,
   collectPages,
   experimentCellTypeLabel,
+  editingHead,
   experimentListParams,
   experimentTraceText,
-  headRevision,
   knownTermSlot,
+  revisionChoices,
   newIdempotencyHeaders,
   samplesForWrite,
   singleSlotLabel,
@@ -101,8 +102,15 @@ export function ExperimentCatalogPage() {
     null,
   );
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
-  const [pinnedRevisionId, setPinnedRevisionId] = useState<string | null>(null);
+  const [viewedRevision, setViewedRevision] = useState<CatalogExperimentResponse | null>(
+    null,
+  );
+  const [pinnedHead, setPinnedHead] = useState<CatalogExperimentResponse | null>(null);
   const [followHeadAfter, setFollowHeadAfter] = useState<number | null>(null);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [historyCursors, setHistoryCursors] = useState<Array<string | undefined>>([
+    undefined,
+  ]);
   const [notice, setNotice] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -155,75 +163,51 @@ export function ExperimentCatalogPage() {
       );
     },
   });
-  const revisionsQuery = useQuery({
-    queryKey: ['catalog', 'revisions', selectedExperimentId],
+  const experiments = experimentsQuery.data?.experiments ?? [];
+  const listHead =
+    experiments.find((item) => item.experiment_id === selectedExperimentId) ?? null;
+  const head = editingHead(listHead, pinnedHead);
+  const experimentsUpdatedAt = experimentsQuery.dataUpdatedAt;
+  const historyCursor = historyCursors[historyIndex];
+  const historyQuery = useQuery({
+    queryKey: ['catalog', 'revisions', selectedExperimentId, historyCursor ?? null],
     enabled: selectedExperimentId !== null,
     queryFn: () => {
       if (selectedExperimentId === null) throw new Error('No experiment.');
-      const experimentId = selectedExperimentId;
-      return collectPages(async (cursor) => {
-        const page = await catalogListExperimentRevisions(
-          experimentId,
-          cursor === undefined
-            ? { limit: CATALOG_PAGE_SIZE }
-            : { limit: CATALOG_PAGE_SIZE, cursor },
-        );
-        return {
-          items: page.experiment_revisions,
-          nextCursor: page.next_cursor,
-        };
-      });
+      return catalogListExperimentRevisions(
+        selectedExperimentId,
+        historyCursor === undefined
+          ? { limit: CATALOG_PAGE_SIZE }
+          : { limit: CATALOG_PAGE_SIZE, cursor: historyCursor },
+      );
     },
   });
-
-  const revisions = revisionsQuery.data?.items ?? [];
-  const historyTruncated = revisionsQuery.data?.truncated ?? false;
-  const head = historyTruncated ? null : headRevision(revisions);
-  const revisionsUpdatedAt = revisionsQuery.dataUpdatedAt;
+  const historyPage = historyQuery.data?.experiment_revisions ?? [];
+  const historyNext = historyQuery.data?.next_cursor ?? null;
+  const revisions = revisionChoices(
+    [head, viewedRevision?.experiment_id === selectedExperimentId ? viewedRevision : null],
+    historyPage,
+  );
   const selected =
     revisions.find((item) => item.experiment_revision_id === selectedRevisionId) ??
-    null;
+    head;
 
   useEffect(() => {
-    if (revisions.length === 0) return;
-    if (followHeadAfter !== null && revisionsUpdatedAt !== followHeadAfter && head !== null) {
+    if (head === null) return;
+    if (followHeadAfter !== null && experimentsUpdatedAt !== followHeadAfter) {
       setFollowHeadAfter(null);
+      setPinnedHead(null);
+      setViewedRevision(head);
       if (selectedRevisionId !== head.experiment_revision_id) {
         setSelectedRevisionId(head.experiment_revision_id);
       }
       return;
     }
-    if (
-      pinnedRevisionId !== null &&
-      !historyTruncated &&
-      revisions.some((item) => item.experiment_revision_id === pinnedRevisionId)
-    ) {
-      if (selectedRevisionId !== pinnedRevisionId) {
-        setSelectedRevisionId(pinnedRevisionId);
-      }
-      return;
+    if (selectedRevisionId === null) {
+      setViewedRevision(head);
+      setSelectedRevisionId(head.experiment_revision_id);
     }
-    if (
-      selectedRevisionId !== null &&
-      revisions.some((item) => item.experiment_revision_id === selectedRevisionId)
-    ) {
-      return;
-    }
-    const nextId = historyTruncated
-      ? revisions[0]?.experiment_revision_id
-      : head?.experiment_revision_id;
-    if (nextId !== undefined && selectedRevisionId !== nextId) {
-      setSelectedRevisionId(nextId);
-    }
-  }, [
-    followHeadAfter,
-    head,
-    historyTruncated,
-    pinnedRevisionId,
-    revisions,
-    revisionsUpdatedAt,
-    selectedRevisionId,
-  ]);
+  }, [experimentsUpdatedAt, followHeadAfter, head, selectedRevisionId]);
 
   const traceQuery = useQuery({
     queryKey: [
@@ -282,8 +266,19 @@ export function ExperimentCatalogPage() {
   }
 
   const isAdmin = principal.role === 'administrator';
-  const experiments = experimentsQuery.data?.experiments ?? [];
   const nextCursor = experimentsQuery.data?.next_cursor ?? null;
+
+  function resetHistory() {
+    setHistoryIndex(0);
+    setHistoryCursors([undefined]);
+  }
+
+  function clearRevisionSelection() {
+    setSelectedRevisionId(null);
+    setViewedRevision(null);
+    setPinnedHead(null);
+    setFollowHeadAfter(null);
+  }
 
   function applySearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -296,17 +291,27 @@ export function ExperimentCatalogPage() {
     setPageIndex(0);
     setCursors([undefined]);
     setSelectedExperimentId(null);
-    setSelectedRevisionId(null);
-    setPinnedRevisionId(null);
+    resetHistory();
+    clearRevisionSelection();
     setNotice(null);
     setFormError(null);
   }
 
   function openExperiment(experimentId: string) {
     setSelectedExperimentId(experimentId);
-    setSelectedRevisionId(null);
-    setPinnedRevisionId(null);
+    resetHistory();
+    clearRevisionSelection();
     setFormError(null);
+  }
+
+  function showNewerRevisions() {
+    if (historyNext == null || historyNext === '') return;
+    setHistoryCursors((current) => {
+      const next = current.slice(0, historyIndex + 1);
+      next[historyIndex + 1] = historyNext;
+      return next;
+    });
+    setHistoryIndex((index) => index + 1);
   }
 
   return (
@@ -467,20 +472,25 @@ export function ExperimentCatalogPage() {
         </section>
       )}
 
-      {historyTruncated && (
-        <p role="alert" className="text-sm text-[var(--color-error)]">
-          修订历史还没有读到当前头修订，此页不会提交修订号。
-        </p>
-      )}
-
-      {selected !== null && (head !== null || historyTruncated) && (
+      {selected !== null && head !== null && (
         <RevisionDetail
           head={head}
           selected={selected}
           revisions={revisions}
+          historyPage={historyIndex + 1}
+          canShowOlderRevisions={historyIndex > 0}
+          canShowNewerRevisions={
+            historyNext != null && historyNext !== '' && !historyQuery.isFetching
+          }
+          onOlderRevisions={() => setHistoryIndex((index) => Math.max(0, index - 1))}
+          onNewerRevisions={showNewerRevisions}
           onSelectRevision={(revisionId) => {
-            setPinnedRevisionId(null);
+            const revision = revisions.find(
+              (item) => item.experiment_revision_id === revisionId,
+            );
+            setFollowHeadAfter(null);
             setSelectedRevisionId(revisionId);
+            if (revision !== undefined) setViewedRevision(revision);
           }}
           trace={traceQuery.data ?? null}
           traceError={traceQuery.isError ? errorMessage(traceQuery.error) : null}
@@ -507,23 +517,26 @@ export function ExperimentCatalogPage() {
           projectId={projectId}
           terms={terms}
           head={head}
-          historyTruncated={historyTruncated}
           onNotice={setNotice}
           onError={setFormError}
           onConflict={async () => {
-            setPinnedRevisionId(null);
-            setFollowHeadAfter(revisionsUpdatedAt);
+            setPinnedHead(null);
+            setFollowHeadAfter(experimentsUpdatedAt);
             await refreshCatalog();
             setFormError('冲突。这次提交没有写入。');
           }}
           onRevised={(revision) => {
-            setPinnedRevisionId(revision.experiment_revision_id);
+            setPinnedHead(revision);
+            setViewedRevision(revision);
+            setSelectedRevisionId(revision.experiment_revision_id);
             setSelectedExperimentId(revision.experiment_id);
           }}
           onCreated={(revision) => {
             setSelectedExperimentId(revision.experiment_id);
-            setPinnedRevisionId(revision.experiment_revision_id);
+            setPinnedHead(revision);
+            setViewedRevision(revision);
             setSelectedRevisionId(revision.experiment_revision_id);
+            resetHistory();
           }}
           refresh={refreshCatalog}
         />
@@ -536,6 +549,11 @@ function RevisionDetail({
   head,
   selected,
   revisions,
+  historyPage,
+  canShowOlderRevisions,
+  canShowNewerRevisions,
+  onOlderRevisions,
+  onNewerRevisions,
   onSelectRevision,
   trace,
   traceError,
@@ -545,6 +563,11 @@ function RevisionDetail({
   head: CatalogExperimentResponse | null;
   selected: CatalogExperimentResponse;
   revisions: CatalogExperimentResponse[];
+  historyPage: number;
+  canShowOlderRevisions: boolean;
+  canShowNewerRevisions: boolean;
+  onOlderRevisions: () => void;
+  onNewerRevisions: () => void;
   onSelectRevision: (revisionId: string) => void;
   trace: {
     trace_status: string;
@@ -597,6 +620,25 @@ function RevisionDetail({
             ))}
           </select>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-[var(--color-text-muted)]">
+          Revision page {historyPage}
+        </p>
+        <Button
+          type="button"
+          disabled={!canShowOlderRevisions}
+          onClick={onOlderRevisions}
+        >
+          Previous revision page
+        </Button>
+        <Button
+          type="button"
+          disabled={!canShowNewerRevisions}
+          onClick={onNewerRevisions}
+        >
+          Next revision page
+        </Button>
       </div>
       <ul aria-label="Pinned samples" className="space-y-1 text-sm">
         {selected.samples.map((sample) => (
@@ -694,7 +736,6 @@ function AdminMaintenance({
   projectId,
   terms,
   head,
-  historyTruncated,
   onNotice,
   onError,
   onConflict,
@@ -705,7 +746,6 @@ function AdminMaintenance({
   projectId: string;
   terms: readonly CatalogTermSummaryResponse[];
   head: CatalogExperimentResponse | null;
-  historyTruncated: boolean;
   onNotice: (notice: string) => void;
   onError: (message: string | null) => void;
   onConflict: () => Promise<void>;
@@ -757,7 +797,6 @@ function AdminMaintenance({
       <ReviseForm
         key={head?.experiment_revision_id ?? 'closed'}
         head={head}
-        historyTruncated={historyTruncated}
         assayTerms={assayTerms}
         onError={onError}
         onConflict={onConflict}
@@ -1007,14 +1046,12 @@ function TermSelect({
 
 function ReviseForm({
   head,
-  historyTruncated,
   assayTerms,
   onRevised,
   onConflict,
   onError,
 }: {
   head: CatalogExperimentResponse | null;
-  historyTruncated: boolean;
   assayTerms: readonly CatalogTermSummaryResponse[];
   onRevised: (revision: CatalogExperimentResponse) => Promise<void>;
   onConflict: () => Promise<void>;
@@ -1094,7 +1131,7 @@ function ReviseForm({
       <p className="text-xs text-[var(--color-text-muted)]">
         A revision appends a new experiment revision. Older revisions stay as they were.
       </p>
-      {head === null && !historyTruncated && (
+      {head === null && (
         <p className="text-xs text-[var(--color-text-muted)]">
           Open an experiment before revising it.
         </p>
@@ -1123,7 +1160,7 @@ function ReviseForm({
       <Button
         type="submit"
         variant="primary"
-        disabled={mutation.isPending || head === null || historyTruncated || !canCopy}
+        disabled={mutation.isPending || head === null || !canCopy}
       >
         Revise classification
       </Button>

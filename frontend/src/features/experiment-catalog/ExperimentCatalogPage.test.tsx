@@ -417,7 +417,7 @@ describe('Experiment catalog page', () => {
     expect(catalogListSamples).not.toHaveBeenCalled();
   });
 
-  it('reads later revision pages before treating the newest as current', async () => {
+  it('pages revision history and edits the list head', async () => {
     const history = Array.from({ length: 24 }, (_, index) => {
       const number = index + 1;
       return experiment({
@@ -429,6 +429,13 @@ describe('Experiment catalog page', () => {
     });
     const headRevision = history[23];
     if (headRevision === undefined) throw new Error('missing head revision');
+    vi.mocked(catalogListExperiments).mockResolvedValue({
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: [headRevision],
+      next_cursor: null,
+    });
     vi.mocked(catalogListExperimentRevisions).mockImplementation(async (_id, params) => {
       if (params?.cursor === 'revcur_page2') {
         return { experiment_revisions: history.slice(20), next_cursor: null };
@@ -448,17 +455,28 @@ describe('Experiment catalog page', () => {
     const user = userEvent.setup();
     renderWithRouter(routes, { initialEntries: ['/catalog'] });
     await search(user);
-    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    await user.click(await screen.findByRole('button', { name: /History 24/ }));
 
     expect(await screen.findByRole('heading', { name: 'History 24' })).toBeInTheDocument();
     const detail = screen.getByRole('region', { name: 'Experiment revision' });
     expect(detail).toHaveTextContent('当前 24');
-    expect(detail.querySelectorAll('option')).toHaveLength(24);
+    expect(screen.getByText('Revision page 1')).toBeInTheDocument();
     expect(detail).toHaveTextContent('旧版 1: History 1');
+    expect(detail.querySelectorAll('option')).toHaveLength(21);
 
-    await user.selectOptions(screen.getByLabelText('Revision'), history[0]?.experiment_revision_id ?? '');
-    expect(await screen.findByRole('heading', { name: 'History 1' })).toBeInTheDocument();
-    expect(detail).toHaveTextContent('旧版 1');
+    await user.click(screen.getByRole('button', { name: 'Next revision page' }));
+    expect(await screen.findByText('Revision page 2')).toBeInTheDocument();
+    expect(detail).toHaveTextContent('旧版 21: History 21');
+    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
+      limit: 20,
+      cursor: 'revcur_page2',
+    });
+
+    await user.selectOptions(
+      screen.getByLabelText('Revision'),
+      history[20]?.experiment_revision_id ?? '',
+    );
+    expect(await screen.findByRole('heading', { name: 'History 21' })).toBeInTheDocument();
 
     const revise = screen.getByRole('form', { name: 'Revise experiment classification' });
     const name = within(revise).getByLabelText('Display name');
@@ -475,13 +493,6 @@ describe('Experiment catalog page', () => {
       }),
       expect.any(Object),
     );
-    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
-      limit: 20,
-    });
-    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
-      limit: 20,
-      cursor: 'revcur_page2',
-    });
   });
 
   it('reports a concurrent revision conflict without writing', async () => {
@@ -500,6 +511,13 @@ describe('Experiment catalog page', () => {
         'The catalog revision changed before this write.',
       );
     });
+    vi.mocked(catalogListExperiments).mockImplementation(async () => ({
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: conflicted ? [winner] : [currentRevision],
+      next_cursor: null,
+    }));
     vi.mocked(catalogListExperimentRevisions).mockImplementation(async () => ({
       experiment_revisions: conflicted
         ? [olderRevision, currentRevision, winner]
@@ -530,36 +548,52 @@ describe('Experiment catalog page', () => {
     );
   });
 
-  it('does not submit when revision history stops before the head', async () => {
-    let calls = 0;
-    vi.mocked(catalogListExperimentRevisions).mockImplementation(async () => {
-      calls += 1;
-      return {
-        experiment_revisions: [
-          experiment({
-            experimentId: EXPERIMENT_ID,
-            revisionId: `expr_${calls.toString(16).padStart(32, '0')}`,
-            revisionNumber: calls,
-            displayName: `Partial ${calls}`,
-          }),
-        ],
-        next_cursor: 'revcur_more',
-      };
+  it('keeps the list head editable while later revision pages remain', async () => {
+    const head = experiment({
+      experimentId: EXPERIMENT_ID,
+      revisionId: `expr_${(401).toString(16).padStart(32, '0')}`,
+      revisionNumber: 401,
+      displayName: 'History 401',
+    });
+    vi.mocked(catalogListExperiments).mockResolvedValue({
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: [head],
+      next_cursor: null,
+    });
+    vi.mocked(catalogListExperimentRevisions).mockResolvedValue({
+      experiment_revisions: [
+        experiment({
+          experimentId: EXPERIMENT_ID,
+          revisionId: `expr_${'1'.padStart(32, '0')}`,
+          revisionNumber: 1,
+          displayName: 'History 1',
+        }),
+      ],
+      next_cursor: 'revcur_more',
     });
     const user = userEvent.setup();
     renderWithRouter(routes, { initialEntries: ['/catalog'] });
     await search(user);
-    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    await user.click(await screen.findByRole('button', { name: /History 401/ }));
 
-    expect(
-      await screen.findByRole('alert'),
-    ).toHaveTextContent('修订历史还没有读到当前头修订，此页不会提交修订号。');
+    expect(await screen.findByRole('heading', { name: 'History 401' })).toBeInTheDocument();
     const detail = screen.getByRole('region', { name: 'Experiment revision' });
-    expect(detail).not.toHaveTextContent('当前');
+    expect(detail).toHaveTextContent('当前 401');
+    expect(screen.getByRole('button', { name: 'Next revision page' })).toBeEnabled();
     expect(
-      screen.getByRole('button', { name: 'Revise classification' }),
-    ).toBeDisabled();
-    expect(calls).toBe(20);
-    expect(catalogReviseExperiment).not.toHaveBeenCalled();
+      within(screen.getByRole('form', { name: 'Revise experiment classification' })).getByRole(
+        'button',
+        { name: 'Revise classification' },
+      ),
+    ).toBeEnabled();
+    expect(catalogListExperimentRevisions).toHaveBeenCalledWith(EXPERIMENT_ID, {
+      limit: 20,
+    });
+    expect(catalogListExperimentRevisions).not.toHaveBeenCalledWith(
+      EXPERIMENT_ID,
+      expect.objectContaining({ cursor: 'revcur_more' }),
+    );
   });
 });

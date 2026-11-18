@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   CATALOG_PAGE_SIZE,
   RUN_INPUT_SCOPE_TEXT,
+  editingHead,
   experimentCellTypeLabel,
   experimentListParams,
   experimentTraceText,
   headRevision,
   knownTermSlot,
+  revisionChoices,
   multiSlotLabel,
   samplesForWrite,
   singleSlotLabel,
@@ -153,5 +155,23 @@ describe('catalog write and query shaping', () => {
       term_revision_id: 'trmv_a',
     });
     expect(knownTermSlot([], 'missing')).toBeNull();
+  });
+
+  it('keeps a newer pinned head and still offers revisions from another page', () => {
+    const listRow = { experiment_id: 'exp_1', revision_number: 401 };
+    const pinned = { experiment_id: 'exp_1', revision_number: 402 };
+    expect(editingHead(listRow, null)).toEqual(listRow);
+    expect(editingHead(listRow, pinned)).toEqual(pinned);
+    expect(editingHead({ ...listRow, revision_number: 403 }, pinned)).toEqual({
+      experiment_id: 'exp_1',
+      revision_number: 403,
+    });
+    const page = [{ experiment_revision_id: 'expr_1' }];
+    expect(
+      revisionChoices(
+        [{ experiment_revision_id: 'expr_401' }, page[0] ?? null],
+        page,
+      ).map((item) => item.experiment_revision_id),
+    ).toEqual(['expr_401', 'expr_1']);
   });
 });

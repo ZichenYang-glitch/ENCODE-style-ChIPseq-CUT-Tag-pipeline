@@ -165,6 +165,35 @@ export function headRevision<T extends { revision_number: number }>(
   );
 }
 
+export function editingHead<T extends { experiment_id: string; revision_number: number }>(
+  listRow: T | null,
+  pinned: T | null,
+): T | null {
+  if (
+    pinned !== null &&
+    (listRow === null ||
+      (pinned.experiment_id === listRow.experiment_id &&
+        pinned.revision_number >= listRow.revision_number))
+  ) {
+    return pinned;
+  }
+  return listRow;
+}
+
+export function revisionChoices<T extends { experiment_revision_id: string }>(
+  extras: readonly (T | null)[],
+  page: readonly T[],
+): T[] {
+  const seen = new Set(page.map((item) => item.experiment_revision_id));
+  const leading: T[] = [];
+  for (const extra of extras) {
+    if (extra === null || seen.has(extra.experiment_revision_id)) continue;
+    seen.add(extra.experiment_revision_id);
+    leading.push(extra);
+  }
+  return [...leading, ...page];
+}
+
 export function experimentTraceText(trace: {
   trace_status: string;
   reason?: string;
