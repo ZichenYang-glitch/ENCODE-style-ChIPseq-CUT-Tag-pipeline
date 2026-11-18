@@ -199,6 +199,7 @@ source; see [adapter conformance](docs/development/adapter-conformance.md).
 | Inputs | [Configuration](docs/configuration.md), [sample sheet](docs/sample-sheet.md), [reference resources](docs/reference-resources.md) |
 | Evidence | [Output contract](docs/output-contract.md), [artifact inventory](docs/architecture/artifact-inventory.yaml), [QC interpretation](docs/qc-interpretation.md) |
 | Quality and testing | [Development harness](docs/development/harness.md), [quality baseline](docs/development/coverage-policy.md) |
+| Planning, specs, review, and acceptance | [Development workflow](docs/development/development-workflow.md) |
 | Current direction and limits | [Product roadmap](docs/development/workflow-platform-agent-roadmap.md), [known issues](KNOWN_ISSUES.md) |
 
 ## Development and testing

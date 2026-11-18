@@ -44,6 +44,9 @@ Preserve these invariants:
 
 ## Change Discipline
 
+Follow the [development workflow](docs/development/development-workflow.md) for
+specification depth, implementation handoff, review, and acceptance.
+
 Search and read the relevant implementation and tests before editing. Prefer
 established project seams, mature upstream projects, and applicable standards
 before adding an abstraction.
