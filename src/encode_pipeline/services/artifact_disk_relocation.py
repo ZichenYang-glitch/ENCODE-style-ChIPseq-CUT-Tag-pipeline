@@ -1,7 +1,9 @@
 """Move one small artifact from a scratch root onto a durable root.
 
 Copy, verify, and switch are separate durable stages. A crash resumes at the
-last finished stage. The run, artifact, generation, and revision stored for the
+last finished stage. Capture seals a byte string only after the scratch file
+still satisfies the indexed download revision; the stored checksum is that
+byte string. The run, artifact, generation, and revision stored for the
 download link are not rewritten. After switch, that same link reads the
 verified durable bytes. This is not a catalog migration, and it does not delete
 the scratch file or choose a production retention disk.
@@ -20,7 +22,10 @@ import stat
 
 from encode_pipeline.platform.result_generations import (
     BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES,
+    build_artifact_path_identity,
+    source_matches_artifact_revision,
     validate_artifact_generation,
+    validate_artifact_path_identity,
     validate_artifact_revision,
 )
 
@@ -46,6 +51,7 @@ _JOURNAL_KEYS = frozenset(
     }
 )
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_OUTPUT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _WINDOWS_ABSOLUTE = re.compile(r"^[A-Za-z]:")
@@ -93,6 +99,10 @@ class ArtifactDiskRelocation:
         self._source_root = _absolute_root(source_root, "source_root")
         self._durable_root = _absolute_root(durable_root, "durable_root")
 
+    @property
+    def source_root(self) -> Path:
+        return self._source_root
+
     def capture(
         self,
         *,
@@ -101,8 +111,36 @@ class ArtifactDiskRelocation:
         generation: str,
         revision: str,
         relative_path: str,
+        output_type: str,
+        path_identity: str,
+        expected_size: int,
+        content: bytes,
+        mode: int,
     ) -> RelocationJournal:
-        """Seal the scratch bytes, mode, and link coordinates before copying."""
+        """Seal bytes only when this read still matches the indexed revision.
+
+        ``content`` is the buffer the download revision check already accepted.
+        The checksum is that buffer, and only when this read returns the same
+        bytes and the same indexed revision. Copying later republishes the
+        checksum, not a fresh unscoped read.
+        """
+        if (
+            isinstance(expected_size, bool)
+            or not isinstance(expected_size, int)
+            or expected_size < 0
+            or expected_size > MAX_RELOCATION_BYTES
+            or isinstance(mode, bool)
+            or not isinstance(mode, int)
+            or not 0 <= mode <= 0o777
+            or not isinstance(content, bytes)
+            or not isinstance(output_type, str)
+            or _SAFE_OUTPUT_TYPE.fullmatch(output_type) is None
+        ):
+            raise ArtifactDiskRelocationError("relocation_identity_invalid")
+        try:
+            checked_identity = validate_artifact_path_identity(path_identity)
+        except (TypeError, ValueError) as exc:
+            raise ArtifactDiskRelocationError("relocation_identity_invalid") from exc
         identity = _identity(
             run_id=run_id,
             artifact_id=artifact_id,
@@ -113,10 +151,33 @@ class ArtifactDiskRelocation:
         journal_path = self._journal_path(identity[0], identity[1])
         if _lstat(journal_path) is not None:
             raise ArtifactDiskRelocationError("relocation_journal_exists")
-        content, mode = _read_tree(
-            self._source_root / identity[0],
-            PurePosixPath(identity[4]),
+        observed, observed_mode, file_identity, parents = _read_indexed_file(
+            _contained(self._source_root / identity[0], PurePosixPath(identity[4]))
         )
+        if (
+            observed != content
+            or observed_mode != mode
+            or len(observed) != expected_size
+        ):
+            raise ArtifactDiskRelocationError("relocation_source_changed")
+        try:
+            matches = source_matches_artifact_revision(
+                output_type=output_type,
+                relative_path=identity[4],
+                descriptor_identity=":".join(str(value) for value in file_identity),
+                content=observed,
+                persisted_revision=identity[3],
+            )
+            observed_identity = build_artifact_path_identity(
+                parent_identities=parents,
+                file_identity=file_identity,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ArtifactDiskRelocationError("relocation_identity_invalid") from exc
+        if not matches:
+            raise ArtifactDiskRelocationError("relocation_indexed_revision_mismatch")
+        if observed_identity != checked_identity:
+            raise ArtifactDiskRelocationError("relocation_path_identity_mismatch")
         journal = RelocationJournal(
             stage="captured",
             run_id=identity[0],
@@ -124,9 +185,9 @@ class ArtifactDiskRelocation:
             generation=identity[2],
             revision=identity[3],
             relative_path=identity[4],
-            size_bytes=len(content),
-            content_sha256=sha256(content).hexdigest(),
-            mode=mode,
+            size_bytes=len(observed),
+            content_sha256=sha256(observed).hexdigest(),
+            mode=observed_mode,
         )
         return self._write_journal(journal)
 
@@ -525,6 +586,98 @@ def _parse_journal(path: Path, info: os.stat_result) -> RelocationJournal:
         content_sha256=digest,
         mode=mode,
     )
+
+
+def _descriptor_tuple(
+    info: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int, int, int]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
+
+
+def _read_indexed_file(
+    absolute: Path,
+) -> tuple[
+    bytes,
+    int,
+    tuple[int, int, int, int, int, int, int, int, int],
+    tuple[tuple[int, int, int], ...],
+]:
+    """Read one regular file from ``/`` and return bytes, mode, and identity."""
+    if not absolute.is_absolute():
+        raise ArtifactDiskRelocationError("relocation_source_unavailable")
+    parts = absolute.parts[1:]
+    if not parts:
+        raise ArtifactDiskRelocationError("relocation_source_unavailable")
+    descriptors: list[int] = []
+    infos: list[os.stat_result] = []
+    try:
+        current = os.open("/", _DIRECTORY_FLAGS)
+        descriptors.append(current)
+        for index, component in enumerate(parts):
+            final = index == len(parts) - 1
+            flags = _FILE_READ_FLAGS | os.O_NONBLOCK if final else _DIRECTORY_FLAGS
+            try:
+                opened = os.open(component, flags, dir_fd=current)
+            except OSError as exc:
+                if exc.errno in {
+                    errno.ENOENT,
+                    errno.ELOOP,
+                    errno.ENOTDIR,
+                    errno.ENXIO,
+                    errno.ENODEV,
+                    errno.ESTALE,
+                }:
+                    raise ArtifactDiskRelocationError(
+                        "relocation_source_unavailable"
+                    ) from exc
+                raise
+            descriptors.append(opened)
+            current = opened
+            info = os.fstat(opened)
+            if final:
+                if not stat.S_ISREG(info.st_mode):
+                    raise ArtifactDiskRelocationError("relocation_source_unavailable")
+            elif not stat.S_ISDIR(info.st_mode):
+                raise ArtifactDiskRelocationError("relocation_source_unavailable")
+            infos.append(info)
+        file_info = infos[-1]
+        if file_info.st_size > MAX_RELOCATION_BYTES:
+            raise ArtifactDiskRelocationError("relocation_too_large")
+        file_identity = _descriptor_tuple(file_info)
+        content = _read_exact(current, file_info.st_size)
+        os.lseek(current, 0, os.SEEK_SET)
+        if _descriptor_tuple(os.fstat(current)) != file_identity:
+            raise ArtifactDiskRelocationError("relocation_source_changed")
+        again = _read_exact(current, file_info.st_size)
+        if again != content or _descriptor_tuple(os.fstat(current)) != file_identity:
+            raise ArtifactDiskRelocationError("relocation_source_changed")
+        for descriptor, info in zip(descriptors[1:-1], infos[:-1], strict=True):
+            current_info = os.fstat(descriptor)
+            if (current_info.st_dev, current_info.st_ino, current_info.st_mode) != (
+                info.st_dev,
+                info.st_ino,
+                info.st_mode,
+            ):
+                raise ArtifactDiskRelocationError("relocation_source_changed")
+        parents = tuple((info.st_dev, info.st_ino, info.st_mode) for info in infos[:-1])
+        return content, stat.S_IMODE(file_info.st_mode), file_identity, parents
+    except ArtifactDiskRelocationError:
+        raise
+    except OSError as exc:
+        raise ArtifactDiskRelocationError("relocation_source_unavailable") from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def _read_tree(root: Path, relative: PurePosixPath) -> tuple[bytes, int]:

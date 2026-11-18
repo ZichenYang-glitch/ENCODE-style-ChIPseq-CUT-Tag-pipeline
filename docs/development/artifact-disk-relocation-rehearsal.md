@@ -21,7 +21,7 @@
 
 合成正文是两条 narrowPeak 记录，共 50 字节。捕获前把源文件权限设为 `0640`。超过 16 MiB 的文件不进入这条路径。
 
-阶段按顺序是 `captured`、`copying`、`copied`、`verified`、`switched`。`resume` 每次只推进一个未完成阶段。复制中断后日志停在 `copying`，再次 `resume` 会整份重写长期副本。源字节或权限在复制时与封存值不同，则停在 `copying` 且不发布副本。核验或切换发现长期副本不符，则不把阶段推进到 `switched`。
+阶段按顺序是 `captured`、`copying`、`copied`、`verified`、`switched`。`resume` 每次只推进一个未完成阶段。复制中断后日志停在 `copying`，再次 `resume` 会整份重写长期副本。封存时先用下载路径的索引修订核验同一份读取：描述符修订或有界内容修订必须等于 SQLite 里保存的修订，路径身份也必须一致。摘要是这份已核对的字节，不是稍后另读的一份。源文件在封存前被改成等长的另一份正文时，修订对不上，不写阶段日志，也不发布副本。源字节或权限在复制时与封存值不同，则停在 `copying` 且不发布副本。核验或切换发现长期副本不符，则不把阶段推进到 `switched`。
 
 ## 验收动作
 
@@ -37,7 +37,7 @@ pytest 的 `tmp_path` 提供 `scratch` 和 `durable` 两个临时目录。测试
 
 必须同时看到：
 
-1. 迁移前用授权会话下载，正文 SHA-256 与稍后封存的摘要相同；同一链接的匿名请求为 401。
+1. 迁移前用授权会话下载，正文 SHA-256 与稍后封存的摘要相同；同一链接的匿名请求为 401。封存前若把源文件改成等长的另一份正文，封存被拒绝且不写阶段日志；这条已保存的链接返回 `ARTIFACT_DOWNLOAD_REVISION_MISMATCH`，响应正文不是改写后的字节。
 2. 复制被中断时，长期盘上可以留下半份文件，但保存的链接仍返回临时盘上的 50 字节原件。未切换的阶段日志不会把这份半文件当成下载正文。
 3. 复制完成后、切换前，即使长期副本被改坏，保存的链接仍返回临时盘原件。核验失败时阶段留在 `copied`。
 4. 从完好的临时原件重新复制、核验并切换后，同一 URL、同一 `generation`、同一 `revision` 返回封存字节。SQLite 中的 generation 与 revision 不变。
@@ -51,6 +51,7 @@ pytest 的 `tmp_path` 提供 `scratch` 和 `durable` 两个临时目录。测试
 
 | 时机 | 保存的链接 |
 | --- | --- |
+| 封存前，源文件被改成等长的另一份正文 | 409，`ARTIFACT_DOWNLOAD_REVISION_MISMATCH`；不写阶段日志 |
 | 复制中断，临时文件仍在 | 200，正文为迁移前的 50 字节 |
 | 已复制但未切换，长期副本被改坏 | 200，仍是临时盘原件 |
 | 核验因此失败 | 阶段保持 `copied`，读者仍是 200 原件 |
@@ -61,6 +62,8 @@ pytest 的 `tmp_path` 提供 `scratch` 和 `durable` 两个临时目录。测试
 | 切换后把长期文件换成符号链接 | 409，`ARTIFACT_DOWNLOAD_RELOCATION_UNAVAILABLE` |
 | 匿名请求，切换前和切换后 | 401 |
 | 使用另一个 revision | 409，`ARTIFACT_DOWNLOAD_REVISION_CHANGED` |
+
+源文件在封存前被改成等长正文时，`test_equal_length_edit_before_capture_keeps_revision_conflict` 看到封存拒绝，原因是索引修订已经对不上这次读到的字节。阶段日志不出现。保存的链接仍是下载路径原来的 `ARTIFACT_DOWNLOAD_REVISION_MISMATCH`，不是长期副本。
 
 源文件在封存后被改写时，`test_scratch_change_before_copy_does_not_publish` 看到阶段停在 `copying`，长期副本没有发布。即便随后放进一份半文件，未切换的日志对下载查询仍是 absent，不会把那份字节交给读者。
 

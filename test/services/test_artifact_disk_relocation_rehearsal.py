@@ -19,6 +19,11 @@ from encode_pipeline.platform.adapters import (
     ExtractedArtifactCandidate,
     WorkflowInputs,
 )
+from encode_pipeline.platform.result_generations import (
+    ARTIFACT_PATH_IDENTITY_METADATA_KEY,
+    build_artifact_descriptor_revision,
+    build_artifact_path_identity,
+)
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.artifact_disk_relocation import (
@@ -40,7 +45,9 @@ ApiTestClient = importlib.import_module("api_test_client").ApiTestClient
 
 RELATIVE_PATH = "results/browser/sample_peaks.narrowPeak"
 SOURCE_CONTENT = b"chr1\t100\t200\tpeak-a\t50\t+\nchr1\t300\t450\tpeak-b\t80\t+\n"
+REPLACEMENT_CONTENT = b"chr1\t100\t200\tpeak-Z\t99\t+\nchr1\t300\t450\tpeak-Y\t99\t+\n"
 SOURCE_MODE = 0o640
+OUTPUT_TYPE = "macs3_peak"
 
 
 class _InterruptCommit(ArtifactDiskRelocation):
@@ -83,6 +90,38 @@ def _anonymous(app, url: str, params: dict[str, str]) -> httpx.Response:
     return asyncio.run(request())
 
 
+def _current_binding(path: Path) -> tuple[str, str]:
+    infos: list[os.stat_result] = []
+    current = Path("/")
+    for component in path.parts[1:]:
+        current /= component
+        infos.append(os.stat(current, follow_symlinks=False))
+    file_info = infos[-1]
+    file_identity = (
+        file_info.st_dev,
+        file_info.st_ino,
+        file_info.st_mode,
+        file_info.st_nlink,
+        file_info.st_uid,
+        file_info.st_gid,
+        file_info.st_size,
+        file_info.st_mtime_ns,
+        file_info.st_ctime_ns,
+    )
+    revision = build_artifact_descriptor_revision(
+        output_type=OUTPUT_TYPE,
+        relative_path=RELATIVE_PATH,
+        descriptor_identity=":".join(str(value) for value in file_identity),
+    )
+    path_identity = build_artifact_path_identity(
+        parent_identities=tuple(
+            (info.st_dev, info.st_ino, info.st_mode) for info in infos[:-1]
+        ),
+        file_identity=file_identity,
+    )
+    return revision, path_identity
+
+
 def test_scratch_change_before_copy_does_not_publish(tmp_path: Path) -> None:
     source_root = tmp_path / "scratch"
     durable_root = tmp_path / "durable"
@@ -90,6 +129,7 @@ def test_scratch_change_before_copy_does_not_publish(tmp_path: Path) -> None:
     target.parent.mkdir(parents=True)
     target.write_bytes(SOURCE_CONTENT)
     os.chmod(target, SOURCE_MODE)
+    revision, path_identity = _current_binding(target)
     relocation = ArtifactDiskRelocation(
         source_root=source_root,
         durable_root=durable_root,
@@ -98,8 +138,13 @@ def test_scratch_change_before_copy_does_not_publish(tmp_path: Path) -> None:
         run_id="run-1",
         artifact_id="artifact-1",
         generation="artifactgen-" + "ab" * 32,
-        revision="artifactrev-" + "cd" * 32,
+        revision=revision,
         relative_path=RELATIVE_PATH,
+        output_type=OUTPUT_TYPE,
+        path_identity=path_identity,
+        expected_size=len(SOURCE_CONTENT),
+        content=SOURCE_CONTENT,
+        mode=SOURCE_MODE,
     )
     target.write_bytes(b"changed\n")
     os.chmod(target, SOURCE_MODE)
@@ -121,11 +166,129 @@ def test_scratch_change_before_copy_does_not_publish(tmp_path: Path) -> None:
         run_id="run-1",
         artifact_id="artifact-1",
         generation="artifactgen-" + "ab" * 32,
-        revision="artifactrev-" + "cd" * 32,
+        revision=revision,
         relative_path=RELATIVE_PATH,
         size_bytes=len(SOURCE_CONTENT),
     )
     assert decision.kind == "absent"
+
+
+def test_equal_length_edit_before_capture_keeps_revision_conflict(
+    tmp_path: Path,
+) -> None:
+    assert len(REPLACEMENT_CONTENT) == len(SOURCE_CONTENT)
+    assert REPLACEMENT_CONTENT != SOURCE_CONTENT
+    scratch = tmp_path / "scratch"
+    durable = tmp_path / "durable"
+    project = scratch / "project"
+    _project(project)
+    candidate = ExtractedArtifactCandidate(
+        output_type=OUTPUT_TYPE,
+        relative_path=RELATIVE_PATH,
+        mime_type="text/tab-separated-values",
+        metadata={"catalog_id": "macs3_peak", "scope": "project"},
+    )
+    adapter = ArtifactAdapter((candidate,))
+    adapter.identity_root = project
+    registry = WorkflowRegistry([adapter])
+    app = create_app(
+        database_url=f"sqlite:///{scratch / 'platform.db'}",
+        workspace_root=scratch / "workspaces",
+        project_root=project,
+        registry=registry,
+        relocation_root=durable,
+    )
+    try:
+        seed_test_authentication(app)
+        run_service = app.state.run_service
+        run_id = run_service.create_run("fake", WorkflowInputs(config={})).run_id
+        run_service.transition_run(run_id, RunStatus.VALIDATING)
+        identity = app.state.build_identity_provider.capture("fake").value
+        run_service.complete_preflight(run_id, identity)
+        for status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.SUCCEEDED):
+            run_service.transition_run(run_id, status)
+        source = app.state.workspace_root / run_id / RELATIVE_PATH
+        source.parent.mkdir(parents=True)
+        source.write_bytes(SOURCE_CONTENT)
+        os.chmod(source, SOURCE_MODE)
+        extraction = ArtifactExtractionService(
+            run_service=run_service,
+            registry=registry,
+            build_identity_provider=app.state.build_identity_provider,
+            workspace_root=app.state.workspace_root,
+        )
+        extracted = extraction.extract(run_id)
+        assert extracted.is_success, extracted.issues
+        artifact = extracted.value[0]
+        generation = run_service.get_result_state(run_id).artifact_generation
+        assert generation is not None
+        saved_url = f"/api/v1/runs/{run_id}/artifacts/{artifact.artifact_id}/download"
+        saved_params = {"generation": generation, "revision": artifact.revision}
+        client = ApiTestClient(app)
+        relocation = ArtifactDiskRelocation(
+            source_root=app.state.workspace_root,
+            durable_root=durable,
+        )
+        original = client.get(saved_url, params=saved_params)
+        assert original.status_code == 200
+        assert original.content == SOURCE_CONTENT
+
+        source.write_bytes(REPLACEMENT_CONTENT)
+        os.chmod(source, SOURCE_MODE)
+        assert len(source.read_bytes()) == len(SOURCE_CONTENT)
+        try:
+            relocation.capture(
+                run_id=run_id,
+                artifact_id=artifact.artifact_id,
+                generation=generation,
+                revision=artifact.revision,
+                relative_path=RELATIVE_PATH,
+                output_type=str(artifact.metadata["output_type"]),
+                path_identity=str(
+                    artifact.metadata[ARTIFACT_PATH_IDENTITY_METADATA_KEY]
+                ),
+                expected_size=int(artifact.metadata["size_bytes"]),
+                content=REPLACEMENT_CONTENT,
+                mode=SOURCE_MODE,
+            )
+        except ArtifactDiskRelocationError as exc:
+            assert exc.reason_code == "relocation_indexed_revision_mismatch"
+        else:
+            raise AssertionError("equal-length scratch edit was sealed")
+
+        try:
+            app.state.artifact_download_service.capture_relocation(
+                relocation,
+                run_id=run_id,
+                artifact_id=artifact.artifact_id,
+                expected_generation=generation,
+                expected_revision=artifact.revision,
+            )
+        except ArtifactDiskRelocationError as exc:
+            assert exc.reason_code == "relocation_indexed_revision_mismatch"
+        else:
+            raise AssertionError("indexed capture published the edited scratch file")
+
+        journal = durable / "journals" / run_id / f"{artifact.artifact_id}.json"
+        assert not journal.exists()
+        decision = lookup_switched_download(
+            durable,
+            run_id=run_id,
+            artifact_id=artifact.artifact_id,
+            generation=generation,
+            revision=artifact.revision,
+            relative_path=RELATIVE_PATH,
+            size_bytes=len(SOURCE_CONTENT),
+        )
+        assert decision.kind == "absent"
+        conflict = client.get(saved_url, params=saved_params)
+        assert conflict.status_code == 409
+        assert _reason(conflict) == "ARTIFACT_DOWNLOAD_REVISION_MISMATCH"
+        assert REPLACEMENT_CONTENT not in conflict.content
+        _assert_private(conflict, scratch, durable)
+        assert source.read_bytes() == REPLACEMENT_CONTENT
+    finally:
+        _close(app)
 
 
 def test_saved_link_reads_durable_bytes_after_resumable_switch(tmp_path: Path) -> None:
@@ -191,12 +354,12 @@ def test_saved_link_reads_durable_bytes_after_resumable_switch(tmp_path: Path) -
         assert anonymous.status_code == 401
         _assert_private(anonymous, scratch, durable)
 
-        sealed = relocation.capture(
+        sealed = app.state.artifact_download_service.capture_relocation(
+            relocation,
             run_id=run_id,
             artifact_id=artifact.artifact_id,
-            generation=generation,
-            revision=artifact.revision,
-            relative_path=RELATIVE_PATH,
+            expected_generation=generation,
+            expected_revision=artifact.revision,
         )
         assert sealed.stage == "captured"
         assert sealed.mode == SOURCE_MODE
