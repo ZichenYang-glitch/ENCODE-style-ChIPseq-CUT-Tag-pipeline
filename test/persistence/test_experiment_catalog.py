@@ -30,6 +30,9 @@ from encode_pipeline.persistence.data_registry import (
 )
 from encode_pipeline.persistence.models import (
     ExperimentRevisionRow,
+    SampleCatalogProjectionRow,
+    SampleCatalogValueRow,
+    SampleRevisionCatalogTrustRow,
     SampleRevisionRow,
     UserAccountRow,
 )
@@ -69,6 +72,9 @@ def _filters(**kwargs) -> CatalogFilters:
     return parse_page_filters(**values)
 
 
+_MATERIAL_FIELDS = ("species", "tissue", "cell_type", "cell_line", "treatment", "tag")
+
+
 def _write(key: str, body: bytes, operation: str) -> CatalogWrite:
     return CatalogWrite(
         actor_user_id=ACTOR,
@@ -77,6 +83,34 @@ def _write(key: str, body: bytes, operation: str) -> CatalogWrite:
         operation=operation,
         now=NOW,
     )
+
+
+def _delete_sample_projection(engine, revision_id: str) -> None:
+    with Session(engine) as session:
+        session.query(SampleCatalogValueRow).filter(
+            SampleCatalogValueRow.sample_revision_id == revision_id
+        ).delete(synchronize_session=False)
+        session.query(SampleCatalogProjectionRow).filter(
+            SampleCatalogProjectionRow.sample_revision_id == revision_id
+        ).delete(synchronize_session=False)
+        session.commit()
+
+
+def _assert_material(body: dict, cell_term_id: str) -> None:
+    assert body["catalog_state"] == "present"
+    _assert_linked_material(body, cell_term_id)
+
+
+def _assert_linked_material(sample: dict, cell_term_id: str) -> None:
+    for name in _MATERIAL_FIELDS:
+        assert name in sample
+    assert sample["species"]["status"] == "known"
+    assert sample["tissue"]["status"] == "known"
+    assert sample["cell_type"]["status"] == "known"
+    assert sample["cell_type"]["values"][0]["term_id"] == cell_term_id
+    assert sample["cell_line"]["status"] == "not_applicable"
+    assert sample["treatment"]["status"] == "not_applicable"
+    assert sample["tag"]["status"] == "not_applicable"
 
 
 def test_catalog_migration_backfills_heads_and_downgrades(tmp_path) -> None:
@@ -114,6 +148,7 @@ def test_catalog_migration_backfills_heads_and_downgrades(tmp_path) -> None:
     names = set(__import__("sqlalchemy").inspect(downgraded).get_table_names())
     assert "experiments" not in names
     assert "sample_revision_heads" not in names
+    assert "sample_revision_catalog_trust" not in names
     with downgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM sample_revisions")) == 1
     downgraded.dispose()
@@ -488,6 +523,203 @@ def test_parent_database_keeps_free_catalog_attributes(tmp_path) -> None:
             assert stored.canonical_payload == before
             assert stored.payload_digest == before_digest
         del catalog_value
+
+    classified_id = "smpr_" + "7" * 32
+    notebook_id = "smp_" + "2" * 32
+    lookalike_id = "smpr_" + "3" * 32
+    present = catalog.get_sample_revision(notebook_id, classified_id)
+    assert present["catalog_state"] == "present"
+    assert len(present["cell_type"]["values"]) == 1
+    with Session(engine) as session:
+        stored = session.get(SampleRevisionRow, classified_id)
+        classified_payload = stored.canonical_payload
+        classified_digest = stored.payload_digest
+        trust = session.get(SampleRevisionCatalogTrustRow, classified_id)
+        assert trust is not None and trust.catalog_trusted == 1
+        assert (
+            session.query(SampleCatalogValueRow)
+            .filter(SampleCatalogValueRow.sample_revision_id == classified_id)
+            .count()
+            == 1
+        )
+        lookalike = session.get(SampleRevisionRow, lookalike_id)
+        lookalike_payload = lookalike.canonical_payload
+        lookalike_digest = lookalike.payload_digest
+        assert session.get(SampleRevisionCatalogTrustRow, lookalike_id) is None
+
+    def known(created: dict) -> dict:
+        return {
+            "status": "known",
+            "term_id": created["term_id"],
+            "term_revision_id": created["revision"]["term_revision_id"],
+        }
+
+    assay = catalog.create_term(
+        _write("assay", b"assay", "catalogCreateTerm"),
+        term_id="term_" + "d" * 32,
+        term_revision_id="trmv_" + "d" * 32,
+        term_type="assay",
+        display_name="CUT&Tag",
+        namespace=None,
+        accession=None,
+        aliases=(),
+    )
+    target = catalog.create_term(
+        _write("target", b"target", "catalogCreateTerm"),
+        term_id="term_" + "f" * 32,
+        term_revision_id="trmv_" + "f" * 32,
+        term_type="target",
+        display_name="H3K27ac",
+        namespace=None,
+        accession=None,
+        aliases=(),
+    )
+    batch = catalog.create_term(
+        _write("batch", b"batch", "catalogCreateTerm"),
+        term_id="term_" + "1" * 32,
+        term_revision_id="trmv_" + "1" * 32,
+        term_type="batch",
+        display_name="batch-1",
+        namespace=None,
+        accession=None,
+        aliases=(),
+    )
+    role = catalog.create_term(
+        _write("role", b"role", "catalogCreateTerm"),
+        term_id="term_" + "9" * 32,
+        term_revision_id="trmv_" + "9" * 32,
+        term_type="replicate_role",
+        display_name="biological replicate",
+        namespace=None,
+        accession=None,
+        aliases=(),
+    )
+    experiment_id = "exp_" + "1" * 32
+    experiment_revision_id = "expr_" + "1" * 32
+    catalog.create_experiment(
+        _write("parent-cut", b"parent-cut", "catalogCreateExperiment"),
+        project_id=project_id,
+        experiment_id=experiment_id,
+        experiment_revision_id=experiment_revision_id,
+        stable_key="parent-cut",
+        display_name="Parent CUT&Tag",
+        assay=known(assay),
+        target=known(target),
+        batch=known(batch),
+        samples=[
+            {
+                "sample_revision_id": classified_id,
+                "replicate_role": known(role),
+            }
+        ],
+    )
+    _delete_sample_projection(engine, classified_id)
+    renamed = registry.revise_sample(
+        notebook_id,
+        display_name="notebook classified renamed",
+        attributes={"organism": "human"},
+    )
+    assert renamed.revision_number == 4
+    _assert_material(
+        catalog.get_sample_revision(notebook_id, renamed.sample_revision_id),
+        cell["term_id"],
+    )
+    catalog.rebuild_sample_projection(classified_id)
+    with Session(engine) as session:
+        stored = session.get(SampleRevisionRow, classified_id)
+        assert stored.canonical_payload == classified_payload
+        assert stored.payload_digest == classified_digest
+        projection = session.get(SampleCatalogProjectionRow, classified_id)
+        assert projection is not None
+        assert projection.catalog_state == "present"
+        assert projection.catalog_trusted == 1
+        assert (
+            session.query(SampleCatalogValueRow)
+            .filter(SampleCatalogValueRow.sample_revision_id == classified_id)
+            .count()
+            == 1
+        )
+    _assert_material(
+        catalog.get_sample_revision(notebook_id, classified_id),
+        cell["term_id"],
+    )
+    linked_filters = _filters(
+        kind="experiments",
+        project_id=project_id,
+        field_terms={
+            "cell_type": [cell["term_id"]],
+            "assay": [assay["term_id"]],
+        },
+    )
+    linked = catalog.list_experiments(filters=linked_filters, cursor=None, limit=20)
+    assert [item["experiment_id"] for item in linked["experiments"]] == [experiment_id]
+    plan = catalog.explain_experiment_query(linked_filters)
+    assert "SCAN sample_revisions" not in plan
+    assert "SCAN experiment_revisions" not in plan
+    detail = catalog.get_experiment_revision(experiment_id, experiment_revision_id)
+    assert detail["samples"][0]["sample_revision_id"] == classified_id
+    _assert_linked_material(detail["samples"][0], cell["term_id"])
+    _assert_linked_material(linked["experiments"][0]["samples"][0], cell["term_id"])
+    with Session(engine) as session:
+        renamed_row = session.get(SampleRevisionRow, renamed.sample_revision_id)
+        renamed_payload = renamed_row.canonical_payload
+        renamed_digest = renamed_row.payload_digest
+    _delete_sample_projection(engine, renamed.sample_revision_id)
+    catalog.rebuild_sample_projection(renamed.sample_revision_id)
+    with Session(engine) as session:
+        renamed_row = session.get(SampleRevisionRow, renamed.sample_revision_id)
+        assert renamed_row.canonical_payload == renamed_payload
+        assert renamed_row.payload_digest == renamed_digest
+        projection = session.get(
+            SampleCatalogProjectionRow,
+            renamed.sample_revision_id,
+        )
+        assert projection.catalog_state == "present"
+        assert projection.catalog_trusted == 1
+    _assert_material(
+        catalog.get_sample_revision(notebook_id, renamed.sample_revision_id),
+        cell["term_id"],
+    )
+    current = catalog.list_experiments(
+        filters=_filters(
+            kind="experiments",
+            project_id=project_id,
+            revision_view="current_sample_catalog",
+            field_terms={
+                "cell_type": [cell["term_id"]],
+                "assay": [assay["term_id"]],
+            },
+        ),
+        cursor=None,
+        limit=20,
+    )
+    assert [item["experiment_id"] for item in current["experiments"]] == [experiment_id]
+    assert current["experiments"][0]["samples"][0]["sample_revision_id"] == (
+        renamed.sample_revision_id
+    )
+    _assert_linked_material(
+        current["experiments"][0]["samples"][0],
+        cell["term_id"],
+    )
+    _delete_sample_projection(engine, lookalike_id)
+    catalog.rebuild_sample_projection(lookalike_id)
+    with Session(engine) as session:
+        stored = session.get(SampleRevisionRow, lookalike_id)
+        assert stored.canonical_payload == lookalike_payload
+        assert stored.payload_digest == lookalike_digest
+        projection = session.get(SampleCatalogProjectionRow, lookalike_id)
+        assert projection.catalog_state == "absent"
+        assert projection.catalog_trusted == 0
+        assert (
+            session.query(SampleCatalogValueRow)
+            .filter(SampleCatalogValueRow.sample_revision_id == lookalike_id)
+            .count()
+            == 0
+        )
+    assert catalog.get_sample_revision(
+        "smp_" + "3" * 32,
+        lookalike_id,
+    )["catalog_state"] == ("absent")
     engine.dispose()
 
 

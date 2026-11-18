@@ -4078,17 +4078,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Species Term Id"
             }
           },
@@ -4097,17 +4090,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Tissue Term Id"
             }
           },
@@ -4116,17 +4102,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Cell Type Term Id"
             }
           },
@@ -4135,17 +4114,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Cell Line Term Id"
             }
           },
@@ -4154,17 +4126,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Treatment Term Id"
             }
           },
@@ -4173,17 +4138,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Tag Term Id"
             }
           },
@@ -4192,17 +4150,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Assay Term Id"
             }
           },
@@ -4211,17 +4162,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Target Term Id"
             }
           },
@@ -4230,17 +4174,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Batch Term Id"
             }
           },
@@ -4681,17 +4618,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Species Term Id"
             }
           },
@@ -4700,17 +4630,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Tissue Term Id"
             }
           },
@@ -4719,17 +4642,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Cell Type Term Id"
             }
           },
@@ -4738,17 +4654,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Cell Line Term Id"
             }
           },
@@ -4757,17 +4666,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Treatment Term Id"
             }
           },
@@ -4776,17 +4678,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
               "title": "Tag Term Id"
             }
           },

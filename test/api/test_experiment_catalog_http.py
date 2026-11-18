@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +32,30 @@ from encode_pipeline.api.catalog_models import (  # noqa: E402
 from encode_pipeline.api.main import create_app  # noqa: E402
 from encode_pipeline.platform.results import Result  # noqa: E402
 from encode_pipeline.services.data_registry import DataRegistryService  # noqa: E402
+
+
+def _generated_catalog_urls(calls: list[dict[str, object]]) -> list[str]:
+    """Call the committed Orval URL builders and return the paths they emit."""
+
+    repository = Path(__file__).resolve().parents[2]
+    node = repository / ".local/node-v22.23.1-linux-x64/bin/node"
+    if not node.is_file():
+        node = Path("node")
+    completed = subprocess.run(
+        [
+            str(node),
+            str(repository / "test/api/generated_catalog_url.mjs"),
+            json.dumps(calls),
+        ],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    urls = json.loads(completed.stdout)
+    if not isinstance(urls, list) or len(urls) != len(calls):
+        raise AssertionError(completed.stdout)
+    return urls
 
 
 @pytest.fixture
@@ -133,6 +159,27 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
             experiment_query
         )
         assert {"cell_type", "assay"}.isdisjoint(experiment_query)
+        for path, name in (
+            (
+                "/api/v1/catalog/projects/{project_id}/experiments",
+                "cell_type_term_id",
+            ),
+            (
+                "/api/v1/catalog/projects/{project_id}/experiments",
+                "assay_term_id",
+            ),
+            (
+                "/api/v1/catalog/projects/{project_id}/samples",
+                "cell_type_term_id",
+            ),
+        ):
+            parameter = next(
+                item
+                for item in schema["paths"][path]["get"]["parameters"]
+                if item["name"] == name
+            )
+            assert parameter["schema"]["type"] == "array"
+            assert parameter["schema"]["items"] == {"type": "string"}
 
         def term(term_type: str, name: str, key: str) -> dict:
             response = _post(
@@ -300,7 +347,12 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
         cut_treg = experiment(
             "cut-treg", _known(cuttag), treg_sample["sample_revision_id"]
         )
-        experiment("atac-skin", _known(atac), skin_sample["sample_revision_id"])
+        atac_skin = experiment(
+            "atac-skin", _known(atac), skin_sample["sample_revision_id"]
+        )
+        cut_skin = experiment(
+            "cut-skin", _known(cuttag), skin_sample["sample_revision_id"]
+        )
         unknown = experiment(
             "cut-unknown",
             _known(cuttag),
@@ -330,7 +382,108 @@ def test_catalog_http_queries_permissions_and_idempotency(seeded_app) -> None:
                 ("assay_term_id", cuttag["term_id"]),
             ],
         )
-        assert experiment_ids(either_cell) == [cut_treg["experiment_id"]]
+        assert set(experiment_ids(either_cell)) == {
+            cut_treg["experiment_id"],
+            cut_skin["experiment_id"],
+        }
+        (
+            both_url,
+            single_url,
+            empty_url,
+            sample_or_url,
+            sample_one_url,
+            sample_empty_url,
+        ) = _generated_catalog_urls(
+            [
+                {
+                    "fn": "getCatalogListExperimentsUrl",
+                    "args": [
+                        project.project_id,
+                        {
+                            "cell_type_term_id": [
+                                treg["term_id"],
+                                keratinocyte["term_id"],
+                            ],
+                            "assay_term_id": [cuttag["term_id"]],
+                        },
+                    ],
+                },
+                {
+                    "fn": "getCatalogListExperimentsUrl",
+                    "args": [
+                        project.project_id,
+                        {
+                            "cell_type_term_id": [treg["term_id"]],
+                            "assay_term_id": [cuttag["term_id"]],
+                        },
+                    ],
+                },
+                {
+                    "fn": "getCatalogListExperimentsUrl",
+                    "args": [project.project_id, {}],
+                },
+                {
+                    "fn": "getCatalogListSamplesUrl",
+                    "args": [
+                        project.project_id,
+                        {
+                            "cell_type_term_id": [
+                                treg["term_id"],
+                                keratinocyte["term_id"],
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "fn": "getCatalogListSamplesUrl",
+                    "args": [
+                        project.project_id,
+                        {"cell_type_term_id": [keratinocyte["term_id"]]},
+                    ],
+                },
+                {
+                    "fn": "getCatalogListSamplesUrl",
+                    "args": [project.project_id, {}],
+                },
+            ]
+        )
+        assert "%2C" not in both_url
+        assert both_url.count("cell_type_term_id=") == 2
+        assert both_url.count("assay_term_id=") == 1
+        assert set(experiment_ids(client.get(both_url))) == {
+            cut_treg["experiment_id"],
+            cut_skin["experiment_id"],
+        }
+        assert "%2C" not in single_url
+        assert single_url.count("cell_type_term_id=") == 1
+        assert experiment_ids(client.get(single_url)) == [cut_treg["experiment_id"]]
+        assert "?" not in empty_url
+        assert set(experiment_ids(client.get(empty_url))) == {
+            cut_treg["experiment_id"],
+            atac_skin["experiment_id"],
+            cut_skin["experiment_id"],
+            unknown["experiment_id"],
+        }
+        assert "%2C" not in sample_or_url
+        assert sample_or_url.count("cell_type_term_id=") == 2
+        sample_or = client.get(sample_or_url)
+        assert sample_or.status_code == 200, sample_or.text
+        assert {item["sample_id"] for item in sample_or.json()["samples"]} == {
+            treg_sample["sample_id"],
+            skin_sample["sample_id"],
+        }
+        sample_one = client.get(sample_one_url)
+        assert {item["sample_id"] for item in sample_one.json()["samples"]} == {
+            skin_sample["sample_id"],
+        }
+        sample_empty = client.get(sample_empty_url)
+        assert "?" not in sample_empty_url
+        assert {item["sample_id"] for item in sample_empty.json()["samples"]} == {
+            treg_sample["sample_id"],
+            skin_sample["sample_id"],
+            unknown_sample["sample_id"],
+            plain.sample.sample_id,
+        }
         unknown_cut = client.get(
             f"/api/v1/catalog/projects/{project.project_id}/experiments",
             params=[

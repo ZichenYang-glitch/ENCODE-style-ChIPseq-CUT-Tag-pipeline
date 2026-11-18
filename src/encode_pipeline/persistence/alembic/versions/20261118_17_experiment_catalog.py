@@ -370,6 +370,27 @@ def upgrade() -> None:
         ),
     )
     op.create_table(
+        "sample_revision_catalog_trust",
+        sa.Column("sample_revision_id", sa.String(length=37), nullable=False),
+        sa.Column("catalog_trusted", sa.Integer(), nullable=False),
+        sa.CheckConstraint(
+            "length(sample_revision_id) = 37 "
+            "AND substr(sample_revision_id, 1, 5) = 'smpr_'",
+            name="ck_sample_revision_catalog_trust_id",
+        ),
+        sa.CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_revision_catalog_trust_flag",
+        ),
+        sa.ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_revision_catalog_trust_revision",
+            ondelete="RESTRICT",
+        ),
+        sa.PrimaryKeyConstraint("sample_revision_id"),
+    )
+    op.create_table(
         "sample_catalog_projection",
         sa.Column("sample_revision_id", sa.String(length=37), nullable=False),
         sa.Column("project_id", sa.String(length=36), nullable=False),
@@ -502,6 +523,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for name in (
+        "trg_sample_revision_catalog_trust_no_delete",
+        "trg_sample_revision_catalog_trust_no_update",
         "trg_catalog_write_receipts_no_delete",
         "trg_catalog_write_receipts_no_update",
         "trg_experiment_revisions_no_delete",
@@ -514,6 +537,7 @@ def downgrade() -> None:
         "trg_catalog_terms_identity_no_update",
     ):
         op.execute(f"DROP TRIGGER IF EXISTS {name}")
+    op.drop_table("sample_revision_catalog_trust")
     op.drop_index(
         "ix_catalog_write_receipts_subject",
         table_name="catalog_write_receipts",
@@ -638,6 +662,24 @@ def _create_immutability_triggers() -> None:
         BEFORE DELETE ON experiment_revisions
         BEGIN
             SELECT RAISE(ABORT, 'experiment revision is immutable');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_sample_revision_catalog_trust_no_update
+        BEFORE UPDATE ON sample_revision_catalog_trust
+        BEGIN
+            SELECT RAISE(ABORT, 'sample revision catalog trust is immutable');
+        END
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_sample_revision_catalog_trust_no_delete
+        BEFORE DELETE ON sample_revision_catalog_trust
+        BEGIN
+            SELECT RAISE(ABORT, 'sample revision catalog trust is immutable');
         END
         """
     )

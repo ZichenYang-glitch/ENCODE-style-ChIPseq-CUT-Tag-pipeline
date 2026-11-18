@@ -50,6 +50,14 @@ export const getCatalogListExperimentsUrl = (projectId: string,
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["species_term_id","tissue_term_id","cell_type_term_id","cell_line_term_id","treatment_term_id","tag_term_id","assay_term_id","target_term_id","batch_term_id"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : v.toString());
+      });
+      return;
+    }
 
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())
@@ -108,6 +116,14 @@ export const getCatalogListSamplesUrl = (projectId: string,
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["species_term_id","tissue_term_id","cell_type_term_id","cell_line_term_id","treatment_term_id","tag_term_id"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : v.toString());
+      });
+      return;
+    }
 
     if (value !== undefined) {
       normalizedParams.append(key, value === null ? 'null' : value.toString())

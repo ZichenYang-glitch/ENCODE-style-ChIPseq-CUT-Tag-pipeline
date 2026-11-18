@@ -2775,6 +2775,37 @@ class SampleRevisionHeadRow(Base):
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class SampleRevisionCatalogTrustRow(Base):
+    """Whether a sample revision's catalog key came from a trusted classification.
+
+    Projection rows may be deleted and rebuilt. This row is written with the
+    revision and is not a projection: rebuild reads it, and a missing row stays
+    an unclassified historical attribute.
+    """
+
+    __tablename__ = "sample_revision_catalog_trust"
+    __table_args__ = (
+        CheckConstraint(
+            "length(sample_revision_id) = 37 "
+            "AND substr(sample_revision_id, 1, 5) = 'smpr_'",
+            name="ck_sample_revision_catalog_trust_id",
+        ),
+        CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_revision_catalog_trust_flag",
+        ),
+        ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_revision_catalog_trust_revision",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    sample_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    catalog_trusted: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class SampleCatalogProjectionRow(Base):
     """One classification projection for a sample revision, including absence."""
 

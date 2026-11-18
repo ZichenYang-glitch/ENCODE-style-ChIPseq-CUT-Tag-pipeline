@@ -20,6 +20,9 @@ module.exports = {
         },
         fetch: {
           includeHttpResponseReturnType: false,
+          // OpenAPI form arrays repeat the query key. Orval otherwise joins
+          // the values with a comma, which catalog filters reject.
+          explode: true,
         },
         operations: {
           downloadRunArtifact: {

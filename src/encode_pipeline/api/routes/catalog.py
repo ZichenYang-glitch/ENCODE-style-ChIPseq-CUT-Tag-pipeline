@@ -7,6 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import WithJsonSchema
 
 from encode_pipeline.api.catalog_models import (
     CatalogArchiveExperimentResponse,
@@ -35,6 +36,13 @@ from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+# OpenAPI array query parameters repeat keys. anyOf [array, null] makes the
+# generated client join values with a comma, which the filter rejects.
+CatalogTermIds = Annotated[
+    list[str] | None,
+    Query(),
+    WithJsonSchema({"type": "array", "items": {"type": "string"}}),
+]
 _ERRORS = {
     400: {"model": CatalogErrorResponse},
     403: {"model": CatalogErrorResponse},
@@ -166,15 +174,15 @@ async def list_experiments(
     include_archived: bool = Query(default=False),
     created_from: datetime | None = Query(default=None),
     created_before: datetime | None = Query(default=None),
-    species_term_id: list[str] | None = Query(default=None),
-    tissue_term_id: list[str] | None = Query(default=None),
-    cell_type_term_id: list[str] | None = Query(default=None),
-    cell_line_term_id: list[str] | None = Query(default=None),
-    treatment_term_id: list[str] | None = Query(default=None),
-    tag_term_id: list[str] | None = Query(default=None),
-    assay_term_id: list[str] | None = Query(default=None),
-    target_term_id: list[str] | None = Query(default=None),
-    batch_term_id: list[str] | None = Query(default=None),
+    species_term_id: CatalogTermIds = None,
+    tissue_term_id: CatalogTermIds = None,
+    cell_type_term_id: CatalogTermIds = None,
+    cell_line_term_id: CatalogTermIds = None,
+    treatment_term_id: CatalogTermIds = None,
+    tag_term_id: CatalogTermIds = None,
+    assay_term_id: CatalogTermIds = None,
+    target_term_id: CatalogTermIds = None,
+    batch_term_id: CatalogTermIds = None,
     species_status: str | None = Query(default=None),
     tissue_status: str | None = Query(default=None),
     cell_type_status: str | None = Query(default=None),
@@ -238,12 +246,12 @@ async def list_samples(
     created_from: datetime | None = Query(default=None),
     created_before: datetime | None = Query(default=None),
     catalog_state: str | None = Query(default=None),
-    species_term_id: list[str] | None = Query(default=None),
-    tissue_term_id: list[str] | None = Query(default=None),
-    cell_type_term_id: list[str] | None = Query(default=None),
-    cell_line_term_id: list[str] | None = Query(default=None),
-    treatment_term_id: list[str] | None = Query(default=None),
-    tag_term_id: list[str] | None = Query(default=None),
+    species_term_id: CatalogTermIds = None,
+    tissue_term_id: CatalogTermIds = None,
+    cell_type_term_id: CatalogTermIds = None,
+    cell_line_term_id: CatalogTermIds = None,
+    treatment_term_id: CatalogTermIds = None,
+    tag_term_id: CatalogTermIds = None,
     species_status: str | None = Query(default=None),
     tissue_status: str | None = Query(default=None),
     cell_type_status: str | None = Query(default=None),

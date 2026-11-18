@@ -28,6 +28,7 @@ from encode_pipeline.persistence.models import (
     RunSampleRow,
     SampleCatalogProjectionRow,
     SampleCatalogValueRow,
+    SampleRevisionCatalogTrustRow,
     SampleRevisionHeadRow,
     SampleRevisionRow,
     SampleRow,
@@ -152,6 +153,7 @@ def sync_sample_revision_state(
         head.project_id = revision.project_id
     if catalog_trusted is None:
         catalog_trusted = _previous_catalog_trusted(session, revision)
+    _record_catalog_trust(session, revision.sample_revision_id, catalog_trusted)
     replace_sample_projection(
         session,
         revision,
@@ -202,8 +204,29 @@ def _previous_catalog_trusted(session: Session, revision: SampleRevision) -> boo
     )
     if previous_id is None:
         return False
-    projection = session.get(SampleCatalogProjectionRow, previous_id)
-    return projection is not None and bool(projection.catalog_trusted)
+    return _catalog_trust(session, previous_id)
+
+
+def _catalog_trust(session: Session, sample_revision_id: str) -> bool:
+    """Read the trust bit stored on the revision, not on its projection."""
+
+    row = session.get(SampleRevisionCatalogTrustRow, sample_revision_id)
+    return row is not None and bool(row.catalog_trusted)
+
+
+def _record_catalog_trust(
+    session: Session,
+    sample_revision_id: str,
+    trusted: bool,
+) -> None:
+    """Keep the classification source after the projection tables are removed."""
+
+    session.add(
+        SampleRevisionCatalogTrustRow(
+            sample_revision_id=sample_revision_id,
+            catalog_trusted=1 if trusted else 0,
+        )
+    )
 
 
 class SqlAlchemyExperimentCatalogRepository:
@@ -928,11 +951,7 @@ class SqlAlchemyExperimentCatalogRepository:
                 raise catalog_not_found()
             before = row.canonical_payload
             revision = _sample_revision_from_row(row)
-            projection = session.get(
-                SampleCatalogProjectionRow,
-                sample_revision_id,
-            )
-            trusted = projection is not None and bool(projection.catalog_trusted)
+            trusted = _catalog_trust(session, sample_revision_id)
             replace_sample_projection(
                 session,
                 revision,
