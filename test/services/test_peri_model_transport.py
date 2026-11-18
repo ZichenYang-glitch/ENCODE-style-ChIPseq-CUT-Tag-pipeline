@@ -96,7 +96,9 @@ def _clock(*values: float) -> Callable[[], float]:
     return clock
 
 
-def _deliver(transport: SyntheticSuggestionTransport, request: TransportRequest) -> Delivery:
+def _deliver(
+    transport: SyntheticSuggestionTransport, request: TransportRequest
+) -> Delivery:
     outcome = transport.deliver(request)
     assert isinstance(outcome, Delivery)
     return outcome
@@ -106,7 +108,9 @@ def test_roles_stay_distinct() -> None:
     assert QUALIFICATION_STUB_ROLE == "qualification_stub"
     assert TEST_TRANSPORT_ROLE == "test_transport"
     assert VENDOR_TRANSPORT_ROLE == "vendor_transport"
-    assert len({QUALIFICATION_STUB_ROLE, TEST_TRANSPORT_ROLE, VENDOR_TRANSPORT_ROLE}) == 3
+    assert (
+        len({QUALIFICATION_STUB_ROLE, TEST_TRANSPORT_ROLE, VENDOR_TRANSPORT_ROLE}) == 3
+    )
     assert SyntheticSuggestionTransport.role == TEST_TRANSPORT_ROLE
     assert SyntheticSuggestionTransport.contract_version == CONTRACT_VERSION
     assert not hasattr(ModelStub, "deliver")
@@ -151,7 +155,10 @@ def test_response_values_become_the_suggestion() -> None:
         {"field_token": "syn.alpha", "value": "from_second"},
     )
     assert all(item.fields == request.projected for item in seen)
-    assert request.projected[0].value not in {first.fields[0].value, second.fields[0].value}
+    assert request.projected[0].value not in {
+        first.fields[0].value,
+        second.fields[0].value,
+    }
     assert "from_first" not in repr(first_delivery)
     with pytest.raises(TransportRejected) as repeated:
         transport.adopt(first_delivery)
@@ -498,12 +505,12 @@ def test_transport_module_does_not_import_authoring_or_network() -> None:
         "os",
     }
     assert modules.isdisjoint(forbidden)
-    runtime = (
-        ROOT / "src/encode_pipeline/services/peri_runtime/runtime.py"
-    ).read_text(encoding="utf-8")
-    session = (
-        ROOT / "src/encode_pipeline/services/peri_runtime/session.py"
-    ).read_text(encoding="utf-8")
+    runtime = (ROOT / "src/encode_pipeline/services/peri_runtime/runtime.py").read_text(
+        encoding="utf-8"
+    )
+    session = (ROOT / "src/encode_pipeline/services/peri_runtime/session.py").read_text(
+        encoding="utf-8"
+    )
     assert "open_qualification_model_transport" in runtime
     assert "open_qualification_model_transport" in session
     for name in ("SyntheticSuggestionTransport", "open_vendor_model_transport"):
