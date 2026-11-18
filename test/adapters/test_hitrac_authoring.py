@@ -11,6 +11,7 @@ import pytest
 
 from encode_pipeline.adapters.hitrac_preprocess.authoring import (
     build_hitrac_authoring_schema,
+    project_hitrac_authoring_fields,
 )
 from encode_pipeline.adapters.hitrac_preprocess.validation import validate_hitrac_inputs
 from encode_pipeline.platform.adapters import WorkflowInputs
@@ -218,3 +219,38 @@ def test_other_sample_representations_are_not_silently_loaded(samples):
     result = validate_hitrac_inputs(WorkflowInputs(config={}, samples=samples))
     assert result.issues[0].code == "HITRAC_SAMPLES_INVALID"
     assert result.issues[0].path == "samples"
+
+
+def test_mapq_projection_uses_schema_bounds_and_omits_other_fields():
+    schema = build_hitrac_authoring_schema()
+    projected = project_hitrac_authoring_fields(schema.to_dict())
+
+    assert projected is not None
+    assert [field.token for field in projected.fields] == ["options.mapq"]
+    field = projected.fields[0]
+    assert field.document == "options"
+    assert field.key == "mapq"
+    assert field.constraint.minimum == 0
+    assert field.constraint.maximum == 255
+    rendered = json.dumps(field.public_dict())
+    assert "default" not in rendered
+    assert "description" not in rendered
+    assert "threads" not in rendered
+    assert [issue.code for issue in projected.issues] == [
+        "HITRAC_OPTION_INVALID",
+        "HITRAC_OPTIONS_INVALID",
+    ]
+
+
+def test_mapq_projection_tightens_to_the_live_schema_and_withholds_a_broken_field():
+    payload = build_hitrac_authoring_schema().to_dict()
+    payload["option_schema"]["properties"]["mapq"]["minimum"] = 4
+    payload["option_schema"]["properties"]["mapq"]["maximum"] = 40
+    tightened = project_hitrac_authoring_fields(payload)
+
+    assert tightened is not None
+    assert tightened.fields[0].constraint.minimum == 4
+    assert tightened.fields[0].constraint.maximum == 40
+
+    payload["option_schema"]["properties"]["mapq"]["type"] = "string"
+    assert project_hitrac_authoring_fields(payload) is None

@@ -13,11 +13,6 @@ from encode_pipeline.adapters.encode_authoring_samples import (
     materialize_encode_sample_rows,
     normalize_encode_workflow_sample_plans,
 )
-from encode_pipeline.adapters.encode_authoring_projection import (
-    explainable_codes,
-    explainable_issues,
-    project_encode_fields,
-)
 from encode_pipeline.persistence.authoring import (
     AuthoringSessionRecord,
     AuthoringTurnRecord,
@@ -33,6 +28,8 @@ from encode_pipeline.platform.authoring import (
     AUTHENTICATION_REQUIRED,
     AuthoringActor,
     AuthoringField,
+    AuthoringFieldProjection,
+    AuthoringFieldProjectingAdapter,
     AuthoringRejected,
     BRIDGE_UNAVAILABLE,
     REQUEST_TOO_LARGE,
@@ -818,7 +815,9 @@ class AuthoringService:
         schema_digest, projection_digest, _fields = self._identity(record.workflow_id)
         public = [_public_issue(issue) for issue in result.issues]
         codes = tuple(
-            issue.code for issue in result.issues if issue.code in explainable_codes()
+            issue.code
+            for issue in result.issues
+            if issue.code in self._explainable_codes(record.workflow_id)
         )
         snapshot_id = None if result.value is None else result.value.snapshot_id
         self._repository.store_validation(
@@ -1171,34 +1170,70 @@ class AuthoringService:
             except AuthoringRejected:
                 raise AuthoringRejected(INVALID_REQUEST) from None
 
+    def _projection_from(
+        self,
+        adapter: object,
+        payload: Mapping[str, Any],
+    ) -> AuthoringFieldProjection | None:
+        if not isinstance(adapter, AuthoringFieldProjectingAdapter):
+            return None
+        try:
+            projection = adapter.project_authoring_fields(payload)
+        except Exception:
+            return None
+        if not isinstance(projection, AuthoringFieldProjection):
+            return None
+        return projection
+
+    def _projection(self, workflow_id: str) -> AuthoringFieldProjection | None:
+        try:
+            adapter = self._registry.get(workflow_id)
+            payload = adapter.schema().to_dict()
+        except Exception:
+            raise AuthoringRejected(WORKFLOW_UNAVAILABLE) from None
+        return self._projection_from(adapter, payload)
+
+    def _explainable_codes(self, workflow_id: str) -> frozenset[str]:
+        projection = self._projection(workflow_id)
+        if projection is None:
+            return frozenset()
+        return frozenset(issue.code for issue in projection.issues)
+
     def _identity(
         self,
         workflow_id: str,
     ) -> tuple[str, str | None, dict[str, AuthoringField] | None]:
         try:
-            schema = self._registry.get(workflow_id).schema()
+            adapter = self._registry.get(workflow_id)
+            payload = adapter.schema().to_dict()
         except Exception:
             raise AuthoringRejected(WORKFLOW_UNAVAILABLE) from None
-        payload = schema.to_dict()
         schema_digest = schema_identity_digest(workflow_id, payload)
-        projected = project_encode_fields(workflow_id, payload)
-        if projected is None:
+        projection = self._projection_from(adapter, payload)
+        if projection is None:
             return schema_digest, None, None
-        issues = explainable_issues()
-        digest = projection_identity_digest(workflow_id, projected, issues)
+        digest = projection_identity_digest(
+            workflow_id,
+            projection.fields,
+            projection.issues,
+        )
         if (
             len(
                 canonical_json(
                     {
-                        "fields": [field.public_dict() for field in projected],
-                        "issues": [issue.public_dict() for issue in issues],
+                        "fields": [field.public_dict() for field in projection.fields],
+                        "issues": [issue.public_dict() for issue in projection.issues],
                     }
                 ).encode("utf-8")
             )
             > MAX_PROJECTION_BYTES
         ):
             return schema_digest, None, None
-        return schema_digest, digest, {field.token: field for field in projected}
+        return (
+            schema_digest,
+            digest,
+            {field.token: field for field in projection.fields},
+        )
 
     def _fields_for(self, workflow_id: str) -> dict[str, AuthoringField]:
         _schema, _projection, fields = self._identity(workflow_id)
@@ -1218,7 +1253,12 @@ class AuthoringService:
         schema_digest, projection_digest, fields = self._safe_identity(
             record.workflow_id
         )
-        capability = _capability(fields, projection_digest)
+        issues: tuple[Any, ...] = ()
+        if fields is not None:
+            projection = self._projection(record.workflow_id)
+            if projection is not None:
+                issues = projection.issues
+        capability = _capability(fields, projection_digest, issues)
         ready = (
             record.connection_state == "ready"
             and record.originating_auth_session_ref == actor.session_digest
@@ -1394,7 +1434,7 @@ class AuthoringService:
             return ()
         if record.last_validated_revision != record.revision:
             return ()
-        allowed = explainable_codes()
+        allowed = self._explainable_codes(record.workflow_id)
         return tuple(code for code in record.validation_issue_codes if code in allowed)
 
     def _require_active(self, record: AuthoringSessionRecord) -> None:
@@ -1442,6 +1482,7 @@ class AuthoringService:
 def _capability(
     fields: Mapping[str, AuthoringField] | None,
     projection_digest: str | None,
+    issues: tuple[Any, ...],
 ) -> dict[str, Any]:
     if fields is None or projection_digest is None:
         return {
@@ -1455,7 +1496,7 @@ def _capability(
         }
     return {
         "allowed_intents": ["explain_issues", "suggest"],
-        "allowed_issue_codes": [issue.public_dict() for issue in explainable_issues()],
+        "allowed_issue_codes": [issue.public_dict() for issue in issues],
         "available": True,
         "fields": [field.public_dict() for field in fields.values()],
         "projection_digest": projection_digest,

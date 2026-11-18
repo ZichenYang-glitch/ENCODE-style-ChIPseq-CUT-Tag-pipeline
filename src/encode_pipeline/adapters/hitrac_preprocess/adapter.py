@@ -18,7 +18,10 @@ from encode_pipeline.platform.reference_profiles import (
 from encode_pipeline.platform.results import Result
 
 from .admission import load_reference_binding
-from .authoring import build_hitrac_authoring_schema
+from .authoring import (
+    build_hitrac_authoring_schema,
+    project_hitrac_authoring_fields,
+)
 from .execution import (
     WORKFLOW_ID,
     ExecutionBinding,
@@ -85,6 +88,9 @@ class HiTracPreprocessAdapter:
 
     def schema(self):
         return build_hitrac_authoring_schema()
+
+    def project_authoring_fields(self, schema_payload):
+        return project_hitrac_authoring_fields(schema_payload)
 
     def validate(self, inputs):
         return validate_hitrac_inputs(inputs)

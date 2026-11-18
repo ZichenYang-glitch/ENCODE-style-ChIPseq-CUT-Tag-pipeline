@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from encode_pipeline.platform.adapters import (
     JSON_SCHEMA_DIALECT,
     MAX_SAMPLE_CELL_LENGTH,
@@ -10,6 +13,12 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputModes,
     WorkflowSchema,
     WorkflowSchemaCoverage,
+)
+from encode_pipeline.platform.authoring import (
+    AuthoringField,
+    AuthoringFieldProjection,
+    IssueLabel,
+    intersect_integer_constraint,
 )
 
 SCHEMA_VERSION = "1.0.0"
@@ -110,6 +119,47 @@ def build_hitrac_authoring_schema() -> WorkflowSchema:
             },
             "additionalProperties": False,
         },
+    )
+
+
+_MAPQ_POLICY_MIN = 0
+_MAPQ_POLICY_MAX = 255
+_EXPLAINABLE_ISSUES = (
+    (
+        "HITRAC_OPTION_INVALID",
+        "A Hi-TrAC option is outside the allowed range.",
+    ),
+    (
+        "HITRAC_OPTIONS_INVALID",
+        "The options do not match the Hi-TrAC schema.",
+    ),
+)
+
+
+def project_hitrac_authoring_fields(
+    schema_payload: Mapping[str, Any],
+) -> AuthoringFieldProjection | None:
+    """Project options.mapq. Threads, samples, and config stay unprojected."""
+
+    constraint = intersect_integer_constraint(
+        schema_payload.get("option_schema"),
+        "mapq",
+        _MAPQ_POLICY_MIN,
+        _MAPQ_POLICY_MAX,
+    )
+    if constraint is None:
+        return None
+    return AuthoringFieldProjection(
+        fields=(
+            AuthoringField(
+                token="options.mapq",
+                label="MAPQ threshold",
+                document="options",
+                key="mapq",
+                constraint=constraint,
+            ),
+        ),
+        issues=tuple(IssueLabel(code, label) for code, label in _EXPLAINABLE_ISSUES),
     )
 
 

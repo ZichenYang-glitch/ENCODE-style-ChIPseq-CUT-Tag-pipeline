@@ -13,12 +13,13 @@ from typing import Any
 from encode_pipeline.adapters.encode_authoring import MAX_CORES
 from encode_pipeline.platform.authoring import (
     AuthoringField,
-    FieldConstraint,
+    AuthoringFieldProjection,
     IssueLabel,
     SAMPLE_SELECTION_REQUIRED,
     WORKFLOW_SAMPLE_INPUT_UNAVAILABLE,
     WORKFLOW_SAMPLE_PLAN_INVALID,
     WORKFLOW_SAMPLE_PLAN_REQUIRED,
+    intersect_integer_constraint,
 )
 from encode_pipeline.platform.registry import ENCODE_WORKFLOW_ID
 
@@ -101,7 +102,7 @@ def project_encode_fields(
     projected: list[AuthoringField] = []
     for token, label, document, schema_key, key, policy_min, policy_max in _FIELDS:
         schema = schema_payload.get(schema_key)
-        constraint = _intersect_integer(schema, key, policy_min, policy_max)
+        constraint = intersect_integer_constraint(schema, key, policy_min, policy_max)
         if constraint is None:
             return None
         projected.append(
@@ -116,33 +117,13 @@ def project_encode_fields(
     return tuple(projected)
 
 
-def _intersect_integer(
-    schema: object,
-    key: str,
-    policy_min: int,
-    policy_max: int | None,
-) -> FieldConstraint | None:
-    if not isinstance(schema, Mapping):
+def project_encode_authoring(
+    workflow_id: str,
+    schema_payload: Mapping[str, Any],
+) -> AuthoringFieldProjection | None:
+    """Return the ENCODE suggestion catalog for the digested schema document."""
+
+    fields = project_encode_fields(workflow_id, schema_payload)
+    if fields is None:
         return None
-    properties = schema.get("properties")
-    if not isinstance(properties, Mapping):
-        return None
-    prop = properties.get(key)
-    if not isinstance(prop, Mapping) or prop.get("type") != "integer":
-        return None
-    minimum = policy_min
-    schema_min = prop.get("minimum")
-    if isinstance(schema_min, bool) or not isinstance(schema_min, int):
-        if schema_min is not None:
-            return None
-    else:
-        minimum = max(policy_min, schema_min)
-    maximum = policy_max
-    schema_max = prop.get("maximum")
-    if schema_max is not None:
-        if isinstance(schema_max, bool) or not isinstance(schema_max, int):
-            return None
-        maximum = schema_max if maximum is None else min(maximum, schema_max)
-    if maximum is not None and minimum > maximum:
-        return None
-    return FieldConstraint(value_type="integer", minimum=minimum, maximum=maximum)
+    return AuthoringFieldProjection(fields=fields, issues=explainable_issues())

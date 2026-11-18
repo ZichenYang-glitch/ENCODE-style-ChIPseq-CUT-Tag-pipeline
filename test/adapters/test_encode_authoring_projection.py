@@ -28,3 +28,26 @@ def test_workflow_without_a_policy_has_no_projection():
     schema = build_hitrac_authoring_schema().to_dict()
 
     assert project_encode_fields("hitrac-preprocess", schema) is None
+
+
+def test_encode_adapter_projection_matches_the_historical_field_catalog():
+    from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
+    from encode_pipeline.adapters.encode_authoring_projection import (
+        explainable_issues,
+        project_encode_authoring,
+    )
+
+    adapter = EncodeStyleWorkflowAdapter(catalog=())
+    payload = adapter.schema().to_dict()
+    projected = adapter.project_authoring_fields(payload)
+    direct = project_encode_authoring(ENCODE_WORKFLOW_ID, payload)
+
+    assert projected is not None and direct is not None
+    assert [field.public_dict() for field in projected.fields] == [
+        field.public_dict()
+        for field in project_encode_fields(ENCODE_WORKFLOW_ID, payload)
+    ]
+    assert [issue.public_dict() for issue in projected.issues] == [
+        issue.public_dict() for issue in explainable_issues()
+    ]
+    assert projected == direct
