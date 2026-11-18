@@ -180,5 +180,87 @@
       "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     },
     "created_at": "2026-11-18T03:00:00Z"
+  },
+  "download_examples": {
+    "active_member_old_revision": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "active",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 200,
+      "response_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "successful_download_audit_count": 1,
+      "audit_target_identity_inputs": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "audit_event": {
+        "event_id": "aevt_99999999999999999999999999999999",
+        "occurred_at": "2026-11-18T04:00:00Z",
+        "action": "registered_result.download",
+        "outcome": "succeeded",
+        "actor_kind": "user",
+        "actor_user_id": "usr_88888888888888888888888888888888",
+        "resource": {
+          "kind": "registered_result",
+          "resource_id": "ares_registered_result_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "reason_code": null
+      }
+    },
+    "same_link_after_revocation": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "revoked",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 401,
+      "error_code": "AUTHENTICATION_REQUIRED",
+      "successful_download_audit_count": 0
+    },
+    "anonymous_same_link": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "anonymous"
+      },
+      "response_status": 401,
+      "error_code": "AUTHENTICATION_REQUIRED",
+      "successful_download_audit_count": 0
+    },
+    "wrong_project": {
+      "request": {
+        "project_id": "prj_22222222222222222222222222222222",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "active",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 404,
+      "error_code": "catalog_not_found",
+      "successful_download_audit_count": 0
+    }
+  },
+  "source_mutation_after_verification": {
+    "request": {
+      "project_id": "prj_11111111111111111111111111111111",
+      "result_revision_id": "rrev_11111111111111111111111111111111"
+    },
+    "response_private_copy_verified": true,
+    "source_changed_in_place_after_verification": true,
+    "response_status": 200,
+    "expected_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "response_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }

@@ -29,6 +29,9 @@
 | R6 | 成员读取精确修订 | 每次重新鉴权并复核大小和 SHA-256；响应不含物理路径、StoragePool 配置或来源凭据 |
 | R7 | 已登记字节缺失或改变 | 读取失败关闭，不返回 200、不自动改挂当前头或另一份同摘要文件 |
 | R8 | 执行本设计的最小登记 | 数据库只追加目录元数据；原文件内容、路径和名称不变，不启动 worker 或科学计算 |
+| R9 | 有效成员用一个旧修订链接下载，随后撤权并原样重用该链接 | 撤权前为 200，正文匹配旧修订，并有一条带操作者和精确修订目标的成功审计；撤权后同一请求为 401，不产生新的成功下载审计 |
+| R10 | 匿名访问下载链接，或有效成员把路径改为另一 Project | 匿名与已撤权会话均为 401；有效成员的错项目请求为 404 `catalog_not_found`，两种失败都不读取源字节或写成功审计 |
+| R11 | IRENE-39 合成样例在响应私有副本校验完成后，让外部工具原位改写源文件 | 已建立的 200 只发送私有副本，完整正文 SHA-256 仍等于请求修订；若源变化使副本在校验完成前不符，则在响应前返回 409 |
 
 ## 2. 身份与修订语义
 
@@ -170,18 +173,34 @@ DTO 不包含 `run_id`、artifact generation/revision、StoragePool ID、配置�
 | `GET /catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}` | `catalogGetRegisteredResultRevision` | 精确修订详情及父边的新版提示 |
 | `GET /catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content` | `catalogDownloadRegisteredResultRevision` | 精确修订的整文件字节流 |
 
-列表、历史和详情使用 `require_principal`；登记、修订和归档使用 `require_administrator`、
-现有 CSRF 及事务内角色复核。路径中的 Project 与记录不一致时返回 404 `catalog_not_found`。
-成员可读共享项目，但目录可见性不扩大其他平台产物的权限。
+列表、历史、详情和 `/content` 都使用 `require_principal`；登记、修订和归档使用
+`require_administrator`、现有 CSRF 及事务内角色复核。尤其是 `/content` 必须在每次请求重新
+校验当前会话、账号启用状态，以及路径 Project 与精确修订的所属关系；不能复用列表或详情时
+留下的授权结论。匿名、会话已撤销或账号已停用均为 401，即使请求只是重用一个过去有效的旧
+链接。有效成员请求错项目或不存在修订均为 404 `catalog_not_found`，并在解析任何存储坐标前
+结束。成员可读共享项目，但目录可见性不扩大其他平台产物的权限。
 
-字节读取必须带精确 `rrev_`，没有“下载最新版”的隐式坐标。服务从该修订取得 StoragePool 和
-安全相对路径，通过 operator-private 配置定位根目录，以 no-follow descriptor 打开常规文件，
-重新核对大小和完整 SHA-256，再从已验证 descriptor 返回字节。v1 与现有普通结果下载一样
-使用整文件响应和 `Accept-Ranges: none`；Hi-C/单细胞格式解析、Viewer 轨道和 Range 均需独立
-消费者契约，不能由此端点宣称已经支持。
+字节读取必须带精确 `rrev_`，没有“下载最新版”的隐式坐标。授权通过后，服务从该修订取得
+StoragePool 和安全相对路径，通过 operator-private 配置定位根目录，以 no-follow descriptor
+打开常规文件。服务随后在本次响应私有的临时目录中新建权限为 `0600` 的常规文件，从源
+descriptor 复制字节并同时计算大小和完整 SHA-256。只有私有副本与登记证据完全相符后，才
+rewind 该副本并准备 200；响应正文只从这个已验证副本发送，不再读取源 descriptor。
+副本在响应结束或任一失败后清理，其路径不进入 SQLite、公开 DTO、审计或日志。它是单次
+响应缓冲，不是新的长期字节位置、发布或备份。
 
-缺失、类型不安全或摘要不同返回 409 `registered_result_bytes_unavailable`，不暴露路径或
-异常，不在已经发出 200 后才发现校验失败。父结果的新版提示不影响本次读取的授权或字节坐标。
+因此，外部工具即使在私有副本校验完成后原位改写源文件，也不能改变已经建立的响应；任何
+成功响应的完整正文都与请求修订的 SHA-256 一致。源文件缺失、类型不安全，或复制结束时大小/
+摘要不同，都在发出 200 前返回 409 `registered_result_bytes_unavailable`，不暴露路径或异常。
+v1 与现有普通结果下载一样使用整文件响应和 `Accept-Ranges: none`；Hi-C/单细胞格式解析、
+Viewer 轨道和 Range 均需独立消费者契约，不能由此端点宣称已经支持。
+
+成功下载沿用[认证 ADR](lan-authentication-decision.md) 的封闭 SecurityAuditEvent，新增
+`registered_result.download` action 和 `registered_result` resource kind。事件记录当前
+`actor_user_id`、UTC `occurred_at`、`outcome=succeeded`；resource 只能由 bounded factory 从
+`(project_id, result_id, result_revision_id)` 这三个逻辑 ID 派生为不透明目标，从而固定到精确
+修订，不能使用文件路径、StoragePool 坐标、来源 URL 或任意 context map。只有副本校验和审计
+写入都成功才发出 200；审计写入失败时清理副本并失败关闭。401/404/409 不产生成功下载审计。
+父结果的新版提示不影响本次读取的授权、审计目标或字节坐标。
 
 ## 6. 最小实施交接
 
@@ -199,12 +218,13 @@ DTO 不包含 `run_id`、artifact generation/revision、StoragePool ID、配置�
 no-follow、常规文件和前后变化检查，但结果身份不复用 InputFile。期望头冲突返回
 `catalog_revision_conflict`；幂等和回执沿用 M0，不另造规则。
 
-实现顺序固定为：先由目录负责人评审并冻结字段/表/路由，再写迁移与领域校验，然后接公开读取
-和最小管理员工具，最后用 R1–R8 的临时 SQLite + 合成文件验收。生成客户端只能由该实现 PR
-通过仓库命令生成。本工单不直接修改这些共享面。
+实现顺序固定为：先由目录负责人评审并冻结字段/表/路由及上述审计扩展，再写迁移与领域校验，
+然后接公开读取和最小管理员工具，最后用 R1–R11 的临时 SQLite + 合成文件验收。生成客户端
+只能由该实现 PR 通过仓库命令生成。本工单不直接修改这些共享面。
 
 ## 7. 非目标
 
-本契约不创建或补造 Run，不移动/复制/上载文件，不设计跨存储迁移或恢复，不实现目录网页，
-不推断样本贡献者，不自动追随上游最新版，不解析 h5ad/hic，不提供科学有效性背书，也不承诺
-跨机访问、对象存储、生产容量或长期保留。恢复演练由 IRENE-26 独立处理。
+本契约不创建或补造 Run，不把文件移动、复制或上载到另一受管/长期位置，不设计跨存储迁移或
+恢复；第 5 节的响应私有临时副本不属于这些操作。本契约不实现目录网页，不推断样本贡献者，
+不自动追随上游最新版，不解析 h5ad/hic，不提供科学有效性背书，也不承诺跨机访问、对象存储、
+生产容量或长期保留。恢复演练由 IRENE-26 独立处理。

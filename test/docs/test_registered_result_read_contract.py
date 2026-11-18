@@ -15,7 +15,15 @@ EXAMPLES_PATH = (
     / "registered-result-read-v1.json"
 )
 EXAMPLES = json.loads(EXAMPLES_PATH.read_text(encoding="utf-8"))
-RECORDS = {key: value for key, value in EXAMPLES.items() if key != "example_schema"}
+READ_RECORD_KEYS = {
+    "external_v1",
+    "external_renamed",
+    "external_upstream_v2",
+    "downstream_after_upstream_v2",
+    "missing_source",
+}
+RECORDS = {key: EXAMPLES[key] for key in READ_RECORD_KEYS}
+DOWNLOAD_EXAMPLES = EXAMPLES["download_examples"]
 
 PUBLIC_KEYS = {
     "project_id",
@@ -66,13 +74,7 @@ def _assert_id(value: str, field: str) -> None:
 
 def test_public_examples_have_only_bounded_revision_fields() -> None:
     assert EXAMPLES["example_schema"] == "registered-result-read-examples-v1"
-    assert set(RECORDS) == {
-        "external_v1",
-        "external_renamed",
-        "external_upstream_v2",
-        "downstream_after_upstream_v2",
-        "missing_source",
-    }
+    assert set(RECORDS) == READ_RECORD_KEYS
     for record in RECORDS.values():
         assert set(record) == PUBLIC_KEYS
         assert record["schema_version"] == 1
@@ -84,9 +86,8 @@ def test_public_examples_have_only_bounded_revision_fields() -> None:
 
 
 def test_public_examples_do_not_invent_runs_or_expose_storage() -> None:
-    for record in RECORDS.values():
-        for mapping in _walk(record):
-            assert FORBIDDEN_PUBLIC_KEYS.isdisjoint(mapping)
+    for mapping in _walk(EXAMPLES):
+        assert FORBIDDEN_PUBLIC_KEYS.isdisjoint(mapping)
 
 
 def test_rename_appends_metadata_without_changing_evidence() -> None:
@@ -143,3 +144,77 @@ def test_missing_source_and_other_unknowns_remain_readable_metadata() -> None:
     assert record["reference"] == {"status": "unknown"}
     assert record["bytes"]["content_sha256"]
     assert record["bytes"]["size_bytes"] == 2048
+
+
+def test_download_reauthenticates_old_links_and_audits_exact_revision() -> None:
+    active = DOWNLOAD_EXAMPLES["active_member_old_revision"]
+    revoked = DOWNLOAD_EXAMPLES["same_link_after_revocation"]
+    anonymous = DOWNLOAD_EXAMPLES["anonymous_same_link"]
+    wrong_project = DOWNLOAD_EXAMPLES["wrong_project"]
+    original = RECORDS["external_v1"]
+
+    assert active["request"] == {
+        "project_id": original["project_id"],
+        "result_revision_id": original["result_revision_id"],
+    }
+    assert active["response_status"] == 200
+    assert active["response_content_sha256"] == original["bytes"]["content_sha256"]
+    assert active["successful_download_audit_count"] == 1
+    assert active["audit_target_identity_inputs"] == {
+        "project_id": original["project_id"],
+        "result_id": original["result_id"],
+        "result_revision_id": original["result_revision_id"],
+    }
+
+    event = active["audit_event"]
+    assert set(event) == {
+        "event_id",
+        "occurred_at",
+        "action",
+        "outcome",
+        "actor_kind",
+        "actor_user_id",
+        "resource",
+        "reason_code",
+    }
+    assert event["action"] == "registered_result.download"
+    assert event["outcome"] == "succeeded"
+    assert event["actor_user_id"] == active["principal"]["user_id"]
+    assert re.fullmatch(r"usr_[0-9a-f]{32}", event["actor_user_id"])
+    assert event["resource"]["kind"] == "registered_result"
+    assert re.fullmatch(
+        r"ares_registered_result_[0-9a-f]{64}",
+        event["resource"]["resource_id"],
+    )
+    assert event["reason_code"] is None
+
+    assert revoked["request"] == active["request"]
+    assert revoked["principal"]["user_id"] == active["principal"]["user_id"]
+    assert revoked["response_status"] == 401
+    assert revoked["error_code"] == "AUTHENTICATION_REQUIRED"
+    assert revoked["successful_download_audit_count"] == 0
+
+    assert anonymous["request"] == active["request"]
+    assert anonymous["response_status"] == 401
+    assert anonymous["successful_download_audit_count"] == 0
+
+    assert (
+        wrong_project["request"]["result_revision_id"]
+        == (active["request"]["result_revision_id"])
+    )
+    assert wrong_project["request"]["project_id"] != active["request"]["project_id"]
+    assert wrong_project["response_status"] == 404
+    assert wrong_project["error_code"] == "catalog_not_found"
+    assert wrong_project["successful_download_audit_count"] == 0
+
+
+def test_source_mutation_cannot_change_a_verified_response() -> None:
+    scenario = EXAMPLES["source_mutation_after_verification"]
+    original = RECORDS["external_v1"]
+
+    assert scenario["request"]["result_revision_id"] == original["result_revision_id"]
+    assert scenario["response_private_copy_verified"] is True
+    assert scenario["source_changed_in_place_after_verification"] is True
+    assert scenario["response_status"] == 200
+    assert scenario["expected_content_sha256"] == original["bytes"]["content_sha256"]
+    assert scenario["response_content_sha256"] == scenario["expected_content_sha256"]
