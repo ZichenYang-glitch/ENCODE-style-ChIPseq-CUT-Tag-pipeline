@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -11,6 +12,9 @@ from types import MappingProxyType
 from typing import Any
 from uuid import uuid4
 
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogBlockRequiresCatalogCommand,
+)
 from encode_pipeline.platform.data_registry import (
     LEGACY_PROJECT_ID,
     SAMPLE_REVISION_PAYLOAD_DIGEST_SCHEME,
@@ -292,9 +296,15 @@ class DataRegistryService:
             if not revisions:
                 raise RuntimeError("Sample has no immutable revision")
             previous = revisions[-1]
+            if "catalog" in attributes:
+                raise CatalogBlockRequiresCatalogCommand()
+            merged_attributes = dict(attributes)
+            previous_catalog = previous.attributes.get("catalog", None)
+            if "catalog" in previous.attributes:
+                merged_attributes["catalog"] = copy.deepcopy(previous_catalog)
             canonical_payload = canonical_sample_revision_payload(
                 display_name=display_name,
-                attributes=attributes,
+                attributes=merged_attributes,
             )
             revision = SampleRevision(
                 sample_revision_id=self._sample_revision_id_factory(),

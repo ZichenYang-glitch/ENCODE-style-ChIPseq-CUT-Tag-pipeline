@@ -109,6 +109,17 @@ EXPECTED_TABLES = {
     "validated_input_snapshots",
     "agent_authoring_sessions",
     "agent_authoring_turns",
+    "catalog_terms",
+    "catalog_term_revisions",
+    "catalog_write_receipts",
+    "experiment_catalog_projection",
+    "experiment_revision_heads",
+    "experiment_revision_samples",
+    "experiment_revisions",
+    "experiments",
+    "sample_catalog_projection",
+    "sample_catalog_values",
+    "sample_revision_heads",
 }
 
 
@@ -175,7 +186,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -426,7 +437,7 @@ def test_project_sample_registry_upgrades_rev08_with_conservative_legacy_binding
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         legacy = (
             connection.execute(
@@ -1015,7 +1026,7 @@ def test_project_sample_registry_upgrade_preflights_before_ddl_and_can_retry(
     retried = create_database_engine(database_url)
     with retried.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         assert (
             connection.scalar(
@@ -1069,7 +1080,7 @@ def test_input_registry_upgrade_backfills_only_unresolved_compatibility_envelope
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         snapshot_binding = (
             connection.execute(
@@ -1254,7 +1265,7 @@ def test_input_registry_upgrade_preflights_stage2_evidence_before_ddl_and_can_re
     assert INPUT_REGISTRY_TABLES <= set(inspect(retried).get_table_names())
     with retried.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
     retried.dispose()
 
@@ -1968,7 +1979,7 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
     upgraded.dispose()
 
@@ -2022,7 +2033,7 @@ def test_validated_snapshot_migration_upgrades_current_main_without_changing_run
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
     upgraded.dispose()
 
@@ -2067,7 +2078,7 @@ def test_run_history_index_migration_preserves_rows_and_supports_all_query_shape
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         plans = {
             "ix_runs_created_run_id": (
@@ -2395,7 +2406,7 @@ def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261110_16"
+            "20261118_17"
         )
         run = (
             connection.execute(

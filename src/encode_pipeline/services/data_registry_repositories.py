@@ -6,9 +6,13 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from dataclasses import replace
+import json
 from threading import RLock
 from typing import Protocol
 
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogBlockRequiresCatalogCommand,
+)
 from encode_pipeline.platform.data_registry import (
     LEGACY_PROJECT_ID,
     BindingMode,
@@ -105,6 +109,7 @@ class InMemoryDataRegistryRepository:
         self._sample_id_by_stable_key: dict[tuple[str, str], str] = {}
         self._revisions: dict[str, SampleRevision] = {}
         self._revision_ids_by_sample: dict[str, list[str]] = {}
+        self._sample_heads: dict[str, tuple[str, int]] = {}
         self._lock = RLock()
 
     def create_project(self, project: Project) -> Project:
@@ -214,6 +219,11 @@ class InMemoryDataRegistryRepository:
                     )
                 if initial_revision.created_at < sample.created_at:
                     raise ValueError("initial revision cannot precede Sample creation")
+                attributes = json.loads(initial_revision.canonical_payload)[
+                    "attributes"
+                ]
+                if isinstance(attributes, dict) and "catalog" in attributes:
+                    raise CatalogBlockRequiresCatalogCommand()
                 pending_sample_ids.add(sample.sample_id)
                 pending_revision_ids.add(initial_revision.sample_revision_id)
                 pending_stable_identities.add(stable_identity)
@@ -231,6 +241,7 @@ class InMemoryDataRegistryRepository:
                 self._revision_ids_by_sample[sample.sample_id] = [
                     initial_revision.sample_revision_id
                 ]
+                self._sync_sample_head(initial_revision, allow_catalog=False)
             return entries
 
     def get_sample(self, sample_id: str) -> Sample:
@@ -312,7 +323,35 @@ class InMemoryDataRegistryRepository:
 
             self._revisions[revision.sample_revision_id] = revision
             revision_ids.append(revision.sample_revision_id)
+            self._sync_sample_head(revision, allow_catalog=True)
             return revision
+
+    def get_sample_revision_head(self, sample_id: str) -> tuple[str, int]:
+        """Return the current revision id and number maintained with each append."""
+
+        with self._lock:
+            try:
+                return self._sample_heads[sample_id]
+            except KeyError:
+                raise KeyError(f"Unknown sample_id: {sample_id!r}") from None
+
+    def _sync_sample_head(
+        self,
+        revision: SampleRevision,
+        *,
+        allow_catalog: bool,
+    ) -> None:
+        attributes = json.loads(revision.canonical_payload)["attributes"]
+        if (
+            isinstance(attributes, dict)
+            and "catalog" in attributes
+            and not allow_catalog
+        ):
+            raise CatalogBlockRequiresCatalogCommand()
+        self._sample_heads[revision.sample_id] = (
+            revision.sample_revision_id,
+            revision.revision_number,
+        )
 
     def resolve_project_sample_selection(
         self,
