@@ -1,0 +1,418 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { RouteObject } from 'react-router-dom';
+import { renderWithRouter } from '../../test/test-utils';
+import { fetchSessionState } from '../../api/authClient';
+import { authoringListProjects } from '../../api/generated/authoring/authoring';
+import {
+  catalogCreateExperiment,
+  catalogCreateTerm,
+  catalogListExperimentRevisionRunResults,
+  catalogListExperimentRevisions,
+  catalogListExperiments,
+  catalogListSampleRevisionRunResults,
+  catalogListSamples,
+  catalogListTerms,
+  catalogReviseExperiment,
+} from '../../api/generated/catalog/catalog';
+import type {
+  CatalogExperimentResponse,
+  CatalogPublishedRunResponse,
+  CatalogTermSummaryResponse,
+} from '../../api/generated/models';
+import { ExperimentCatalogPage } from './ExperimentCatalogPage';
+
+vi.mock('../../api/generated/catalog/catalog', () => ({
+  catalogListExperiments: vi.fn(),
+  catalogListExperimentRevisions: vi.fn(),
+  catalogListExperimentRevisionRunResults: vi.fn(),
+  catalogListSampleRevisionRunResults: vi.fn(),
+  catalogListTerms: vi.fn(),
+  catalogListSamples: vi.fn(),
+  catalogCreateTerm: vi.fn(),
+  catalogCreateExperiment: vi.fn(),
+  catalogReviseExperiment: vi.fn(),
+}));
+
+vi.mock('../../api/generated/authoring/authoring', () => ({
+  authoringListProjects: vi.fn(),
+}));
+
+const PROJECT_ID = `prj_${'1'.repeat(32)}`;
+const ASSAY_ID = `term_${'a'.repeat(32)}`;
+const ASSAY_REVISION = `trmv_${'a'.repeat(32)}`;
+const CELL_ID = `term_${'c'.repeat(32)}`;
+const CELL_REVISION = `trmv_${'c'.repeat(32)}`;
+const TARGET_ID = `term_${'d'.repeat(32)}`;
+const TARGET_REVISION = `trmv_${'d'.repeat(32)}`;
+const ROLE_ID = `term_${'e'.repeat(32)}`;
+const ROLE_REVISION = `trmv_${'e'.repeat(32)}`;
+const SAMPLE_ID = `smp_${'2'.repeat(32)}`;
+const SAMPLE_REVISION = `smpr_${'3'.repeat(32)}`;
+const EXPERIMENT_ID = `exp_${'4'.repeat(32)}`;
+const OTHER_EXPERIMENT_ID = `exp_${'7'.repeat(32)}`;
+const REV_1 = `expr_${'5'.repeat(32)}`;
+const REV_2 = `expr_${'6'.repeat(32)}`;
+
+const routes: RouteObject[] = [
+  { path: '/catalog', element: <ExperimentCatalogPage /> },
+];
+
+function term(
+  termType: string,
+  displayName: string,
+  termId: string,
+  termRevisionId: string,
+): CatalogTermSummaryResponse {
+  return {
+    term_id: termId,
+    term_type: termType,
+    term_revision_id: termRevisionId,
+    revision_number: 1,
+    display_name: displayName,
+    archived_at: null,
+  };
+}
+
+function experiment(input: {
+  experimentId: string;
+  revisionId: string;
+  revisionNumber: number;
+  displayName: string;
+}): CatalogExperimentResponse {
+  return {
+    experiment_id: input.experimentId,
+    experiment_revision_id: input.revisionId,
+    revision_number: input.revisionNumber,
+    display_name: input.displayName,
+    assay: {
+      status: 'known',
+      term_id: ASSAY_ID,
+      term_revision_id: ASSAY_REVISION,
+      display_name: 'CUT&Tag',
+    },
+    target: {
+      status: 'known',
+      term_id: TARGET_ID,
+      term_revision_id: TARGET_REVISION,
+      display_name: 'H3K27me3',
+    },
+    batch: { status: 'unknown' },
+    samples: [
+      {
+        sample_id: SAMPLE_ID,
+        sample_revision_id: SAMPLE_REVISION,
+        ordinal: 0,
+        replicate_role: {
+          status: 'known',
+          term_id: ROLE_ID,
+          term_revision_id: ROLE_REVISION,
+          display_name: 'treatment',
+        },
+        species: { status: 'unknown' },
+        tissue: { status: 'unknown' },
+        cell_type: {
+          status: 'known',
+          values: [
+            {
+              term_id: CELL_ID,
+              term_revision_id: CELL_REVISION,
+              display_name: 'regulatory T cell',
+            },
+          ],
+        },
+        cell_line: { status: 'not_applicable', values: [] },
+        treatment: { status: 'not_applicable', values: [] },
+        tag: { status: 'not_applicable', values: [] },
+      },
+    ],
+  };
+}
+
+const currentRevision = experiment({
+  experimentId: EXPERIMENT_ID,
+  revisionId: REV_2,
+  revisionNumber: 2,
+  displayName: 'Treg CUT&Tag v2',
+});
+const olderRevision = experiment({
+  experimentId: EXPERIMENT_ID,
+  revisionId: REV_1,
+  revisionNumber: 1,
+  displayName: 'Treg CUT&Tag v1',
+});
+const pageTwo = experiment({
+  experimentId: OTHER_EXPERIMENT_ID,
+  revisionId: `expr_${'8'.repeat(32)}`,
+  revisionNumber: 1,
+  displayName: 'CUT&Tag page 20',
+});
+
+const publishedRun: CatalogPublishedRunResponse = {
+  run_id: 'run_treg_h3k27me3_01',
+  provenance: 'resolved',
+  publication_evidence: 'present',
+  artifact_association_kind: 'run_input_scope',
+  workflow_id: 'encode-style-chipseq-cuttag-atac-mnase',
+  artifact_id: 'peaks',
+  output_type: 'peaks',
+  artifact_generation: `artifactgen-${'a'.repeat(64)}`,
+  artifact_revision: `artifactrev-${'b'.repeat(64)}`,
+  published_at: '2026-11-18T00:00:00Z',
+  current_artifact_generation: `artifactgen-${'a'.repeat(64)}`,
+  generation_status: 'current',
+  run_sample_binding: {
+    binding_mode: 'bound_v1',
+    provenance: 'resolved',
+    associated_run_samples: [
+      {
+        sample_id: SAMPLE_ID,
+        sample_revision_id: SAMPLE_REVISION,
+        revision_number: 2,
+        ordinal: 0,
+      },
+    ],
+  },
+};
+
+function installCatalogReads() {
+  vi.mocked(catalogListExperiments).mockClear();
+  vi.mocked(catalogListSamples).mockClear();
+  vi.mocked(catalogCreateExperiment).mockClear();
+  vi.mocked(catalogCreateTerm).mockClear();
+  vi.mocked(catalogReviseExperiment).mockClear();
+  vi.mocked(authoringListProjects).mockResolvedValue({
+    ok: true,
+    projects: [{ project_id: PROJECT_ID, display_name: 'Treg project' }],
+    next_cursor: null,
+  });
+  vi.mocked(catalogListTerms).mockResolvedValue({
+    terms: [
+      term('assay', 'CUT&Tag', ASSAY_ID, ASSAY_REVISION),
+      term('assay', 'ATAC-seq', `term_${'b'.repeat(32)}`, `trmv_${'b'.repeat(32)}`),
+      term('cell_type', 'regulatory T cell', CELL_ID, CELL_REVISION),
+      term('target', 'H3K27me3', TARGET_ID, TARGET_REVISION),
+      term('batch', 'batch-1', `term_${'9'.repeat(32)}`, `trmv_${'9'.repeat(32)}`),
+      term('replicate_role', 'treatment', ROLE_ID, ROLE_REVISION),
+    ],
+    next_cursor: null,
+  });
+  vi.mocked(catalogListSamples).mockResolvedValue({
+    project_id: PROJECT_ID,
+    samples: [
+      {
+        sample_id: SAMPLE_ID,
+        sample_revision_id: SAMPLE_REVISION,
+        revision_number: 2,
+        display_name: 'treg',
+        created_at: '2026-11-18T00:00:00Z',
+        catalog_state: 'absent',
+      },
+    ],
+    next_cursor: null,
+  });
+  vi.mocked(catalogListExperiments).mockImplementation(async (_projectId, params) => {
+    if (params?.cursor === 'catcur_page2') {
+      return {
+        ok: true,
+        project_id: PROJECT_ID,
+        revision_view: 'linked',
+        experiments: [pageTwo],
+        next_cursor: null,
+      };
+    }
+    return {
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: [currentRevision],
+      next_cursor: 'catcur_page2',
+    };
+  });
+  vi.mocked(catalogListExperimentRevisions).mockResolvedValue({
+    experiment_revisions: [olderRevision, currentRevision],
+    next_cursor: null,
+  });
+  vi.mocked(catalogListExperimentRevisionRunResults).mockImplementation(
+    async (_projectId, experimentRevisionId) => ({
+      ok: true,
+      project_id: PROJECT_ID,
+      experiment_revision_id: experimentRevisionId,
+      trace_status: 'unresolved',
+      reason: 'experiment_snapshot_binding_absent',
+      results: [],
+      next_cursor: null,
+    }),
+  );
+  vi.mocked(catalogListSampleRevisionRunResults).mockResolvedValue({
+    ok: true,
+    project_id: PROJECT_ID,
+    sample_revision_id: SAMPLE_REVISION,
+    results: [publishedRun],
+    next_cursor: null,
+  });
+  vi.mocked(catalogReviseExperiment).mockResolvedValue({
+    ...currentRevision,
+    experiment_revision_id: `expr_${'f'.repeat(32)}`,
+    revision_number: 3,
+    display_name: 'Treg CUT&Tag v3',
+  });
+}
+
+async function search(user: ReturnType<typeof userEvent.setup>) {
+  await waitFor(() => {
+    expect(screen.getByLabelText('Project')).toHaveValue(PROJECT_ID);
+  });
+  await user.selectOptions(screen.getByLabelText('Assay'), ASSAY_ID);
+  await user.selectOptions(screen.getByLabelText('Cell type'), CELL_ID);
+  await user.click(screen.getByRole('button', { name: 'Find experiments' }));
+}
+
+describe('Experiment catalog page', () => {
+  beforeEach(() => {
+    vi.mocked(fetchSessionState).mockResolvedValue({
+      ok: true,
+      setup_required: false,
+      authenticated: true,
+      principal: {
+        user_id: `usr_${'0'.repeat(32)}`,
+        username: 'test-admin',
+        role: 'administrator',
+      },
+    });
+    installCatalogReads();
+  });
+
+  it('searches, pages, opens an older revision, and shows unbound run scope', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Experiment catalog' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/record and revise experiment classification/i)).toBeInTheDocument();
+    await search(user);
+
+    expect(catalogListExperiments).toHaveBeenCalledWith(PROJECT_ID, {
+      limit: 20,
+      assay_term_id: [ASSAY_ID],
+      cell_type_term_id: [CELL_ID],
+    });
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    expect(
+      await screen.findByRole('heading', { name: 'Treg CUT&Tag v2' }),
+    ).toBeInTheDocument();
+    const trace = screen.getByRole('region', { name: 'Experiment trace' });
+    expect(
+      await within(trace).findByRole('heading', { name: '未绑定' }),
+    ).toBeInTheDocument();
+    expect(trace).toHaveTextContent('experiment_snapshot_binding_absent');
+    expect(trace).toHaveTextContent('也不把运行样本写成文件贡献者');
+
+    const scope = screen.getByRole('region', { name: 'Run input scope' });
+    expect(scope).toHaveTextContent('运行输入范围');
+    expect(scope).toHaveTextContent('不是文件贡献者');
+    expect(scope).toHaveTextContent('run_input_scope');
+    expect(scope).toHaveTextContent(`运行样本 ${SAMPLE_ID}`);
+    expect(within(scope).queryByRole('heading', { name: '文件贡献者' })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Revision'), REV_1);
+    expect(
+      await screen.findByRole('heading', { name: 'Treg CUT&Tag v1' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Experiment revision' })).toHaveTextContent(
+      '旧版 1',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(
+      await screen.findByRole('button', { name: /CUT&Tag page 20/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ATAC excluded/ })).not.toBeInTheDocument();
+    expect(catalogListExperiments).toHaveBeenLastCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ cursor: 'catcur_page2', limit: 20 }),
+    );
+  });
+
+  it('lets an administrator revise the current head without rewriting the old revision', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    const revise = await screen.findByRole('form', {
+      name: 'Revise experiment classification',
+    });
+    await waitFor(() => {
+      expect(
+        within(revise).getByRole('button', { name: 'Revise classification' }),
+      ).toBeEnabled();
+    });
+    const name = within(revise).getByLabelText('Display name');
+    await user.clear(name);
+    await user.type(name, 'Treg CUT&Tag v3');
+    await user.click(within(revise).getByRole('button', { name: 'Revise classification' }));
+    expect(
+      await screen.findByText('Revised classification to Treg CUT&Tag v3.'),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(catalogReviseExperiment).toHaveBeenCalledWith(
+        EXPERIMENT_ID,
+        expect.objectContaining({
+          expected_revision_number: 2,
+          display_name: 'Treg CUT&Tag v3',
+          assay: {
+            status: 'known',
+            term_id: ASSAY_ID,
+            term_revision_id: ASSAY_REVISION,
+          },
+          samples: [
+            expect.objectContaining({
+              sample_revision_id: SAMPLE_REVISION,
+              replicate_role: {
+                status: 'known',
+                term_id: ROLE_ID,
+                term_revision_id: ROLE_REVISION,
+              },
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          'Idempotency-Key': expect.stringMatching(/^cat[A-Za-z0-9]+$/),
+        }),
+      );
+    });
+    expect(catalogCreateExperiment).not.toHaveBeenCalled();
+    expect(catalogCreateTerm).not.toHaveBeenCalled();
+  });
+
+  it('hides classification writes from a member', async () => {
+    vi.mocked(fetchSessionState).mockResolvedValue({
+      ok: true,
+      setup_required: false,
+      authenticated: true,
+      principal: {
+        user_id: `usr_${'a'.repeat(32)}`,
+        username: 'lab-member',
+        role: 'member',
+      },
+    });
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+
+    expect(
+      await screen.findByText(/limited to administrators/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('form', { name: 'Record an experiment' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('form', { name: 'Revise experiment classification' }),
+    ).not.toBeInTheDocument();
+    await search(user);
+    expect(catalogListExperiments).toHaveBeenCalled();
+    expect(catalogListSamples).not.toHaveBeenCalled();
+  });
+});

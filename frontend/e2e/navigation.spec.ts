@@ -43,7 +43,7 @@ async function expectNavigationLinksWithinViewport(page: Page) {
     .getByRole('navigation', { name: 'Primary' })
     .getByRole('link');
   const count = await links.count();
-  expect(count).toBe(5);
+  expect(count).toBe(6);
   for (let index = 0; index < count; index += 1) {
     const link = links.nth(index);
     await expect(link).toBeVisible();
@@ -94,11 +94,12 @@ test('global navigation exposes authoring before developer schemas on desktop @d
   const newAnalysisLink = primaryNavigation.getByRole('link', {
     name: 'New analysis',
   });
-  await expect(primaryNavigation.getByRole('link')).toHaveCount(5);
+  await expect(primaryNavigation.getByRole('link')).toHaveCount(6);
   await expect(await navigationNames(primaryNavigation)).toEqual([
     'Workflows',
     'Runs',
     'Artifacts',
+    'Catalog',
     'New analysis',
     'Configuration drafts',
   ]);
@@ -237,6 +238,7 @@ test('navigation and workflow authoring remain operable without mobile overflow 
     'Workflows',
     'Runs',
     'Artifacts',
+    'Catalog',
     'New analysis',
     'Configuration drafts',
   ]);
