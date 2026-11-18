@@ -73,6 +73,8 @@ flowchart LR
 
 ## 4. 合成分类表与管理员预览用例
 
+静态 JSON 样例见 [M2 离线预览契约样例](experiment-catalog-m2-preview-examples.json)，可运行 Python 契约与夹具实现在 `src/encode_pipeline/platform/catalog_curation_preview.py`，验收测试在 `test/platform/test_catalog_curation_preview.py`。
+
 ### 4.1 合成目录夹具（Project `prj_11111111111111111111111111111111`）
 
 初始均处于 `revision_number = 1`：
