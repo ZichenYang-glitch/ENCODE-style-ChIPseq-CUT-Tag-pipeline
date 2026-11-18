@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   ArtifactReferenceResponse,
   RunArtifactDetailResponse,
@@ -19,6 +19,7 @@ import {
 import { Button } from '../../components/Button';
 import { ApiError } from '../../api/fetcher';
 import { ArtifactInspector } from './ArtifactInspector';
+import { ViewerHost } from './ViewerHost';
 import { ArtifactList } from './ArtifactList';
 import {
   flattenArtifactPages,
@@ -34,7 +35,6 @@ import {
 } from './artifactDownload';
 
 const ARTIFACT_PAGE_SIZE = 50;
-const GenomeBrowserPanel = lazy(() => import('./GenomeBrowserPanel'));
 
 interface ArtifactBrowserProps {
   runId: string;
@@ -377,11 +377,7 @@ export function ArtifactBrowser({
           {browserOpen ? 'Hide genome browser' : 'View tracks in genome browser'}
         </Button>
       </div>
-      {browserOpen ? (
-        <Suspense fallback={<p role="status">Loading genome browser…</p>}>
-          <GenomeBrowserPanel runId={runId} />
-        </Suspense>
-      ) : null}
+      {browserOpen ? <ViewerHost runId={runId} /> : null}
 
       {listQuery.isError && hasCachedArtifacts && (
         <div

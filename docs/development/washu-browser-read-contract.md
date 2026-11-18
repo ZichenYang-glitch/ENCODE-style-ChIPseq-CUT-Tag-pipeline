@@ -98,7 +98,7 @@ export PLAYWRIGHT_BROWSERS_PATH="/home/yangzichen/workflow/ENCODE-style-ChIPseq-
 node frontend/scripts/washu-browser-accept.mjs
 ```
 
-该入口只调用 `frontend/scripts/washu-browser-proof.mjs`：正例要求预检与后续数据和索引读取分开、已知窗口 `chr1:500-2700`、PET/峰/bigWig 的已知字节，以及标尺上的 1000 与 2000。负例在一字节预检成功后追加索引字节，真实路由返回 `derivative_changed`，进程非零退出且不打印 `WASHU_PROOF ok`。
+该入口只调用 `frontend/scripts/washu-browser-proof.mjs`：正例要求预检与后续数据和索引读取分开、已知窗口 `chr1:500-2700`、PET/峰/bigWig 的已知字节，以及标尺上的 1000 与 2000，并以 0 退出且打印 `WASHU_PROOF ok`。负例在一字节预检成功后追加索引字节，真实路由返回 `derivative_changed`。预期拒绝以 0 退出，打印 `WASHU_PROOF rejected`，并且不打印 `WASHU_PROOF ok`。其它证明错误以非零退出。汇总只在正例满足上述成功输出、负例满足预期拒绝时通过；负例非零、缺少拒绝文本，或负例结果里出现 `WASHU_PROOF ok`，都会让汇总失败。
 
 没有绑定参考修订时，不猜测 hg38/mm10。有绑定时，页面展示 profile、
 revision、identity SHA-256 和 binding digest。WashU 染色体表只在程序集

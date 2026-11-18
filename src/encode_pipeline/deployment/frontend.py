@@ -50,6 +50,21 @@ _SECURITY_HEADERS = (
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
 )
+_VIEWER_DOCUMENT = "viewer.html"
+
+
+def _security_headers(path: str) -> tuple[tuple[bytes, bytes], ...]:
+    """Keep the platform unframed. The viewer document may be framed by this origin."""
+
+    if path != _VIEWER_DOCUMENT:
+        return _SECURITY_HEADERS
+    policy = _CONNECT_SRC + b"; frame-ancestors 'self'"
+    return tuple(
+        (name, policy if name == b"content-security-policy" else value)
+        if name != b"x-frame-options"
+        else (name, b"SAMEORIGIN")
+        for name, value in _SECURITY_HEADERS
+    )
 
 
 class ManifestStaticApplication:
@@ -107,7 +122,7 @@ class ManifestStaticApplication:
                     "headers": (
                         (b"etag", etag),
                         (b"cache-control", _cache_control(requested)),
-                        *_SECURITY_HEADERS,
+                        *_security_headers(requested),
                     ),
                 }
             )
@@ -119,7 +134,7 @@ class ManifestStaticApplication:
             (b"content-length", str(len(content)).encode("ascii")),
             (b"cache-control", _cache_control(requested)),
             (b"etag", etag),
-            *_SECURITY_HEADERS,
+            *_security_headers(requested),
         )
         await send({"type": "http.response.start", "status": 200, "headers": headers})
         await send(
@@ -244,7 +259,7 @@ def _content_type(path: str) -> str:
 def _cache_control(path: str) -> bytes:
     if path.startswith("assets/"):
         return b"public, max-age=31536000, immutable"
-    if path == "index.html":
+    if path in {"index.html", "viewer.html"}:
         return b"no-cache"
     return b"public, max-age=3600"
 

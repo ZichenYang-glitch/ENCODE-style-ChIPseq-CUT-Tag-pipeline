@@ -9,6 +9,12 @@ export default defineConfig({
     // Auto-detecting conditional requires races with module loading (notably Ajv).
     // Preserve CommonJS initialization semantics independently of load order.
     commonjsOptions: { strictRequires: true },
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        viewer: path.resolve(__dirname, 'viewer.html'),
+      },
+    },
   },
   server: {
     proxy: {

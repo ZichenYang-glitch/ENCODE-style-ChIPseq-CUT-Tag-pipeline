@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { washuAcceptFailed } from './washu-accept-verdict.mjs';
 
 const root = new URL('../..', import.meta.url).pathname;
 const head = await git(['rev-parse', 'HEAD']);
@@ -19,9 +20,7 @@ const index = {
 };
 writeFileSync(join(out, 'ACCEPT.json'), `${JSON.stringify(index, null, 2)}\n`);
 console.log(JSON.stringify(index, null, 2));
-if (positive.code !== 0 || !positive.tail.includes('WASHU_PROOF ok')) process.exitCode = 1;
-if (negative.code === 0 || negative.tail.includes('WASHU_PROOF ok')) process.exitCode = 1;
-if (!negative.tail.includes('WASHU_PROOF rejected')) process.exitCode = 1;
+if (washuAcceptFailed(positive, negative)) process.exitCode = 1;
 
 function git(args) {
   return new Promise((resolve, reject) => {
@@ -54,7 +53,11 @@ function runProof(dir, args) {
       process.stderr.write(chunk);
     });
     child.on('exit', (code) => {
-      resolve({ code: code ?? 1, tail: text.trim().split('\n').slice(-4).join('\n') });
+      resolve({
+        code: code ?? 1,
+        output: text,
+        tail: text.trim().split('\n').slice(-4).join('\n'),
+      });
     });
   });
 }
