@@ -1484,20 +1484,21 @@ class AuthoringService:
 def _projection_callable(adapter: object) -> Callable[..., Any] | None:
     """Resolve a suggestion projector without editing a sealed adapter file.
 
-    A method on the adapter wins. Otherwise a package whose class module is
-    named ``adapter`` may export ``project_authoring_fields`` from its
-    sibling ``authoring`` module.
+    A method on the adapter wins. Otherwise the adapter package may export
+    ``project_authoring_fields`` from its ``authoring`` module. A subclass
+    defined in another module of that package, including the Hi-TrAC results
+    adapter, uses the same export.
     """
 
     if isinstance(adapter, AuthoringFieldProjectingAdapter):
         method = getattr(adapter, "project_authoring_fields", None)
         return method if callable(method) else None
     module_name = type(adapter).__module__
-    suffix = ".adapter"
-    if not module_name.endswith(suffix):
+    package_name, separator, _leaf = module_name.rpartition(".")
+    if separator == "" or package_name == "":
         return None
     try:
-        module = importlib.import_module(module_name[: -len(suffix)] + ".authoring")
+        module = importlib.import_module(package_name + ".authoring")
     except Exception:
         return None
     function = getattr(module, "project_authoring_fields", None)

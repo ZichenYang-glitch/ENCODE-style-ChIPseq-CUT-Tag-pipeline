@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -20,9 +22,15 @@ from encode_pipeline.adapters.encode_authoring_projection import (
     explainable_issues,
     project_encode_fields,
 )
+from encode_pipeline.adapters.hitrac_preprocess.adapter import (
+    HiTracPreprocessAdapter,
+)
 from encode_pipeline.adapters.hitrac_preprocess.admission import INDEX_SUFFIXES
 from encode_pipeline.adapters.hitrac_preprocess.execution import (
     WORKFLOW_ID as HITRAC_WORKFLOW,
+)
+from encode_pipeline.adapters.hitrac_preprocess.results import (
+    HiTracPreprocessResultsAdapter,
 )
 from encode_pipeline.persistence import (
     create_database_engine,
@@ -156,8 +164,24 @@ def _reference_payload(root: Path) -> dict[str, str]:
     }
 
 
-@pytest.fixture
-def stack(tmp_path: Path):
+def _bound_case_fixture():
+    """Reuse the admitted-runtime stub from the Hi-TrAC adapter contract tests."""
+
+    path = Path(__file__).resolve().parents[1] / "adapters" / "test_hitrac_adapter.py"
+    spec = importlib.util.spec_from_file_location("hitrac_adapter_bound_case", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("bound_case fixture is missing")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.bound_case
+
+
+bound_case = _bound_case_fixture()
+
+
+def _authoring_stack(tmp_path: Path, environ: dict[str, str]) -> SimpleNamespace:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     database_url = f"sqlite:///{tmp_path / 'authoring.db'}"
     upgrade_database(database_url)
     engine = create_database_engine(database_url)
@@ -185,7 +209,7 @@ def stack(tmp_path: Path):
         now_factory=clock,
     )
     project = data.create_project("Mapq")
-    registry = create_default_workflow_registry(environ={})
+    registry = create_default_workflow_registry(environ=environ)
     payload = _reference_payload(tmp_path)
     private = PrivateReferenceProfileConfig({"tiny": {HITRAC_WORKFLOW: payload}})
     catalog = ReferenceProfileService(
@@ -225,16 +249,23 @@ def stack(tmp_path: Path):
         bridge=ControlledBridge(),
         clock=clock,
     )
-    yield SimpleNamespace(
+    return SimpleNamespace(
         actor=actor,
         bridge=service._bridge,
+        engine=engine,
         project_id=project.project_id,
         reference_id=reference.revision_id,
         registry=registry,
         service=service,
         validation=validated._validation_service,
     )
-    engine.dispose()
+
+
+@pytest.fixture
+def stack(tmp_path: Path):
+    built = _authoring_stack(tmp_path, {})
+    yield built
+    built.engine.dispose()
 
 
 def _open(stack, workflow_id: str):
@@ -425,3 +456,53 @@ def test_bulk_rnaseq_still_has_no_suggestion_catalog(stack) -> None:
     with pytest.raises(AuthoringRejected) as denied:
         stack.service.open_connection(stack.actor, created.sid)
     assert denied.value.reason_code == CAPABILITY_UNAVAILABLE
+
+
+def test_results_adapter_adopts_the_same_mapq_projection(tmp_path: Path, bound_case):
+    base = _authoring_stack(tmp_path / "authoring-only", {})
+    ready = _authoring_stack(
+        tmp_path / "results-ready",
+        {
+            "HELIXWEAVE_HITRAC_RUNTIME_BINDING": str(bound_case["runtime_path"]),
+            "HELIXWEAVE_HITRAC_RUNTIME_SHA256": bound_case["runtime_sha"],
+        },
+    )
+    try:
+        base_adapter = base.registry.get(HITRAC_WORKFLOW)
+        ready_adapter = ready.registry.get(HITRAC_WORKFLOW)
+        assert type(base_adapter) is HiTracPreprocessAdapter
+        assert type(ready_adapter) is HiTracPreprocessResultsAdapter
+        assert ready_adapter.execution_availability().execution == "available"
+
+        opened = _open(base, HITRAC_WORKFLOW)
+        ready_opened = _open(ready, HITRAC_WORKFLOW)
+        assert ready_opened.connection_state == "ready"
+        assert ready_opened.projection_digest == opened.projection_digest
+        assert ready_opened.capability["fields"] == opened.capability["fields"]
+        assert ready_opened.capability["fields"] == [
+            {
+                "constraints": {"type": "integer", "minimum": 0, "maximum": 255},
+                "label": "MAPQ threshold",
+                "token": "options.mapq",
+                "type": "integer",
+            }
+        ]
+
+        ready.bridge.value = 20
+        suggested = _suggest(ready, ready_opened.sid, 0, "legal", preference=20)
+        assert suggested.status == "completed"
+        assert suggested.adoptable is True
+        adopted = ready.service.adopt(
+            ready.actor,
+            ready_opened.sid,
+            suggested.proposal_id,
+            expected_revision=0,
+            proposal_digest_value=suggested.proposal_digest,
+        )
+        current = ready.service.get_session(ready.actor, ready_opened.sid)
+        assert current.draft["options"]["mapq"] == 20
+        assert current.draft_revision == opened.draft_revision + 1
+        assert adopted.draft_revision == current.draft_revision
+    finally:
+        base.engine.dispose()
+        ready.engine.dispose()
