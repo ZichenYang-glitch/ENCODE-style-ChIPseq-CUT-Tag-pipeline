@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 
 from encode_pipeline.platform.catalog_curation_preview import (
+    EXPIRED_PROPOSAL_RETENTION,
+    M2_RULE_VERSION,
+    M2_VOCABULARY_VERSION,
     MAX_CHANGESET_ITEMS,
     PROPOSAL_ADOPTION_WINDOW,
-    EXPIRED_PROPOSAL_RETENTION,
     CatalogPreviewError,
     CatalogProposal,
     ProposalCitation,
@@ -20,8 +22,10 @@ from encode_pipeline.platform.catalog_curation_preview import (
     SYNTHETIC_BASE_TIME,
     SYNTHETIC_EXP_1_ID,
     SYNTHETIC_EXP_2_ID,
+    SYNTHETIC_OTHER_PROJECT_ID,
     SYNTHETIC_PROJECT_ID,
     SYNTHETIC_PROPOSAL_ID,
+    SYNTHETIC_SECOND_PROPOSAL_ID,
     SYNTHETIC_SMP_1_ID,
     build_synthetic_m2_preview_fixture,
     export_m2_preview_contract_examples,
@@ -39,15 +43,23 @@ def test_m2_preview_spec_and_examples_stay_in_sync() -> None:
     """Published contract examples must match the live synthetic fixture output."""
 
     spec_text = SPEC_PATH.read_text(encoding="utf-8")
-    for case_id in ("M2-P1", "M2-P2", "M2-P3", "M2-P4", "M2-P5", "M2-P6"):
+    for case_id in (
+        "M2-P1",
+        "M2-P2",
+        "M2-P3",
+        "M2-P4",
+        "M2-P5",
+        "M2-P6",
+        "M2-P7",
+    ):
         assert case_id in spec_text
 
     committed_examples = json.loads(EXAMPLES_PATH.read_text(encoding="utf-8"))
     assert committed_examples == export_m2_preview_contract_examples()
 
 
-def test_m2_p1_proposal_citations_and_role_separation() -> None:
-    """M2-P1: Citations stay verifiable; member sees redacted view and cannot adopt."""
+def test_m2_p1_proposal_citations_and_role_projection() -> None:
+    """M2-P1: Member view redacts ambiguous candidates AND their source_refs/tokens."""
 
     store = build_synthetic_m2_preview_fixture()
     now = SYNTHETIC_BASE_TIME + timedelta(minutes=1)
@@ -61,7 +73,50 @@ def test_m2_p1_proposal_citations_and_role_separation() -> None:
     item_3_member = member_view["items"][2]
     assert item_3_member["after"]["cell_type"] == {"status": "ambiguous", "values": []}
     assert "candidates" not in item_3_member["after"]["cell_type"]
-    assert "aliases" not in json.dumps(member_view)
+    # Candidate term_revision_ids and identifying tokens must not leak to members.
+    member_refs = item_3_member["citations"]["source_refs"]
+    assert [ref["ref_id"] for ref in member_refs] == [
+        "smpr_33333333333333333333333333333331",
+        "trmv_10101010101010101010101010101010",
+    ]
+    serialized_member = json.dumps(member_view)
+    for secret_token in (
+        "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "trmv_dddddddddddddddddddddddddddddddd",
+        "alias-candidate-treg",
+        "alias-candidate-kc",
+        "aliases",
+    ):
+        assert secret_token not in serialized_member
+
+    # Defense-in-depth: even if visibility is left default on a candidate ref, member view strips it.
+    unmarked_ref_citation = ProposalCitation(
+        rule_version=M2_RULE_VERSION,
+        vocabulary_version=M2_VOCABULARY_VERSION,
+        reason_codes=("ALIAS_AMBIGUOUS_CANDIDATES",),
+        source_refs=(
+            SourceReference(
+                kind="sample_revision",
+                ref_id="smpr_33333333333333333333333333333331",
+                evidence_token="proj-smp-1-catalog-slots",
+            ),
+            SourceReference(
+                kind="term_revision",
+                ref_id="trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                term_revision_id="trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                evidence_token="unmarked-candidate-token",
+            ),
+        ),
+    )
+    projected_member_refs = unmarked_ref_citation.to_object(
+        include_candidates=False,
+        candidate_term_revision_ids=frozenset(
+            {"trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+        ),
+    )["source_refs"]
+    assert [ref["ref_id"] for ref in projected_member_refs] == [
+        "smpr_33333333333333333333333333333331"
+    ]
 
     admin_view = store.get_proposal_view(
         actor_user_id="usr_admin_a",
@@ -75,7 +130,7 @@ def test_m2_p1_proposal_citations_and_role_separation() -> None:
         "regulatory T cell",
         "keratinocyte",
     ]
-    assert item_3_admin["citations"]["rule_version"] == "m2-catalog-rules/1"
+    assert item_3_admin["citations"]["rule_version"] == M2_RULE_VERSION
     assert item_3_admin["citations"]["reason_codes"] == [
         "ALIAS_AMBIGUOUS_CANDIDATES",
         "TAG_TERM_MATCH",
@@ -211,7 +266,6 @@ def test_m2_p3_concurrent_manual_revision_causes_atomic_conflict() -> None:
     )
     assert manual_result["revision_number"] == 2
 
-    # Previewing again surfaces conflict_detected before adoption too.
     refreshed_preview = store.preview_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -240,7 +294,6 @@ def test_m2_p3_concurrent_manual_revision_causes_atomic_conflict() -> None:
     assert err.conflicts[0].expected_revision_number == 1
     assert err.conflicts[0].current_revision_number == 2
 
-    # Zero partial commit: exp_1 keeps Admin B's rev 2, smp_1 stays at rev 1.
     exp1_head = store.get_experiment_head(SYNTHETIC_EXP_1_ID)
     assert exp1_head["revision_number"] == 2
     assert (
@@ -250,24 +303,25 @@ def test_m2_p3_concurrent_manual_revision_causes_atomic_conflict() -> None:
     assert store.get_sample_head(SYNTHETIC_SMP_1_ID)["revision_number"] == 1
 
 
-def test_m2_p4_two_admins_concurrent_expected_revisions_race() -> None:
-    """M2-P4: Two admins concurrently adopting expected_revision=1 produce one winner and one 409."""
+def test_m2_p4_single_adoption_outcome_for_disjoint_and_competing_proposals() -> None:
+    """M2-P4: One proposal produces at most one adoption outcome; disjoint second confirm fails."""
 
     store = build_synthetic_m2_preview_fixture()
     t_preview = SYNTHETIC_BASE_TIME + timedelta(minutes=2)
     t_commit_a = SYNTHETIC_BASE_TIME + timedelta(minutes=3)
     t_commit_b = SYNTHETIC_BASE_TIME + timedelta(minutes=4)
 
+    # Admin A previews {item_1, item_3}; Admin B previews disjoint {item_2} on the same proposal.
     preview_a = store.preview_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
         selected_item_ids=["item_1", "item_3"],
         now=t_preview,
     )
-    preview_b = store.preview_proposal_subset(
+    preview_b_disjoint = store.preview_proposal_subset(
         actor_user_id="usr_admin_b",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
-        selected_item_ids=["item_1", "item_2"],
+        selected_item_ids=["item_2"],
         now=t_preview,
     )
 
@@ -282,29 +336,109 @@ def test_m2_p4_two_admins_concurrent_expected_revisions_race() -> None:
     )
     assert winner_receipt["replayed"] is False
 
-    with pytest.raises(CatalogPreviewError) as loser_exc:
+    # Reopening the proposal shows adopted state, adoptable_by_caller=False, and original receipt.
+    reopened_by_b = store.get_proposal_view(
+        actor_user_id="usr_admin_b",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        now=t_commit_b,
+    )
+    assert reopened_by_b["proposal_state"] == "adopted"
+    assert reopened_by_b["adoptable_by_caller"] is False
+    assert reopened_by_b["adoption_receipt"] == winner_receipt
+
+    # Reopening after 7d TTL still preserves the adopted audit receipt.
+    reopened_past_retention = store.get_proposal_view(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        now=SYNTHETIC_BASE_TIME + EXPIRED_PROPOSAL_RETENTION + timedelta(days=1),
+    )
+    assert reopened_past_retention["proposal_state"] == "adopted"
+    assert reopened_past_retention["adoption_receipt"] == winner_receipt
+
+    # New preview on an adopted proposal is rejected.
+    with pytest.raises(CatalogPreviewError) as re_preview_exc:
+        store.preview_proposal_subset(
+            actor_user_id="usr_admin_b",
+            proposal_id=SYNTHETIC_PROPOSAL_ID,
+            selected_item_ids=["item_2"],
+            now=t_commit_b,
+        )
+    assert re_preview_exc.value.status_code == 409
+    assert re_preview_exc.value.code == "catalog_proposal_invalidated"
+
+    # Admin B's stale preview for disjoint item_2 cannot write a second receipt.
+    with pytest.raises(CatalogPreviewError) as disjoint_exc:
         store.adopt_proposal_subset(
             actor_user_id="usr_admin_b",
             proposal_id=SYNTHETIC_PROPOSAL_ID,
-            preview_digest=preview_b["preview_digest"],
-            selected_item_ids=preview_b["selected_item_ids"],
-            expected_revisions=preview_b["expected_revisions"],
-            idempotency_key="idem-race-admin-b",
+            preview_digest=preview_b_disjoint["preview_digest"],
+            selected_item_ids=preview_b_disjoint["selected_item_ids"],
+            expected_revisions=preview_b_disjoint["expected_revisions"],
+            idempotency_key="idem-race-admin-b-disjoint",
             now=t_commit_b,
         )
-    assert loser_exc.value.status_code == 409
-    assert loser_exc.value.code == "catalog_revision_conflict"
-    assert loser_exc.value.conflicts[0].target_id == SYNTHETIC_EXP_1_ID
-    assert loser_exc.value.conflicts[0].current_revision_number == 2
-
-    # item_2 from losing subset was NOT committed either.
-    assert store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"] == 2
+    assert disjoint_exc.value.status_code == 409
+    assert disjoint_exc.value.code == "catalog_proposal_invalidated"
     assert store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
-    assert store.get_sample_head(SYNTHETIC_SMP_1_ID)["revision_number"] == 2
+    assert (
+        len(
+            store.list_adoption_receipts(
+                actor_user_id="usr_admin_a", project_id=SYNTHETIC_PROJECT_ID
+            )["receipts"]
+        )
+        == 1
+    )
+
+    # Admin A replaying the original key and body still receives the original receipt.
+    replayed = store.adopt_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        preview_digest=preview_a["preview_digest"],
+        selected_item_ids=preview_a["selected_item_ids"],
+        expected_revisions=preview_a["expected_revisions"],
+        idempotency_key="idem-race-admin-a",
+        now=t_commit_b,
+    )
+    assert replayed["replayed"] is True
+    assert replayed["receipt_id"] == winner_receipt["receipt_id"]
+
+    # A separate proposal targeting exp_1 at expected_revision=1 hits 409 catalog_revision_conflict.
+    other_prop = CatalogProposal.create(
+        proposal_id="cprop_33333333333333333333333333333333",
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        items=(
+            store._proposals[SYNTHETIC_PROPOSAL_ID].items[0],
+            store._proposals[SYNTHETIC_PROPOSAL_ID].items[1],
+        ),
+        created_at=SYNTHETIC_BASE_TIME,
+    )
+    store._proposals[other_prop.proposal_id] = other_prop
+    other_preview = store.preview_proposal_subset(
+        actor_user_id="usr_admin_b",
+        proposal_id=other_prop.proposal_id,
+        selected_item_ids=["item_1", "item_2"],
+        now=t_commit_b,
+    )
+    assert other_preview["has_conflicts"] is True
+    with pytest.raises(CatalogPreviewError) as other_conflict:
+        store.adopt_proposal_subset(
+            actor_user_id="usr_admin_b",
+            proposal_id=other_prop.proposal_id,
+            preview_digest=other_preview["preview_digest"],
+            selected_item_ids=other_preview["selected_item_ids"],
+            expected_revisions=other_preview["expected_revisions"],
+            idempotency_key="idem-other-prop-stale",
+            now=t_commit_b,
+        )
+    assert other_conflict.value.status_code == 409
+    assert other_conflict.value.code == "catalog_revision_conflict"
+    assert store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
 
 
-def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> None:
-    """M2-P5: Same Idempotency-Key + same body replays receipt; different body conflicts."""
+def test_m2_p5_dropped_response_replay_and_m1a_idempotency_key_scope() -> None:
+    """M2-P5: (actor, key) scope replays exact request and rejects reuse across proposals/bodies."""
 
     store = build_synthetic_m2_preview_fixture()
     t_preview = SYNTHETIC_BASE_TIME + timedelta(minutes=2)
@@ -317,6 +451,13 @@ def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> Non
         selected_item_ids=["item_1", "item_3"],
         now=t_preview,
     )
+    second_preview = store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+        selected_item_ids=["item_2"],
+        now=t_preview,
+    )
+
     first_receipt = store.adopt_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -328,7 +469,7 @@ def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> Non
     )
     assert first_receipt["replayed"] is False
 
-    # Dropped response retry: even though heads are now rev 2, replay succeeds cleanly.
+    # Dropped response retry: succeeds cleanly with replayed=True even though proposal is adopted.
     replayed_receipt = store.adopt_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -344,17 +485,23 @@ def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> Non
     assert store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"] == 2
     assert store.get_sample_head(SYNTHETIC_SMP_1_ID)["revision_number"] == 2
 
-    # Receipt discovery after re-login finds the original receipt.
-    discovered = store.list_adoption_receipts(
-        actor_user_id="usr_admin_a",
-        project_id=SYNTHETIC_PROJECT_ID,
-        proposal_id=SYNTHETIC_PROPOSAL_ID,
-    )
-    assert len(discovered["receipts"]) == 1
-    assert discovered["receipts"][0]["receipt_id"] == first_receipt["receipt_id"]
+    # Same admin reusing the exact same Idempotency-Key on a SECOND proposal fails with 409 and zero writes.
+    with pytest.raises(CatalogPreviewError) as cross_prop_exc:
+        store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+            preview_digest=second_preview["preview_digest"],
+            selected_item_ids=second_preview["selected_item_ids"],
+            expected_revisions=second_preview["expected_revisions"],
+            idempotency_key="idem-dropped-response",
+            now=t_retry,
+        )
+    assert cross_prop_exc.value.status_code == 409
+    assert cross_prop_exc.value.code == "catalog_idempotency_conflict"
+    assert store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
 
-    # Same key with different body returns 409 catalog_idempotency_conflict.
-    with pytest.raises(CatalogPreviewError) as conflict_exc:
+    # Same admin reusing same key with different body on same proposal -> 409.
+    with pytest.raises(CatalogPreviewError) as diff_body_exc:
         store.adopt_proposal_subset(
             actor_user_id="usr_admin_a",
             proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -364,8 +511,17 @@ def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> Non
             idempotency_key="idem-dropped-response",
             now=t_retry,
         )
-    assert conflict_exc.value.status_code == 409
-    assert conflict_exc.value.code == "catalog_idempotency_conflict"
+    assert diff_body_exc.value.status_code == 409
+    assert diff_body_exc.value.code == "catalog_idempotency_conflict"
+
+    # Receipt discovery after re-login finds only the original receipt.
+    discovered = store.list_adoption_receipts(
+        actor_user_id="usr_admin_a",
+        project_id=SYNTHETIC_PROJECT_ID,
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+    )
+    assert len(discovered["receipts"]) == 1
+    assert discovered["receipts"][0]["receipt_id"] == first_receipt["receipt_id"]
 
     # Missing Idempotency-Key fails with 400 API_REQUEST_INVALID.
     with pytest.raises(CatalogPreviewError) as missing_key_exc:
@@ -382,10 +538,233 @@ def test_m2_p5_dropped_response_idempotent_replay_and_receipt_discovery() -> Non
     assert missing_key_exc.value.code == "API_REQUEST_INVALID"
 
 
-def test_m2_p6_expiry_revocation_archived_terms_and_egress_guards() -> None:
-    """M2-P6: Expiry, admin revocation, archived terms, and invalid citations fail closed."""
+def test_m2_p6_baseline_revision_id_provenance_and_version_checks() -> None:
+    """M2-P6: Verify base_revision_id + number, source_refs existence/ownership, and rule/vocab versions."""
 
-    # 1. Expiry: adopt fails with 410 after 30 minutes; read-only view lasts 7 days.
+    now = SYNTHETIC_BASE_TIME + timedelta(minutes=2)
+
+    # Case (a): Same revision number (1), but base_revision_id references a different revision!
+    mismatched_id_store = build_synthetic_m2_preview_fixture()
+    base_items = mismatched_id_store._proposals[SYNTHETIC_PROPOSAL_ID].items
+    wrong_rev_id_item_1 = ProposalItem(
+        item_id="item_1",
+        target_kind="experiment",
+        target_id=SYNTHETIC_EXP_1_ID,
+        base_revision_id="expr_99999999999999999999999999999999",
+        base_revision_number=1,
+        allowed_fields=base_items[0].allowed_fields,
+        before=base_items[0].before,
+        after=base_items[0].after,
+        citation=ProposalCitation(
+            rule_version=M2_RULE_VERSION,
+            vocabulary_version=M2_VOCABULARY_VERSION,
+            reason_codes=("BATCH_TERM_MATCH",),
+            source_refs=(
+                SourceReference(
+                    kind="experiment_revision",
+                    ref_id="expr_44444444444444444444444444444441",
+                    evidence_token="valid-cited-rev",
+                ),
+            ),
+        ),
+    )
+    wrong_id_proposal = CatalogProposal.create(
+        proposal_id="cprop_44444444444444444444444444444444",
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        items=(wrong_rev_id_item_1, base_items[1]),
+        created_at=SYNTHETIC_BASE_TIME,
+    )
+    mismatched_id_store._proposals[wrong_id_proposal.proposal_id] = wrong_id_proposal
+    preview_wrong_id = mismatched_id_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=wrong_id_proposal.proposal_id,
+        selected_item_ids=["item_1", "item_2"],
+        now=now,
+    )
+    assert preview_wrong_id["has_conflicts"] is True
+    assert preview_wrong_id["conflicts"][0]["expected_revision_number"] == 1
+    assert preview_wrong_id["conflicts"][0]["current_revision_number"] == 1
+    assert (
+        preview_wrong_id["conflicts"][0]["expected_revision_id"]
+        == "expr_99999999999999999999999999999999"
+    )
+    assert (
+        preview_wrong_id["conflicts"][0]["current_revision_id"]
+        == "expr_44444444444444444444444444444441"
+    )
+
+    with pytest.raises(CatalogPreviewError) as wrong_id_adopt_exc:
+        mismatched_id_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=wrong_id_proposal.proposal_id,
+            preview_digest=preview_wrong_id["preview_digest"],
+            selected_item_ids=preview_wrong_id["selected_item_ids"],
+            expected_revisions=preview_wrong_id["expected_revisions"],
+            idempotency_key="idem-wrong-rev-id",
+            now=now,
+        )
+    assert wrong_id_adopt_exc.value.status_code == 409
+    assert wrong_id_adopt_exc.value.code == "catalog_revision_conflict"
+    # Zero partial writes across the batch (item_2 also stays at rev 1).
+    assert (
+        mismatched_id_store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"]
+        == 1
+    )
+    assert (
+        mismatched_id_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"]
+        == 1
+    )
+
+    # Forged caller expected_revisions + digest cannot override server proposal baseline.
+    mismatched_id_store.manual_revise_experiment(
+        actor_user_id="usr_admin_b",
+        experiment_id=SYNTHETIC_EXP_2_ID,
+        expected_revision_number=1,
+        idempotency_key="idem-advance-exp2",
+        updates={"display_name": "Exp 2 Rev 2"},
+        now=now,
+    )
+    forged_expected = {SYNTHETIC_EXP_2_ID: 2}
+    from encode_pipeline.platform.catalog_curation_preview import compute_preview_digest
+
+    forged_digest = compute_preview_digest(
+        proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+        proposal_digest=mismatched_id_store._proposals[
+            SYNTHETIC_SECOND_PROPOSAL_ID
+        ].proposal_digest,
+        selected_item_ids=["item_2"],
+        expected_revisions=forged_expected,
+    )
+    with pytest.raises(CatalogPreviewError) as forged_exc:
+        mismatched_id_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+            preview_digest=forged_digest,
+            selected_item_ids=["item_2"],
+            expected_revisions=forged_expected,
+            idempotency_key="idem-forged-expected",
+            now=now,
+        )
+    assert forged_exc.value.status_code == 409
+    assert forged_exc.value.code == "catalog_proposal_invalidated"
+    assert (
+        mismatched_id_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"]
+        == 2
+    )
+
+    # Case (b): Invalidated / missing source_ref fails closed with zero writes.
+    stale_ref_store = build_synthetic_m2_preview_fixture()
+    bad_ref_item_1 = ProposalItem(
+        item_id="item_1",
+        target_kind="experiment",
+        target_id=SYNTHETIC_EXP_1_ID,
+        base_revision_id="expr_44444444444444444444444444444441",
+        base_revision_number=1,
+        allowed_fields=base_items[0].allowed_fields,
+        before=base_items[0].before,
+        after=base_items[0].after,
+        citation=ProposalCitation(
+            rule_version=M2_RULE_VERSION,
+            vocabulary_version=M2_VOCABULARY_VERSION,
+            reason_codes=("BATCH_TERM_MATCH",),
+            source_refs=(
+                SourceReference(
+                    kind="term_revision",
+                    ref_id="trmv_00000000000000000000000000000000",
+                    term_revision_id="trmv_00000000000000000000000000000000",
+                    evidence_token="missing-term-rev",
+                ),
+            ),
+        ),
+    )
+    bad_ref_proposal = CatalogProposal.create(
+        proposal_id="cprop_55555555555555555555555555555555",
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        items=(bad_ref_item_1, base_items[1]),
+        created_at=SYNTHETIC_BASE_TIME,
+    )
+    stale_ref_store._proposals[bad_ref_proposal.proposal_id] = bad_ref_proposal
+    with pytest.raises(CatalogPreviewError) as bad_ref_preview_exc:
+        stale_ref_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=bad_ref_proposal.proposal_id,
+            selected_item_ids=["item_1", "item_2"],
+            now=now,
+        )
+    assert bad_ref_preview_exc.value.status_code == 409
+    assert bad_ref_preview_exc.value.code == "catalog_proposal_invalidated"
+
+    bad_ref_digest = compute_preview_digest(
+        proposal_id=bad_ref_proposal.proposal_id,
+        proposal_digest=bad_ref_proposal.proposal_digest,
+        selected_item_ids=["item_1", "item_2"],
+        expected_revisions={SYNTHETIC_EXP_1_ID: 1, SYNTHETIC_EXP_2_ID: 1},
+    )
+    with pytest.raises(CatalogPreviewError) as bad_ref_adopt_exc:
+        stale_ref_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=bad_ref_proposal.proposal_id,
+            preview_digest=bad_ref_digest,
+            selected_item_ids=["item_1", "item_2"],
+            expected_revisions={SYNTHETIC_EXP_1_ID: 1, SYNTHETIC_EXP_2_ID: 1},
+            idempotency_key="idem-bad-ref-adopt",
+            now=now,
+        )
+    assert bad_ref_adopt_exc.value.status_code == 409
+    assert bad_ref_adopt_exc.value.code == "catalog_proposal_invalidated"
+    assert (
+        stale_ref_store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"] == 1
+    )
+    assert (
+        stale_ref_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
+    )
+
+    # Case (c): Advancing active rule/vocabulary version invalidates old proposals.
+    version_store = build_synthetic_m2_preview_fixture()
+    valid_preview = version_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        selected_item_ids=["item_1", "item_2"],
+        now=now,
+    )
+    version_store.set_active_versions(vocabulary_version="terms-snapshot/2026-11-19")
+    with pytest.raises(CatalogPreviewError) as vocab_exc:
+        version_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=SYNTHETIC_PROPOSAL_ID,
+            preview_digest=valid_preview["preview_digest"],
+            selected_item_ids=valid_preview["selected_item_ids"],
+            expected_revisions=valid_preview["expected_revisions"],
+            idempotency_key="idem-stale-vocab",
+            now=now,
+        )
+    assert vocab_exc.value.status_code == 409
+    assert vocab_exc.value.code == "catalog_proposal_invalidated"
+    assert version_store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"] == 1
+
+    # Case (d): Cross-project target ownership mismatch fails with 404.
+    cross_proj_store = build_synthetic_m2_preview_fixture()
+    cross_proj_store._experiments[
+        SYNTHETIC_EXP_1_ID
+    ].project_id = SYNTHETIC_OTHER_PROJECT_ID
+    with pytest.raises(CatalogPreviewError) as cross_proj_exc:
+        cross_proj_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=SYNTHETIC_PROPOSAL_ID,
+            selected_item_ids=["item_1"],
+            now=now,
+        )
+    assert cross_proj_exc.value.status_code == 404
+    assert cross_proj_exc.value.code == "catalog_not_found"
+
+
+def test_m2_p7_expiry_revocation_archived_terms_and_egress_guards() -> None:
+    """M2-P7: Expiry, admin revocation, archived terms, and invalid citations fail closed."""
+
     expired_store = build_synthetic_m2_preview_fixture()
     preview = expired_store.preview_proposal_subset(
         actor_user_id="usr_admin_a",
@@ -425,7 +804,7 @@ def test_m2_p6_expiry_revocation_archived_terms_and_egress_guards() -> None:
     assert purged_exc.value.status_code == 404
     assert purged_exc.value.code == "catalog_not_found"
 
-    # 2. Admin downgraded to member before commit -> 403 and zero writes.
+    # Admin downgraded to member before commit -> 403 and zero writes.
     revoked_store = build_synthetic_m2_preview_fixture()
     revoked_preview = revoked_store.preview_proposal_subset(
         actor_user_id="usr_admin_a",
@@ -448,7 +827,7 @@ def test_m2_p6_expiry_revocation_archived_terms_and_egress_guards() -> None:
     assert revoked_exc.value.code == "ADMINISTRATOR_REQUIRED"
     assert revoked_store.get_experiment_head(SYNTHETIC_EXP_1_ID)["revision_number"] == 1
 
-    # 3. Archived term referenced by proposal fails with 409 catalog_term_archived.
+    # Archived term referenced by proposal fails with 409 catalog_term_archived.
     archived_term_store = build_synthetic_m2_preview_fixture()
     archived_term_store.archive_term_revision("trmv_56565656565656565656565656565656")
     with pytest.raises(CatalogPreviewError) as term_exc:
@@ -461,7 +840,7 @@ def test_m2_p6_expiry_revocation_archived_terms_and_egress_guards() -> None:
     assert term_exc.value.status_code == 409
     assert term_exc.value.code == "catalog_term_archived"
 
-    # 4. Host paths and >100-item changesets are rejected by proposal construction.
+    # Host paths and >100-item changesets are rejected by proposal construction.
     with pytest.raises(CatalogPreviewError) as path_exc:
         SourceReference(
             kind="catalog_projection_row",
@@ -481,8 +860,8 @@ def test_m2_p6_expiry_revocation_archived_terms_and_egress_guards() -> None:
             before={"batch": {"status": "unknown"}},
             after={"batch": {"status": "not_applicable"}},
             citation=ProposalCitation(
-                rule_version="m2-catalog-rules/1",
-                vocabulary_version="terms-snapshot/2026-11-18",
+                rule_version=M2_RULE_VERSION,
+                vocabulary_version=M2_VOCABULARY_VERSION,
                 reason_codes=("MISSING_EVIDENCE_UNKNOWN",),
                 source_refs=(
                     SourceReference(
@@ -514,7 +893,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     store = build_synthetic_m2_preview_fixture()
     now = SYNTHETIC_BASE_TIME + timedelta(minutes=1)
 
-    # Unknown actor / inactive actor -> 401 AUTHENTICATION_REQUIRED.
     with pytest.raises(CatalogPreviewError) as auth_exc:
         store.get_proposal_view(
             actor_user_id="usr_missing",
@@ -524,7 +902,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     assert auth_exc.value.status_code == 401
     assert auth_exc.value.code == "AUTHENTICATION_REQUIRED"
 
-    # Empty, duplicate, or unknown selected_item_ids -> 422 catalog_payload_invalid.
     for bad_selection in ([], ["item_1", "item_1"], ["item_unknown"]):
         with pytest.raises(CatalogPreviewError) as sel_exc:
             store.preview_proposal_subset(
@@ -536,7 +913,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
         assert sel_exc.value.status_code == 422
         assert sel_exc.value.code == "catalog_payload_invalid"
 
-    # Non-ordered selected_item_ids and mismatched expected_revisions fail in adopt.
     preview = store.preview_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -556,7 +932,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     assert order_exc.value.status_code == 409
     assert order_exc.value.code == "catalog_preview_digest_mismatch"
 
-    # Term type mismatch and unknown term revision in a proposal item.
     bad_type_item = ProposalItem(
         item_id="item_bad_type",
         target_kind="experiment",
@@ -573,8 +948,8 @@ def test_m2_preview_validation_and_error_branches() -> None:
             }
         },
         citation=ProposalCitation(
-            rule_version="m2-catalog-rules/1",
-            vocabulary_version="terms-snapshot/2026-11-18",
+            rule_version=M2_RULE_VERSION,
+            vocabulary_version=M2_VOCABULARY_VERSION,
             reason_codes=("BATCH_TERM_MATCH",),
             source_refs=(
                 SourceReference(
@@ -604,7 +979,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     assert type_exc.value.status_code == 409
     assert type_exc.value.code == "catalog_term_type_mismatch"
 
-    # Manual write replay and conflict also enforce idempotency and revision checks.
     manual_1 = store.manual_revise_experiment(
         actor_user_id="usr_admin_b",
         experiment_id=SYNTHETIC_EXP_2_ID,
@@ -648,7 +1022,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     assert manual_rev_conflict.value.status_code == 409
     assert manual_rev_conflict.value.code == "catalog_revision_conflict"
 
-    # Archived experiment rejects preview and adoption.
     store._experiments[SYNTHETIC_EXP_1_ID].archived = True
     with pytest.raises(CatalogPreviewError) as arch_exp_exc:
         store.preview_proposal_subset(
@@ -660,7 +1033,6 @@ def test_m2_preview_validation_and_error_branches() -> None:
     assert arch_exp_exc.value.status_code == 409
     assert arch_exp_exc.value.code == "catalog_experiment_archived"
 
-    # Disallowed field on sample_catalog is rejected at ProposalItem construction.
     with pytest.raises(CatalogPreviewError) as bad_field_exc:
         ProposalItem(
             item_id="item_bad_field",

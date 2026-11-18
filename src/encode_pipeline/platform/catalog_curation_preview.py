@@ -145,6 +145,29 @@ def _assert_body_size_within_limit(value: Any) -> None:
         )
 
 
+def _collect_ambiguous_candidate_revision_ids(
+    *slot_maps: Mapping[str, Any],
+) -> frozenset[str]:
+    """Return every term_revision_id referenced inside any ambiguous slot's candidates."""
+
+    candidate_ids: set[str] = set()
+    for slot_map in slot_maps:
+        for field_name, slot_value in slot_map.items():
+            if field_name == "display_name" or not isinstance(slot_value, Mapping):
+                continue
+            if slot_value.get("status") != "ambiguous":
+                continue
+            raw_candidates = slot_value.get("candidates") or ()
+            if not isinstance(raw_candidates, Sequence):
+                continue
+            for candidate in raw_candidates:
+                if isinstance(candidate, Mapping):
+                    rev_id = candidate.get("term_revision_id")
+                    if isinstance(rev_id, str):
+                        candidate_ids.add(rev_id)
+    return frozenset(candidate_ids)
+
+
 @dataclass(frozen=True)
 class RevisionConflictDetail:
     """Bounded per-target optimistic concurrency mismatch."""
@@ -154,15 +177,19 @@ class RevisionConflictDetail:
     expected_revision_number: int
     current_revision_number: int
     current_revision_id: str
+    expected_revision_id: str | None = None
 
     def to_object(self) -> dict[str, Any]:
-        return {
+        obj: dict[str, Any] = {
             "target_kind": self.target_kind,
             "target_id": self.target_id,
             "expected_revision_number": self.expected_revision_number,
             "current_revision_number": self.current_revision_number,
             "current_revision_id": self.current_revision_id,
         }
+        if self.expected_revision_id is not None:
+            obj["expected_revision_id"] = self.expected_revision_id
+        return obj
 
 
 class CatalogPreviewError(Exception):
@@ -253,6 +280,7 @@ class SourceReference:
     ref_id: str
     term_revision_id: str | None = None
     evidence_token: str | None = None
+    visibility: str = "shared"
 
     def __post_init__(self) -> None:
         if self.kind == "experiment_revision":
@@ -276,6 +304,13 @@ class SourceReference:
                 self.term_revision_id,
                 path="citations.source_refs",
             )
+            if self.kind == "term_revision" and self.term_revision_id != self.ref_id:
+                raise catalog_preview_error(
+                    422,
+                    "catalog_payload_invalid",
+                    "term_revision source ref must match its term_revision_id.",
+                    path="citations.source_refs",
+                )
         if self.evidence_token is not None:
             _assert_bounded_text(self.evidence_token, path="citations.source_refs")
             if _EVIDENCE_TOKEN_RE.fullmatch(self.evidence_token) is None:
@@ -285,6 +320,25 @@ class SourceReference:
                     "Invalid evidence token format.",
                     path="citations.source_refs",
                 )
+        if self.visibility not in {"shared", "admin_only"}:
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                "Unsupported source reference visibility.",
+                path="citations.source_refs",
+            )
+
+    def is_admin_only(self, candidate_term_revision_ids: frozenset[str]) -> bool:
+        """Return whether this ref identifies an ambiguous candidate hidden from members."""
+
+        if self.visibility == "admin_only":
+            return True
+        if self.ref_id in candidate_term_revision_ids:
+            return True
+        return (
+            self.term_revision_id is not None
+            and self.term_revision_id in candidate_term_revision_ids
+        )
 
     def to_object(self) -> dict[str, Any]:
         obj: dict[str, Any] = {"kind": self.kind, "ref_id": self.ref_id}
@@ -332,12 +386,26 @@ class ProposalCitation:
                 path="citations.source_refs",
             )
 
-    def to_object(self) -> dict[str, Any]:
+    def to_object(
+        self,
+        *,
+        include_candidates: bool = True,
+        candidate_term_revision_ids: frozenset[str] = frozenset(),
+    ) -> dict[str, Any]:
+        refs = (
+            self.source_refs
+            if include_candidates
+            else tuple(
+                ref
+                for ref in self.source_refs
+                if not ref.is_admin_only(candidate_term_revision_ids)
+            )
+        )
         return {
             "rule_version": self.rule_version,
             "vocabulary_version": self.vocabulary_version,
             "reason_codes": list(self.reason_codes),
-            "source_refs": [ref.to_object() for ref in self.source_refs],
+            "source_refs": [ref.to_object() for ref in refs],
         }
 
 
@@ -412,6 +480,11 @@ class ProposalItem:
                 "Before/after snapshots must match allowed_fields exactly.",
             )
 
+    def candidate_term_revision_ids(self) -> frozenset[str]:
+        """Return candidate term_revision_ids from any ambiguous slot in this item."""
+
+        return _collect_ambiguous_candidate_revision_ids(self.before, self.after)
+
     def canonical_object(self) -> dict[str, Any]:
         return {
             "item_id": self.item_id,
@@ -422,7 +495,7 @@ class ProposalItem:
             "allowed_fields": list(self.allowed_fields),
             "before": self.before,
             "after": self.after,
-            "citations": self.citation.to_object(),
+            "citations": self.citation.to_object(include_candidates=True),
         }
 
 
@@ -705,6 +778,16 @@ def _validate_and_render_slot(
     return rendered
 
 
+@dataclass(frozen=True)
+class _IdempotencyReceipt:
+    """Receipt keyed by (actor_user_id, idempotency_key) to match M1 A scope."""
+
+    operation: str
+    target_key: str
+    request_sha256: str
+    response: dict[str, Any]
+
+
 @dataclass
 class _ExperimentState:
     experiment_id: str
@@ -742,6 +825,9 @@ class SyntheticCatalogPreviewStore:
         experiments: Mapping[str, _ExperimentState],
         samples: Mapping[str, _SampleState],
         proposals: Mapping[str, CatalogProposal],
+        active_rule_version: str = M2_RULE_VERSION,
+        active_vocabulary_version: str = M2_VOCABULARY_VERSION,
+        active_projection_version: str = M2_PROJECTION_VERSION,
         revision_id_factory: Callable[[str], str] | None = None,
     ) -> None:
         self._projects = dict(projects)
@@ -750,9 +836,12 @@ class SyntheticCatalogPreviewStore:
         self._experiments = dict(experiments)
         self._samples = dict(samples)
         self._proposals = dict(proposals)
-        self._idempotency_receipts: dict[
-            tuple[str, str, str], tuple[str, dict[str, Any]]
-        ] = {}
+        self._active_rule_version = active_rule_version
+        self._active_vocabulary_version = active_vocabulary_version
+        self._active_projection_version = active_projection_version
+        self._proposal_adoptions: dict[str, dict[str, Any]] = {}
+        # M1 A key scope: (actor_user_id, idempotency_key), then check operation/target/body.
+        self._idempotency_receipts: dict[tuple[str, str], _IdempotencyReceipt] = {}
         self._adoption_receipts: list[dict[str, Any]] = []
         self._counter = 0
         self._revision_id_factory = revision_id_factory or self._next_prefixed_id
@@ -768,6 +857,22 @@ class SyntheticCatalogPreviewStore:
         self._actors[user_id] = CatalogActor(
             user_id=existing.user_id, role=role, active=active
         )
+
+    def set_active_versions(
+        self,
+        *,
+        rule_version: str | None = None,
+        vocabulary_version: str | None = None,
+        projection_version: str | None = None,
+    ) -> None:
+        """Advance active catalog rule/vocabulary versions to test proposal invalidation."""
+
+        if rule_version is not None:
+            self._active_rule_version = rule_version
+        if vocabulary_version is not None:
+            self._active_vocabulary_version = vocabulary_version
+        if projection_version is not None:
+            self._active_projection_version = projection_version
 
     def archive_term_revision(self, term_revision_id: str) -> None:
         """Mark a term revision's parent term as archived to test write rejection."""
@@ -817,11 +922,26 @@ class SyntheticCatalogPreviewStore:
         self, proposal_id: str, *, now: datetime, for_adoption: bool
     ) -> CatalogProposal:
         proposal = self._proposals.get(proposal_id)
-        if proposal is None or now >= proposal.retention_until:
+        if proposal is None:
             raise catalog_preview_error(
                 404, "catalog_not_found", "The catalog proposal was not found."
             )
         self._require_active_project(proposal.project_id)
+        adopted = self._proposal_adoptions.get(proposal_id)
+        if adopted is not None:
+            if for_adoption:
+                raise catalog_preview_error(
+                    409,
+                    "catalog_proposal_invalidated",
+                    "This proposal has already been adopted.",
+                    hint="Reopen the proposal or query adoption receipts to view the committed result.",
+                )
+            # Adopted proposals and receipts remain readable beyond TTL as audit evidence.
+            return proposal
+        if now >= proposal.retention_until:
+            raise catalog_preview_error(
+                404, "catalog_not_found", "The catalog proposal was not found."
+            )
         if for_adoption and now >= proposal.expires_at:
             raise catalog_preview_error(
                 410,
@@ -830,6 +950,133 @@ class SyntheticCatalogPreviewStore:
                 hint="Read-only inspection remains available within the 7-day retention window.",
             )
         return proposal
+
+    def _verify_proposal_versions(self, proposal: CatalogProposal) -> None:
+        if (
+            proposal.rule_version != self._active_rule_version
+            or proposal.vocabulary_version != self._active_vocabulary_version
+            or proposal.projection_version != self._active_projection_version
+        ):
+            raise catalog_preview_error(
+                409,
+                "catalog_proposal_invalidated",
+                "Proposal rule, vocabulary, or projection version is no longer active.",
+            )
+        for item in proposal.items:
+            if (
+                item.citation.rule_version != self._active_rule_version
+                or item.citation.vocabulary_version != self._active_vocabulary_version
+            ):
+                raise catalog_preview_error(
+                    409,
+                    "catalog_proposal_invalidated",
+                    "Item citation rule or vocabulary version is no longer active.",
+                    path=item.item_id,
+                )
+
+    def _find_experiment_revision(
+        self, revision_id: str
+    ) -> tuple[_ExperimentState, dict[str, Any]] | None:
+        for exp_state in self._experiments.values():
+            for rev in exp_state.revisions:
+                if rev["experiment_revision_id"] == revision_id:
+                    return exp_state, rev
+        return None
+
+    def _find_sample_revision(
+        self, revision_id: str
+    ) -> tuple[_SampleState, dict[str, Any]] | None:
+        for smp_state in self._samples.values():
+            for rev in smp_state.revisions:
+                if rev["sample_revision_id"] == revision_id:
+                    return smp_state, rev
+        return None
+
+    def _verify_source_references(self, item: ProposalItem, project_id: str) -> None:
+        """Verify every cited source reference exists in this active project and is valid."""
+
+        for ref in item.citation.source_refs:
+            if ref.kind == "experiment_revision":
+                found_exp = self._find_experiment_revision(ref.ref_id)
+                if found_exp is None or found_exp[0].project_id != project_id:
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_proposal_invalidated",
+                        "Cited experiment revision is missing or outside this project.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+                if found_exp[0].archived:
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_experiment_archived",
+                        "Cited experiment is archived.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+            elif ref.kind == "sample_revision":
+                found_smp = self._find_sample_revision(ref.ref_id)
+                if found_smp is None or found_smp[0].project_id != project_id:
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_proposal_invalidated",
+                        "Cited sample revision is missing or outside this project.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+            elif ref.kind == "term_revision":
+                term_rec = self._terms.get(ref.ref_id)
+                if term_rec is None:
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_proposal_invalidated",
+                        "Cited term revision does not exist in the catalog.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+                if term_rec.archived:
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_term_archived",
+                        "Cited term revision is archived.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+            elif ref.kind == "catalog_projection_row":
+                # Projection rows must correspond to a known active target in this project.
+                if (
+                    ref.ref_id not in self._experiments
+                    and ref.ref_id not in self._samples
+                ):
+                    raise catalog_preview_error(
+                        409,
+                        "catalog_proposal_invalidated",
+                        "Cited catalog projection row does not exist in this project.",
+                        path=f"{item.item_id}.citations.source_refs",
+                    )
+
+    def _lookup_idempotency(
+        self,
+        *,
+        actor_user_id: str,
+        idempotency_key: str,
+        operation: str,
+        target_key: str,
+        request_sha256: str,
+    ) -> dict[str, Any] | None:
+        """M1 A idempotency lookup by (actor_user_id, idempotency_key)."""
+
+        existing = self._idempotency_receipts.get((actor_user_id, idempotency_key))
+        if existing is None:
+            return None
+        if (
+            existing.operation != operation
+            or existing.target_key != target_key
+            or existing.request_sha256 != request_sha256
+        ):
+            raise catalog_preview_error(
+                409,
+                "catalog_idempotency_conflict",
+                "The idempotency key was already used for a different operation, target, or request body.",
+            )
+        replayed = deepcopy(existing.response)
+        replayed["replayed"] = True
+        return replayed
 
     def _render_item_diff(
         self,
@@ -891,11 +1138,19 @@ class SyntheticCatalogPreviewStore:
         proposal_id: str,
         now: datetime,
     ) -> dict[str, Any]:
-        """Return bounded member or administrator view of an offline proposal."""
+        """Return role-projected member or administrator view of an offline proposal."""
 
         actor = self._require_actor(actor_user_id, require_admin=False)
         proposal = self._require_proposal(proposal_id, now=now, for_adoption=False)
         is_admin = actor.role == "administrator"
+        adopted_receipt = self._proposal_adoptions.get(proposal_id)
+        if adopted_receipt is not None:
+            proposal_state = "adopted"
+        elif now >= proposal.expires_at:
+            proposal_state = "expired"
+        else:
+            proposal_state = "pending"
+
         rendered_items: list[dict[str, Any]] = []
         for item in proposal.items:
             head_rev_num, head_rev_id, _ = self._head_revision_info(
@@ -916,7 +1171,10 @@ class SyntheticCatalogPreviewStore:
                     "allowed_fields": list(item.allowed_fields),
                     "before": before_dto,
                     "after": after_dto,
-                    "citations": item.citation.to_object(),
+                    "citations": item.citation.to_object(
+                        include_candidates=is_admin,
+                        candidate_term_revision_ids=item.candidate_term_revision_ids(),
+                    ),
                 }
             )
         return {
@@ -925,8 +1183,8 @@ class SyntheticCatalogPreviewStore:
             "proposal_id": proposal.proposal_id,
             "project_id": proposal.project_id,
             "source": proposal.source,
-            "proposal_state": ("expired" if now >= proposal.expires_at else "pending"),
-            "adoptable_by_caller": is_admin and now < proposal.expires_at,
+            "proposal_state": proposal_state,
+            "adoptable_by_caller": is_admin and proposal_state == "pending",
             "rule_version": proposal.rule_version,
             "vocabulary_version": proposal.vocabulary_version,
             "projection_version": proposal.projection_version,
@@ -934,6 +1192,7 @@ class SyntheticCatalogPreviewStore:
             "created_at": _format_utc(proposal.created_at),
             "expires_at": _format_utc(proposal.expires_at),
             "retention_until": _format_utc(proposal.retention_until),
+            "adoption_receipt": deepcopy(adopted_receipt),
             "items": rendered_items,
         }
 
@@ -959,17 +1218,14 @@ class SyntheticCatalogPreviewStore:
                 "updates": dict(updates),
             }
         )
-        receipt_key = (actor.user_id, validated_key, experiment_id)
-        existing = self._idempotency_receipts.get(receipt_key)
-        if existing is not None:
-            if existing[0] != request_sha:
-                raise catalog_preview_error(
-                    409,
-                    "catalog_idempotency_conflict",
-                    "The idempotency key was already used for a different request.",
-                )
-            replayed = deepcopy(existing[1])
-            replayed["replayed"] = True
+        replayed = self._lookup_idempotency(
+            actor_user_id=actor.user_id,
+            idempotency_key=validated_key,
+            operation="catalogReviseExperiment",
+            target_key=experiment_id,
+            request_sha256=request_sha,
+        )
+        if replayed is not None:
             return replayed
 
         state = self._experiments.get(experiment_id)
@@ -1027,7 +1283,14 @@ class SyntheticCatalogPreviewStore:
             "experiment_revision_id": new_rev_id,
             "revision_number": new_rev_num,
         }
-        self._idempotency_receipts[receipt_key] = (request_sha, deepcopy(result))
+        self._idempotency_receipts[(actor.user_id, validated_key)] = (
+            _IdempotencyReceipt(
+                operation="catalogReviseExperiment",
+                target_key=experiment_id,
+                request_sha256=request_sha,
+                response=deepcopy(result),
+            )
+        )
         return result
 
     def preview_proposal_subset(
@@ -1045,6 +1308,7 @@ class SyntheticCatalogPreviewStore:
             {"proposal_id": proposal_id, "selected_item_ids": list(selected_item_ids)}
         )
         proposal = self._require_proposal(proposal_id, now=now, for_adoption=True)
+        self._verify_proposal_versions(proposal)
         selected_items = self._resolve_selected_items(proposal, selected_item_ids)
         canonical_selected_ids = [item.item_id for item in selected_items]
         excluded_ids = [
@@ -1067,11 +1331,15 @@ class SyntheticCatalogPreviewStore:
                     "Selected target experiment is archived.",
                     path=item.item_id,
                 )
+            self._verify_source_references(item, proposal.project_id)
             before_dto, after_dto = self._render_item_diff(
                 item, include_candidates=True, for_write=True
             )
             expected_revisions[item.target_id] = item.base_revision_number
-            has_conflict = head_rev_num != item.base_revision_number
+            has_conflict = (
+                head_rev_num != item.base_revision_number
+                or head_rev_id != item.base_revision_id
+            )
             if has_conflict:
                 conflicts.append(
                     RevisionConflictDetail(
@@ -1080,6 +1348,7 @@ class SyntheticCatalogPreviewStore:
                         expected_revision_number=item.base_revision_number,
                         current_revision_number=head_rev_num,
                         current_revision_id=head_rev_id,
+                        expected_revision_id=item.base_revision_id,
                     ).to_object()
                 )
             preview_items.append(
@@ -1095,7 +1364,7 @@ class SyntheticCatalogPreviewStore:
                     "allowed_fields": list(item.allowed_fields),
                     "before": before_dto,
                     "after": after_dto,
-                    "citations": item.citation.to_object(),
+                    "citations": item.citation.to_object(include_candidates=True),
                 }
             )
 
@@ -1132,7 +1401,7 @@ class SyntheticCatalogPreviewStore:
         idempotency_key: str | None,
         now: datetime,
     ) -> dict[str, Any]:
-        """Atomically adopt a previewed subset with strict conflict and idempotency checks."""
+        """Atomically adopt a previewed subset with strict baseline, provenance, and idempotency checks."""
 
         validated_key = _validate_idempotency_key(idempotency_key)
         actor = self._require_actor(actor_user_id, require_admin=True)
@@ -1154,24 +1423,21 @@ class SyntheticCatalogPreviewStore:
             )
 
         request_sha = _sha256_canonical(canonical_body)
-        receipt_key = (actor.user_id, validated_key, proposal_id)
-        existing_receipt = self._idempotency_receipts.get(receipt_key)
-        if existing_receipt is not None:
-            if existing_receipt[0] != request_sha:
-                raise catalog_preview_error(
-                    409,
-                    "catalog_idempotency_conflict",
-                    "The idempotency key was already used for a different request.",
-                )
-            replayed = deepcopy(existing_receipt[1])
-            replayed["replayed"] = True
+        replayed = self._lookup_idempotency(
+            actor_user_id=actor.user_id,
+            idempotency_key=validated_key,
+            operation="catalogAdoptProposal",
+            target_key=proposal_id,
+            request_sha256=request_sha,
+        )
+        if replayed is not None:
             return replayed
 
         proposal = self._require_proposal(proposal_id, now=now, for_adoption=True)
+        self._verify_proposal_versions(proposal)
         selected_items = self._resolve_selected_items(proposal, selected_item_ids)
         canonical_selected_ids = [item.item_id for item in selected_items]
         if list(selected_item_ids) != canonical_selected_ids:
-            # Keep preview_digest canonical order unambiguous.
             recomputed = compute_preview_digest(
                 proposal_id=proposal.proposal_id,
                 proposal_digest=proposal.proposal_digest,
@@ -1200,18 +1466,25 @@ class SyntheticCatalogPreviewStore:
                 "expected_revisions must match the selected proposal targets.",
             )
 
-        # Validate target existence, term non-archival, and ALL expected revisions
-        # before applying any mutation (fail closed; no partial commits).
+        # Verify target ownership, source references, slot pins, AND both
+        # base_revision_id and base_revision_number against server state before writing.
         conflicts: list[RevisionConflictDetail] = []
         for item in selected_items:
-            _validate_item_expected = expected_revisions[item.target_id]
-            if isinstance(_validate_item_expected, bool) or not isinstance(
-                _validate_item_expected, int
+            caller_expected = expected_revisions[item.target_id]
+            if isinstance(caller_expected, bool) or not isinstance(
+                caller_expected, int
             ):
                 raise catalog_preview_error(
                     422,
                     "catalog_payload_invalid",
                     "expected_revision_number must be an integer.",
+                )
+            if caller_expected != item.base_revision_number:
+                raise catalog_preview_error(
+                    409,
+                    "catalog_proposal_invalidated",
+                    "Caller expected revision does not match the server proposal baseline.",
+                    path=item.item_id,
                 )
             head_rev_num, head_rev_id, archived = self._head_revision_info(
                 item, proposal.project_id
@@ -1223,16 +1496,19 @@ class SyntheticCatalogPreviewStore:
                     "Selected target experiment is archived.",
                     path=item.target_id,
                 )
-            # Verify slot pins and non-archived terms before checking/committing.
+            self._verify_source_references(item, proposal.project_id)
             self._render_item_diff(item, include_candidates=True, for_write=True)
-            if head_rev_num != _validate_item_expected:
+            if head_rev_num != item.base_revision_number or (
+                head_rev_id != item.base_revision_id
+            ):
                 conflicts.append(
                     RevisionConflictDetail(
                         target_kind=item.target_kind,
                         target_id=item.target_id,
-                        expected_revision_number=_validate_item_expected,
+                        expected_revision_number=item.base_revision_number,
                         current_revision_number=head_rev_num,
                         current_revision_id=head_rev_id,
+                        expected_revision_id=item.base_revision_id,
                     )
                 )
 
@@ -1244,7 +1520,7 @@ class SyntheticCatalogPreviewStore:
                 conflicts=conflicts,
             )
 
-        # Atomic commit of ONLY selected_items.
+        # Atomically commit ONLY selected_items, proposal adoption state, and receipt.
         applied_targets: list[dict[str, Any]] = []
         for item in selected_items:
             applied_targets.append(
@@ -1272,7 +1548,15 @@ class SyntheticCatalogPreviewStore:
             "applied_targets": applied_targets,
             "adopted_at": _format_utc(now),
         }
-        self._idempotency_receipts[receipt_key] = (request_sha, deepcopy(receipt))
+        self._proposal_adoptions[proposal.proposal_id] = deepcopy(receipt)
+        self._idempotency_receipts[(actor.user_id, validated_key)] = (
+            _IdempotencyReceipt(
+                operation="catalogAdoptProposal",
+                target_key=proposal.proposal_id,
+                request_sha256=request_sha,
+                response=deepcopy(receipt),
+            )
+        )
         self._adoption_receipts.append(deepcopy(receipt))
         return receipt
 
@@ -1406,7 +1690,9 @@ class SyntheticCatalogPreviewStore:
 
 
 SYNTHETIC_PROJECT_ID = "prj_11111111111111111111111111111111"
+SYNTHETIC_OTHER_PROJECT_ID = "prj_22222222222222222222222222222222"
 SYNTHETIC_PROPOSAL_ID = "cprop_0123456789abcdef0123456789abcdef"
+SYNTHETIC_SECOND_PROPOSAL_ID = "cprop_22222222222222222222222222222222"
 SYNTHETIC_EXP_1_ID = "exp_44444444444444444444444444444444"
 SYNTHETIC_EXP_2_ID = "exp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 SYNTHETIC_SMP_1_ID = "smp_22222222222222222222222222222222"
@@ -1728,12 +2014,14 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
                     ref_id="trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     term_revision_id="trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     evidence_token="alias-candidate-treg",
+                    visibility="admin_only",
                 ),
                 SourceReference(
                     kind="term_revision",
                     ref_id="trmv_dddddddddddddddddddddddddddddddd",
                     term_revision_id="trmv_dddddddddddddddddddddddddddddddd",
                     evidence_token="alias-candidate-kc",
+                    visibility="admin_only",
                 ),
                 SourceReference(
                     kind="term_revision",
@@ -1753,6 +2041,14 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
         items=(item_1, item_2, item_3),
         created_at=SYNTHETIC_BASE_TIME,
     )
+    second_proposal = CatalogProposal.create(
+        proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        items=(item_2,),
+        created_at=SYNTHETIC_BASE_TIME + timedelta(minutes=1),
+    )
 
     return SyntheticCatalogPreviewStore(
         projects={
@@ -1760,7 +2056,12 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
                 "active": True,
                 "legacy": False,
                 "display_name": "Treg 表观 (M2 合成目录夹具)",
-            }
+            },
+            SYNTHETIC_OTHER_PROJECT_ID: {
+                "active": True,
+                "legacy": False,
+                "display_name": "Other Project (Cross-Project Isolation Check)",
+            },
         },
         actors={
             "usr_member_01": CatalogActor(user_id="usr_member_01", role="member"),
@@ -1770,7 +2071,10 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
         terms_by_revision=terms_by_revision,
         experiments={SYNTHETIC_EXP_1_ID: exp_1, SYNTHETIC_EXP_2_ID: exp_2},
         samples={SYNTHETIC_SMP_1_ID: sample_1},
-        proposals={proposal.proposal_id: proposal},
+        proposals={
+            proposal.proposal_id: proposal,
+            second_proposal.proposal_id: second_proposal,
+        },
     )
 
 
@@ -1782,10 +2086,15 @@ def export_m2_preview_contract_examples() -> dict[str, Any]:
     t_adopt = SYNTHETIC_BASE_TIME + timedelta(minutes=4)
     t_retry = SYNTHETIC_BASE_TIME + timedelta(minutes=5)
 
-    # Run 1: Subset preview, clean adoption, dropped-response retry, and idempotency conflict.
+    # Run 1: Role-projected views, subset adoption, single-outcome guard, replay, and M1 A idempotency scope.
     clean_store = build_synthetic_m2_preview_fixture()
     member_view = clean_store.get_proposal_view(
         actor_user_id="usr_member_01",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        now=t_preview,
+    )
+    admin_view = clean_store.get_proposal_view(
+        actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
         now=t_preview,
     )
@@ -1793,6 +2102,18 @@ def export_m2_preview_contract_examples() -> dict[str, Any]:
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
         selected_item_ids=["item_1", "item_3"],
+        now=t_preview,
+    )
+    disjoint_preview_admin_b = clean_store.preview_proposal_subset(
+        actor_user_id="usr_admin_b",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        selected_item_ids=["item_2"],
+        now=t_preview,
+    )
+    second_proposal_preview = clean_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+        selected_item_ids=["item_2"],
         now=t_preview,
     )
     adopt_receipt = clean_store.adopt_proposal_subset(
@@ -1804,6 +2125,27 @@ def export_m2_preview_contract_examples() -> dict[str, Any]:
         idempotency_key="idem-admin-a-adopt-1",
         now=t_adopt,
     )
+    reopened_adopted_view = clean_store.get_proposal_view(
+        actor_user_id="usr_admin_b",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        now=t_retry,
+    )
+    try:
+        clean_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_b",
+            proposal_id=SYNTHETIC_PROPOSAL_ID,
+            preview_digest=disjoint_preview_admin_b["preview_digest"],
+            selected_item_ids=disjoint_preview_admin_b["selected_item_ids"],
+            expected_revisions=disjoint_preview_admin_b["expected_revisions"],
+            idempotency_key="idem-admin-b-disjoint",
+            now=t_retry,
+        )
+        raise AssertionError(
+            "expected proposal already adopted error"
+        )  # pragma: no cover
+    except CatalogPreviewError as exc:
+        disjoint_subset_after_adoption_conflict = exc.to_response()
+
     dropped_response_replay = clean_store.adopt_proposal_subset(
         actor_user_id="usr_admin_a",
         proposal_id=SYNTHETIC_PROPOSAL_ID,
@@ -1816,14 +2158,16 @@ def export_m2_preview_contract_examples() -> dict[str, Any]:
     try:
         clean_store.adopt_proposal_subset(
             actor_user_id="usr_admin_a",
-            proposal_id=SYNTHETIC_PROPOSAL_ID,
-            preview_digest=admin_subset_preview["preview_digest"],
-            selected_item_ids=["item_1"],
-            expected_revisions={SYNTHETIC_EXP_1_ID: 1},
+            proposal_id=SYNTHETIC_SECOND_PROPOSAL_ID,
+            preview_digest=second_proposal_preview["preview_digest"],
+            selected_item_ids=second_proposal_preview["selected_item_ids"],
+            expected_revisions=second_proposal_preview["expected_revisions"],
             idempotency_key="idem-admin-a-adopt-1",
             now=t_retry,
         )
-        raise AssertionError("expected idempotency conflict")  # pragma: no cover
+        raise AssertionError(
+            "expected cross-proposal idempotency conflict"
+        )  # pragma: no cover
     except CatalogPreviewError as exc:
         idempotency_conflict_response = exc.to_response()
 
@@ -1860,9 +2204,12 @@ def export_m2_preview_contract_examples() -> dict[str, Any]:
     return {
         "contract_version": M2_CONTRACT_VERSION,
         "member_proposal_view": member_view,
+        "admin_proposal_view": admin_view,
         "admin_subset_preview": admin_subset_preview,
         "concurrent_revision_conflict_response": concurrent_revision_conflict_response,
         "adopt_success_receipt": adopt_receipt,
+        "reopened_adopted_proposal_view": reopened_adopted_view,
+        "disjoint_subset_after_adoption_conflict": disjoint_subset_after_adoption_conflict,
         "adopt_dropped_response_replay": dropped_response_replay,
         "idempotency_conflict_response": idempotency_conflict_response,
     }
