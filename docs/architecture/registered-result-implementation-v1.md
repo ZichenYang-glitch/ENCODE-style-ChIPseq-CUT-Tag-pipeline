@@ -42,7 +42,7 @@ IRENE-39 把 [读取契约](registered-result-read-contract.md) 落到临时 SQL
 匿名、撤销或停用账号是 `401`。Project 不匹配、修订不存在、Project 已归档是 `404 catalog_not_found`，此时不解析存储坐标。
 字节缺失或摘要不符是 `409 registered_result_bytes_unavailable`。这些失败都不写成功审计。
 
-`200` 只在两件事都完成后发出：响应私有副本（目录 `0700`、文件 `0600`）在复制过程中完成摘要核对，以及成功审计写入。审计失败时删除副本并失败关闭。响应头是 `application/octet-stream`、`Accept-Ranges: none`、`Cache-Control: no-store`，文件名只使用 `registered-result.{format}`。副本路径不进入 SQLite、公开 DTO、审计或日志。副本在响应结束后删除，不是新的长期位置。
+`200` 只在两件事都完成后发出：响应私有副本（目录 `0700`、文件 `0600`）在复制过程中完成摘要核对，并且该副本的只读句柄已经打开；然后才写入成功审计。响应持有这个句柄，不再重新打开文件。句柄打不开是 `409`，成功审计增量为 0。审计写入失败时关闭句柄、删除副本，并且不返回 `200`。公开的 `200` 只有 `application/octet-stream`。生成客户端的 `catalogDownloadRegisteredResultRevision` 使用已有的 `blobFetcher`，成功类型是 `Blob`；错误响应仍按 JSON 契约解码。响应头还有 `Accept-Ranges: none`、`Cache-Control: no-store`，文件名只使用 `registered-result.{format}`。副本路径不进入 SQLite、公开 DTO、审计或日志。副本在响应结束后删除，不是新的长期位置。
 
 因此，核对完成后源文件被原地改写，已经密封的响应体不变，其 SHA-256 仍等于所请求修订。核对完成前源文件变了，则返回 `409`，没有 `200`。
 

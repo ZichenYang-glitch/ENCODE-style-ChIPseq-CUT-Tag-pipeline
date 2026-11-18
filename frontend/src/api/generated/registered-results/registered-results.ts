@@ -17,6 +17,7 @@ import type {
 } from '.././models';
 
 import { fetcher } from '../../fetcher';
+import { blobFetcher } from '../../fetcher';
 
 /**
  * List current revisions for one visible project.
@@ -208,9 +209,9 @@ export const getCatalogDownloadRegisteredResultRevisionUrl = (projectId: string,
 }
 
 export const catalogDownloadRegisteredResultRevision = async (projectId: string,
-    resultRevisionId: string, options?: RequestInit): Promise<unknown | Blob> => {
+    resultRevisionId: string, options?: RequestInit): Promise<Blob> => {
 
-  return fetcher<unknown | Blob>(getCatalogDownloadRegisteredResultRevisionUrl(projectId,resultRevisionId),
+  return blobFetcher<Blob>(getCatalogDownloadRegisteredResultRevisionUrl(projectId,resultRevisionId),
   {
     ...options,
     method: 'GET'

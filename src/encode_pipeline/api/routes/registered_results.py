@@ -271,8 +271,9 @@ def catalog_get_registered_result_revision(
 
 @router.get(
     "/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content",
-    operation_id="catalogDownloadRegisteredResultRevision",
+    response_class=StreamingResponse,
     response_model=None,
+    operation_id="catalogDownloadRegisteredResultRevision",
     responses={
         200: {
             "description": "Verified private copy of the requested revision.",
@@ -301,30 +302,20 @@ def catalog_download_registered_result_revision(
     except RegisteredResultAPIError as exc:
         return _failure(exc)
     try:
-        descriptor = os.open(
-            plan.copy_path,
-            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        return StreamingResponse(
+            _iter_copy(plan),
+            media_type="application/octet-stream",
+            headers={
+                "Accept-Ranges": "none",
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{plan.filename}"',
+                "Content-Length": str(plan.size_bytes),
+                "X-Content-Type-Options": "nosniff",
+            },
         )
-    except OSError:
-        discard_private_copy(plan.copy_path, plan.directory)
-        return _failure(
-            RegisteredResultAPIError(
-                409,
-                "registered_result_bytes_unavailable",
-                "Registered result bytes are unavailable.",
-            )
-        )
-    return StreamingResponse(
-        _iter_copy(descriptor, plan),
-        media_type="application/octet-stream",
-        headers={
-            "Accept-Ranges": "none",
-            "Cache-Control": "no-store",
-            "Content-Disposition": f'attachment; filename="{plan.filename}"',
-            "Content-Length": str(plan.size_bytes),
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
+    except BaseException:
+        _release_download(plan)
+        raise
 
 
 def _detail(revision: dict) -> RegisteredResultDetailResponse:
@@ -335,14 +326,18 @@ def _detail(revision: dict) -> RegisteredResultDetailResponse:
     )
 
 
-def _iter_copy(descriptor: int, plan: RegisteredResultDownload):
+def _iter_copy(plan: RegisteredResultDownload):
     try:
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            chunk = os.read(plan.descriptor, 1024 * 1024)
             if not chunk:
                 break
             yield chunk
     finally:
-        with suppress(OSError):
-            os.close(descriptor)
-        discard_private_copy(plan.copy_path, plan.directory)
+        _release_download(plan)
+
+
+def _release_download(plan: RegisteredResultDownload) -> None:
+    with suppress(OSError):
+        os.close(plan.descriptor)
+    discard_private_copy(plan.copy_path, plan.directory)

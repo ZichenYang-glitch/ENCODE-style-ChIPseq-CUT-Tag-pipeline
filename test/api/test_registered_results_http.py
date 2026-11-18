@@ -5,10 +5,20 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from hashlib import sha256
+import asyncio
 import json
+import os
 from pathlib import Path
-from types import SimpleNamespace
+import socket
 import stat
+import subprocess
+import threading
+import time
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import httpx
+import uvicorn
 
 from sqlalchemy import text
 
@@ -28,7 +38,7 @@ from encode_pipeline.services.authentication import (
 )
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.input_registry import InputRegistryService
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
 from conftest import (
     TEST_AUTH_CSRF_TOKEN,
     TEST_AUTH_SESSION_TOKEN,
@@ -233,6 +243,14 @@ def test_external_cluster_counts_register_rename_and_exact_download(
             old = client.get(_content(project.project_id, revision))
             assert old.status_code == 200, old.text
             assert old.content == fixture_bytes
+            _assert_binary_contract(app)
+            _generated_client_download(
+                app,
+                project_id=project.project_id,
+                result_revision_id=revision["result_revision_id"],
+                session_token=member.session_token,
+                fixture_sha=fixture_sha,
+            )
             member_events = _events_for(
                 app,
                 actor_user_id=member.user_id,
@@ -240,7 +258,35 @@ def test_external_cluster_counts_register_rename_and_exact_download(
                 result_id=revision["result_id"],
                 result_revision_id=revision["result_revision_id"],
             )
-            assert len(member_events) == 1
+            assert len(member_events) == 2
+            successes = _success_downloads(app)
+            blocked = _download_with_unreadable_copy(
+                app,
+                client,
+                project.project_id,
+                revision,
+            )
+            assert blocked.status_code == 409, blocked.text
+            assert blocked.json()["issues"][0]["code"] == (
+                "registered_result_bytes_unavailable"
+            )
+            assert "synthetic-A" not in blocked.text
+            assert str(pool_root) not in blocked.text
+            assert _success_downloads(app) == successes
+            _assert_no_response_copies(workspace)
+            failed_audit = _download_with_audit_failure(
+                app,
+                project.project_id,
+                revision,
+            )
+            assert failed_audit.status_code == 500, failed_audit.text
+            assert failed_audit.json()["issues"][0]["code"] == "INTERNAL_SERVER_ERROR"
+            assert "audit unavailable" not in failed_audit.text
+            assert "synthetic-A" not in failed_audit.text
+            assert str(pool_root) not in failed_audit.text
+            assert "registered-result-responses" not in failed_audit.text
+            assert _success_downloads(app) == successes
+            _assert_no_response_copies(workspace)
             assert member_events[-1].outcome.value == "succeeded"
             assert member_events[-1].reason_code is None
             assert revision["result_revision_id"] not in (
@@ -440,6 +486,140 @@ def _success_downloads(app) -> tuple:
         if event.action.value == "registered_result.download"
         and event.outcome.value == "succeeded"
     )
+
+
+def _assert_binary_contract(app) -> None:
+    operation = app.openapi()["paths"][
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/"
+        "{result_revision_id}/content"
+    ]["get"]
+    content = operation["responses"]["200"]["content"]
+    assert set(content) == {"application/octet-stream"}
+    assert content["application/octet-stream"]["schema"] == {
+        "type": "string",
+        "format": "binary",
+    }
+    for status in ("400", "404", "409", "500"):
+        assert "application/json" in operation["responses"][status]["content"]
+    generated = (
+        REPOSITORY_ROOT
+        / "frontend/src/api/generated/registered-results/registered-results.ts"
+    ).read_text(encoding="utf-8")
+    download = generated.split(
+        "export const catalogDownloadRegisteredResultRevision",
+        1,
+    )[1]
+    assert "blobFetcher<Blob>" in download
+    assert "unknown | Blob" not in download
+    assert "return fetcher<" not in download
+
+
+def _generated_client_download(
+    app,
+    *,
+    project_id: str,
+    result_revision_id: str,
+    session_token: str,
+    fixture_sha: str,
+) -> None:
+    server, thread, port = _start_api(app)
+    try:
+        cookie_name = app.state.auth_cookie_policy.session_cookie.name
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "HELIXWEAVE_REGISTERED_RESULT_BASE": f"http://127.0.0.1:{port}",
+                "HELIXWEAVE_REGISTERED_RESULT_PROJECT": project_id,
+                "HELIXWEAVE_REGISTERED_RESULT_REVISION": result_revision_id,
+                "HELIXWEAVE_REGISTERED_RESULT_COOKIE": f"{cookie_name}={session_token}",
+                "HELIXWEAVE_REGISTERED_RESULT_SHA256": fixture_sha,
+            }
+        )
+        completed = subprocess.run(
+            [
+                "npm",
+                "exec",
+                "--",
+                "vitest",
+                "run",
+                "--config",
+                "vitest.registered-result.config.ts",
+                "--reporter=verbose",
+            ],
+            cwd=REPOSITORY_ROOT / "frontend",
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+        assert completed.returncode == 0, completed.stdout + "\n" + completed.stderr
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+
+
+def _start_api(app):
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    class _ApiServer(uvicorn.Server):
+        def install_signal_handlers(self) -> None:
+            return None
+
+    server = _ApiServer(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            access_log=False,
+            lifespan="off",
+        )
+    )
+    thread = threading.Thread(target=server.run, name="irene39-registered-result")
+    thread.start()
+    deadline = time.monotonic() + 10
+    while not server.started:
+        if not thread.is_alive() or time.monotonic() > deadline:
+            raise RuntimeError("registered result server did not start")
+        time.sleep(0.05)
+    return server, thread, port
+
+
+def _download_with_unreadable_copy(app, client, project_id: str, revision: dict):
+    with patch(
+        "encode_pipeline.services.registered_results.os.open",
+        side_effect=OSError("unreadable"),
+    ):
+        return client.get(_content(project_id, revision))
+
+
+def _download_with_audit_failure(app, project_id: str, revision: dict):
+    def fail(*args, **kwargs):
+        raise RuntimeError("audit unavailable")
+
+    async def once():
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with seeded_auth_async_client(
+            app,
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            return await client.get(_content(project_id, revision))
+
+    with patch.object(
+        app.state.authentication_repository,
+        "record_security_audit",
+        fail,
+    ):
+        return asyncio.run(once())
+
+
+def _assert_no_response_copies(workspace: Path) -> None:
+    root = workspace / "registered-result-responses"
+    assert not list(root.glob("helixweave-rreg-response-*"))
 
 
 def _events_for(app, *, actor_user_id, project_id, result_id, result_revision_id):

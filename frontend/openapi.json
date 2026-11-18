@@ -4672,9 +4672,6 @@
           "200": {
             "description": "Verified private copy of the requested revision.",
             "content": {
-              "application/json": {
-                "schema": {}
-              },
               "application/octet-stream": {
                 "schema": {
                   "type": "string",

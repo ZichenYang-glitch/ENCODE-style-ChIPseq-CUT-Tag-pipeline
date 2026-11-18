@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import base64
 import json
 import os
 from pathlib import Path
+import stat
 from typing import Any
 from uuid import uuid4
 
@@ -75,8 +77,9 @@ class RegisteredResultAPIError(Exception):
 
 @dataclass(frozen=True)
 class RegisteredResultDownload:
-    """One verified response copy. The route deletes it after sending."""
+    """One verified response copy. The response owns the open descriptor."""
 
+    descriptor: int
     copy_path: Path
     directory: Path
     size_bytes: int
@@ -217,6 +220,25 @@ class RegisteredResultService:
         try:
             if self.after_copy_verified is not None:
                 self.after_copy_verified(copy_path)
+        except Exception:
+            discard_private_copy(copy_path, directory)
+            raise
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                copy_path,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_size != record.size_bytes:
+                raise OSError
+        except OSError:
+            if descriptor is not None:
+                with suppress(OSError):
+                    os.close(descriptor)
+            discard_private_copy(copy_path, directory)
+            raise self._bytes_unavailable() from None
+        try:
             self._authentication.record_security_audit(
                 SecurityAuditEvent(
                     event_id=new_audit_event_id(),
@@ -234,9 +256,12 @@ class RegisteredResultService:
                 )
             )
         except Exception:
+            with suppress(OSError):
+                os.close(descriptor)
             discard_private_copy(copy_path, directory)
             raise
         return RegisteredResultDownload(
+            descriptor=descriptor,
             copy_path=copy_path,
             directory=directory,
             size_bytes=record.size_bytes,
