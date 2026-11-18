@@ -1,6 +1,10 @@
 # 实验数据目录 M0：查询与结果追溯契约
 
-状态：设计契约，供 M1 直接实现。证据基线是 main `ff3f7d981592a844750dba502f980a356becc874`。
+状态：设计契约，供 M1 直接实现。文档分支的基线是 main
+`ff3f7d981592a844750dba502f980a356becc874`。2026-11-18 又对照当时的
+`origin/main` `9205a91455877b05d900daa67261425533a1c850` 复核了本文引用的身份、
+迁移头和生成命令：#222 与 #223 没有改这些符号，Alembic 唯一头仍是 `20261110_16`。
+`openapi:regenerate` 仍是 `npm run openapi:export && npm run openapi:generate`。
 本文不新增表、迁移、路由、OpenAPI 或生成客户端，也不表示这些能力已经存在。
 
 M1 实现查询、手工维护和结果关联时以本文为准。更宽的阶段划分仍以
@@ -121,28 +125,35 @@ flowchart LR
   或样本表 `replicate` 列推导。
 - 重复角色使用词条。状态不是 `known` 时没有 `term_revision_id`。
 - 样本修订上的 catalog 钉住 TermRevision。投影表在同一事务写出，客户端不直接写投影。
-- Slice A 没有实验到 snapshot 的绑定。实验追溯固定为 unresolved。
+- Slice A 没有实验到 snapshot 的绑定。实验追溯信封的 `trace_status` 固定为
+  `unresolved`，`results` 为空。
 - Slice B 在校验 snapshot 时，仅当请求带了 `experiment_revision_id`，且该实验修订的
   SampleRevision 集合与 snapshot 的 SampleRevision 集合相等，才写入
-  `snapshot_experiment_bindings`。运行消费在现有同一事务把该绑定复制到
-  `run_experiment_bindings`。重放必须连实验修订 ID 和摘要一起比较，不一致则失败关闭。
+  `snapshot_experiment_bindings`。运行消费在现有 `consume_validated_input_snapshot`
+  的同一事务把该绑定复制到 `run_experiment_bindings`；内存 repository 做同样的复制和比较。
+  重放必须连实验修订 ID 和 payload 摘要一起比较，不一致则失败关闭。
   `createRun` 不接受实验修订，也不在消费时查找最新实验。
 - 相等比较忽略顺序，要求两侧集合都非空且无重复。多一条、少一条或只是样本相同而修订不同，
   都是不相等。
-- 产物行仍然只表示 `run_input_scope`。实验绑定成立后，也不把某条 peak 或 bigWig
-  说成某一个样本的轨道。
+- 实验绑定成立后，也不把某条 peak 或 bigWig 说成某一个样本的轨道。
 
-`association_kind` 只有三个值：
+追溯只使用下面这一套字段。产物行上没有第三种关联，也不使用名为
+`association_kind` 的字段。
 
-| 值 | 含义 |
-| --- | --- |
-| `run_input_scope` | 这条发布的运行在 `run_samples` 里包含所问的样本修订。它是运行输入范围 |
-| `experiment_snapshot` | snapshot 与运行上的实验绑定钉住了所问的实验修订，且样本修订集合当时相等 |
-| `unresolved` | 没有准确关联。Legacy、未选择实验、以及 Slice A 的全部实验追溯都用这个值 |
+| 位置 | 字段 | 取值 |
+| --- | --- | --- |
+| 实验追溯信封 | `trace_status` | `unresolved` 或 `experiment_snapshot` |
+| 实验追溯信封 | `reason` | 只有 `trace_status=unresolved` 时出现。没有绑定行时是 `experiment_snapshot_binding_absent` |
+| 实验追溯信封 | `results` | 产物行数组。`unresolved` 时为空数组 |
+| 产物行 | `artifact_association_kind` | 只有 `run_input_scope` |
+| 产物行 | `publication_evidence` | 该行存在时必为 `present` |
+| 样本追溯中尚未发布的运行 | `publication_evidence` | `absent`。这不是产物行，没有 `artifact_association_kind`，也没有 `artifact_generation` 或 `artifact_revision` |
+| 运行样本绑定 | `provenance` | 现有的 `resolved` 或 `unresolved` |
 
-`provenance` 继续只用现有的 `resolved` / `unresolved`，不另造同义词。
-发布证据用单独的 `publication_evidence`：`present` 或 `absent`。没有发布行是
-`absent`，它和样本溯源 unresolved 不是一回事。
+样本追溯信封没有 `trace_status`。`experiment_snapshot` 只出现在实验追溯信封和
+snapshot 响应的 `experiment_binding.status` 上，不出现在产物行上。
+`unresolved` 同样不写成产物关联。没有发布行只表示缺少 `published_at`，
+不把该运行改成 unresolved。
 
 ## 5. 分类字典、未知与冲突
 
@@ -172,11 +183,77 @@ accession 自动认领未核对的术语。
 
 空字符串、`null` 显示名和“把三种空状态合成一个空值”都拒绝。
 `known` 必须有类型匹配的 `term_revision_id`。另外三种否定状态和 `ambiguous` 不能带正向词条。
-`ambiguous` 可以带零个或多个候选 `term_revision_id`；候选只供管理员查看，不参与筛选。
 
-别名放在词条修订上。成员列表不返回别名。管理员读取词条详情可以看到别名。
-服务端不根据别名写入目录。别名同时命中多个词条时，界面保持歧义，由管理员显式选择
-一个词条修订，或显式保存 `ambiguous`。
+栏位个数和投影如下。单值栏位是一个对象。多值栏位是 `{status, values}`。
+状态筛选读投影上的状态列；词条筛选只读正向词条行。`unknown` 没有正向词条行，
+所以只能靠状态列命中。
+
+| 栏位 | 个数 | 权威位置 | 投影 |
+| --- | --- | --- | --- |
+| `species` | 单值 | `attributes.catalog.species` | `sample_catalog_projection` 的状态、可空 `term_id`、可空 `term_revision_id` |
+| `tissue` | 单值 | `attributes.catalog.tissue` | 同上，独立列 |
+| `cell_type` | 多值 | `attributes.catalog.cell_type` | 状态在 `sample_catalog_projection`；`known` 的每个词写入 `sample_catalog_values`，`field_name=cell_type` |
+| `cell_line` | 多值 | `attributes.catalog.cell_line` | 同上，`field_name=cell_line` |
+| `treatment` | 多值 | `attributes.catalog.treatment` | 同上，`field_name=treatment` |
+| `tag` | 多值 | `attributes.catalog.tag` | 同上，`field_name=tag` |
+| `assay` | 单值 | 实验 payload 的 `assay` | `experiment_catalog_projection` |
+| `target` | 单值 | 实验 payload 的 `target` | `experiment_catalog_projection` |
+| `batch` | 单值 | 实验 payload 的 `batch` | `experiment_catalog_projection` |
+| `replicate_role` | 每个样本钉一个 | payload 的样本钉，并镜像到 `experiment_revision_samples` | 不参加 M1 筛选 |
+| `replicate_group` | 每个样本钉一个可选字符串，不是词条 | 同上 | 不建词条投影，M1 不按它筛选 |
+
+整块 `attributes.catalog` 不存在时是 `unclassified`，不命中任何 `*_status=unknown`。
+样本目录块存在时，`species`、`tissue`、`cell_type`、`cell_line`、`treatment` 和 `tag`
+这六个键都必须出现。实验 payload 存在时，`assay`、`target` 和 `batch` 都必须出现，
+每个样本钉也必须有 `replicate_role`。`replicate_group` 可以省略。
+缺上述任一必填键是 422 `catalog_payload_invalid`，不写入，也不改成 `unknown`。
+多值栏位在 `known` 时 `values` 至少一项；单值栏位在 `known` 时必须有 `term_id` 和
+`term_revision_id`。`unknown`、`not_applicable`、`not_detected` 不能带正向词条，
+也不插入 `sample_catalog_values`。第 7 节第二条实验能被未知筛选命中，是因为它的
+`cell_type.status` 被显式写成 `unknown`，不是因为缺键。
+
+`ambiguous` 的正向 `values` 为空，不写入值表或标量词条列。候选只放在该栏位的
+`candidates` 数组里，元素是 `{term_id, term_revision_id}`，可以是零个或多个。
+候选不参与筛选。
+
+成员可见的列表和追溯可以出现 `status=ambiguous` 以及已钉住词条的显示名。
+这些响应省略 `candidates`、`aliases` 和原始 attributes。管理员用下面两个路由读回候选，
+并带上词条修订的 `display_name`。非歧义栏位省略 `candidates` 键，不用空数组表示“没有歧义”：
+
+| 方法与路径 | operation ID | 谁可以读 |
+| --- | --- | --- |
+| `GET /catalog/samples/{sample_id}/revisions/{sample_revision_id}` | `catalogGetSampleRevision` | 仅管理员 |
+| `GET /catalog/experiments/{experiment_id}/revisions/{experiment_revision_id}` | `catalogGetExperimentRevision` | 仅管理员 |
+
+成员调用这两个路由得到 403 `ADMINISTRATOR_REQUIRED`。实验详情里的候选包括
+assay、target、batch 和每个样本钉上的 `replicate_role`。别名仍只出现在管理员的
+`catalogGetTerm`。服务端不根据别名写入目录。别名同时命中多个词条时，界面保持歧义，
+由管理员显式选择一个词条修订，或显式保存 `ambiguous` 和它的 `candidates`。
+
+管理员读到的歧义栏位形状：
+
+```json
+{
+  "cell_type": {
+    "status": "ambiguous",
+    "values": [],
+    "candidates": [
+      {
+        "term_id": "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "display_name": "regulatory T cell"
+      },
+      {
+        "term_id": "term_cccccccccccccccccccccccccccccccc",
+        "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+        "display_name": "keratinocyte"
+      }
+    ]
+  }
+}
+```
+
+同一修订在成员列表里只到 `{"status": "ambiguous", "values": []}`，没有 `candidates`。
 
 冲突不是目录字段。两个写入用同一个 `expected_revision_number` 时，先提交的一方成功，
 另一方得到 409 `catalog_revision_conflict`，库内仍是获胜的那一版。界面显示“冲突”和
@@ -243,9 +320,13 @@ CUT&Tag 都会返回；本例里 keratinocyte 的实验是 ATAC，所以仍只�
 GET /api/v1/catalog/projects/prj_11111111111111111111111111111111/experiments?cell_type_status=unknown&assay_term_id=term_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 ```
 
-只返回第二条。未分类样本不会出现，因为未分类要用样本列表的 `catalog_state=absent`，
-而且它没有实验。`cell_type_status=unknown` 再加某个 `cell_type_term_id` 是
-400 `catalog_filter_invalid`。
+只返回第二条。它钉住的样本修订有完整的六个材料栏位，其中 `cell_type` 是
+`{"status": "unknown", "values": []}`，没有 `term_id`，因此命中状态筛选、不会命中任何
+细胞类型词条。该实验自己的 `assay.status` 是 `known`。未分类样本没有 catalog 块，
+不会被 `cell_type_status=unknown` 选中；它只出现在样本列表的 `catalog_state=absent`。
+样本块里若缺少 `cell_type` 键，请求会以 422 `catalog_payload_invalid` 失败，
+不会留下一条看起来像未知的修订。
+`cell_type_status=unknown` 再加某个 `cell_type_term_id` 是 400 `catalog_filter_invalid`。
 
 不带筛选的实验列表返回该项目三条活动实验，这是空筛选，不是未知查询。
 `include_archived=true` 才包含已归档实验。归档项目默认不出现在活动列表。
@@ -330,7 +411,10 @@ GET /api/v1/catalog/projects/prj_11111111111111111111111111111111/experiments?ce
 }
 ```
 
-DTO 不包含宿主路径、原始 attributes、样本表、别名、供体标识或自由文本。
+上面的处理样本只展开了查询用到的 `cell_type` 和 `cell_line`。合法修订还要有单值的
+`species`、`tissue`，以及多值的 `treatment`、`tag`；这四项在示例里省略，不表示可以缺键。
+对照样本的六个材料栏位与处理样本相同。DTO 不包含宿主路径、原始 attributes、样本表、别名、
+`candidates`、供体标识或自由文本。
 `revision_view=current_sample_catalog` 时，细胞类型改按所链样本的当前头修订解释；
 若头修订与钉住的修订不同，样本对象同时给出 `linked_sample_revision_id` 和
 `current_sample_revision_id`。默认视图不要混入这个差别。
@@ -345,8 +429,8 @@ DTO 不包含宿主路径、原始 attributes、样本表、别名、供体标�
 沿用第 7 节的对象。snapshot `vsnap_66666666666666666666666666666666`
 冻结的样本修订集合正好是 `{smpr_33333333333333333333333333333333, smpr_abababababababababababababababab}`，
 与 `expr_55555555555555555555555555555555` 钉住的集合相同。运行
-`run_treg_h3k27me3_01` 原样复制了这个集合。该运行有一条当前发布：产物 `peaks`，
-代际 `g1`，修订 `r1`。
+`run_treg_h3k27me3_01` 原样复制了这个集合，并有一条当前发布，产物 `peaks`。
+发布身份写在下面的成功响应里。
 Legacy 运行 `run_legacy_01` 属于保留 Legacy Project，`provenance=unresolved`，
 没有 `run_samples`。
 
@@ -356,13 +440,67 @@ Legacy 运行 `run_legacy_01` 属于保留 Legacy Project，`provenance=unresolv
 GET /api/v1/catalog/projects/prj_11111111111111111111111111111111/sample-revisions/smpr_33333333333333333333333333333333/run-results
 ```
 
-返回 `run_treg_h3k27me3_01` 的发布。`provenance` 为 `resolved`，
-`artifact_association_kind` 为 `run_input_scope`，`publication_evidence` 为 `present`。
+成功时信封没有 `trace_status`。下面这一行就是唯一的产物行形状；实验追溯成功时重复使用它，
+不另起字段名。`artifact_generation` 与 `artifact_revision` 使用现有的 76 字符身份，
+不能写成 `g1` 或 `r1`。
+
+```json
+{
+  "ok": true,
+  "project_id": "prj_11111111111111111111111111111111",
+  "sample_revision_id": "smpr_33333333333333333333333333333333",
+  "results": [
+    {
+      "run_id": "run_treg_h3k27me3_01",
+      "provenance": "resolved",
+      "publication_evidence": "present",
+      "artifact_association_kind": "run_input_scope",
+      "workflow_id": "encode-style-chipseq-cuttag-atac-mnase",
+      "artifact_id": "peaks",
+      "output_type": "peaks",
+      "artifact_generation": "artifactgen-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_revision": "artifactrev-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "published_at": "2026-11-18T00:00:00Z",
+      "current_artifact_generation": "artifactgen-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generation_status": "current",
+      "run_sample_binding": {
+        "binding_mode": "bound_v1",
+        "provenance": "resolved",
+        "associated_run_samples": [
+          {
+            "sample_id": "smp_22222222222222222222222222222222",
+            "sample_revision_id": "smpr_33333333333333333333333333333333",
+            "revision_number": 1,
+            "ordinal": 0
+          },
+          {
+            "sample_id": "smp_abababababababababababababababab",
+            "sample_revision_id": "smpr_abababababababababababababababab",
+            "revision_number": 1,
+            "ordinal": 1
+          }
+        ]
+      }
+    }
+  ],
+  "next_cursor": null
+}
+```
+
 `associated_run_samples` 按 ordinal 列出这条运行的全部样本修订，包括对照。
 响应不把 `peaks` 写成 `smpr_3333…` 单独贡献的轨道。
 `run_legacy_01` 不在这个样本的结果里，因为它没有这条样本修订。
-若该运行尚未写出发布行，样本关联仍是 `resolved`，对应产物位置是
-`publication_evidence=absent`，而不是编造一个 `published_at`。
+若该运行尚未写出发布行，结果里仍有这个运行，但不是产物行：
+
+```json
+{
+  "run_id": "run_treg_h3k27me3_01",
+  "provenance": "resolved",
+  "publication_evidence": "absent"
+}
+```
+
+这里没有 `artifact_association_kind`，也不编造 `published_at`。
 
 从实验修订追溯：
 
@@ -384,10 +522,57 @@ Slice A 即使上面的样本追溯已经看到运行，实验追溯也返回：
 }
 ```
 
+这个未绑定信封没有产物行，因此也没有 `artifact_association_kind`。
+
 Slice B 里，校验请求若带上这条实验修订，且 snapshot 的样本修订集合正好是实验钉住的集合，
-则追溯变为 `trace_status=experiment_snapshot`。结果行仍逐条标
-`artifact_association_kind=run_input_scope`。对照样本继续出现在
-`associated_run_samples` 里。
+则信封改为下面的成功形状。`results` 里的对象与样本追溯的产物行相同，
+`artifact_association_kind` 仍是 `run_input_scope`。
+
+```json
+{
+  "ok": true,
+  "project_id": "prj_11111111111111111111111111111111",
+  "experiment_revision_id": "expr_55555555555555555555555555555555",
+  "trace_status": "experiment_snapshot",
+  "results": [
+    {
+      "run_id": "run_treg_h3k27me3_01",
+      "provenance": "resolved",
+      "publication_evidence": "present",
+      "artifact_association_kind": "run_input_scope",
+      "workflow_id": "encode-style-chipseq-cuttag-atac-mnase",
+      "artifact_id": "peaks",
+      "output_type": "peaks",
+      "artifact_generation": "artifactgen-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_revision": "artifactrev-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "published_at": "2026-11-18T00:00:00Z",
+      "current_artifact_generation": "artifactgen-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generation_status": "current",
+      "run_sample_binding": {
+        "binding_mode": "bound_v1",
+        "provenance": "resolved",
+        "associated_run_samples": [
+          {
+            "sample_id": "smp_22222222222222222222222222222222",
+            "sample_revision_id": "smpr_33333333333333333333333333333333",
+            "revision_number": 1,
+            "ordinal": 0
+          },
+          {
+            "sample_id": "smp_abababababababababababababababab",
+            "sample_revision_id": "smpr_abababababababababababababababab",
+            "revision_number": 1,
+            "ordinal": 1
+          }
+        ]
+      }
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+成功信封没有 `reason`。对照样本留在 `associated_run_samples` 里。
 
 Slice B 的反例：仍选择这条实验修订，但校验请求的 snapshot 只有
 `{smpr_3333…}`，少了对照。`validateWorkflow` 整次失败，错误码 `catalog_sample_set_mismatch`，
@@ -439,8 +624,14 @@ M1 至少建立这些索引，名字可以带常规前缀，但查询路径要�
 `ADMINISTRATOR_REQUIRED`。CSRF 失败仍是 403 `CSRF_INVALID`。
 
 成员可以读取活动项目中的目录、词条显示名和追溯。成员不能创建词条、修订目录、
-归档实验或选择一个不存在的修订来制造关联。目录查询命中不改变该成员是否可以下载
+归档实验或词条，也不能选择一个不存在的修订来制造关联。成员列表和追溯可以显示
+`ambiguous`，但不能看到 `candidates` 或别名。目录查询命中不改变该成员是否可以下载
 某个产物代际。
+
+成员可以在已有的 `validateWorkflow` 上提交可选 `experiment_revision_id`。
+该路由今天就对成员开放，并且会持久化 snapshot。成员只能选择同一活动项目里已经存在、
+尚未归档、且样本修订集合相等的实验修订。这不新增角色，也不让成员创建实验。
+M1 不把这个字段改成管理员专属；若要收紧，先改本契约。
 
 管理员手工维护：
 
@@ -448,9 +639,10 @@ M1 至少建立这些索引，名字可以带常规前缀，但查询路径要�
 | --- | --- |
 | 新建词条 | 同一事务写身份和修订 1。`change_kind=initial` |
 | 修订词条 | 只允许 `change_kind=editorial`。就地修改显示名或别名都拒绝 |
+| 归档词条 | `catalogArchiveTerm`。只写 `catalog_terms.archived_at`，不新增词条修订。已钉住该词的旧修订仍显示原名，并仍能被 `term_id` 命中。新的目录或实验修订不能再选它 |
 | 新建实验 | 同一事务写身份、修订 1、样本关联和投影。不能建在 Legacy Project 或已归档项目 |
 | 修订实验 | 新修订。旧修订及其已冻结的运行绑定不变 |
-| 归档实验 | 只写 `archived_at`。已冻结的 snapshot 仍可读。新 snapshot 不能再选它 |
+| 归档实验 | `catalogArchiveExperiment`。只写 `experiments.archived_at`，不新增实验修订。已冻结的 snapshot 仍可读。新 snapshot 不能再选它 |
 | 写样本目录 | 新的 SampleRevision。请求可以改 `display_name`；省略则复制上一修订的名称。catalog 以外的 attributes 一律从上一修订复制，请求体不能携带它们 |
 | 清除目录 | `catalog: null`。新修订去掉 catalog 键，投影为 `unclassified`。旧修订保留 |
 
@@ -466,12 +658,33 @@ M1 至少建立这些索引，名字可以带常规前缀，但查询路径要�
 3. 已有回执且请求体摘要相同：返回当时的修订，不新建。
 4. 已有回执但请求体摘要不同：409 `catalog_idempotency_conflict`。
 5. `expected_revision_number` 与当前头修订不同：409 `catalog_revision_conflict`，不写回执。
-6. 插入新修订、替换该修订的投影、更新头指针、写回执，然后提交。
+6. 修订写入插入新修订、替换该修订的投影、更新头指针、写回执，然后提交。
+   归档不插入修订，只在同一事务更新对应身份的 `archived_at`。
 7. `(sample_id, revision_number)` 及实验上的同类唯一约束是最后一道防线。
 
 写接口必须带 `Idempotency-Key`。缺少该头是 400。回执与修订一样保留，不套用 M2 提案的
 30 分钟窗口。两个管理员使用不同的键、相同的期望修订号时，只有一个提交成功。
 停用管理员若先提交，写入失败；写入若先提交，保留回执和新修订。
+归档请求的期望修订号是当前头修订。头修订已经变化时返回 409
+`catalog_revision_conflict`，并且 `archived_at` 仍为空。身份已经归档时返回 409
+`catalog_already_archived`。同一键和同一请求体的重试返回当时的归档结果。
+
+两条归档路由都要求管理员和 CSRF，请求体只有 `expected_revision_number`：
+
+| 方法与路径 | operation ID | 写入 |
+| --- | --- | --- |
+| `POST /catalog/experiments/{experiment_id}/archive` | `catalogArchiveExperiment` | `experiments.archived_at` |
+| `POST /catalog/terms/{term_id}/archive` | `catalogArchiveTerm` | `catalog_terms.archived_at` |
+
+M1 不提供取消归档。默认列表隐藏已归档实验和词条；`include_archived=true` 才返回它们。
+按实验修订 ID 读取历史修订和追溯仍然成功，因为归档不删除证据。
+`validateWorkflow` 再选已归档实验时返回 409 `catalog_experiment_archived`，不创建 snapshot。
+新的目录写入再选已归档词条时返回 409 `catalog_term_archived`。
+`catalogGetTerm` 仍返回已归档词条，供管理员看到 `archived_at` 和别名。
+
+目录路由若点名一个已归档 Project、Legacy Project 或不存在的 Project，返回 404
+`catalog_not_found`。这与 authoring 把不可见项目当成不存在一样。
+`include_archived` 不能把已归档项目重新列出来。项目归档仍走现有本地 CLI，不是目录路由。
 
 实验修订请求里的样本关联是完整替换后的新修订，不是对旧修订做原地补丁。
 旧实验修订上的样本集合保持不变，因此已经冻结的运行含义不变。
@@ -489,10 +702,10 @@ M1 至少建立这些索引，名字可以带常规前缀，但查询路径要�
 | `experiment_revision_heads` | 每个实验一行当前修订，与新修订同一事务更新 |
 | `experiment_revision_samples` | 钉住 `project_id, sample_revision_id, payload_digest`，外键对齐 `sample_revisions` 的现有唯一键；`ordinal`、`replicate_group`、角色状态和可选角色词条 |
 | `experiment_catalog_projection` | 每个实验修订一行 assay/target/batch 的状态、`term_id`、`term_revision_id` |
-| `sample_revision_heads` | 每个样本一行当前修订，等于该样本最大 `revision_number`。追加修订的同一事务更新它。目录查询读这张表；既有 authoring 读法可保持，但必须与头行一致 |
-| `sample_catalog_projection` | 每个样本修订一行标量栏位和 `catalog_state` |
-| `sample_catalog_values` | 多值栏位。主键 `(sample_revision_id, field_name, term_id)`，另存 `term_revision_id` |
-| `catalog_write_receipts` | `(actor_user_id, idempotency_key)` 唯一，保存请求体 SHA-256 和结果修订 |
+| `sample_revision_heads` | 每个样本一行当前修订，等于该样本最大 `revision_number`。写入放在现有 `create_samples` 和 `append_sample_revision` 的同一事务，SQLAlchemy 与内存 repository 都要更新。只改目录服务会让本地 `revise_sample` 和头行分叉。authoring 仍可按最大修订号读取，但该修订必须等于头行 |
+| `sample_catalog_projection` | 每个样本修订一行。含 `catalog_state`，以及 species、tissue、cell_type、cell_line、treatment、tag 六个状态列。species 和 tissue 另有可空词条列。多值栏位的状态也在这张表，这样 `unknown` 不必靠值表命中 |
+| `sample_catalog_values` | 只存 `known` 的多值词条。主键 `(sample_revision_id, field_name, term_id)`，另存 `term_revision_id`。`field_name` 只允许 `cell_type`、`cell_line`、`treatment`、`tag` |
+| `catalog_write_receipts` | `(actor_user_id, idempotency_key)` 唯一，保存请求体 SHA-256。修订写入记录新修订 ID；归档记录身份 ID 和提交后的 `archived_at` |
 | `snapshot_experiment_bindings` | 仅 Slice B。主键 snapshot。保存实验修订 ID 及其 payload 摘要 |
 | `run_experiment_bindings` | 仅 Slice B。主键 run。消费事务从 snapshot 复制实验修订 ID 和 payload 摘要 |
 
@@ -510,14 +723,18 @@ payload 摘要；重放比较这两项，不再另造第三个摘要。
 | --- | --- | --- |
 | `GET /catalog/projects/{project_id}/experiments` | `catalogListExperiments` | A |
 | `GET /catalog/projects/{project_id}/samples` | `catalogListSamples` | A |
-| `GET /catalog/samples/{sample_id}/revisions` | `catalogListSampleRevisions` | A |
-| `GET /catalog/experiments/{experiment_id}/revisions` | `catalogListExperimentRevisions` | A |
+| `GET /catalog/samples/{sample_id}/revisions` | `catalogListSampleRevisions` | A，成员可见，无候选 |
+| `GET /catalog/samples/{sample_id}/revisions/{sample_revision_id}` | `catalogGetSampleRevision` | A，仅管理员，含候选 |
+| `GET /catalog/experiments/{experiment_id}/revisions` | `catalogListExperimentRevisions` | A，成员可见，无候选 |
+| `GET /catalog/experiments/{experiment_id}/revisions/{experiment_revision_id}` | `catalogGetExperimentRevision` | A，仅管理员，含候选 |
 | `GET /catalog/terms` | `catalogListTerms` | A |
-| `GET /catalog/terms/{term_id}` | `catalogGetTerm` | A，仅管理员，含别名 |
+| `GET /catalog/terms/{term_id}` | `catalogGetTerm` | A，仅管理员，含别名；已归档词条仍返回 |
 | `POST /catalog/terms` | `catalogCreateTerm` | A |
 | `POST /catalog/terms/{term_id}/revisions` | `catalogReviseTerm` | A |
+| `POST /catalog/terms/{term_id}/archive` | `catalogArchiveTerm` | A |
 | `POST /catalog/projects/{project_id}/experiments` | `catalogCreateExperiment` | A |
 | `POST /catalog/experiments/{experiment_id}/revisions` | `catalogReviseExperiment` | A |
+| `POST /catalog/experiments/{experiment_id}/archive` | `catalogArchiveExperiment` | A |
 | `POST /catalog/samples/{sample_id}/catalog-revisions` | `catalogReviseSampleCatalog` | A |
 | `GET /catalog/projects/{project_id}/sample-revisions/{sample_revision_id}/run-results` | `catalogListSampleRevisionRunResults` | A |
 | `GET /catalog/projects/{project_id}/experiment-revisions/{experiment_revision_id}/run-results` | `catalogListExperimentRevisionRunResults` | A 固定 unresolved；B 才返回真实绑定 |
@@ -527,16 +744,21 @@ payload 摘要；重放比较这两项，不再另造第三个摘要。
 `authoringListProjects`、`authoringListProjectSamples` 和 `listArtifactPublications`
 保持原契约，不把目录筛选塞进去。
 
-Slice B 的 `experiment_revision_id` 只加在 `ValidationRequest` 上，省略表示 unresolved。
-`ValidatedInputSnapshotResponse` 增加一个实验绑定对象：没有绑定时
-`trace_status=unresolved`，有绑定时给出实验修订 ID 和摘要。不要把该对象塞进
-`RunRecordResponse` 或发布摘要，避免和 `run_input_scope` 混成一条产物归属。
+Slice B 的 `experiment_revision_id` 只加在 `ValidationRequest` 上，省略表示没有实验绑定。
+`ValidatedInputSnapshotResponse` 增加 `experiment_binding`：没有绑定时
+`status` 为 `unresolved`；有绑定时 `status` 为 `experiment_snapshot`，并给出实验修订 ID
+和 payload 摘要。这里用 `experiment_binding.status`，不用追溯信封的 `trace_status`，
+也不使用 `artifact_association_kind`。不要把该对象塞进 `RunRecordResponse` 或发布摘要。
 
-领域错误沿用发布接口的 issue 字段：`code`、`message`、`severity`、`path`、`source`、`hint`。
+领域错误使用发布 issue 的字段名：`code`、`message`、`severity`、`path`、`source`、`hint`。
+`code` 保持下面这些小写值，不套用 `ArtifactPublicationIssueResponse` 的大写正则。
+发布接口把找不到的 cursor 实现成 400；目录按本契约返回 404 `catalog_cursor_not_found`。
 稳定码：`catalog_revision_conflict`、`catalog_idempotency_conflict`、
-`catalog_cursor_invalid`、`catalog_cursor_not_found`、`catalog_filter_invalid`、
-`catalog_payload_invalid`、`catalog_term_type_mismatch`、`catalog_legacy_project`、
-`catalog_block_requires_catalog_command`、`catalog_sample_set_mismatch`。
+`catalog_already_archived`、`catalog_experiment_archived`、`catalog_term_archived`、
+`catalog_cursor_invalid`、`catalog_cursor_not_found`、`catalog_not_found`、
+`catalog_filter_invalid`、`catalog_payload_invalid`、`catalog_term_type_mismatch`、
+`catalog_legacy_project`、`catalog_block_requires_catalog_command`、
+`catalog_sample_set_mismatch`。
 消息不包含路径、SQL 或 payload 原文。
 
 模块归属沿用边界设计：`platform/` 放身份、payload 校验和关联种类；`services/` 编排并再次鉴权；
@@ -595,18 +817,20 @@ M1 用下面的行为证明契约，不要求每一层重复同一断言。
 | --- | --- | --- |
 | A1 | A | 从当时的唯一头升级后，旧样本 payload 和摘要不变；每个已有样本有一条头指针指向原最大修订；没有合成实验、词条、目录值或发布 |
 | A2 | A | 管理员创建第 7 节的词条和实验后，成员的组合查询只返回 CUT&Tag + regulatory T cell 那一条 |
-| A3 | A | 未知细胞类型查询只返回状态为 `unknown` 的实验；未分类样本只出现在 `catalog_state=absent`；空筛选返回全部活动实验 |
+| A3 | A | 未知细胞类型查询只返回 `cell_type.status` 显式为 `unknown` 的实验；未分类样本只出现在 `catalog_state=absent`；缺栏请求得到 422，不落成 unknown；空筛选返回全部活动实验 |
 | A4 | A | 同一栏位多个 term id 是 OR，assay 与细胞类型是 AND。互斥的状态和 term 组合返回 400 |
 | A5 | A | 21 条命中、`limit=20` 时给出 cursor；下一页不重复上一页。改一个筛选后重用 cursor 得到 400。游标行不再命中时得到 404 |
 | A6 | A | 两个管理员提交同一个期望修订号，一个成功，一个 409，失败方不产生新修订。同一键和同一请求体重试返回原修订。同一键不同请求体得到 409 |
 | A7 | A | 成员写目录 403。匿名读 401。目录命中前后，同一成员对同一产物的下载授权不变 |
 | A8 | A | 本地 `revise_sample` 省略 catalog 时，新修订里的目录块与上一修订字节相同。请求里夹带 catalog 被拒绝。管理员清除目录后，新修订未分类，上一修订仍可读取 |
-| A9 | A | 样本追溯返回 `run_input_scope`，并列出运行上的全部样本。Legacy 运行不出现在该样本下。没有发布行时是 `publication_evidence=absent` |
-| A10 | A | 实验追溯在样本已经能追到运行时仍是 `experiment_snapshot_binding_absent`，`results` 为空 |
+| A9 | A | 样本追溯的产物行与第 8 节成功示例一致：`artifact_association_kind` 为 `run_input_scope`，并列出运行上的全部样本。信封没有 `trace_status`。Legacy 运行不出现。没有发布行时该对象只有 `publication_evidence=absent`，没有产物身份 |
+| A10 | A | 实验追溯信封是 `trace_status=unresolved`、`reason=experiment_snapshot_binding_absent`、`results` 为空，响应中没有 `artifact_association_kind` |
 | A11 | A | 组合查询的 `EXPLAIN QUERY PLAN` 不扫描 `sample_revisions` 或 `experiment_revisions`。重建投影后，投影和实验样本表都与 payload 一致，且重建不改 payload |
-| A12 | B | 样本集合相等时，校验事务写入 snapshot 绑定，消费事务复制到 run，重放摘要不一致则失败。实验追溯返回该运行，产物行仍是 `run_input_scope` |
-| A13 | B | 样本集合不相等时校验失败，数据库里没有新的 snapshot 实验绑定。省略实验修订的旧客户端仍能校验，追溯保持 unresolved |
+| A12 | B | 样本集合相等时，校验事务写入 snapshot 绑定，消费事务复制到 run，重放摘要不一致则失败。实验追溯信封是 `trace_status=experiment_snapshot`，产物行仍是第 8 节的 `run_input_scope` |
+| A13 | B | 样本集合不相等时校验失败，数据库里没有新的 snapshot 实验绑定。省略实验修订的旧客户端仍能校验，实验追溯信封保持 `trace_status=unresolved` |
 | A14 | B | 升级不给定历史 snapshot 补绑定。`createRun` 和 `authoringValidateDraft` 都不能在消费或草稿阶段补上一个实验 |
+| A15 | A | `catalogArchiveExperiment` 与 `catalogArchiveTerm` 只写 `archived_at`。默认列表隐藏它们，`include_archived=true` 才返回。再选已归档实验或词条被拒绝。按修订 ID 仍能读到旧修订。已归档项目的目录路由返回 404 |
+| A16 | A | 管理员的 `catalogGetSampleRevision` 在 `ambiguous` 栏位返回 `candidates` 和显示名。成员列表同一栏位只有 `status` 和空 `values`，调用管理员详情得到 403 |
 
 A2 至 A4 使用第 7 节的对象关系，可以换成同构夹具，但命中和排除关系保持不变。
 
@@ -614,5 +838,7 @@ A2 至 A4 使用第 7 节的对象关系，可以换成同构夹具，但命中�
 
 M1 不实现：AI 整理、提案和批量采用、目录 CLI、目录网页、按产物贡献者归因、
 从样本表或文件名回填、跨项目查询、项目私有词表、本体导入、样本自动合并、
-样本级归档、事后给旧 snapshot 补实验、把作者草稿里的实验列认成 Experiment、
-以及参考基因组推断。M2 已写明的外发限制和确认事务继续有效，不由本契约提前实施。
+样本级归档、取消实验或词条归档、事后给旧 snapshot 补实验、把作者草稿里的实验列认成
+Experiment、在 v1 实验 payload 里钉 InputFileRevision，以及参考基因组推断。
+边界设计允许实验以后显式引用文件，但本契约的摘要不包含该钉，M1 不要自行加入。
+M2 已写明的外发限制和确认事务继续有效，不由本契约提前实施。
