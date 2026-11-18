@@ -642,6 +642,9 @@ try {
   log(message);
   log(consoleMessages.filter((line) => line.startsWith('error') || line.startsWith('pageerror')).join('\n'));
   await writeEgress().catch(() => {});
+  // Confirmed rejection is a passed negative proof: exit 0 and
+  // `WASHU_PROOF rejected`, without `WASHU_PROOF ok`. Any other failure
+  // exits 1. washu-browser-accept.mjs fails the summary for that case.
   if (negative && message.startsWith('WASHU_PROOF rejected')) {
     console.log(message.split('\n')[0]);
     console.log(`proof work ${work}`);

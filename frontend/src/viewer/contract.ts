@@ -5,6 +5,13 @@
  * cookie, or credential. Track revisions and byte URLs stay on the authorized
  * browser API; this payload only names the run, optional artifact ids, the
  * initial region, and display options.
+ *
+ * The framed page posts `listening` only after its message handler is
+ * installed, and repeats that announcement until configure or close arrives.
+ * One document load uses one epoch, so a repeat is not a new document. The
+ * host sends configure in response. `accepted` confirms that this document
+ * applied the configure. A retired instance id is ignored, and a destroyed
+ * frame is closed instead of left waiting on the old exchange.
  */
 
 export const VIEWER_PROTOCOL_VERSION = 1;
@@ -24,6 +31,8 @@ const HOST_TYPES = new Set([
 const VIEWER_TYPES = new Set([
   'helixweave.viewer.ready',
   'helixweave.viewer.failed',
+  'helixweave.viewer.listening',
+  'helixweave.viewer.accepted',
 ]);
 
 export type ViewerReferenceStatus = 'bound' | 'unbound' | 'unavailable';
@@ -72,6 +81,18 @@ export type ViewerPageNotice =
       type: 'helixweave.viewer.failed';
       instanceId: string;
       payload: ViewerFailedPayload;
+    }
+  | {
+      version: 1;
+      type: 'helixweave.viewer.listening';
+      instanceId: string;
+      payload: { epoch: string };
+    }
+  | {
+      version: 1;
+      type: 'helixweave.viewer.accepted';
+      instanceId: string;
+      payload: { runId: string };
     };
 
 export function newViewerInstanceId(): string {
@@ -96,6 +117,24 @@ export function closeViewerMessage(instanceId: string): ViewerHostCommand {
     type: 'helixweave.viewer.close',
     instanceId,
     payload: {},
+  };
+}
+
+export function listeningViewerMessage(instanceId: string, epoch: string): ViewerPageNotice {
+  return {
+    version: VIEWER_PROTOCOL_VERSION,
+    type: 'helixweave.viewer.listening',
+    instanceId,
+    payload: { epoch },
+  };
+}
+
+export function acceptedViewerMessage(instanceId: string, runId: string): ViewerPageNotice {
+  return {
+    version: VIEWER_PROTOCOL_VERSION,
+    type: 'helixweave.viewer.accepted',
+    instanceId,
+    payload: { runId },
   };
 }
 
@@ -185,8 +224,28 @@ function parseHostCommand(data: unknown): ViewerHostCommand | null {
 function parseViewerNotice(data: unknown): ViewerPageNotice | null {
   if (!envelope(data, VIEWER_TYPES)) return null;
   const record = data as Record<string, unknown>;
+  if (record.type === 'helixweave.viewer.listening') {
+    if (!isRecord(record.payload) || Object.keys(record.payload).length !== 1) return null;
+    const epoch = text(record.payload.epoch);
+    if (epoch === null || !INSTANCE_ID.test(epoch)) return null;
+    return {
+      version: 1,
+      type: 'helixweave.viewer.listening',
+      instanceId: record.instanceId as string,
+      payload: { epoch },
+    };
+  }
   const payload = isRecord(record.payload) ? record.payload : null;
   if (payload === null || !RUN_ID.test(text(payload.runId) ?? '')) return null;
+  if (record.type === 'helixweave.viewer.accepted') {
+    if (Object.keys(payload).length !== 1) return null;
+    return {
+      version: 1,
+      type: 'helixweave.viewer.accepted',
+      instanceId: record.instanceId as string,
+      payload: { runId: payload.runId as string },
+    };
+  }
   if (record.type === 'helixweave.viewer.failed') {
     const message = text(payload.message);
     if (message === null || message.length < 1 || message.length > 300) return null;

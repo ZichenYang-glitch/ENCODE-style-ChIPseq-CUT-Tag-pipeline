@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  acceptedViewerMessage,
   closeViewerMessage,
   configureViewerMessage,
   framedInstanceId,
+  listeningViewerMessage,
   newViewerInstanceId,
   postViewerMessage,
   readHostCommand,
@@ -116,6 +118,43 @@ describe('viewer message contract', () => {
     expect(readViewerNotice(notice, OTHER, channel(source).event, channel(source).expected)?.type).toBe(
       'helixweave.viewer.ready',
     );
+  });
+
+  it('accepts a listening announcement and a configure receipt on the same channel', () => {
+    const source = {};
+    const { event, expected } = channel(source);
+    const epoch = '33333333-3333-4333-8333-333333333333';
+    expect(readViewerNotice(listeningViewerMessage(INSTANCE, epoch), INSTANCE, event, expected)).toEqual(
+      listeningViewerMessage(INSTANCE, epoch),
+    );
+    expect(readViewerNotice(acceptedViewerMessage(INSTANCE, 'run-1'), INSTANCE, event, expected)).toEqual(
+      acceptedViewerMessage(INSTANCE, 'run-1'),
+    );
+    expect(
+      readViewerNotice(listeningViewerMessage(INSTANCE, epoch), INSTANCE, { origin: 'https://other.test', source }, expected),
+    ).toBeNull();
+    expect(
+      readViewerNotice(listeningViewerMessage(INSTANCE, epoch), OTHER, event, expected),
+    ).toBeNull();
+    expect(
+      readViewerNotice(
+        { ...listeningViewerMessage(INSTANCE, epoch), payload: { runId: 'run-1' } },
+        INSTANCE,
+        event,
+        expected,
+      ),
+    ).toBeNull();
+    expect(
+      readViewerNotice(listeningViewerMessage(INSTANCE, 'not-an-epoch'), INSTANCE, event, expected),
+    ).toBeNull();
+    expect(
+      readViewerNotice(
+        { ...acceptedViewerMessage(INSTANCE, 'run-1'), payload: { runId: 'https://evil.test/read' } },
+        INSTANCE,
+        event,
+        expected,
+      ),
+    ).toBeNull();
   });
 
   it('reads only a bounded run id and instance id from the page address', () => {

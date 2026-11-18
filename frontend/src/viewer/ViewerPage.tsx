@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import GenomeBrowserPanel from '../features/run-artifacts/GenomeBrowserPanel';
+import { bindFramedViewer } from './framedSession';
 import {
   VIEWER_PROTOCOL_VERSION,
   framedInstanceId,
   postViewerMessage,
-  readHostCommand,
   standaloneRunId,
   type ViewerConfigurePayload,
   type ViewerReferenceStatus,
@@ -39,25 +39,19 @@ export function ViewerPage() {
 
   useEffect(() => {
     if (!framed || instanceId === null) return undefined;
-    const expected = {
-      origin: window.location.origin,
-      source: window.parent,
-    };
-    const onMessage = (event: MessageEvent) => {
-      const command = readHostCommand(event.data, instanceId, event, expected);
-      if (command === null) return;
-      if (command.type === 'helixweave.viewer.close') {
+    return bindFramedViewer({
+      page: window,
+      host: window.parent,
+      instanceId,
+      onClose: () => {
         setClosed(true);
         setCommand(null);
-        return;
-      }
-      setClosed(false);
-      setCommand((current) =>
-        sameConfigure(current, command.payload) ? current : command.payload,
-      );
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+      },
+      onConfigure: (payload) => {
+        setClosed(false);
+        setCommand((current) => (sameConfigure(current, payload) ? current : payload));
+      },
+    });
   }, [framed, instanceId]);
 
   const publish = useCallback(
