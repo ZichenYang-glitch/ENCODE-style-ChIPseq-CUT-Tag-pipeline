@@ -779,6 +779,24 @@ def test_catalog_sample_trace_orders_publications_before_unpublished_runs(
         "provenance": "resolved",
         "publication_evidence": "absent",
     }
+    first_page = catalog.list_sample_run_results(
+        project_id=PROJECT_ID,
+        sample_revision_id=REVISION_A_ID,
+        filters=filters,
+        cursor=None,
+        limit=1,
+    )
+    assert first_page["results"][0]["run_id"] == "run-published"
+    assert first_page["next_cursor"]
+    second_page = catalog.list_sample_run_results(
+        project_id=PROJECT_ID,
+        sample_revision_id=REVISION_A_ID,
+        filters=filters,
+        cursor=first_page["next_cursor"],
+        limit=1,
+    )
+    assert second_page["results"] == [results[1]]
+    assert second_page["next_cursor"] is None
     plan = catalog.explain_sample_trace(PROJECT_ID, REVISION_A_ID)
     # The publication primary key starts with run_id, so SQLite seeks that
     # covering index after the sample-revision lookup.

@@ -648,4 +648,21 @@ def test_receipt_target_rejects_a_different_object(tmp_path) -> None:
         ],
     )
     assert again["experiment_id"] == created["experiment_id"]
+    archive_body = b'{"expected_revision_number":1}'
+    archived = catalog.archive_experiment(
+        _write("archive-experiment", archive_body, "catalogArchiveExperiment"),
+        experiment_id=created["experiment_id"],
+        expected_revision_number=1,
+    )
+    assert archived["experiment_id"] == created["experiment_id"]
+    assert archived["revision_number"] == 1
+    with pytest.raises(CatalogError) as archived_again:
+        catalog.archive_experiment(
+            _write(
+                "archive-experiment-again", archive_body, "catalogArchiveExperiment"
+            ),
+            experiment_id=created["experiment_id"],
+            expected_revision_number=1,
+        )
+    assert archived_again.value.code == "catalog_already_archived"
     engine.dispose()
