@@ -906,7 +906,7 @@ def test_store_refusal_and_repository_reads_stay_redacted(tmp_path: Path) -> Non
         def __getattr__(self, name: str):
             return getattr(real, name)
 
-        def list_artifacts(self, *_args, **_kwargs):
+        def list_artifacts_page(self, *_args, **_kwargs):
             raise RuntimeError("sqlite:///secret.db")
 
     hidden = BrowserTrackService(

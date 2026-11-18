@@ -62,6 +62,7 @@ def get_browser_track_service(request: Request) -> BrowserTrackService:
     operation_id="getRunBrowserSession",
     responses={
         404: {"model": BrowserErrorResponse},
+        409: {"model": BrowserErrorResponse},
         500: {"model": BrowserErrorResponse},
     },
 )

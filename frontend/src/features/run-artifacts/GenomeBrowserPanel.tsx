@@ -11,6 +11,80 @@ import type {
   BrowserSessionResponse,
   BrowserTrackResponse,
 } from '../../api/generated/models';
+
+type ChosenTrack = {
+  artifactId: string;
+  revision: string;
+};
+
+type TrackSelection = {
+  runId: string;
+  generation: string | null;
+  chosen: ChosenTrack[];
+  stale: string[];
+};
+
+function isGenerationConflict(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.code === 'BROWSER_TRACK_READ_CONFLICT' &&
+    error.issues.some((issue) => issue.path === 'generation')
+  );
+}
+
+function trackCanBeChosen(track: BrowserTrackResponse): boolean {
+  return (
+    track.preparation !== 'reference_mismatch' &&
+    track.preparation !== 'source_too_large'
+  );
+}
+
+function presetChosen(
+  session: BrowserSessionResponse,
+  artifactIds: readonly string[] | null,
+): ChosenTrack[] {
+  if (artifactIds === null || artifactIds.length === 0) return [];
+  const tracks = new Map(session.tracks.map((track) => [track.artifact_id, track]));
+  const chosen: ChosenTrack[] = [];
+  for (const artifactId of artifactIds) {
+    const track = tracks.get(artifactId);
+    if (!track || !trackCanBeChosen(track)) continue;
+    if (chosen.some((item) => item.artifactId === artifactId)) continue;
+    chosen.push({ artifactId, revision: track.revision });
+  }
+  return chosen;
+}
+
+function reconcileSelection(
+  current: TrackSelection,
+  session: BrowserSessionResponse,
+): TrackSelection {
+  const generation = session.artifact_generation ?? null;
+  if (current.generation !== generation) {
+    return { runId: current.runId, generation, chosen: [], stale: [] };
+  }
+  const tracks = new Map(session.tracks.map((track) => [track.artifact_id, track]));
+  const chosen: ChosenTrack[] = [];
+  const stale: string[] = [];
+  for (const item of current.chosen) {
+    const track = tracks.get(item.artifactId);
+    if (!track || !trackCanBeChosen(track)) continue;
+    if (track.revision !== item.revision) {
+      stale.push(item.artifactId);
+      continue;
+    }
+    chosen.push(item);
+  }
+  const sameChosen =
+    chosen.length === current.chosen.length &&
+    chosen.every((item, index) => item === current.chosen[index]);
+  const sameStale =
+    stale.length === current.stale.length &&
+    stale.every((artifactId, index) => artifactId === current.stale[index]);
+  if (sameChosen && sameStale) return current;
+  return { ...current, chosen, stale };
+}
 import { ApiError } from '../../api/fetcher';
 import { Button } from '../../components/Button';
 import {
@@ -68,11 +142,27 @@ export default function GenomeBrowserPanel({
   const sessionQuery = useQuery({
     queryKey: ['browser-session', runId],
     queryFn: ({ signal }) => getRunBrowserSession(runId, { signal }),
+    // A generation conflict is the user's prompt to refresh. Retrying would
+    // load the new catalog by itself and hide that choice.
+    retry: (failureCount, error) =>
+      !isGenerationConflict(error) && failureCount < 3,
   });
-  const session = sessionQuery.data;
-  const [selected, setSelected] = useState<string[]>([]);
+  const session =
+    sessionQuery.data?.run_id === runId ? sessionQuery.data : undefined;
+  const [selection, setSelection] = useState<TrackSelection | null>(null);
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
+  const selectionRef = useRef<TrackSelection | null>(null);
+  const pendingToggles = useRef<BrowserTrackResponse[]>([]);
+  const presetRef = useRef<readonly string[] | null>(artifactIds ?? null);
+  const conflictRef = useRef<string | null>(null);
+  const regionKey = useRef<string | null>(null);
+  selectionRef.current = selection;
+  presetRef.current = artifactIds ?? null;
+  if (conflictRef.current !== null && conflictRef.current !== runId) {
+    conflictRef.current = null;
+  }
+  if (isGenerationConflict(sessionQuery.error)) conflictRef.current = runId;
 
   const onReadyRef = useRef(onReady);
   const onFailedRef = useRef(onFailed);
@@ -104,18 +194,32 @@ export default function GenomeBrowserPanel({
   }, [runId]);
 
   useEffect(() => {
-    if (sessionQuery.isError) onFailedRef.current?.(messageFromError(sessionQuery.error));
+    if (sessionQuery.isError && !isGenerationConflict(sessionQuery.error)) {
+      onFailedRef.current?.(messageFromError(sessionQuery.error));
+    }
   }, [sessionQuery.error, sessionQuery.isError]);
 
   useEffect(() => {
-    if (!session) return;
-    const visible = artifactIds
-      ? session.tracks.filter((track) => artifactIds.includes(track.artifact_id))
-      : session.tracks;
-    const initial = visible
-      .filter((track) => track.preparation === 'ready' || track.preparation === 'needed')
-      .map((track) => track.artifact_id);
-    setSelected(initial);
+    if (!session || isGenerationConflict(sessionQuery.error)) return;
+    const generation = session.artifact_generation ?? null;
+    const current = selectionRef.current;
+    let next: TrackSelection;
+    if (current === null || current.runId !== runId) {
+      const skipPreset = conflictRef.current === runId;
+      if (skipPreset) conflictRef.current = null;
+      next = {
+        runId,
+        generation,
+        chosen: skipPreset ? [] : presetChosen(session, presetRef.current),
+        stale: [],
+      };
+    } else {
+      next = reconcileSelection(current, session);
+    }
+    if (next !== current) {
+      selectionRef.current = next;
+      setSelection(next);
+    }
     const referenceStatus =
       session.reference.status === 'bound' ||
       session.reference.status === 'unbound' ||
@@ -125,8 +229,15 @@ export default function GenomeBrowserPanel({
     onReadyRef.current?.({
       runId: session.run_id,
       referenceStatus,
-      artifactIds: initial,
+      artifactIds: next.chosen.map((item) => item.artifactId),
     });
+  }, [runId, session, sessionQuery.error]);
+
+  useEffect(() => {
+    if (!session) return;
+    const key = `${runId}:${session.artifact_generation ?? ''}:${initialRegion ?? ''}`;
+    if (regionKey.current === key) return;
+    regionKey.current = key;
     const suggested = session.tracks.find(
       (track) => track.provenance?.suggested_region,
     )?.provenance?.suggested_region;
@@ -151,7 +262,73 @@ export default function GenomeBrowserPanel({
       window.clearTimeout(move);
       window.clearTimeout(settle);
     };
-  }, [artifactIds, initialRegion, session]);
+  }, [initialRegion, runId, session]);
+
+  const generationConflict = isGenerationConflict(sessionQuery.error);
+  const activeChoice = useMemo(() => {
+    if (
+      generationConflict ||
+      session === undefined ||
+      selection === null ||
+      selection.runId !== runId ||
+      selection.generation !== (session.artifact_generation ?? null)
+    ) {
+      return [];
+    }
+    return selection.chosen.filter((item) =>
+      session.tracks.some(
+        (track) =>
+          track.artifact_id === item.artifactId &&
+          track.revision === item.revision &&
+          trackCanBeChosen(track),
+      ),
+    );
+  }, [generationConflict, runId, selection, session]);
+  const selected = useMemo(
+    () => activeChoice.map((item) => item.artifactId),
+    [activeChoice],
+  );
+  const stale =
+    session !== undefined &&
+    selection !== null &&
+    selection.runId === runId &&
+    selection.generation === (session.artifact_generation ?? null)
+      ? selection.stale
+      : [];
+
+  function toggleTrack(track: BrowserTrackResponse) {
+    pendingToggles.current.push(track);
+    if (pendingToggles.current.length !== 1) return;
+    // Clicks in one turn share a mount. Adding a bigWig to a live hub crashes it,
+    // and the index fallback is only attempted from the hub that first receives the file.
+    queueMicrotask(() => {
+      const batch = pendingToggles.current.splice(0);
+      setSelection((current) => {
+        const generation = session?.artifact_generation ?? null;
+        let next: TrackSelection =
+          current !== null && current.runId === runId
+            ? current
+            : { runId, generation, chosen: [], stale: [] };
+        for (const item of batch) {
+          const exists = next.chosen.some(
+            (chosen) => chosen.artifactId === item.artifact_id,
+          );
+          next = {
+            ...next,
+            chosen: exists
+              ? next.chosen.filter((chosen) => chosen.artifactId !== item.artifact_id)
+              : [
+                  ...next.chosen,
+                  { artifactId: item.artifact_id, revision: item.revision },
+                ],
+            stale: next.stale.filter((artifactId) => artifactId !== item.artifact_id),
+          };
+        }
+        selectionRef.current = next;
+        return next;
+      });
+    });
+  }
 
   const readyTracks = useMemo(
     () =>
@@ -162,6 +339,10 @@ export default function GenomeBrowserPanel({
           sameOriginPath(track.content_path) !== null,
       ),
     [selected, session],
+  );
+  const visibleTracks = useMemo(
+    () => readyTracks.filter((track) => !loadFailures[track.artifact_id]),
+    [loadFailures, readyTracks],
   );
 
   useEffect(() => {
@@ -237,10 +418,23 @@ export default function GenomeBrowserPanel({
     },
   });
 
-  if (sessionQuery.isPending) {
+  if (generationConflict) {
+    return (
+      <div role="alert">
+        <p>
+          These files changed. Refresh the list and choose the tracks again. New
+          files are not read until you choose them.
+        </p>
+        <Button variant="secondary" onClick={() => void sessionQuery.refetch()}>
+          Refresh list
+        </Button>
+      </div>
+    );
+  }
+  if (sessionQuery.isPending || !session) {
     return <p role="status">Loading genome browser…</p>;
   }
-  if (sessionQuery.isError || !session?.ok) {
+  if (sessionQuery.isError || !session.ok) {
     return (
       <div role="alert">
         <p>{messageFromError(sessionQuery.error)}</p>
@@ -255,18 +449,16 @@ export default function GenomeBrowserPanel({
     <section className="min-w-0 space-y-3" aria-label="Genome browser">
       <ReferenceNotice session={session} />
       <InteractionNotice session={session} />
-      <UnavailableList session={session} />
       <TrackChooser
         tracks={session.tracks}
+        unavailable={session.unavailable}
         selected={selected}
-        onToggle={(artifactId) =>
-          setSelected((current) =>
-            current.includes(artifactId)
-              ? current.filter((item) => item !== artifactId)
-              : [...current, artifactId],
-          )
-        }
+        stale={stale}
+        onToggle={toggleTrack}
       />
+      <Button variant="secondary" onClick={() => void sessionQuery.refetch()}>
+        Refresh list
+      </Button>
       <label className="block text-sm">
         Genomic region
         <input
@@ -304,7 +496,10 @@ export default function GenomeBrowserPanel({
       <Viewer
         session={session}
         region={region}
-        tracks={readyTracks.filter((track) => !loadFailures[track.artifact_id])}
+        tracks={visibleTracks}
+        trackKey={readyTracks
+          .map((track) => `${track.artifact_id}:${track.revision}`)
+          .join('|')}
         showToolbar={showToolbar}
       />
     </section>
@@ -348,29 +543,20 @@ function InteractionNotice({ session }: { session: BrowserSessionResponse }) {
   );
 }
 
-function UnavailableList({ session }: { session: BrowserSessionResponse }) {
-  if (session.unavailable.length === 0) return null;
-  return (
-    <ul>
-      {session.unavailable.map((item) => (
-        <li key={item.artifact_id} role="status">
-          Unsupported format: {item.name}. {item.detail}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function TrackChooser({
   tracks,
+  unavailable,
   selected,
+  stale,
   onToggle,
 }: {
   tracks: BrowserTrackResponse[];
+  unavailable: BrowserSessionResponse['unavailable'];
   selected: string[];
-  onToggle: (artifactId: string) => void;
+  stale: string[];
+  onToggle: (track: BrowserTrackResponse) => void;
 }) {
-  if (tracks.length === 0) {
+  if (tracks.length === 0 && unavailable.length === 0) {
     return <p role="status">This run has no artifacts the genome browser can display.</p>;
   }
   return (
@@ -381,15 +567,17 @@ function TrackChooser({
             <input
               type="checkbox"
               checked={selected.includes(track.artifact_id)}
-              onChange={() => onToggle(track.artifact_id)}
-              disabled={
-                track.preparation === 'reference_mismatch' ||
-                track.preparation === 'source_too_large'
-              }
+              onChange={() => onToggle(track)}
+              disabled={!trackCanBeChosen(track)}
             />
             <span>
               <span className="font-medium">{track.label}</span>
               <span className="block text-[var(--color-text-muted)]">{track.detail}</span>
+              {track.preparation === 'needed' ? (
+                <span className="block" role="status">
+                  An index is not prepared yet. Choose this file, then prepare it.
+                </span>
+              ) : null}
               {track.preparation === 'source_too_large' ? (
                 <span className="block" role="status">
                   This file is too large to index here and is not shown as empty data.
@@ -400,6 +588,24 @@ function TrackChooser({
                   This artifact does not match the run reference identity.
                 </span>
               ) : null}
+              {stale.includes(track.artifact_id) ? (
+                <span className="block" role="status">
+                  This file changed. Choose it again before the new version is read.
+                </span>
+              ) : null}
+            </span>
+          </label>
+        </li>
+      ))}
+      {unavailable.map((item) => (
+        <li key={item.artifact_id}>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={false} disabled onChange={() => undefined} />
+            <span>
+              <span className="font-medium">{item.name}</span>
+              <span className="block" role="status">
+                Unsupported format: {item.name}. {item.detail}
+              </span>
             </span>
           </label>
         </li>
@@ -489,14 +695,34 @@ function Viewer({
   session,
   region,
   tracks,
+  trackKey,
   showToolbar,
 }: {
   session: BrowserSessionResponse;
   region: string;
   tracks: BrowserTrackResponse[];
+  trackKey: string;
   showToolbar: boolean;
 }) {
   const scaffold = session.reference.viewer_scaffold;
+  const model = useMemo(
+    () => [
+      { type: 'ruler', name: 'Ruler' },
+      ...tracks.map((track) => ({
+        type: track.wash_u_type,
+        name: track.label,
+        url: sameOriginPath(track.content_path) ?? undefined,
+      })),
+    ],
+    [tracks],
+  );
+  const storeConfig = useMemo(
+    () => ({
+      storeId: `helixweave-browser-${session.run_id}`,
+      enablePersistence: false,
+    }),
+    [session.run_id],
+  );
   if (!scaffold || !REGION.test(region) || tracks.length === 0) return null;
   const crossOrigin = tracks.some((track) => sameOriginPath(track.content_path) === null);
   if (crossOrigin) {
@@ -509,21 +735,14 @@ function Viewer({
   }
   return (
     <div className="min-h-[28rem] overflow-hidden" data-testid="washu-genome-viewer">
+      {/* Adding a bigWig to an already mounted hub crashes that hub. Remount
+          when the chosen files change and let the new hub take the region. */}
       <GenomeHub
-        storeConfig={{
-          storeId: `helixweave-browser-${session.run_id}`,
-          enablePersistence: false,
-        }}
+        key={trackKey}
+        storeConfig={storeConfig}
         genomeName={scaffold}
         viewRegion={region}
-        tracks={[
-          { type: 'ruler', name: 'Ruler' },
-          ...tracks.map((track) => ({
-            type: track.wash_u_type,
-            name: track.label,
-            url: sameOriginPath(track.content_path) ?? undefined,
-          })),
-        ]}
+        tracks={model}
         showGenomeNavigator={false}
         showNavBar={false}
         showToolBar={showToolbar}

@@ -41,7 +41,7 @@ from encode_pipeline.services.run_repositories import ResultGenerationChangedErr
 from encode_pipeline.services.runs import RunService
 
 
-_ARTIFACT_SCAN_LIMIT = 500
+_ARTIFACT_PAGE_SIZE = 100
 _REGION_COUNT_LIMIT = 100_001
 _DRAW_LIMIT = 100_000
 
@@ -95,12 +95,12 @@ class BrowserTrackService:
 
     def session(self, run_id: str) -> dict[str, object]:
         run = self._run(run_id)
-        generation = self._generation(run_id)
+        generation, artifacts = self._artifacts(run_id)
         reference = self._reference(run_id, run.workflow_id)
         tracks: list[dict[str, object]] = []
         unavailable: list[dict[str, object]] = []
         if generation is not None:
-            for artifact in self._artifacts(run_id):
+            for artifact in artifacts:
                 described = self._describe(run.workflow_id, artifact, reference)
                 if described is None:
                     continue
@@ -626,22 +626,74 @@ class BrowserTrackService:
         except Exception:
             return None
 
-    def _artifacts(self, run_id: str) -> tuple[RunArtifactRef, ...]:
+    def _artifacts(
+        self, run_id: str
+    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+        """Read every artifact in one generation, one cursor page at a time.
+
+        The first page establishes the generation. Later pages ask for that
+        same generation. A change between pages discards the partial catalog
+        instead of reporting a track type as absent.
+        """
+
+        collected: list[RunArtifactRef] = []
+        pinned: str | None = None
+        after: str | None = None
+        while True:
+            try:
+                page_generation, page = self._runs.list_artifacts_page(
+                    run_id,
+                    expected_generation=pinned,
+                    after=after,
+                    limit=_ARTIFACT_PAGE_SIZE,
+                )
+            except ResultGenerationChangedError as exc:
+                raise self._generation_changed() from exc
+            except KeyError as exc:
+                raise BrowserTrackError(
+                    404,
+                    "RUN_NOT_FOUND",
+                    "Run was not found.",
+                    path="run_id",
+                ) from exc
+            except Exception as exc:
+                raise BrowserTrackError(
+                    500,
+                    "BROWSER_TRACK_UNAVAILABLE",
+                    "The browser view is temporarily unavailable.",
+                    path="run_id",
+                ) from exc
+            if pinned is None:
+                pinned = self._validated_generation(page_generation)
+            elif page_generation != pinned:
+                raise self._generation_changed()
+            collected.extend(page)
+            if len(page) < _ARTIFACT_PAGE_SIZE:
+                return pinned, tuple(collected)
+            after = page[-1].artifact_id
+
+    @staticmethod
+    def _generation_changed() -> BrowserTrackError:
+        return BrowserTrackError(
+            409,
+            "BROWSER_TRACK_READ_CONFLICT",
+            "Artifact generation changed. Reload the browser view.",
+            path="generation",
+            reason="generation_changed",
+        )
+
+    @staticmethod
+    def _validated_generation(generation: str | None) -> str | None:
+        if generation is None:
+            return None
         try:
-            return self._runs.list_artifacts(run_id, limit=_ARTIFACT_SCAN_LIMIT)
-        except KeyError as exc:
-            raise BrowserTrackError(
-                404,
-                "RUN_NOT_FOUND",
-                "Run was not found.",
-                path="run_id",
-            ) from exc
-        except Exception as exc:
+            return validate_artifact_generation(generation)
+        except (TypeError, ValueError) as exc:
             raise BrowserTrackError(
                 500,
                 "BROWSER_TRACK_UNAVAILABLE",
                 "The browser view is temporarily unavailable.",
-                path="run_id",
+                path="generation",
             ) from exc
 
     def _artifact(
@@ -689,36 +741,6 @@ class BrowserTrackService:
                 reason="revision_changed",
             )
         return artifact
-
-    def _generation(self, run_id: str) -> str | None:
-        try:
-            state = self._runs.get_result_state(run_id)
-        except KeyError as exc:
-            raise BrowserTrackError(
-                404,
-                "RUN_NOT_FOUND",
-                "Run was not found.",
-                path="run_id",
-            ) from exc
-        except Exception as exc:
-            raise BrowserTrackError(
-                500,
-                "BROWSER_TRACK_UNAVAILABLE",
-                "The browser view is temporarily unavailable.",
-                path="run_id",
-            ) from exc
-        generation = state.artifact_generation
-        if generation is None:
-            return None
-        try:
-            return validate_artifact_generation(generation)
-        except (TypeError, ValueError) as exc:
-            raise BrowserTrackError(
-                500,
-                "BROWSER_TRACK_UNAVAILABLE",
-                "The browser view is temporarily unavailable.",
-                path="generation",
-            ) from exc
 
     def _run(self, run_id: str):
         try:
