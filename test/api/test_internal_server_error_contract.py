@@ -354,6 +354,9 @@ def error_api(tmp_path):
         app.state.test_auth_tokens = (
             member_tokens if "terminal_email_preference" in operation else admin_tokens
         )
+        headers = {}
+        if operation.startswith("catalog") and method.lower() == "post":
+            headers["Idempotency-Key"] = "contract-fault"
         async with seeded_auth_async_client(
             app,
             transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
@@ -362,12 +365,20 @@ def error_api(tmp_path):
             if method.lower() == "head":
                 # httpx drops HEAD bodies. Keep the JSON envelope the app emitted.
                 prepared = client.build_request(
-                    method, path, json=payloads.get(operation), params=params
+                    method,
+                    path,
+                    json=payloads.get(operation),
+                    params=params,
+                    headers=headers,
                 )
                 response = await _application_response(app, prepared)
             else:
                 response = await client.request(
-                    method, path, json=payloads.get(operation), params=params
+                    method,
+                    path,
+                    json=payloads.get(operation),
+                    params=params,
+                    headers=headers,
                 )
         responses.append(
             {
