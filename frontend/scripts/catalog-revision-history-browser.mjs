@@ -115,6 +115,21 @@ function revisionSelect(page) {
   return page.getByRole('combobox', { name: 'Revision', exact: true });
 }
 
+async function revisionNumbers(select) {
+  const labels = await select.locator('option').allTextContents();
+  return labels.map((label) => {
+    const match = label.match(/(?:当前|旧版)\s+(\d+)/);
+    if (!match) throw new Error(`unparsed revision option: ${label}`);
+    return Number(match[1]);
+  });
+}
+
+function sameNumbers(actual, expected) {
+  if (actual.length !== expected.length) return false;
+  const seen = new Set(actual);
+  return expected.every((number) => seen.has(number));
+}
+
 const api = spawn(python, [serverPath, '--long-history'], {
   cwd: repoRoot,
   env: {
@@ -156,7 +171,7 @@ try {
   page.setDefaultTimeout(20_000);
   const report = {
     member_opened_cross_page_revision: false,
-    member_option_count: 0,
+    member_reachable_revisions: 0,
     admin_saw_revision_24: false,
     admin_created_revision_25: false,
     concurrent_conflict: false,
@@ -167,10 +182,29 @@ try {
   const detail = page.getByRole('region', { name: 'Experiment revision' });
   await detail.getByRole('heading', { name: 'History 24', exact: true }).waitFor();
   await detail.locator('p', { hasText: '当前 24' }).waitFor();
-  report.member_option_count = await revisionSelect(page).locator('option').count();
-  if (report.member_option_count !== 24) {
-    throw new Error(`expected 24 revisions, saw ${report.member_option_count}`);
+  await revisionSelect(page)
+    .locator('option', { hasText: /^旧版 1:/ })
+    .waitFor({ state: 'attached' });
+  const firstPage = await revisionNumbers(revisionSelect(page));
+  const firstExpected = [...Array(20).keys()].map((index) => index + 1).concat(24);
+  if (!sameNumbers(firstPage, firstExpected)) {
+    throw new Error(`first revision page was ${firstPage.join(',')}`);
   }
+  await page.getByRole('button', { name: 'Next revision page' }).click();
+  await page.getByText('Revision page 2').waitFor();
+  await revisionSelect(page)
+    .locator('option', { hasText: /^旧版 21:/ })
+    .waitFor({ state: 'attached' });
+  const secondPage = await revisionNumbers(revisionSelect(page));
+  if (!sameNumbers(secondPage, [21, 22, 23, 24])) {
+    throw new Error(`second revision page was ${secondPage.join(',')}`);
+  }
+  report.member_reachable_revisions = new Set([...firstPage, ...secondPage]).size;
+  if (report.member_reachable_revisions !== 24) {
+    throw new Error(`expected revisions 1-24 across pages, saw ${report.member_reachable_revisions}`);
+  }
+  await page.getByRole('button', { name: 'Previous revision page' }).click();
+  await page.getByText('Revision page 1').waitFor();
   await revisionSelect(page).selectOption(manifest.older_revision_id);
   await detail.getByRole('heading', { name: 'History 1', exact: true }).waitFor();
   await detail.locator('p', { hasText: '旧版 1' }).waitFor();

@@ -76,7 +76,7 @@ page”顺着 `next_cursor` 继续，超过 20 页也能打开。正在查看的
 `node frontend/scripts/catalog-page-browser.mjs` 用临时 SQLite 和真实 HTTP 走完三条验收：
 成员查找、20 条分页、旧修订、未绑定；管理员录入词条、修订当前头修订、录入实验。
 `node frontend/scripts/catalog-revision-history-browser.mjs` 另开一条有 24 个修订的实验：
-成员打开第一页上的旧版，管理员默认看到修订 24，提交后产生 25；随后一次真实的并发
-写入仍返回冲突。`node frontend/scripts/catalog-long-head-browser.mjs` 打开已有 401
+成员翻到第 2 个历史页后，修订 1 至 24 都可选，再打开第一页上的旧版；管理员默认看到
+修订 24，提交后产生 25；随后一次真实的并发写入仍返回冲突。`node frontend/scripts/catalog-long-head-browser.mjs` 打开已有 401
 个修订的实验，确认当前是 401，翻到第 21 个历史页，再以 401 为基线保存 402。
 Python 解释器可用 `HELIXWEAVE_PYTHON` 指向能导入本仓库 `src` 的环境。这些脚本都不进入默认 pytest。
