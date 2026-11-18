@@ -36,6 +36,8 @@ from encode_pipeline.platform.experiment_catalog import (
     catalog_cursor_not_found,
     catalog_experiment_archived,
     catalog_idempotency_conflict,
+    ExperimentRevisionFreezeSource,
+    build_experiment_revision_payload_digest,
     catalog_not_found,
     catalog_payload_invalid,
     catalog_revision_conflict,
@@ -831,6 +833,48 @@ class InMemoryExperimentCatalogRepository:
                 "results": [],
                 "next_cursor": None,
             }
+
+    def experiment_revision_freeze_source(
+        self,
+        experiment_revision_id: str,
+    ) -> ExperimentRevisionFreezeSource | None:
+        with self._lock:
+            revision = self._experiment_revisions.get(experiment_revision_id)
+            if revision is None:
+                return None
+            experiment = self._experiments.get(revision.experiment_id)
+            if experiment is None or experiment.project_id != revision.project_id:
+                return None
+            try:
+                project = self._registry.get_project(revision.project_id)
+            except KeyError:
+                project = None
+            kind = None if project is None else project.kind
+            kind_value = (
+                None
+                if kind is None
+                else kind.value
+                if isinstance(kind, ProjectKind)
+                else str(kind)
+            )
+            project_active = (
+                project is not None
+                and project.archived_at is None
+                and project.project_id != LEGACY_PROJECT_ID
+                and kind_value == "user"
+            )
+            return ExperimentRevisionFreezeSource(
+                experiment_revision_id=revision.experiment_revision_id,
+                project_id=revision.project_id,
+                project_active=project_active,
+                experiment_archived=experiment.archived_at is not None,
+                payload_digest=build_experiment_revision_payload_digest(
+                    revision.canonical_payload
+                ),
+                sample_revision_ids=tuple(
+                    pin.sample_revision_id for pin in revision.payload.samples
+                ),
+            )
 
     def rebuild_sample_projection(self, sample_revision_id: str) -> None:
         with self._lock:

@@ -1,0 +1,324 @@
+"""Memory freeze and replay for an experiment revision bound to a snapshot."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from itertools import count
+import json
+
+import pytest
+
+from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.builds import WorkflowBuildIdentity
+from encode_pipeline.platform.experiment_catalog import CatalogError
+from encode_pipeline.platform.data_registry import ProjectSampleSelection
+from encode_pipeline.platform.runs import RunRecord, RunStatus
+from encode_pipeline.platform.snapshots import (
+    PAYLOAD_DIGEST_SCHEME,
+    VALIDATION_EVIDENCE_OUTCOME,
+    ValidatedInputSnapshot,
+    build_workflow_inputs_digest,
+    canonical_workflow_inputs_json,
+)
+from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.data_registry_repositories import (
+    InMemoryDataRegistryRepository,
+)
+from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
+from encode_pipeline.services.experiment_catalog_repositories import (
+    InMemoryExperimentCatalogRepository,
+)
+from encode_pipeline.services.run_repositories import (
+    InMemoryRunRepository,
+    RunEventDraft,
+    ValidatedSnapshotReplayConflictError,
+)
+
+
+NOW = datetime(2026, 11, 19, tzinfo=timezone.utc)
+
+
+def _ids(prefix: str):
+    serial = count(1)
+    return lambda: f"{prefix}{next(serial):032x}"
+
+
+def _write(operation: str, body: dict) -> dict:
+    key = "".join(character if character.isalnum() else "-" for character in operation)
+    return {
+        "actor_user_id": "usr_" + "a" * 32,
+        "idempotency_key": key[:120],
+        "raw_body": json.dumps(body, sort_keys=True).encode(),
+    }
+
+
+def _world():
+    registry = InMemoryDataRegistryRepository(legacy_created_at=NOW)
+    data = DataRegistryService(
+        repository=registry,
+        project_id_factory=_ids("prj_"),
+        sample_id_factory=_ids("smp_"),
+        sample_revision_id_factory=_ids("smpr_"),
+        now_factory=lambda: NOW,
+    )
+    catalog_repository = InMemoryExperimentCatalogRepository(registry)
+    catalog = ExperimentCatalogService(
+        catalog_repository,
+        now_factory=lambda: NOW,
+        term_id_factory=_ids("term_"),
+        term_revision_id_factory=_ids("trmv_"),
+        experiment_id_factory=_ids("exp_"),
+        experiment_revision_id_factory=_ids("expr_"),
+        sample_revision_id_factory=_ids("smpr_"),
+    )
+    runs = InMemoryRunRepository(
+        data_registry_repository=registry,
+        experiment_freeze_lookup=catalog_repository,
+    )
+    return data, catalog, runs
+
+
+def _term(catalog: ExperimentCatalogService, term_type: str, name: str) -> dict:
+    body = {
+        "term_type": term_type,
+        "display_name": name,
+        "namespace": None,
+        "accession": None,
+        "aliases": [],
+    }
+    return catalog.create_term(**_write(f"term-{name}", body), **body)
+
+
+def _known(term: dict) -> dict:
+    return {
+        "status": "known",
+        "term_id": term["term_id"],
+        "term_revision_id": term["revision"]["term_revision_id"],
+    }
+
+
+def _snapshot(snapshot_id: str) -> ValidatedInputSnapshot:
+    canonical_payload = canonical_workflow_inputs_json(
+        WorkflowInputs(config={"threads": 1}, samples=[{"sample": "row"}])
+    )
+    return ValidatedInputSnapshot(
+        snapshot_id=snapshot_id,
+        workflow_id="workflow-a",
+        adapter_version="1.0.0",
+        schema_version="1.0.0",
+        schema_dialect="https://json-schema.org/draft/2020-12/schema",
+        workflow_build_identity=WorkflowBuildIdentity(
+            workflow_id="workflow-a",
+            adapter_version="1.0.0",
+            scheme="sha256-tree-v1",
+            logical_entrypoint="workflow/Snakefile",
+            digest="a" * 64,
+            captured_at=NOW,
+        ),
+        canonical_payload=canonical_payload,
+        payload_digest_scheme=PAYLOAD_DIGEST_SCHEME,
+        payload_digest=build_workflow_inputs_digest(canonical_payload),
+        validation_outcome=VALIDATION_EVIDENCE_OUTCOME,
+        validation_issue_codes=(),
+        validated_at=NOW,
+        expires_at=NOW + timedelta(minutes=30),
+    )
+
+
+def _record(run_id: str, snapshot: ValidatedInputSnapshot) -> RunRecord:
+    return RunRecord(
+        run_id=run_id,
+        workflow_id="workflow-a",
+        inputs=snapshot.to_workflow_inputs().to_dict(),
+        status=RunStatus.CREATED,
+        created_at=NOW + timedelta(minutes=1),
+        updated_at=NOW + timedelta(minutes=1),
+        started_at=None,
+        ended_at=None,
+        current_stage=None,
+        cancellation_reason=None,
+        error=None,
+        tags={},
+    )
+
+
+def _event() -> RunEventDraft:
+    return RunEventDraft(
+        event_type="status_changed",
+        message="Run created.",
+        status=RunStatus.CREATED,
+        context={"previous_status": None, "new_status": "created"},
+    )
+
+
+def _experiment(data, catalog, sample_count: int) -> dict:
+    assay = _term(catalog, "assay", "CUT&Tag")
+    target = _term(catalog, "target", "H3K27ac")
+    batch = _term(catalog, "batch", "batch-1")
+    role = _term(catalog, "replicate_role", "biological replicate")
+    project = data.create_project("Pilot")
+    imported = []
+    for index in range(1, sample_count + 1):
+        created_sample = data.import_sample(
+            project.project_id,
+            stable_key=f"sample-{index}",
+            display_name=f"Sample {index}",
+            attributes={"organism": "human"},
+        )
+        imported.append(created_sample.revision.sample_revision_id)
+    body = {
+        "stable_key": "cut-pair",
+        "display_name": "cut-pair",
+        "assay": _known(assay),
+        "target": _known(target),
+        "batch": _known(batch),
+        "samples": [
+            {"sample_revision_id": revision_id, "replicate_role": _known(role)}
+            for revision_id in imported
+        ],
+    }
+    created = catalog.create_experiment(
+        **_write("experiment-cut-pair", body),
+        project_id=project.project_id,
+        **body,
+    )
+    return {
+        "project_id": project.project_id,
+        "sample_revision_ids": tuple(imported),
+        "experiment": created,
+    }
+
+
+def test_memory_freeze_ignores_order_and_replay_compares_both_fields() -> None:
+    data, catalog, runs = _world()
+    seeded = _experiment(data, catalog, 2)
+    left, right = seeded["sample_revision_ids"]
+    snapshot = _snapshot("vsnap_" + "1" * 32)
+    runs.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=seeded["project_id"],
+            sample_revision_ids=(right, left),
+        ),
+        experiment_revision_id=seeded["experiment"]["experiment_revision_id"],
+    )
+    frozen = runs.get_validated_experiment_binding(snapshot.snapshot_id)
+    assert frozen is not None
+    assert frozen.experiment_revision_id == (
+        seeded["experiment"]["experiment_revision_id"]
+    )
+    assert len(frozen.payload_digest) == 64
+
+    runs.consume_validated_input_snapshot(
+        snapshot.snapshot_id,
+        workflow_id="workflow-a",
+        expected_build_identity=snapshot.workflow_build_identity,
+        record=_record("run-bound", snapshot),
+        consumed_at=NOW + timedelta(minutes=1),
+        event=_event(),
+    )
+    copied = runs._run_experiment_bindings["run-bound"]
+    assert copied == frozen
+
+    object.__setattr__(copied, "payload_digest", "b" * 64)
+    with pytest.raises(ValidatedSnapshotReplayConflictError):
+        runs.consume_validated_input_snapshot(
+            snapshot.snapshot_id,
+            workflow_id="workflow-a",
+            expected_build_identity=snapshot.workflow_build_identity,
+            record=_record("run-bound", snapshot),
+            consumed_at=NOW + timedelta(minutes=1),
+            event=_event(),
+        )
+    object.__setattr__(copied, "payload_digest", frozen.payload_digest)
+    object.__setattr__(copied, "experiment_revision_id", "expr_" + "c" * 32)
+    with pytest.raises(ValidatedSnapshotReplayConflictError):
+        runs.consume_validated_input_snapshot(
+            snapshot.snapshot_id,
+            workflow_id="workflow-a",
+            expected_build_identity=snapshot.workflow_build_identity,
+            record=_record("run-bound", snapshot),
+            consumed_at=NOW + timedelta(minutes=1),
+            event=_event(),
+        )
+
+
+def test_memory_mismatch_and_archive_leave_no_snapshot() -> None:
+    data, catalog, runs = _world()
+    seeded = _experiment(data, catalog, 2)
+    only_one = seeded["sample_revision_ids"][:1]
+    snapshot = _snapshot("vsnap_" + "2" * 32)
+    with pytest.raises(CatalogError) as mismatch:
+        runs.create_validated_input_snapshot(
+            snapshot,
+            project_sample_selection=ProjectSampleSelection(
+                project_id=seeded["project_id"],
+                sample_revision_ids=only_one,
+            ),
+            experiment_revision_id=seeded["experiment"]["experiment_revision_id"],
+        )
+    assert mismatch.value.code == "catalog_sample_set_mismatch"
+    with pytest.raises(KeyError):
+        runs.get_validated_input_snapshot(snapshot.snapshot_id)
+
+    catalog.archive_experiment(
+        **_write(
+            "archive-cut-pair",
+            {"expected_revision_number": 1},
+        ),
+        experiment_id=seeded["experiment"]["experiment_id"],
+        expected_revision_number=1,
+    )
+    archived_snapshot = _snapshot("vsnap_" + "3" * 32)
+    with pytest.raises(CatalogError) as archived:
+        runs.create_validated_input_snapshot(
+            archived_snapshot,
+            project_sample_selection=ProjectSampleSelection(
+                project_id=seeded["project_id"],
+                sample_revision_ids=seeded["sample_revision_ids"],
+            ),
+            experiment_revision_id=seeded["experiment"]["experiment_revision_id"],
+        )
+    assert archived.value.code == "catalog_experiment_archived"
+    with pytest.raises(KeyError):
+        runs.get_validated_input_snapshot(archived_snapshot.snapshot_id)
+
+
+def test_memory_omitted_experiment_stays_unbound_on_replay() -> None:
+    data, catalog, runs = _world()
+    seeded = _experiment(data, catalog, 1)
+    snapshot = _snapshot("vsnap_" + "4" * 32)
+    runs.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=seeded["project_id"],
+            sample_revision_ids=seeded["sample_revision_ids"],
+        ),
+    )
+    assert runs.get_validated_experiment_binding(snapshot.snapshot_id) is None
+    runs.consume_validated_input_snapshot(
+        snapshot.snapshot_id,
+        workflow_id="workflow-a",
+        expected_build_identity=snapshot.workflow_build_identity,
+        record=_record("run-open", snapshot),
+        consumed_at=NOW + timedelta(minutes=1),
+        event=_event(),
+    )
+    assert "run-open" not in runs._run_experiment_bindings
+    replay = runs.consume_validated_input_snapshot(
+        snapshot.snapshot_id,
+        workflow_id="workflow-a",
+        expected_build_identity=snapshot.workflow_build_identity,
+        record=_record("run-open", snapshot),
+        consumed_at=NOW + timedelta(minutes=1),
+        event=_event(),
+    )
+    assert replay.created is False
+    trace = catalog.list_experiment_run_results(
+        project_id=seeded["project_id"],
+        experiment_revision_id=seeded["experiment"]["experiment_revision_id"],
+        cursor=None,
+        limit=50,
+    )
+    assert trace["trace_status"] == "unresolved"
+    assert trace["reason"] == "experiment_snapshot_binding_absent"

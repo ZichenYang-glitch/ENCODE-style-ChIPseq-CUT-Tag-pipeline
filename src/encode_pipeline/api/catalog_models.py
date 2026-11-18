@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
 
 class CatalogIssueResponse(BaseModel):
@@ -510,7 +510,20 @@ class CatalogExperimentRunListResponse(BaseModel):
     ok: Literal[True]
     project_id: str
     experiment_revision_id: str
-    trace_status: Literal["unresolved"]
-    reason: Literal["experiment_snapshot_binding_absent"]
+    trace_status: Literal["unresolved", "experiment_snapshot"]
+    reason: Literal["experiment_snapshot_binding_absent"] | None = None
     results: list[CatalogRunResultResponse]
     next_cursor: str | None
+
+    @model_validator(mode="after")
+    def trace_shape(self) -> "CatalogExperimentRunListResponse":
+        if self.trace_status == "unresolved":
+            if self.reason != "experiment_snapshot_binding_absent" or self.results:
+                raise ValueError(
+                    "unresolved experiment trace is an empty unbound envelope"
+                )
+        elif self.reason is not None or any(
+            item.publication_evidence != "present" for item in self.results
+        ):
+            raise ValueError("bound experiment trace lists published rows only")
+        return self

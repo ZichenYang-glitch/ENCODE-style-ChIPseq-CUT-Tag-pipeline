@@ -66,6 +66,12 @@ from encode_pipeline.platform.runs import (
     validate_qc_identifier_token,
     validate_qc_sample_identifier,
 )
+from encode_pipeline.platform.experiment_catalog import (
+    ExperimentRevisionFreezeLookup,
+    ExperimentSnapshotBinding,
+    catalog_not_found,
+    freeze_experiment_snapshot_binding,
+)
 from encode_pipeline.platform.snapshots import (
     ValidatedInputSnapshot,
     ValidatedSnapshotRunCreation,
@@ -181,6 +187,7 @@ class RunRepository(Protocol):
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
         reference_binding: ReferenceProfileRevisionBinding | None = None,
+        experiment_revision_id: str | None = None,
     ) -> ValidatedInputSnapshot: ...
 
     def get_validated_input_snapshot(
@@ -202,6 +209,11 @@ class RunRepository(Protocol):
         self,
         snapshot_id: str,
     ) -> ReferenceProfileRevisionBinding | None: ...
+
+    def get_validated_experiment_binding(
+        self,
+        snapshot_id: str,
+    ) -> ExperimentSnapshotBinding | None: ...
 
     def consume_validated_input_snapshot(
         self,
@@ -562,11 +574,13 @@ class InMemoryRunRepository:
         data_registry_repository: DataRegistryRepository | None = None,
         input_registry_repository: InputRegistryRepository | None = None,
         reference_profile_repository: ReferenceProfileRepository | None = None,
+        experiment_freeze_lookup: ExperimentRevisionFreezeLookup | None = None,
     ) -> None:
         self._lock = RLock()
         self._data_registry_repository = data_registry_repository
         self._input_registry_repository = input_registry_repository
         self._reference_profile_repository = reference_profile_repository
+        self._experiment_freeze_lookup = experiment_freeze_lookup
         self._runs: dict[str, RunRecord] = {}
         self._run_requester_user_ids: dict[str, str | None] = {}
         self._events: dict[str, list[RunEvent]] = {}
@@ -588,9 +602,11 @@ class InMemoryRunRepository:
         self._validated_reference_bindings: dict[
             str, ReferenceProfileRevisionBinding
         ] = {}
+        self._snapshot_experiment_bindings: dict[str, ExperimentSnapshotBinding] = {}
         self._run_data_bindings: dict[str, ProjectSampleBinding] = {}
         self._run_input_use_bindings: dict[str, InputUseBindingEnvelope] = {}
         self._run_reference_bindings: dict[str, ReferenceProfileRevisionBinding] = {}
+        self._run_experiment_bindings: dict[str, ExperimentSnapshotBinding] = {}
 
     def contains_run(self, run_id: str) -> bool:
         with self._lock:
@@ -641,6 +657,7 @@ class InMemoryRunRepository:
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
         reference_binding: ReferenceProfileRevisionBinding | None = None,
+        experiment_revision_id: str | None = None,
     ) -> ValidatedInputSnapshot:
         with self._lock:
             validated = _validated_snapshot_copy(snapshot)
@@ -703,6 +720,10 @@ class InMemoryRunRepository:
                             "Reference Profile selection is not eligible"
                         )
 
+            frozen_experiment = self._freeze_experiment_binding(
+                experiment_revision_id,
+                project_sample_selection,
+            )
             binding_context: AbstractContextManager[ProjectSampleBinding]
             if project_sample_selection is None:
                 binding_context = nullcontext(
@@ -735,6 +756,7 @@ class InMemoryRunRepository:
                             stored_binding,
                             input_binding,
                             reference_binding,
+                            frozen_experiment,
                         )
                 else:
                     if (
@@ -770,6 +792,7 @@ class InMemoryRunRepository:
                                 stored_binding,
                                 input_binding,
                                 reference_binding,
+                                frozen_experiment,
                             )
             except (InputBindingSelectionError, ReferenceBindingSelectionError):
                 raise
@@ -795,12 +818,30 @@ class InMemoryRunRepository:
                 raise
             return _validated_snapshot_copy(validated)
 
+    def _freeze_experiment_binding(
+        self,
+        experiment_revision_id: str | None,
+        project_sample_selection: ProjectSampleSelection | None,
+    ) -> ExperimentSnapshotBinding | None:
+        if experiment_revision_id is None:
+            return None
+        if project_sample_selection is None or self._experiment_freeze_lookup is None:
+            raise catalog_not_found()
+        return freeze_experiment_snapshot_binding(
+            self._experiment_freeze_lookup.experiment_revision_freeze_source(
+                experiment_revision_id
+            ),
+            project_id=project_sample_selection.project_id,
+            sample_revision_ids=project_sample_selection.sample_revision_ids,
+        )
+
     def _store_validated_input_snapshot(
         self,
         snapshot: ValidatedInputSnapshot,
         data_binding: ProjectSampleBinding,
         input_binding: InputUseBindingEnvelope,
         reference_binding: ReferenceProfileRevisionBinding | None,
+        experiment_binding: ExperimentSnapshotBinding | None,
     ) -> None:
         if (
             input_binding.project_id != data_binding.project_id
@@ -817,6 +858,10 @@ class InMemoryRunRepository:
         if reference_binding is not None:
             self._validated_reference_bindings[snapshot.snapshot_id] = (
                 _reference_binding_copy(reference_binding)
+            )
+        if experiment_binding is not None:
+            self._snapshot_experiment_bindings[snapshot.snapshot_id] = (
+                _experiment_binding_copy(experiment_binding)
             )
 
     def get_validated_input_snapshot(
@@ -852,6 +897,16 @@ class InMemoryRunRepository:
             binding = self._validated_reference_bindings.get(snapshot_id)
             return None if binding is None else _reference_binding_copy(binding)
 
+    def get_validated_experiment_binding(
+        self,
+        snapshot_id: str,
+    ) -> ExperimentSnapshotBinding | None:
+        with self._lock:
+            if snapshot_id not in self._validated_input_snapshots:
+                raise KeyError(snapshot_id)
+            binding = self._snapshot_experiment_bindings.get(snapshot_id)
+            return None if binding is None else _experiment_binding_copy(binding)
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -880,6 +935,13 @@ class InMemoryRunRepository:
             if snapshot_reference_binding is not None:
                 snapshot_reference_binding = _reference_binding_copy(
                     snapshot_reference_binding
+                )
+            snapshot_experiment_binding = self._snapshot_experiment_bindings.get(
+                snapshot_id
+            )
+            if snapshot_experiment_binding is not None:
+                snapshot_experiment_binding = _experiment_binding_copy(
+                    snapshot_experiment_binding
                 )
             if snapshot.workflow_id != workflow_id:
                 raise KeyError(snapshot_id)
@@ -913,6 +975,13 @@ class InMemoryRunRepository:
                         run_reference_binding = _reference_binding_copy(
                             run_reference_binding
                         )
+                    run_experiment_binding = self._run_experiment_bindings.get(
+                        current.run_id
+                    )
+                    if run_experiment_binding is not None:
+                        run_experiment_binding = _experiment_binding_copy(
+                            run_experiment_binding
+                        )
                 except (KeyError, ValueError) as exc:
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence is invalid"
@@ -921,6 +990,7 @@ class InMemoryRunRepository:
                     run_binding != snapshot_binding
                     or run_input_binding != snapshot_input_binding
                     or run_reference_binding != snapshot_reference_binding
+                    or run_experiment_binding != snapshot_experiment_binding
                 ):
                     raise ValidatedSnapshotReplayConflictError(
                         "validated snapshot replay binding evidence differs"
@@ -963,6 +1033,10 @@ class InMemoryRunRepository:
             if snapshot_reference_binding is not None:
                 self._run_reference_bindings[record.run_id] = _reference_binding_copy(
                     snapshot_reference_binding
+                )
+            if snapshot_experiment_binding is not None:
+                self._run_experiment_bindings[record.run_id] = _experiment_binding_copy(
+                    snapshot_experiment_binding
                 )
             self._events[record.run_id] = [created_event]
             self._logs[record.run_id] = {}
@@ -3065,6 +3139,14 @@ def _reference_binding_copy(
 ) -> ReferenceProfileRevisionBinding:
     if not isinstance(binding, ReferenceProfileRevisionBinding):
         raise ValueError("binding must be a ReferenceProfileRevisionBinding")
+    return replace(binding)
+
+
+def _experiment_binding_copy(
+    binding: ExperimentSnapshotBinding,
+) -> ExperimentSnapshotBinding:
+    if not isinstance(binding, ExperimentSnapshotBinding):
+        raise ValueError("binding must be an ExperimentSnapshotBinding")
     return replace(binding)
 
 
