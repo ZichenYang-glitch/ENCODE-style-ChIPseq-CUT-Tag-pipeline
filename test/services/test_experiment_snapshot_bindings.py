@@ -358,6 +358,8 @@ def test_association_pins_match_requires_ordinal_group_and_role() -> None:
     assert association_pins_match((first, second), (second, first))
     drifted = (
         (11, *first[1:]),
+        (0.5, *first[1:]),
+        (0.0, *first[1:]),
         (*first[:3], "drifted-group", *first[4:]),
         (*first[:4], "not_applicable", None, None),
     )

@@ -199,6 +199,7 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         assert _mirror_count(app, experiment_revision_id) == 2
         for statement in (
             "ordinal = 11",
+            "ordinal = 0.5",
             "replicate_group = 'drifted-group'",
             "replicate_role_status = 'not_applicable', "
             "replicate_role_term_id = NULL, "

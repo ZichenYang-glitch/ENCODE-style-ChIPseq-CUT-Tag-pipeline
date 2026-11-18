@@ -381,23 +381,27 @@ def experiment_sample_pin_identity(
 
 def association_pins_match(
     payload_pins: Sequence[
-        tuple[int, str, str, str | None, str, str | None, str | None]
+        tuple[object, str, str, str | None, str, str | None, str | None]
     ],
     mirror_pins: Sequence[
-        tuple[int, str, str, str | None, str, str | None, str | None]
+        tuple[object, str, str, str | None, str, str | None, str | None]
     ],
 ) -> bool:
     """True when every mirror row is one canonical sample pin.
 
     Each pin is ``(ordinal, sample_revision_id, payload_digest, replicate_group,
-    role_status, role_term_id, role_term_revision_id)``. Order is ignored. A
-    different ordinal, digest, replicate group, or role does not match, nor do
-    a missing pin, an extra pin, or a duplicate ordinal or revision id.
+    role_status, role_term_id, role_term_revision_id)``. Order is ignored. The
+    ordinal is compared as stored: a non-integer such as ``0.5`` does not match
+    canonical ``0``. A different ordinal, digest, replicate group, or role does
+    not match, nor do a missing pin, an extra pin, or a duplicate ordinal or
+    revision id.
     """
 
     payload = tuple(payload_pins)
     mirror = tuple(mirror_pins)
     if not payload or len(payload) != len(mirror):
+        return False
+    if any(type(item[0]) is not int for item in (*payload, *mirror)):
         return False
     if len(set(payload)) != len(payload) or len(set(mirror)) != len(mirror):
         return False

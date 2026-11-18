@@ -2520,7 +2520,7 @@ def _experiment_revision_freeze_source(
     payload_pins = tuple(experiment_sample_pin_identity(pin) for pin in payload.samples)
     mirror_pins = tuple(
         (
-            int(ordinal),
+            ordinal,
             sample_revision_id,
             payload_digest,
             replicate_group,
