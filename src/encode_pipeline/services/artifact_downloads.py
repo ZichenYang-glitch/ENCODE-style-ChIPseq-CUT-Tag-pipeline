@@ -24,6 +24,11 @@ from encode_pipeline.platform.result_generations import (
 )
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef
+from encode_pipeline.services.artifact_disk_relocation import (
+    PUBLIC_BYTES_MISMATCH,
+    PUBLIC_UNAVAILABLE,
+    lookup_switched_download,
+)
 from encode_pipeline.services.run_repositories import ResultGenerationChangedError
 from encode_pipeline.services.runs import RunService
 
@@ -228,7 +233,13 @@ class _PreparedArtifactDownloadSource:
 class ArtifactDownloadService:
     """Resolve one persisted artifact into a descriptor-owned stream plan."""
 
-    def __init__(self, *, run_service: RunService, workspace_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        run_service: RunService,
+        workspace_root: Path,
+        relocation_root: Path | None = None,
+    ) -> None:
         if not isinstance(run_service, RunService):
             raise ValueError("run_service must be a RunService")
         if (
@@ -237,8 +248,15 @@ class ArtifactDownloadService:
             or any(part in {"", ".", ".."} for part in workspace_root.parts[1:])
         ):
             raise ValueError("workspace_root must be an absolute Path")
+        if relocation_root is not None and (
+            not isinstance(relocation_root, Path)
+            or not relocation_root.is_absolute()
+            or any(part in {"", ".", ".."} for part in relocation_root.parts[1:])
+        ):
+            raise ValueError("relocation_root must be an absolute Path")
         self._run_service = run_service
         self._workspace_root = workspace_root
+        self._relocation_root = relocation_root
 
     def prepare(
         self,
@@ -317,6 +335,48 @@ class ArtifactDownloadService:
             filename,
             disposition,
         ) = validated
+        if self._relocation_root is not None:
+            relocated = lookup_switched_download(
+                self._relocation_root,
+                run_id=run_id,
+                artifact_id=artifact_id,
+                generation=expected_generation,
+                revision=expected_revision,
+                relative_path=relative_path,
+                size_bytes=expected_size,
+            )
+            if relocated.kind == "reject":
+                return self._failure(
+                    "RUN_ARTIFACT_DOWNLOAD_CONFLICT",
+                    "Artifact content is no longer available as indexed.",
+                    path="artifact_id",
+                    reason_code=relocated.reason_code or PUBLIC_UNAVAILABLE,
+                )
+            if relocated.kind == "serve":
+                conflict = self._confirm_indexed_generation(
+                    run_id,
+                    artifact_id,
+                    expected_generation=expected_generation,
+                    expected_revision=expected_revision,
+                )
+                if conflict is not None:
+                    return conflict
+                if len(relocated.content) != expected_size:
+                    return self._failure(
+                        "RUN_ARTIFACT_DOWNLOAD_CONFLICT",
+                        "Artifact content is no longer available as indexed.",
+                        path="artifact_id",
+                        reason_code=PUBLIC_BYTES_MISMATCH,
+                    )
+                return Result.success(
+                    ArtifactDownloadPlan(
+                        content=relocated.content,
+                        size_bytes=expected_size,
+                        media_type=media_type,
+                        filename=filename,
+                        content_disposition=disposition,
+                    )
+                )
         prepared: _PreparedArtifactDownloadSource | None = None
         try:
             prepared = self._open_plan(
@@ -330,24 +390,14 @@ class ArtifactDownloadService:
                 filename=filename,
                 content_disposition=disposition,
             )
-            try:
-                _current_generation, current = (
-                    self._run_service.get_artifact_at_generation(
-                        run_id,
-                        artifact_id,
-                        expected_generation=expected_generation,
-                    )
-                )
-                if current.revision != expected_revision:
-                    raise ResultGenerationChangedError("artifact revision changed")
-            except ResultGenerationChangedError:
-                return self._generation_conflict()
-            except KeyError:
-                return self._generation_conflict()
-            except (AttributeError, TypeError, ValueError):
-                return self._data_invalid()
-            except Exception:
-                return self._unavailable("ARTIFACT_DOWNLOAD_REPOSITORY_UNAVAILABLE")
+            conflict = self._confirm_indexed_generation(
+                run_id,
+                artifact_id,
+                expected_generation=expected_generation,
+                expected_revision=expected_revision,
+            )
+            if conflict is not None:
+                return conflict
             plan = prepared.seal()
         except _ArtifactSourceConflict as exc:
             return self._failure(
@@ -369,6 +419,33 @@ class ArtifactDownloadService:
             if prepared is not None:
                 prepared.close()
         return Result.success(plan)
+
+    def _confirm_indexed_generation(
+        self,
+        run_id: str,
+        artifact_id: str,
+        *,
+        expected_generation: str,
+        expected_revision: str,
+    ) -> Result[ArtifactDownloadPlan] | None:
+        """Return a conflict when the saved generation or revision moved."""
+        try:
+            _current_generation, current = self._run_service.get_artifact_at_generation(
+                run_id,
+                artifact_id,
+                expected_generation=expected_generation,
+            )
+            if current.revision != expected_revision:
+                raise ResultGenerationChangedError("artifact revision changed")
+        except ResultGenerationChangedError:
+            return self._generation_conflict()
+        except KeyError:
+            return self._generation_conflict()
+        except (AttributeError, TypeError, ValueError):
+            return self._data_invalid()
+        except Exception:
+            return self._unavailable("ARTIFACT_DOWNLOAD_REPOSITORY_UNAVAILABLE")
+        return None
 
     @staticmethod
     def _validate_reference(
