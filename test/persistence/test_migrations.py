@@ -2632,8 +2632,7 @@ def test_experiment_snapshot_binding_migration_is_empty_and_reversible(tmp_path)
             == 0
         )
         assert (
-            connection.scalar(text("SELECT count(*) FROM run_experiment_bindings"))
-            == 0
+            connection.scalar(text("SELECT count(*) FROM run_experiment_bindings")) == 0
         )
         triggers = {
             row[0]
