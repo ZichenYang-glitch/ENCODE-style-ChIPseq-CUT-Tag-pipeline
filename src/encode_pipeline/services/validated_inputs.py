@@ -475,21 +475,18 @@ class ValidatedInputService:
                     validated_at=now,
                     expires_at=now + self._snapshot_ttl,
                 )
-                if input_use_binding_plan is None:
-                    persisted = self._repository.create_validated_input_snapshot(
-                        snapshot,
-                        project_sample_selection=project_sample_selection,
-                        reference_binding=reference_evidence,
-                        experiment_revision_id=experiment_revision_id,
-                    )
-                else:
-                    persisted = self._repository.create_validated_input_snapshot(
-                        snapshot,
-                        project_sample_selection=project_sample_selection,
-                        input_use_binding_plan=input_use_binding_plan,
-                        reference_binding=reference_evidence,
-                        experiment_revision_id=experiment_revision_id,
-                    )
+                persist_arguments: dict[str, object] = {
+                    "project_sample_selection": project_sample_selection,
+                    "reference_binding": reference_evidence,
+                }
+                if input_use_binding_plan is not None:
+                    persist_arguments["input_use_binding_plan"] = input_use_binding_plan
+                if experiment_revision_id is not None:
+                    persist_arguments["experiment_revision_id"] = experiment_revision_id
+                persisted = self._repository.create_validated_input_snapshot(
+                    snapshot,
+                    **persist_arguments,
+                )
             except CatalogError as exc:
                 return Result.failure(
                     [

@@ -167,6 +167,7 @@ export const stubValidationResponses: Record<
           fully_managed: false,
           input_uses: [],
         },
+        experiment_binding: { status: 'unresolved' },
       },
       issues: [],
     };

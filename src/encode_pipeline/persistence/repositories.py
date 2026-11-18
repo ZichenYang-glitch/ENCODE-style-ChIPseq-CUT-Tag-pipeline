@@ -71,10 +71,14 @@ from encode_pipeline.platform.data_registry import (
     build_project_sample_binding,
 )
 from encode_pipeline.platform.experiment_catalog import (
+    CatalogError,
     ExperimentRevisionFreezeSource,
     ExperimentSnapshotBinding,
+    association_pins_match,
+    build_experiment_revision_payload_digest,
     catalog_not_found,
     freeze_experiment_snapshot_binding,
+    interpret_stored_experiment_payload,
 )
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
@@ -2492,13 +2496,27 @@ def _experiment_revision_freeze_source(
         and project.project_id != LEGACY_PROJECT_ID
         and project.kind == "user"
     )
-    sample_revision_ids = tuple(
-        session.scalars(
-            select(ExperimentRevisionSampleRow.sample_revision_id).where(
-                ExperimentRevisionSampleRow.experiment_revision_id
-                == experiment_revision_id
-            )
-        ).all()
+    try:
+        payload = interpret_stored_experiment_payload(revision.canonical_payload)
+        digest = build_experiment_revision_payload_digest(revision.canonical_payload)
+    except CatalogError:
+        return None
+    if digest != revision.payload_digest:
+        return None
+    mirror_rows = session.execute(
+        select(
+            ExperimentRevisionSampleRow.sample_revision_id,
+            ExperimentRevisionSampleRow.payload_digest,
+        ).where(
+            ExperimentRevisionSampleRow.experiment_revision_id == experiment_revision_id
+        )
+    ).all()
+    payload_pins = tuple(
+        (pin.sample_revision_id, pin.payload_digest) for pin in payload.samples
+    )
+    mirror_pins = tuple(
+        (sample_revision_id, payload_digest)
+        for sample_revision_id, payload_digest in mirror_rows
     )
     return ExperimentRevisionFreezeSource(
         experiment_revision_id=revision.experiment_revision_id,
@@ -2506,7 +2524,8 @@ def _experiment_revision_freeze_source(
         project_active=project_active,
         experiment_archived=experiment.archived_at is not None,
         payload_digest=revision.payload_digest,
-        sample_revision_ids=sample_revision_ids,
+        sample_revision_ids=tuple(pin.sample_revision_id for pin in payload.samples),
+        association_matches_payload=association_pins_match(payload_pins, mirror_pins),
     )
 
 

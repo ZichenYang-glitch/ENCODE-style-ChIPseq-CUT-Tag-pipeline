@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from itertools import count
 import json
 
@@ -10,9 +12,13 @@ import pytest
 
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
-from encode_pipeline.platform.experiment_catalog import CatalogError
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogError,
+    ExperimentRevisionFreezeSource,
+    freeze_experiment_snapshot_binding,
+)
+from encode_pipeline.platform.runs import RunArtifactRef, RunRecord, RunStatus
 from encode_pipeline.platform.data_registry import ProjectSampleSelection
-from encode_pipeline.platform.runs import RunRecord, RunStatus
 from encode_pipeline.platform.snapshots import (
     PAYLOAD_DIGEST_SCHEME,
     VALIDATION_EVIDENCE_OUTCOME,
@@ -52,7 +58,7 @@ def _write(operation: str, body: dict) -> dict:
     }
 
 
-def _world():
+def _world(*, attach_trace: bool = True):
     registry = InMemoryDataRegistryRepository(legacy_created_at=NOW)
     data = DataRegistryService(
         repository=registry,
@@ -75,7 +81,9 @@ def _world():
         data_registry_repository=registry,
         experiment_freeze_lookup=catalog_repository,
     )
-    return data, catalog, runs
+    if attach_trace:
+        catalog_repository.attach_experiment_trace_evidence(runs)
+    return data, catalog, runs, catalog_repository
 
 
 def _term(catalog: ExperimentCatalogService, term_type: str, name: str) -> dict:
@@ -190,7 +198,7 @@ def _experiment(data, catalog, sample_count: int) -> dict:
 
 
 def test_memory_freeze_ignores_order_and_replay_compares_both_fields() -> None:
-    data, catalog, runs = _world()
+    data, catalog, runs, _repository = _world()
     seeded = _experiment(data, catalog, 2)
     left, right = seeded["sample_revision_ids"]
     snapshot = _snapshot("vsnap_" + "1" * 32)
@@ -204,8 +212,9 @@ def test_memory_freeze_ignores_order_and_replay_compares_both_fields() -> None:
     )
     frozen = runs.get_validated_experiment_binding(snapshot.snapshot_id)
     assert frozen is not None
-    assert frozen.experiment_revision_id == (
-        seeded["experiment"]["experiment_revision_id"]
+    assert (
+        frozen.experiment_revision_id
+        == (seeded["experiment"]["experiment_revision_id"])
     )
     assert len(frozen.payload_digest) == 64
 
@@ -244,7 +253,7 @@ def test_memory_freeze_ignores_order_and_replay_compares_both_fields() -> None:
 
 
 def test_memory_mismatch_and_archive_leave_no_snapshot() -> None:
-    data, catalog, runs = _world()
+    data, catalog, runs, _repository = _world()
     seeded = _experiment(data, catalog, 2)
     only_one = seeded["sample_revision_ids"][:1]
     snapshot = _snapshot("vsnap_" + "2" * 32)
@@ -285,7 +294,7 @@ def test_memory_mismatch_and_archive_leave_no_snapshot() -> None:
 
 
 def test_memory_omitted_experiment_stays_unbound_on_replay() -> None:
-    data, catalog, runs = _world()
+    data, catalog, runs, _repository = _world()
     seeded = _experiment(data, catalog, 1)
     snapshot = _snapshot("vsnap_" + "4" * 32)
     runs.create_validated_input_snapshot(
@@ -322,3 +331,131 @@ def test_memory_omitted_experiment_stays_unbound_on_replay() -> None:
     )
     assert trace["trace_status"] == "unresolved"
     assert trace["reason"] == "experiment_snapshot_binding_absent"
+
+
+def test_freeze_rejects_a_mirror_that_drops_a_payload_pin() -> None:
+    revision_id = "expr_" + "d" * 32
+    sample_ids = ("smpr_" + "1" * 32, "smpr_" + "2" * 32)
+    source = ExperimentRevisionFreezeSource(
+        experiment_revision_id=revision_id,
+        project_id="prj_" + "1" * 32,
+        project_active=True,
+        experiment_archived=False,
+        payload_digest="a" * 64,
+        sample_revision_ids=sample_ids,
+        association_matches_payload=False,
+    )
+    with pytest.raises(CatalogError) as caught:
+        freeze_experiment_snapshot_binding(
+            source,
+            project_id=source.project_id,
+            sample_revision_ids=sample_ids,
+        )
+    assert caught.value.code == "catalog_sample_set_mismatch"
+
+
+def test_memory_trace_reads_bindings_only_after_the_store_is_attached() -> None:
+    data, catalog, runs, repository = _world(attach_trace=False)
+    seeded = _experiment(data, catalog, 2)
+    revision_id = seeded["experiment"]["experiment_revision_id"]
+
+    def trace() -> dict:
+        return catalog.list_experiment_run_results(
+            project_id=seeded["project_id"],
+            experiment_revision_id=revision_id,
+            cursor=None,
+            limit=50,
+        )
+
+    snapshot = _snapshot("vsnap_" + "5" * 32)
+    runs.create_validated_input_snapshot(
+        snapshot,
+        project_sample_selection=ProjectSampleSelection(
+            project_id=seeded["project_id"],
+            sample_revision_ids=tuple(reversed(seeded["sample_revision_ids"])),
+        ),
+        experiment_revision_id=revision_id,
+    )
+    isolated = trace()
+    assert isolated["trace_status"] == "unresolved"
+    assert isolated["reason"] == "experiment_snapshot_binding_absent"
+
+    repository.attach_experiment_trace_evidence(runs)
+    frozen = trace()
+    assert frozen["trace_status"] == "experiment_snapshot"
+    assert "reason" not in frozen
+    assert frozen["results"] == []
+
+    runs.consume_validated_input_snapshot(
+        snapshot.snapshot_id,
+        workflow_id="workflow-a",
+        expected_build_identity=snapshot.workflow_build_identity,
+        record=_record("run-trace", snapshot),
+        consumed_at=NOW + timedelta(minutes=1),
+        event=_event(),
+    )
+    consumed = trace()
+    assert consumed["trace_status"] == "experiment_snapshot"
+    assert "reason" not in consumed
+    assert consumed["results"] == []
+
+    succeeded_at = NOW + timedelta(minutes=2)
+    current = runs.get_run("run-trace")
+    runs.update_run(
+        replace(
+            current,
+            status=RunStatus.SUCCEEDED,
+            updated_at=succeeded_at,
+            ended_at=succeeded_at,
+        ),
+        expected_status=RunStatus.CREATED,
+        event=RunEventDraft(
+            event_type="status_changed",
+            message="Scientific execution succeeded.",
+            status=RunStatus.SUCCEEDED,
+            context={"previous_status": "created", "new_status": "succeeded"},
+        ),
+    )
+    attempt_id = "resultattempt-" + sha256(b"trace").hexdigest()
+    runs.begin_artifact_result_attempt(
+        "run-trace",
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+    )
+    runs.replace_artifacts(
+        "run-trace",
+        (
+            RunArtifactRef(
+                artifact_id="peaks",
+                run_id="run-trace",
+                artifact_type="file",
+                name="peaks.bed",
+                uri="run://runs/run-trace/artifacts/peaks",
+                mime_type="text/plain",
+                produced_at=succeeded_at,
+                revision="artifactrev-" + sha256(b"peaks").hexdigest(),
+                metadata={"output_type": "peaks"},
+            ),
+        ),
+        attempt_id=attempt_id,
+        expected_status=RunStatus.SUCCEEDED,
+        event=RunEventDraft(
+            event_type="artifacts_indexed",
+            message="Workflow artifacts indexed.",
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+    published = trace()
+    assert published["trace_status"] == "experiment_snapshot"
+    assert "reason" not in published
+    assert len(published["results"]) == 1
+    assert published["results"][0]["run_id"] == "run-trace"
+    assert published["results"][0]["publication_evidence"] == "present"
+    assert published["results"][0]["artifact_association_kind"] == "run_input_scope"
+
+    copied = runs._run_experiment_bindings["run-trace"]
+    object.__setattr__(copied, "payload_digest", "b" * 64)
+    hidden = trace()
+    assert hidden["trace_status"] == "experiment_snapshot"
+    assert "reason" not in hidden
+    assert hidden["results"] == []

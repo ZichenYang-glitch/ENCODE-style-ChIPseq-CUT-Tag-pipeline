@@ -40,6 +40,31 @@ def _count(app, table: str) -> int:
         )
 
 
+def _revision_identity(app, experiment_revision_id: str):
+    with app.state.persistence.engine.connect() as connection:
+        return connection.execute(
+            text(
+                "SELECT canonical_payload, payload_digest "
+                "FROM experiment_revisions "
+                "WHERE experiment_revision_id = :experiment_revision_id"
+            ),
+            {"experiment_revision_id": experiment_revision_id},
+        ).one()
+
+
+def _mirror_count(app, experiment_revision_id: str) -> int:
+    with app.state.persistence.engine.connect() as connection:
+        return int(
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM experiment_revision_samples "
+                    "WHERE experiment_revision_id = :experiment_revision_id"
+                ),
+                {"experiment_revision_id": experiment_revision_id},
+            ).scalar_one()
+        )
+
+
 def _binding(app, snapshot_id: str):
     with app.state.persistence.engine.connect() as connection:
         return (
@@ -71,7 +96,10 @@ def _sample_row(tmp_path, name: str) -> dict:
 def _validate(client, app, tmp_path, project_id, revision_ids, **extra):
     body = {
         "config": {},
-        "samples": [_sample_row(tmp_path, f"row-{index}") for index, _ in enumerate(revision_ids)],
+        "samples": [
+            _sample_row(tmp_path, f"row-{index}")
+            for index, _ in enumerate(revision_ids)
+        ],
         "project_id": project_id,
         "sample_revision_ids": list(revision_ids),
         "reference_profile_revision_id": app.state.test_reference_profile.revision_id,
@@ -95,7 +123,9 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
     other = registry.create_project("Other project")
     with ApiTestClient(app) as client:
         schema = app.openapi()
-        assert set(schema["components"]["schemas"]["RunCreateRequest"]["properties"]) == {
+        assert set(
+            schema["components"]["schemas"]["RunCreateRequest"]["properties"]
+        ) == {
             "snapshot_id",
             "tags",
         }
@@ -130,9 +160,7 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
                     attributes={"organism": "human"},
                 )
             )
-        samples = [
-            item.revision.sample_revision_id for item in imported_samples
-        ]
+        samples = [item.revision.sample_revision_id for item in imported_samples]
         other_sample = registry.import_sample(
             other.project_id,
             stable_key="other",
@@ -167,6 +195,42 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         decoy = experiment("other-pair", [other_sample], other.project_id)
         experiment_revision_id = created["experiment_revision_id"]
         before = _count(app, "validated_input_snapshots")
+        identity = _revision_identity(app, experiment_revision_id)
+        assert _mirror_count(app, experiment_revision_id) == 2
+        with app.state.persistence.engine.begin() as connection:
+            deleted = connection.execute(
+                text(
+                    "DELETE FROM experiment_revision_samples "
+                    "WHERE experiment_revision_id = :experiment_revision_id "
+                    "AND sample_revision_id = :sample_revision_id"
+                ),
+                {
+                    "experiment_revision_id": experiment_revision_id,
+                    "sample_revision_id": samples[0],
+                },
+            )
+        assert deleted.rowcount == 1
+        assert _mirror_count(app, experiment_revision_id) == 1
+        assert _revision_identity(app, experiment_revision_id) == identity
+        for requested in (samples[:1], list(reversed(samples))):
+            drifted = _validate(
+                client,
+                app,
+                tmp_path,
+                project.project_id,
+                requested,
+                experiment_revision_id=experiment_revision_id,
+            )
+            assert drifted.status_code == 409, drifted.text
+            assert drifted.json()["issues"][0]["code"] == "catalog_sample_set_mismatch"
+            assert drifted.json()["snapshot"] is None
+        assert _count(app, "validated_input_snapshots") == before
+        assert _count(app, "snapshot_experiment_bindings") == 0
+        app.state.persistence.catalog_repository.rebuild_experiment_projection(
+            experiment_revision_id
+        )
+        assert _mirror_count(app, experiment_revision_id) == 2
+        assert _revision_identity(app, experiment_revision_id) == identity
 
         omitted = _validate(client, app, tmp_path, project.project_id, samples)
         assert omitted.status_code == 200, omitted.text
@@ -180,6 +244,15 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         )
         assert unbound_run.status_code == 201, unbound_run.text
         assert _count(app, "run_experiment_bindings") == 0
+        trace_url = (
+            f"/api/v1/catalog/projects/{project.project_id}/experiment-revisions/"
+            f"{experiment_revision_id}/run-results"
+        )
+        unbound_trace = client.get(trace_url)
+        assert unbound_trace.status_code == 200, unbound_trace.text
+        assert unbound_trace.json()["trace_status"] == "unresolved"
+        assert unbound_trace.json()["reason"] == "experiment_snapshot_binding_absent"
+        assert unbound_trace.json()["results"] == []
 
         reversed_ids = list(reversed(samples))
         frozen = _validate(
@@ -197,6 +270,15 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         stored = _binding(app, frozen.json()["snapshot"]["snapshot_id"])
         assert stored["experiment_revision_id"] == experiment_revision_id
         assert stored["payload_digest"] == binding["payload_digest"]
+        frozen_trace = client.get(trace_url)
+        assert frozen_trace.status_code == 200, frozen_trace.text
+        frozen_body = frozen_trace.json()
+        assert frozen_body["trace_status"] == "experiment_snapshot"
+        assert "reason" not in frozen_body
+        assert frozen_body["results"] == []
+        assert _count(app, "snapshot_experiment_bindings") == 1
+        assert _count(app, "run_experiment_bindings") == 0
+        CatalogExperimentRunListResponse.model_validate(frozen_body)
 
         missing = _validate(
             client,
@@ -298,10 +380,6 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
             )
         assert dict(copied) == dict(stored)
 
-        trace_url = (
-            f"/api/v1/catalog/projects/{project.project_id}/experiment-revisions/"
-            f"{experiment_revision_id}/run-results"
-        )
         unpublished = client.get(trace_url)
         assert unpublished.status_code == 200, unpublished.text
         unpublished_body = unpublished.json()

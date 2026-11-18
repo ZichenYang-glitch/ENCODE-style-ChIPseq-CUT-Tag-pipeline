@@ -907,6 +907,88 @@ class InMemoryRunRepository:
             binding = self._snapshot_experiment_bindings.get(snapshot_id)
             return None if binding is None else _experiment_binding_copy(binding)
 
+    def published_experiment_trace_rows(
+        self,
+        *,
+        project_id: str,
+        experiment_revision_id: str,
+        payload_digest: str,
+    ) -> list[dict[str, Any]] | None:
+        with self._lock:
+            matches = (
+                item.experiment_revision_id == experiment_revision_id
+                and item.payload_digest == payload_digest
+                for item in (
+                    *self._snapshot_experiment_bindings.values(),
+                    *self._run_experiment_bindings.values(),
+                )
+            )
+            if not any(matches):
+                return None
+            trusted_runs = {
+                run_id
+                for run_id, item in self._run_experiment_bindings.items()
+                if item.experiment_revision_id == experiment_revision_id
+                and item.payload_digest == payload_digest
+            }
+            rows: list[dict[str, Any]] = []
+            binding_cache: dict[str, ArtifactPublicationRunSampleBinding] = {}
+            for publication in self._artifact_publications.values():
+                if publication.run_id not in trusted_runs:
+                    continue
+                summary = _in_memory_artifact_publication_summary(
+                    publication,
+                    runs=self._runs,
+                    bindings=self._run_data_bindings,
+                    data_registry_repository=self._data_registry_repository,
+                    result_states=self._result_states,
+                    binding_cache=binding_cache,
+                )
+                if summary.project_id != project_id:
+                    continue
+                binding = summary.run_sample_binding
+                rows.append(
+                    {
+                        "run_id": summary.run_id,
+                        "provenance": binding.provenance.value,
+                        "publication_evidence": "present",
+                        "artifact_association_kind": "run_input_scope",
+                        "workflow_id": summary.workflow_id,
+                        "artifact_id": summary.artifact_id,
+                        "output_type": summary.output_type,
+                        "artifact_generation": summary.artifact_generation,
+                        "artifact_revision": summary.artifact_revision,
+                        "published_at": _trace_stamp(summary.published_at),
+                        "current_artifact_generation": (
+                            summary.current_artifact_generation
+                        ),
+                        "generation_status": summary.generation_status,
+                        "run_sample_binding": {
+                            "binding_mode": binding.binding_mode.value,
+                            "provenance": binding.provenance.value,
+                            "associated_run_samples": [
+                                {
+                                    "sample_id": sample.sample_id,
+                                    "sample_revision_id": sample.sample_revision_id,
+                                    "revision_number": sample.revision_number,
+                                    "ordinal": sample.ordinal,
+                                }
+                                for sample in binding.associated_run_samples
+                            ],
+                        },
+                    }
+                )
+            rows.sort(
+                key=lambda item: (
+                    str(item["published_at"]),
+                    str(item["run_id"]),
+                    str(item["artifact_generation"]),
+                    str(item["artifact_id"]),
+                ),
+                reverse=True,
+            )
+            return rows
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -2902,6 +2984,13 @@ def _artifact_publication_matches(
         )
         and (not filters.current_only or publication.generation_status == "current")
     )
+
+
+def _trace_stamp(value: datetime) -> str:
+    text_value = value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    if text_value.endswith(".000000+00:00"):
+        text_value = text_value.replace(".000000+00:00", "+00:00")
+    return text_value.replace("+00:00", "Z")
 
 
 def canonical_decimal_text(value: Decimal) -> str:

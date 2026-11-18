@@ -335,6 +335,7 @@ class ExperimentRevisionFreezeSource:
     experiment_archived: bool
     payload_digest: str
     sample_revision_ids: tuple[str, ...]
+    association_matches_payload: bool
 
 
 class ExperimentRevisionFreezeLookup(Protocol):
@@ -361,6 +362,27 @@ def sample_revision_sets_equal(
     return set(left_ids) == set(right_ids)
 
 
+def association_pins_match(
+    payload_pins: Sequence[tuple[str, str]],
+    mirror_pins: Sequence[tuple[str, str]],
+) -> bool:
+    """True when the association mirror carries the payload pins exactly.
+
+    Each pin is ``(sample_revision_id, payload_digest)``. Order is ignored.
+    A missing pin, an extra pin, a duplicate, or a different digest does not match.
+    """
+
+    payload = tuple(payload_pins)
+    mirror = tuple(mirror_pins)
+    if not payload or len(payload) != len(mirror):
+        return False
+    payload_ids = {item[0] for item in payload}
+    mirror_ids = {item[0] for item in mirror}
+    if len(payload_ids) != len(payload) or len(mirror_ids) != len(mirror):
+        return False
+    return set(payload) == set(mirror)
+
+
 def freeze_experiment_snapshot_binding(
     source: ExperimentRevisionFreezeSource | None,
     *,
@@ -370,9 +392,12 @@ def freeze_experiment_snapshot_binding(
     """Freeze one experiment revision or fail without a partial binding.
 
     Missing revisions, inactive projects, and cross-project ids are not found.
-    An archived experiment is rejected before the sample-set comparison. Equality
-    ignores order and fails closed on an empty side, a duplicate, a missing pin,
-    an extra pin, or the same sample at a different revision.
+    An archived experiment is rejected before the sample-set comparison. The
+    sample set is the canonical payload. The association mirror must carry those
+    same revision ids and payload digests; a drifted mirror is rejected before
+    the request is compared. Equality ignores order and fails closed on an empty
+    side, a duplicate, a missing pin, an extra pin, or the same sample at a
+    different revision.
     """
 
     if (
@@ -385,7 +410,7 @@ def freeze_experiment_snapshot_binding(
         raise catalog_not_found()
     if source.experiment_archived:
         raise catalog_experiment_archived()
-    if not sample_revision_sets_equal(
+    if not source.association_matches_payload or not sample_revision_sets_equal(
         source.sample_revision_ids,
         sample_revision_ids,
     ):

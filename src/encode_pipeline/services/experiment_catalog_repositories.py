@@ -30,6 +30,7 @@ from encode_pipeline.platform.experiment_catalog import (
     TermLookup,
     TermPin,
     administrator_required,
+    association_pins_match,
     bind_catalog_target,
     block_matches,
     catalog_already_archived,
@@ -185,6 +186,18 @@ class _MemoryTermLookup(TermLookup):
         )
 
 
+class ExperimentTraceEvidence(Protocol):
+    """Binding and publication store consulted by an attached memory catalog."""
+
+    def published_experiment_trace_rows(
+        self,
+        *,
+        project_id: str,
+        experiment_revision_id: str,
+        payload_digest: str,
+    ) -> list[dict[str, Any]] | None: ...
+
+
 class InMemoryExperimentCatalogRepository:
     """Lock-protected catalog store used to parity-check the SQL repository."""
 
@@ -203,7 +216,16 @@ class InMemoryExperimentCatalogRepository:
         self._experiments: dict[str, _Experiment] = {}
         self._experiment_revisions: dict[str, _ExperimentRevision] = {}
         self._receipts: dict[tuple[str, str], _Receipt] = {}
+        self._trace_evidence: ExperimentTraceEvidence | None = None
         self._lock = RLock()
+
+    def attach_experiment_trace_evidence(
+        self,
+        evidence: ExperimentTraceEvidence,
+    ) -> None:
+        if not hasattr(evidence, "published_experiment_trace_rows"):
+            raise ValueError("experiment trace evidence is required")
+        self._trace_evidence = evidence
 
     def create_term(
         self,
@@ -811,7 +833,6 @@ class InMemoryExperimentCatalogRepository:
         cursor: str | None,
         limit: int,
     ) -> dict[str, Any]:
-        del limit
         position = decode_catalog_cursor(
             cursor,
             kind="experiment_runs",
@@ -822,6 +843,18 @@ class InMemoryExperimentCatalogRepository:
             revision = self._experiment_revisions.get(experiment_revision_id)
             if revision is None or revision.project_id != project_id:
                 raise catalog_not_found()
+            payload_digest = build_experiment_revision_payload_digest(
+                revision.canonical_payload
+            )
+            evidence = self._trace_evidence
+        rows = None
+        if evidence is not None:
+            rows = evidence.published_experiment_trace_rows(
+                project_id=project_id,
+                experiment_revision_id=experiment_revision_id,
+                payload_digest=payload_digest,
+            )
+        if rows is None:
             if position is not None:
                 raise catalog_cursor_not_found()
             return {
@@ -833,6 +866,29 @@ class InMemoryExperimentCatalogRepository:
                 "results": [],
                 "next_cursor": None,
             }
+        start = 0
+        if position is not None:
+            start = _trace_start(rows, position)
+        page = rows[start : start + limit]
+        next_cursor = None
+        if start + limit < len(rows) and page:
+            last = page[-1]
+            next_cursor = encode_catalog_cursor(
+                kind="experiment_runs",
+                filters=filters,
+                position=CatalogCursorPosition(
+                    created_at=_parse_trace_stamp(last),
+                    object_id=_trace_object_id(last),
+                ),
+            )
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "experiment_revision_id": experiment_revision_id,
+            "trace_status": "experiment_snapshot",
+            "results": page,
+            "next_cursor": next_cursor,
+        }
 
     def experiment_revision_freeze_source(
         self,
@@ -863,6 +919,10 @@ class InMemoryExperimentCatalogRepository:
                 and project.project_id != LEGACY_PROJECT_ID
                 and kind_value == "user"
             )
+            payload_pins = tuple(
+                (pin.sample_revision_id, pin.payload_digest)
+                for pin in revision.payload.samples
+            )
             return ExperimentRevisionFreezeSource(
                 experiment_revision_id=revision.experiment_revision_id,
                 project_id=revision.project_id,
@@ -871,8 +931,10 @@ class InMemoryExperimentCatalogRepository:
                 payload_digest=build_experiment_revision_payload_digest(
                     revision.canonical_payload
                 ),
-                sample_revision_ids=tuple(
-                    pin.sample_revision_id for pin in revision.payload.samples
+                sample_revision_ids=tuple(item[0] for item in payload_pins),
+                association_matches_payload=association_pins_match(
+                    payload_pins,
+                    payload_pins,
                 ),
             )
 
@@ -1326,6 +1388,35 @@ def _page(
             object_id=object_id(last),
         ),
     )
+
+
+def _trace_object_id(item: Mapping[str, Any]) -> str:
+    return "\n".join(
+        (
+            "publication",
+            str(item["run_id"]),
+            str(item["artifact_generation"]),
+            str(item["artifact_id"]),
+        )
+    )
+
+
+def _parse_trace_stamp(item: Mapping[str, Any]) -> datetime:
+    parsed = datetime.fromisoformat(str(item["published_at"]).replace("Z", "+00:00"))
+    return _utc(parsed)
+
+
+def _trace_start(
+    results: Sequence[Mapping[str, Any]],
+    position: CatalogCursorPosition,
+) -> int:
+    for index, item in enumerate(results):
+        if _trace_object_id(item) != position.object_id:
+            continue
+        if _utc(_parse_trace_stamp(item)) != _utc(position.created_at):
+            continue
+        return index + 1
+    raise catalog_cursor_not_found()
 
 
 def _utc(value: datetime) -> datetime:

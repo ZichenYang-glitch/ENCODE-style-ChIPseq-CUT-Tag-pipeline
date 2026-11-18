@@ -23,6 +23,7 @@ from encode_pipeline.persistence.models import (
     ExperimentRow,
     ProjectRow,
     RunExperimentBindingRow,
+    SnapshotExperimentBindingRow,
     RunProjectBindingRow,
     RunResultStateRow,
     RunRow,
@@ -931,6 +932,15 @@ class SqlAlchemyExperimentCatalogRepository:
             row = session.get(ExperimentRevisionRow, experiment_revision_id)
             if row is None or row.project_id != project_id:
                 raise catalog_not_found()
+            snapshot_bound = session.scalar(
+                select(SnapshotExperimentBindingRow.snapshot_id)
+                .where(
+                    SnapshotExperimentBindingRow.experiment_revision_id
+                    == experiment_revision_id,
+                    SnapshotExperimentBindingRow.payload_digest == row.payload_digest,
+                )
+                .limit(1)
+            )
             trusted_run_ids = list(
                 session.scalars(
                     select(RunExperimentBindingRow.run_id).where(
@@ -940,7 +950,7 @@ class SqlAlchemyExperimentCatalogRepository:
                     )
                 ).all()
             )
-            if not trusted_run_ids:
+            if snapshot_bound is None and not trusted_run_ids:
                 if position is not None:
                     raise catalog_cursor_not_found()
                 return {
