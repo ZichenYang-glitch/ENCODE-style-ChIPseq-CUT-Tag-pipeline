@@ -39,7 +39,9 @@ def catalog_stack(request, tmp_path):
 
     if request.param == "memory":
         registry = InMemoryDataRegistryRepository(legacy_created_at=START)
-        repository = InMemoryExperimentCatalogRepository(registry)
+        repository = InMemoryExperimentCatalogRepository(
+            registry, is_administrator=lambda user_id: user_id == ACTOR
+        )
         yield (
             DataRegistryService(repository=registry, now_factory=now),
             (ExperimentCatalogService(repository, now_factory=now)),
@@ -405,3 +407,379 @@ def test_catalog_traces_distinguish_empty_history_from_wrong_project(catalog_sta
     with pytest.raises(CatalogError) as failure:
         catalog.list_experiment_revisions(experiment_id=experiment["experiment_id"])
     assert failure.value.code == "catalog_not_found"
+
+
+@pytest.fixture
+def proposal_stack(catalog_stack):
+    from encode_pipeline.platform.catalog_curation_preview import (
+        M2_RULE_VERSION,
+        M2_VOCABULARY_VERSION,
+    )
+
+    data, catalog = catalog_stack
+    project = data.create_project("Curation")
+    sample = data.import_sample(
+        project.project_id,
+        stable_key="pilot",
+        display_name="Pilot",
+        attributes={"notebook": "pilot entry"},
+    )
+    classified = _write(
+        catalog.revise_sample_catalog,
+        "classify",
+        sample_id=sample.sample.sample_id,
+        expected_revision_number=1,
+        display_name=None,
+        catalog=_material(),
+    )
+    experiment = _write(
+        catalog.create_experiment,
+        "create",
+        project_id=project.project_id,
+        stable_key="pilot",
+        **_experiment(classified["sample_revision_id"]),
+    )
+    tag = _term(catalog, "tag", "curated")
+    batch = _term(catalog, "batch", "batch-1")
+    common = {
+        "rule_version": M2_RULE_VERSION,
+        "vocabulary_version": M2_VOCABULARY_VERSION,
+    }
+    experiment_item = {
+        "item_id": "experiment",
+        "target_kind": "experiment",
+        "target_id": experiment["experiment_id"],
+        "base_revision_id": experiment["experiment_revision_id"],
+        "base_revision_number": 1,
+        "allowed_fields": ["batch"],
+        "before": {"batch": UNKNOWN},
+        "after": {"batch": {"status": "known", **_pin(batch)}},
+        "citations": common
+        | {
+            "reason_codes": ["BATCH_TERM_MATCH"],
+            "source_refs": [
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": experiment["experiment_revision_id"],
+                },
+                {
+                    "kind": "catalog_projection_row",
+                    "ref_id": experiment["experiment_id"],
+                },
+                {"kind": "term_revision", "ref_id": _pin(batch)["term_revision_id"]},
+            ],
+        },
+    }
+    sample_item = {
+        "item_id": "sample",
+        "target_kind": "sample_catalog",
+        "target_id": sample.sample.sample_id,
+        "base_revision_id": classified["sample_revision_id"],
+        "base_revision_number": 2,
+        "allowed_fields": ["display_name", "tag"],
+        "before": {
+            "display_name": "Pilot",
+            "tag": {"status": "not_applicable", "values": []},
+        },
+        "after": {
+            "display_name": "Curated pilot",
+            "tag": {"status": "known", "values": [_pin(tag)]},
+        },
+        "citations": common
+        | {
+            "reason_codes": ["TAG_TERM_MATCH"],
+            "source_refs": [
+                {"kind": "sample_revision", "ref_id": classified["sample_revision_id"]},
+                {"kind": "catalog_projection_row", "ref_id": sample.sample.sample_id},
+                {
+                    "kind": "catalog_projection_row",
+                    "ref_id": classified["sample_revision_id"],
+                },
+            ],
+        },
+    }
+    return data, catalog, project.project_id, experiment_item, sample_item
+
+
+def _register(catalog, project_id, *items, key="register-proposal"):
+    return _write(
+        catalog.register_proposal,
+        key,
+        project_id=project_id,
+        source="offline_suggestion",
+        items=list(items),
+        rule_version=None,
+        vocabulary_version=None,
+        projection_version=None,
+    )
+
+
+def _preview(catalog, proposal_id, *item_ids, actor=ACTOR):
+    return catalog.preview_proposal(
+        actor_user_id=actor,
+        raw_body=json.dumps({"selected_item_ids": item_ids}).encode(),
+        proposal_id=proposal_id,
+        selected_item_ids=list(item_ids),
+    )
+
+
+def _adopt(catalog, preview, key="adopt-proposal"):
+    return _write(
+        catalog.adopt_proposal,
+        key,
+        **{
+            field: preview[field]
+            for field in (
+                "proposal_id",
+                "selected_item_ids",
+                "expected_revisions",
+                "preview_digest",
+            )
+        },
+    )
+
+
+def _proposal_receipts(catalog, project_id, proposal_id=None):
+    return catalog.list_adoption_receipts(
+        actor_user_id=ACTOR, project_id=project_id, proposal_id=proposal_id
+    )["receipts"]
+
+
+def test_adoption_replays_both_writes_and_keeps_the_original_revisions(proposal_stack):
+    data, catalog, project_id, experiment, sample = proposal_stack
+    proposal = _register(catalog, project_id, experiment, sample)
+    assert _register(catalog, project_id, experiment, sample) == proposal
+    proposal_id = proposal["proposal_id"]
+    preview = _preview(catalog, proposal_id, "sample", "experiment")
+    assert preview["has_conflicts"] is False
+    assert _proposal_receipts(catalog, project_id) == []
+    assert (
+        catalog.list_sample_revisions(sample_id=sample["target_id"])[
+            "sample_revisions"
+        ][-1]["revision_number"]
+        == 2
+    )
+
+    receipt = _adopt(catalog, preview)
+    assert receipt["replayed"] is False
+    assert _adopt(catalog, preview) == receipt | {"replayed": True}
+    assert _proposal_receipts(catalog, project_id) == [receipt]
+    assert _proposal_receipts(catalog, project_id, proposal_id) == [receipt]
+    assert _proposal_receipts(catalog, data.create_project("Other").project_id) == []
+    assert (
+        catalog.get_proposal(proposal_id=proposal_id, include_candidates=False)[
+            "proposal_state"
+        ]
+        == "adopted"
+    )
+    for retry in (
+        lambda: _preview(catalog, proposal_id, "sample"),
+        lambda: _adopt(catalog, preview, key="fresh-adoption-key"),
+    ):
+        with pytest.raises(CatalogError) as failure:
+            retry()
+        assert failure.value.code == "catalog_proposal_invalidated"
+
+    experiment_history = catalog.list_experiment_revisions(
+        experiment_id=experiment["target_id"]
+    )["experiment_revisions"]
+    assert [row["revision_number"] for row in experiment_history] == [1, 2]
+    old, new = experiment_history
+    assert old["batch"] == UNKNOWN
+    assert new["batch"]["display_name"] == "batch-1"
+    assert new["samples"] == old["samples"]
+    sample_history = catalog.list_sample_revisions(sample_id=sample["target_id"])[
+        "sample_revisions"
+    ]
+    assert [row["revision_number"] for row in sample_history] == [1, 2, 3]
+    assert sample_history[1]["tag"] == {"status": "not_applicable", "values": []}
+    assert sample_history[2]["tag"]["values"][0]["display_name"] == "curated"
+    assert sample_history[2]["display_name"] == "Curated pilot"
+    stored = data._repository.get_sample_revision(
+        sample_history[2]["sample_revision_id"]
+    )
+    assert (
+        json.loads(stored.canonical_payload)["attributes"]["notebook"] == "pilot entry"
+    )
+
+
+def test_stale_sample_adoption_keeps_other_target_at_its_original_revision(
+    proposal_stack,
+):
+    _, catalog, project_id, experiment, sample = proposal_stack
+    proposal_id = _register(catalog, project_id, experiment, sample)["proposal_id"]
+    preview = _preview(catalog, proposal_id, "experiment", "sample")
+    _write(
+        catalog.revise_sample_catalog,
+        "manual-sample",
+        sample_id=sample["target_id"],
+        expected_revision_number=2,
+        display_name="Manual correction",
+        catalog=_material(),
+    )
+    with pytest.raises(CatalogError) as failure:
+        _adopt(catalog, preview)
+    assert failure.value.code == "catalog_revision_conflict"
+    assert _proposal_receipts(catalog, project_id, proposal_id) == []
+    assert (
+        catalog.list_experiment_revisions(experiment_id=experiment["target_id"])[
+            "experiment_revisions"
+        ][0]["batch"]
+        == UNKNOWN
+    )
+    assert (
+        len(
+            catalog.list_experiment_revisions(experiment_id=experiment["target_id"])[
+                "experiment_revisions"
+            ]
+        )
+        == 1
+    )
+    with pytest.raises(CatalogError) as failure:
+        _preview(catalog, "cprop_" + "0" * 32, "experiment")
+    assert failure.value.code == "catalog_not_found"
+
+
+def test_proposal_preview_resolves_projection_sources_in_its_own_project(
+    proposal_stack,
+):
+    data, catalog, project_id, experiment, sample = proposal_stack
+    outside = data.create_project("Other")
+    foreign = data.import_sample(
+        outside.project_id, stable_key="foreign", display_name="Foreign", attributes={}
+    )
+    for number, (kind, ref) in enumerate(
+        (
+            ("catalog_projection_row", foreign.sample.sample_id),
+            ("catalog_projection_row", "smp_" + "f" * 32),
+            ("experiment_revision", "expr_" + "f" * 32),
+            ("term_revision", "trmv_" + "f" * 32),
+            ("sample_revision", "smpr_" + "f" * 32),
+        )
+    ):
+        poisoned = experiment | {
+            "citations": experiment["citations"]
+            | {"source_refs": [{"kind": kind, "ref_id": ref}]}
+        }
+        proposal_id = _register(
+            catalog, project_id, poisoned, key=f"register-invalid-{number}"
+        )["proposal_id"]
+        with pytest.raises(CatalogError) as failure:
+            _preview(catalog, proposal_id, "experiment")
+        assert failure.value.code == "catalog_proposal_invalidated"
+
+    with pytest.raises(CatalogError) as failure:
+        _register(catalog, outside.project_id, sample, key="register-foreign-target")
+    assert failure.value.code == "catalog_not_found"
+    assert _proposal_receipts(catalog, project_id) == []
+
+
+@pytest.mark.parametrize("catalog_stack", ["sqlite"], indirect=True)
+def test_sqlite_adoption_rolls_back_an_already_inserted_experiment_revision(
+    proposal_stack, monkeypatch
+):
+    _, catalog, project_id, experiment, sample = proposal_stack
+    proposal_id = _register(catalog, project_id, experiment, sample)["proposal_id"]
+    preview = _preview(catalog, proposal_id, "experiment", "sample")
+    assert preview["selected_item_ids"] == ["experiment", "sample"]
+    initial_sample = catalog.list_sample_revisions(sample_id=sample["target_id"])[
+        "sample_revisions"
+    ][0]
+    # The experiment is applied first. The subsequent sample insert collides
+    # with the existing primary key and must roll back both changes and receipts.
+    with monkeypatch.context() as faults:
+        faults.setattr(
+            catalog,
+            "_sample_revision_id_factory",
+            lambda: initial_sample["sample_revision_id"],
+        )
+        with pytest.raises(CatalogError) as failure:
+            _adopt(catalog, preview)
+        assert failure.value.code == "catalog_revision_conflict"
+
+    history = catalog.list_experiment_revisions(experiment_id=experiment["target_id"])
+    assert [
+        row["experiment_revision_id"] for row in history["experiment_revisions"]
+    ] == [experiment["base_revision_id"]]
+    revisions = catalog.list_sample_revisions(sample_id=sample["target_id"])
+    assert [row["revision_number"] for row in revisions["sample_revisions"]] == [1, 2]
+    assert _proposal_receipts(catalog, project_id, proposal_id) == []
+
+    recovered = _adopt(catalog, preview)
+    assert recovered["replayed"] is False
+    assert _adopt(catalog, preview) == recovered | {"replayed": True}
+    assert _proposal_receipts(catalog, project_id, proposal_id) == [recovered]
+
+
+def test_preview_requires_an_administrator_and_the_registered_curation_version(
+    proposal_stack,
+):
+    from encode_pipeline.platform.catalog_curation_preview import (
+        M2_PROJECTION_VERSION,
+        M2_VOCABULARY_VERSION,
+    )
+
+    _, catalog, project_id, experiment, _ = proposal_stack
+    proposal_id = _register(catalog, project_id, experiment)["proposal_id"]
+    unprivileged = "usr_" + "f" * 32
+    with pytest.raises(CatalogError) as failure:
+        _preview(catalog, proposal_id, "experiment", actor=unprivileged)
+    assert (failure.value.status_code, failure.value.code) == (
+        403,
+        "ADMINISTRATOR_REQUIRED",
+    )
+    with pytest.raises(CatalogError) as failure:
+        catalog.list_adoption_receipts(
+            actor_user_id=unprivileged, project_id=project_id, proposal_id=proposal_id
+        )
+    assert failure.value.status_code == 403
+
+    prior = _preview(catalog, proposal_id, "experiment")
+    catalog.set_active_curation_versions(
+        rule_version="rules/2026-11-19",
+        vocabulary_version=M2_VOCABULARY_VERSION,
+        projection_version=M2_PROJECTION_VERSION,
+    )
+    for stale in (
+        lambda: _preview(catalog, proposal_id, "experiment"),
+        lambda: _adopt(catalog, prior),
+    ):
+        with pytest.raises(CatalogError) as failure:
+            stale()
+        assert failure.value.code == "catalog_proposal_invalidated"
+    assert _proposal_receipts(catalog, project_id, proposal_id) == []
+    assert (
+        catalog.list_experiment_revisions(experiment_id=experiment["target_id"])[
+            "experiment_revisions"
+        ][0]["batch"]
+        == UNKNOWN
+    )
+
+
+def test_rebuild_preserves_pinned_experiment_revision_and_catalogued_sample(
+    proposal_stack,
+):
+    _, catalog, _, experiment, sample = proposal_stack
+    experiment_id = experiment["target_id"]
+    sample_id = sample["target_id"]
+    experiment_revision_id = experiment["base_revision_id"]
+    sample_revision_id = sample["base_revision_id"]
+    old_experiment = catalog.get_experiment_revision(
+        experiment_id, experiment_revision_id
+    )
+    old_sample = catalog.get_sample_revision(sample_id, sample_revision_id)
+
+    catalog._repository.rebuild_experiment_projection(experiment_revision_id)
+    catalog._repository.rebuild_sample_projection(sample_revision_id)
+    assert (
+        catalog.get_experiment_revision(experiment_id, experiment_revision_id)
+        == old_experiment
+    )
+    assert catalog.get_sample_revision(sample_id, sample_revision_id) == old_sample
+    for rebuild, missing in (
+        (catalog._repository.rebuild_experiment_projection, "expr_" + "f" * 32),
+        (catalog._repository.rebuild_sample_projection, "smpr_" + "f" * 32),
+    ):
+        with pytest.raises(CatalogError) as failure:
+            rebuild(missing)
+        assert failure.value.code == "catalog_not_found"
