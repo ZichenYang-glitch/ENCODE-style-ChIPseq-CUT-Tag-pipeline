@@ -153,6 +153,34 @@ EXPECTED_OPERATIONS = {
     ): "authoringValidateDraft",
     (
         "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogListRegisteredResults",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogRegisterRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogListRegisteredResultRevisions",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogReviseRegisteredResult",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/archive",
+    ): "catalogArchiveRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}",
+    ): "catalogGetRegisteredResultRevision",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content",
+    ): "catalogDownloadRegisteredResultRevision",
+    (
+        "GET",
         "/api/v1/catalog/projects/{project_id}/experiments",
     ): "catalogListExperiments",
     (
@@ -207,6 +235,23 @@ EXPECTED_OPERATIONS = {
         "GET",
         "/api/v1/catalog/projects/{project_id}/experiment-revisions/{experiment_revision_id}/run-results",
     ): "catalogListExperimentRevisionRunResults",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/proposals",
+    ): "catalogRegisterProposal",
+    ("GET", "/api/v1/catalog/proposals/{proposal_id}"): "catalogGetProposal",
+    (
+        "POST",
+        "/api/v1/catalog/proposals/{proposal_id}/preview",
+    ): "catalogPreviewProposal",
+    (
+        "POST",
+        "/api/v1/catalog/proposals/{proposal_id}/adoptions",
+    ): "catalogAdoptProposal",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/adoption-receipts",
+    ): "catalogListAdoptionReceipts",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.4.1
  */
 import type {
+  CatalogAdoptProposalHeaders,
+  CatalogAdoptProposalRequest,
+  CatalogAdoptionReceiptListResponse,
+  CatalogAdoptionReceiptResponse,
   CatalogArchiveExperimentHeaders,
   CatalogArchiveExperimentResponse,
   CatalogArchiveRequest,
@@ -19,6 +23,7 @@ import type {
   CatalogExperimentRevisionListResponse,
   CatalogExperimentRunListResponse,
   CatalogGetSampleRevision200,
+  CatalogListAdoptionReceiptsParams,
   CatalogListExperimentRevisionRunResultsParams,
   CatalogListExperimentRevisionsParams,
   CatalogListExperimentsParams,
@@ -26,6 +31,11 @@ import type {
   CatalogListSampleRevisionsParams,
   CatalogListSamplesParams,
   CatalogListTermsParams,
+  CatalogPreviewProposalRequest,
+  CatalogProposalPreviewResponse,
+  CatalogProposalResponse,
+  CatalogRegisterProposalHeaders,
+  CatalogRegisterProposalRequest,
   CatalogReviseExperimentHeaders,
   CatalogReviseExperimentRequest,
   CatalogReviseSampleCatalog200,
@@ -529,6 +539,138 @@ export const catalogListExperimentRevisionRunResults = async (projectId: string,
     params?: CatalogListExperimentRevisionRunResultsParams, options?: RequestInit): Promise<CatalogExperimentRunListResponse> => {
 
   return fetcher<CatalogExperimentRunListResponse>(getCatalogListExperimentRevisionRunResultsUrl(projectId,experimentRevisionId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Register Proposal
+ */
+export const getCatalogRegisterProposalUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/proposals`
+}
+
+export const catalogRegisterProposal = async (projectId: string,
+    catalogRegisterProposalRequest: CatalogRegisterProposalRequest,
+    headers: CatalogRegisterProposalHeaders, options?: RequestInit): Promise<CatalogProposalResponse> => {
+
+  return fetcher<CatalogProposalResponse>(getCatalogRegisterProposalUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
+    body: JSON.stringify(
+      catalogRegisterProposalRequest,)
+  }
+);}
+
+
+/**
+ * @summary Get Proposal
+ */
+export const getCatalogGetProposalUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/proposals/${proposalId}`
+}
+
+export const catalogGetProposal = async (proposalId: string, options?: RequestInit): Promise<CatalogProposalResponse> => {
+
+  return fetcher<CatalogProposalResponse>(getCatalogGetProposalUrl(proposalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * @summary Preview Proposal
+ */
+export const getCatalogPreviewProposalUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/proposals/${proposalId}/preview`
+}
+
+export const catalogPreviewProposal = async (proposalId: string,
+    catalogPreviewProposalRequest: CatalogPreviewProposalRequest, options?: RequestInit): Promise<CatalogProposalPreviewResponse> => {
+
+  return fetcher<CatalogProposalPreviewResponse>(getCatalogPreviewProposalUrl(proposalId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      catalogPreviewProposalRequest,)
+  }
+);}
+
+
+/**
+ * @summary Adopt Proposal
+ */
+export const getCatalogAdoptProposalUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/proposals/${proposalId}/adoptions`
+}
+
+export const catalogAdoptProposal = async (proposalId: string,
+    catalogAdoptProposalRequest: CatalogAdoptProposalRequest,
+    headers: CatalogAdoptProposalHeaders, options?: RequestInit): Promise<CatalogAdoptionReceiptResponse> => {
+
+  return fetcher<CatalogAdoptionReceiptResponse>(getCatalogAdoptProposalUrl(proposalId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
+    body: JSON.stringify(
+      catalogAdoptProposalRequest,)
+  }
+);}
+
+
+/**
+ * @summary List Adoption Receipts
+ */
+export const getCatalogListAdoptionReceiptsUrl = (projectId: string,
+    params?: CatalogListAdoptionReceiptsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/catalog/projects/${projectId}/adoption-receipts?${stringifiedParams}` : `/api/v1/catalog/projects/${projectId}/adoption-receipts`
+}
+
+export const catalogListAdoptionReceipts = async (projectId: string,
+    params?: CatalogListAdoptionReceiptsParams, options?: RequestInit): Promise<CatalogAdoptionReceiptListResponse> => {
+
+  return fetcher<CatalogAdoptionReceiptListResponse>(getCatalogListAdoptionReceiptsUrl(projectId,params),
   {
     ...options,
     method: 'GET'

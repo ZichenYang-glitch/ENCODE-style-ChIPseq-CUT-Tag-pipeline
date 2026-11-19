@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import type { WorkflowAvailability } from '../../api/types';
 import type { ReferenceProfileSummary } from '../../api/runTypes';
+import { ExperimentRevisionPanel } from '../experiment-binding/ExperimentRevisionPanel';
+import type { ExperimentValidationHandoff } from '../experiment-binding/handoff';
 import { ConfigEditor, type ConfigMode } from './ConfigEditor';
 import { DraftReview } from './DraftReview';
 import { OptionsEditor } from './OptionsEditor';
 import { ReferenceProfileSelector } from './ReferenceProfileSelector';
 import { SampleEditor } from './SampleEditor';
-import type { WorkbenchSchema } from './schemaContract';
+import { rjsfValidator, type WorkbenchSchema } from './schemaContract';
 import { useInputDraft } from './useInputDraft';
 import { ValidatedSubmission } from './ValidatedSubmission';
 import { ValidationFeedbackPanel } from './ValidationFeedbackPanel';
@@ -49,6 +51,7 @@ interface InputWorkbenchProps {
   referenceProfilesRefreshing: boolean;
   referenceProfilesError: string | null;
   onRefreshReferenceProfiles: () => void;
+  handoff?: ExperimentValidationHandoff | null;
 }
 
 export function InputWorkbench({
@@ -61,9 +64,30 @@ export function InputWorkbench({
   referenceProfilesRefreshing,
   referenceProfilesError,
   onRefreshReferenceProfiles,
+  handoff = null,
 }: InputWorkbenchProps) {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const draft = useInputDraft(schema);
+  const draft = useInputDraft(
+    schema,
+    handoff === null ? null : { config: handoff.config, options: handoff.options },
+  );
+  const [directProjectId, setDirectProjectId] = useState<string | null>(null);
+  const directProjectIdRef = useRef<string | null>(null);
+  const [sampleRevisionIds, setSampleRevisionIds] = useState<string[]>(
+    () => (handoff === null ? [] : [...handoff.sampleRevisionIds]),
+  );
+  const [experimentRevisionId, setExperimentRevisionId] = useState<string | null>(null);
+  const clearExperimentRevision = useCallback((revisionId: string | null) => {
+    setExperimentRevisionId(revisionId);
+  }, []);
+  const changeDirectProject = useCallback((nextProjectId: string) => {
+    if (directProjectIdRef.current === nextProjectId) return;
+    directProjectIdRef.current = nextProjectId;
+    setDirectProjectId(nextProjectId);
+    setSampleRevisionIds([]);
+    setExperimentRevisionId(null);
+  }, []);
   const [validationFeedback, setValidationFeedback] = useState<ValidationFeedback | null>(null);
   const [configFocus, setConfigFocus] = useState<ConfigFocusRequest | null>(null);
   const validationIssues = useMemo(
@@ -85,6 +109,32 @@ export function InputWorkbench({
   useEffect(() => {
     if (mode === 'yaml') draft.syncYaml();
   }, [mode, draft]);
+
+  const seededHandoff = useRef(false);
+  useEffect(() => {
+    if (seededHandoff.current || handoff === null) return;
+    seededHandoff.current = true;
+    if (handoff.referenceProfileRevisionId !== null) {
+      draft.setReferenceProfileRevisionId(handoff.referenceProfileRevisionId);
+    }
+    if (
+      handoff.samples !== null &&
+      rjsfValidator.isValid(schema.sampleSchema, handoff.samples, schema.sampleSchema)
+    ) {
+      draft.replaceSamples(
+        handoff.samples.map((values) => ({
+          id: crypto.randomUUID(),
+          values,
+        })),
+        'saved-draft',
+      );
+    }
+  }, [
+    draft.replaceSamples,
+    draft.setReferenceProfileRevisionId,
+    handoff,
+    schema.sampleSchema,
+  ]);
 
   const selectedReference = useMemo(
     () =>
@@ -130,7 +180,7 @@ export function InputWorkbench({
     const next = new URLSearchParams(searchParams);
     next.set('step', readStep(nextStep));
     if (nextStep !== 'config') next.delete('mode');
-    setSearchParams(next);
+    setSearchParams(next, { state: location.state });
   }
 
   function setMode(nextMode: ConfigMode) {
@@ -139,8 +189,23 @@ export function InputWorkbench({
     const next = new URLSearchParams(searchParams);
     next.set('step', 'config');
     next.set('mode', nextMode);
-    setSearchParams(next);
+    setSearchParams(next, { state: location.state });
   }
+
+  const selectedProjectId = handoff?.projectId ?? directProjectId;
+  // An explicit experiment stays on the request even when no catalog sample
+  // revision is checked. Only an active omit with an empty sample list keeps
+  // the legacy validation that leaves project and experiment off the body.
+  const experimentRequest =
+    selectedProjectId === null ||
+    (sampleRevisionIds.length === 0 && experimentRevisionId === null)
+      ? null
+      : {
+          projectId: selectedProjectId,
+          sampleRevisionIds,
+          inputSelections: handoff?.inputSelections ?? [],
+          experimentRevisionId,
+        };
 
   const stepReady: Record<WorkbenchStep, boolean> = {
     config:
@@ -200,6 +265,15 @@ export function InputWorkbench({
           onRefresh={onRefreshReferenceProfiles}
         />
 
+        <ExperimentRevisionPanel
+          handoff={handoff}
+          projectId={selectedProjectId}
+          sampleRevisionIds={sampleRevisionIds}
+          experimentRevisionId={experimentRevisionId}
+          onDirectProjectChange={handoff === null ? changeDirectProject : undefined}
+          onSampleRevisionIdsChange={setSampleRevisionIds}
+          onExperimentRevisionIdChange={clearExperimentRevision}
+        />
         <ValidationFeedbackPanel
           feedback={validationFeedback}
           revision={draft.state.semanticRevision}
@@ -271,6 +345,7 @@ export function InputWorkbench({
               referenceSelectionAvailable={
                 selectedReference !== null && referenceProfilesError === null
               }
+              experimentRequest={experimentRequest}
               onValidationFeedback={setValidationFeedback}
             />
           </Tabs.Content>

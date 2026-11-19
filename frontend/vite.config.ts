@@ -28,8 +28,8 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: './src/test/jsdom-environment.ts',
     setupFiles: ['./src/test/setup.ts'],
-    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
+    exclude: ['e2e/**', 'e2e-synthetic/**', 'node_modules/**', 'dist/**'],
   },
 });

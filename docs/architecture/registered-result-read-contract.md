@@ -3,6 +3,8 @@
 状态：IRENE-29 设计契约与可机读例子。基线是 main
 `d85c3b6a50a9de0f108691bd60efc678d851a2be`。本文不表示相应表、API 或客户端已经存在；
 本交付不写迁移、公开 API、生成客户端或文件解析器，也不登记真实数据。
+IRENE-39 的实现、写路由和迁移 `20261119_39` 记在
+[registered-result-implementation-v1.md](registered-result-implementation-v1.md)。
 
 本文扩展[实验目录 M0](experiment-catalog-m0-contract.md)，沿用
 [数据基础 ADR](data-foundation-decision.md) 的 Project、StoragePool、安全相对路径、

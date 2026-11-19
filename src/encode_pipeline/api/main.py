@@ -58,8 +58,12 @@ from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
 from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.api.authoring_models import AuthoringValidationResponse
 from encode_pipeline.services.authoring_owner_client import load_authoring_bridge
+from encode_pipeline.persistence.registered_results import (
+    SqlAlchemyRegisteredResultRepository,
+)
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
+from encode_pipeline.services.registered_results import RegisteredResultService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -116,8 +120,15 @@ def create_app(
     project_root: Path | None = None,
     persistence_opener: Callable[[str | None], RunPersistence] | None = None,
     registry: WorkflowRegistry | None = None,
+    relocation_root: Path | None = None,
 ) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
+    if relocation_root is not None and (
+        not isinstance(relocation_root, Path)
+        or not relocation_root.is_absolute()
+        or any(part in {"", ".", ".."} for part in relocation_root.parts[1:])
+    ):
+        raise ValueError("relocation_root must be an absolute Path")
     settings_environment = dict(os.environ)
     if database_url is not None:
         settings_environment[DATABASE_URL_ENV] = database_url
@@ -168,6 +179,16 @@ def create_app(
     )
     authentication_repository = SqlAlchemyAuthenticationRepository(
         create_session_factory(persistence.engine)
+    )
+    registered_result_service = RegisteredResultService(
+        SqlAlchemyRegisteredResultRepository(
+            create_session_factory(persistence.engine)
+        ),
+        input_registry=persistence.input_registry_repository,
+        reference_profiles=persistence.reference_profile_repository,
+        authentication=authentication_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
+        response_root=worker_settings.workspace_root / "registered-result-responses",
     )
     try:
         terminal_notifier = compose_terminal_run_notifier(
@@ -314,6 +335,7 @@ def create_app(
     app.state.artifact_download_service = ArtifactDownloadService(
         run_service=run_service,
         workspace_root=worker_settings.workspace_root,
+        relocation_root=relocation_root,
     )
     app.state.build_identity_provider = build_identity_provider
     app.state.run_submission_service = run_submission_service
@@ -323,6 +345,7 @@ def create_app(
     # Stub driver is intentionally not attached in production.
 
     app.state.authentication_repository = authentication_repository
+    app.state.registered_result_service = registered_result_service
     app.state.authentication_service = AuthenticationService(
         repository=authentication_repository
     )
@@ -373,14 +396,15 @@ def _handle_catalog_error(_request: Request, exc: CatalogError) -> JSONResponse:
                 severity="error",
                 path=exc.path,
                 source="api",
-                hint=None,
+                hint=exc.hint,
             )
-        ]
+        ],
+        conflicts=None if not exc.conflicts else list(exc.conflicts),
     )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=body.model_dump(mode="json"),
-    )
+    content = body.model_dump(mode="json")
+    if not exc.conflicts:
+        content.pop("conflicts", None)
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 def _handle_catalog_block_command(

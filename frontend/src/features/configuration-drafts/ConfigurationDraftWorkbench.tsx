@@ -70,6 +70,7 @@ export interface ConfigurationDraftWorkbenchProps {
   onReject?: () => void;
   onRefreshProposal?: () => void;
   onValidate?: () => void;
+  experimentHandoff?: ReactNode;
   operationPending?: boolean;
   externalPrompt?: boolean;
   onExternalDiscard?: () => void;
@@ -119,6 +120,7 @@ export function ConfigurationDraftWorkbench({
   onReject,
   onRefreshProposal,
   onValidate,
+  experimentHandoff = null,
   operationPending = false,
   externalPrompt = false,
   onExternalDiscard,
@@ -377,6 +379,7 @@ export function ConfigurationDraftWorkbench({
             draftExpired={draftExpired}
             onValidate={onValidate}
           />
+          {experimentHandoff}
           {apiConnected && selectedSid && (
             <PeriRunActions
               key={selectedSid}

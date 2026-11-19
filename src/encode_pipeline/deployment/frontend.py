@@ -237,7 +237,12 @@ def _spa_navigation(path: str, scope: Scope) -> bool:
     parts = path.split("/")
     if any(_SAFE_ROUTE_SEGMENT.fullmatch(part) is None for part in parts):
         return False
-    if parts == ["workflows"] or parts == ["runs"] or parts == ["artifacts"]:
+    if (
+        parts == ["catalog"]
+        or parts == ["workflows"]
+        or parts == ["runs"]
+        or parts == ["artifacts"]
+    ):
         return True
     if parts[0] == "workflows":
         return len(parts) == 2 or (

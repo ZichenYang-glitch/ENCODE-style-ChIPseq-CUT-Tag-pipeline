@@ -4,6 +4,7 @@ import {
   FilePenLine,
   Files,
   History,
+  Library,
   ListTree,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -69,12 +70,14 @@ export function AppShell() {
     { path: '/artifacts/:runId/:artifactId', end: true },
     pathname,
   );
+  const catalogRoute = matchPath({ path: '/catalog', end: true }, pathname);
   const workflowId = workflowRoute?.params.workflowId;
   const workflowsCurrent =
     workflowCatalogRoute !== null || workflowDetailRoute !== null;
   const runsCurrent = runHistoryRoute !== null || runDetailRoute !== null;
   const artifactsCurrent =
     artifactIndexRoute !== null || artifactDetailRoute !== null;
+  const catalogCurrent = catalogRoute !== null;
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -91,7 +94,7 @@ export function AppShell() {
           </h1>
           <nav
             aria-label="Primary"
-            className="col-span-2 row-start-2 grid min-w-0 grid-flow-col auto-cols-fr items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1 md:flex"
+            className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1 md:col-span-1 md:col-start-2 md:row-start-1"
           >
             <Link
               className="primary-nav-link"
@@ -116,6 +119,14 @@ export function AppShell() {
             >
               <FileArchive className="hidden sm:block" aria-hidden="true" size={16} />
               Artifacts
+            </Link>
+            <Link
+              className="primary-nav-link"
+              aria-current={catalogCurrent ? 'page' : undefined}
+              to="/catalog"
+            >
+              <Library className="hidden sm:block" aria-hidden="true" size={16} />
+              Catalog
             </Link>
             {workflowId && (
               <Link

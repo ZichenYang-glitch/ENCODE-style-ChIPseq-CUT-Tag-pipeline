@@ -468,6 +468,7 @@ def test_static_application_supports_only_bounded_navigation_shapes_and_cache(
     app = ManifestStaticApplication(_verified(tmp_path / "dist"))
 
     for path in (
+        "/catalog",
         "/runs",
         "/workflows",
         "/workflows/encode-style/new-run",
@@ -477,6 +478,15 @@ def test_static_application_supports_only_bounded_navigation_shapes_and_cache(
         response = _request(app, "GET", path, headers={"accept": "text/html"})
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-cache"
+    assert (
+        _request(
+            app,
+            "GET",
+            "/catalog/extra",
+            headers={"accept": "text/html"},
+        ).status_code
+        == 404
+    )
     assert (
         _request(
             app,

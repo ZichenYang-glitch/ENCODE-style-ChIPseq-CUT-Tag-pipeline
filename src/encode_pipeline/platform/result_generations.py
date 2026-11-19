@@ -149,6 +149,41 @@ def build_artifact_descriptor_revision(
     return f"{ARTIFACT_REVISION_PREFIX}{digest}"
 
 
+def source_matches_artifact_revision(
+    *,
+    output_type: str,
+    relative_path: str,
+    descriptor_identity: str,
+    content: bytes | None,
+    persisted_revision: str,
+) -> bool:
+    """Return whether this open still satisfies one indexed artifact revision.
+
+    Descriptor identity wins, matching artifact download. Bounded content is
+    checked only after that identity misses, and only for bytes from the same
+    open. A later read is not evidence for this decision.
+    """
+    if (
+        build_artifact_descriptor_revision(
+            output_type=output_type,
+            relative_path=relative_path,
+            descriptor_identity=descriptor_identity,
+        )
+        == persisted_revision
+    ):
+        return True
+    if content is None or len(content) > BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES:
+        return False
+    return (
+        build_artifact_content_revision(
+            output_type=output_type,
+            relative_path=relative_path,
+            content=content,
+        )
+        == persisted_revision
+    )
+
+
 def artifact_manifest_digest(artifacts: Iterable[RunArtifactRef]) -> str:
     """Return the canonical digest of one complete artifact manifest."""
     values = tuple(artifacts)

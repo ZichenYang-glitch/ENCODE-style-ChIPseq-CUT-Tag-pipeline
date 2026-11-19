@@ -1,0 +1,1774 @@
+"""HTTP adoption of one selected catalog-proposal subset against SQLite."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+import json
+import sys
+from pathlib import Path
+from threading import Barrier, Thread
+
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+pytest.importorskip("fastapi")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from api_test_client import ApiTestClient  # noqa: E402
+from conftest import (  # noqa: E402
+    TEST_AUTH_CSRF_TOKEN,
+    TEST_AUTH_PASSWORD_HASH,
+    TEST_AUTH_SESSION_TOKEN,
+    TEST_AUTH_USER_ID,
+    seed_test_authentication,
+)
+from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.persistence import (  # noqa: E402
+    catalog_proposal_store,
+)
+from encode_pipeline.persistence.models import (  # noqa: E402
+    CatalogAdoptionReceiptRow,
+    CatalogWriteReceiptRow,
+    ExperimentRevisionRow,
+    SampleRevisionRow,
+    UserAccountRow,
+)
+from encode_pipeline.platform.catalog_proposal_adoption import (  # noqa: E402
+    TargetHead,
+)
+from encode_pipeline.platform.experiment_catalog import (  # noqa: E402
+    CatalogError,
+    CatalogWrite,
+)
+from encode_pipeline.platform.authentication import (  # noqa: E402
+    UserAccount,
+    UserRole,
+    UserStatus,
+)
+from encode_pipeline.platform.catalog_curation_preview import (  # noqa: E402
+    M2_PROJECTION_VERSION,
+    M2_RULE_VERSION,
+    M2_VOCABULARY_VERSION,
+    compute_preview_digest,
+)
+from encode_pipeline.services.authentication import (  # noqa: E402
+    SessionSecrets,
+    new_session_record,
+)
+from encode_pipeline.services.data_registry import DataRegistryService  # noqa: E402
+
+
+@pytest.fixture
+def app(tmp_path):
+    application = create_app(
+        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+        workspace_root=tmp_path / "workspaces",
+    )
+    yield application
+    application.state.persistence.close()
+
+
+@pytest.fixture
+def seeded_app(app):
+    seed_test_authentication(app)
+    return app
+
+
+def _post(client: ApiTestClient, path: str, body: dict, key: str):
+    return client.post(path, json=body, headers={"Idempotency-Key": key})
+
+
+def _known(term: dict) -> dict:
+    return {
+        "status": "known",
+        "term_id": term["term_id"],
+        "term_revision_id": term["revision"]["term_revision_id"],
+    }
+
+
+def _pin(term: dict) -> dict:
+    return {
+        "term_id": term["term_id"],
+        "term_revision_id": term["revision"]["term_revision_id"],
+    }
+
+
+def _open_session(app, user_id: str, role: UserRole, session_token: str, csrf: str):
+    now = datetime.now(timezone.utc)
+    app.state.authentication_repository.create_account(
+        UserAccount(
+            user_id=user_id,
+            username=user_id,
+            role=role,
+            status=UserStatus.ENABLED,
+            password_hash=TEST_AUTH_PASSWORD_HASH,
+            created_at=now,
+            updated_at=now,
+            password_changed_at=now,
+        )
+    )
+    secrets = SessionSecrets._from_generated(session_token, csrf)
+    app.state.authentication_repository.create_session(
+        new_session_record(
+            user_id=user_id,
+            secrets=secrets,
+            created_at=now,
+            lifetime=timedelta(hours=8),
+        )
+    )
+
+
+def _as(app, client: ApiTestClient, session_token: str, csrf: str):
+    policy = app.state.auth_cookie_policy
+    app.state.test_auth_tokens = None
+
+    def request(method: str, path: str, **kwargs):
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers["X-CSRF-Token"] = csrf
+        cookies = {
+            policy.session_cookie.name: session_token,
+            policy.csrf_cookie.name: csrf,
+        }
+        return client.request(method, path, headers=headers, cookies=cookies, **kwargs)
+
+    return request
+
+
+def test_admin_adopts_only_the_selected_subset(seeded_app) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project = registry.create_project("Adoption project")
+    other = registry.create_project("Other project")
+    service = seeded_app.state.experiment_catalog_service
+    with ApiTestClient(seeded_app) as client:
+
+        def term(term_type: str, name: str, key: str) -> dict:
+            response = _post(
+                client,
+                "/api/v1/catalog/terms",
+                {"term_type": term_type, "display_name": name, "aliases": []},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        assay = term("assay", "CUT&Tag", "assay")
+        target = term("target", "H3K4me3", "target")
+        batch = term("batch", "batch-2026-11", "batch")
+        role = term("replicate_role", "biological replicate", "role")
+        cell_a = term("cell_type", "Treg", "cell-a")
+        cell_b = term("cell_type", "T cell", "cell-b")
+        tag = term("tag", "m2-curated", "tag")
+
+        def sample(key: str) -> dict:
+            created = registry.import_sample(
+                project.project_id,
+                stable_key=key,
+                display_name=key,
+                attributes={"legacy_note": "preserve-me", "organism": "human"},
+            )
+            response = _post(
+                client,
+                f"/api/v1/catalog/samples/{created.sample.sample_id}/catalog-revisions",
+                {
+                    "expected_revision_number": 1,
+                    "catalog": {
+                        "schema_version": 1,
+                        "species": {"status": "unknown"},
+                        "tissue": {"status": "unknown"},
+                        "cell_type": {"status": "unknown", "values": []},
+                        "cell_line": {"status": "not_applicable", "values": []},
+                        "treatment": {"status": "not_applicable", "values": []},
+                        "tag": {"status": "unknown", "values": []},
+                    },
+                },
+                f"catalog-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        curated = sample("curated")
+        untouched = sample("untouched")
+
+        def experiment(
+            key: str, sample_revision_id: str, *, known_target: bool
+        ) -> dict:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/experiments",
+                {
+                    "stable_key": key,
+                    "display_name": key,
+                    "assay": _known(assay),
+                    "target": _known(target) if known_target else {"status": "unknown"},
+                    "batch": {"status": "unknown"},
+                    "samples": [
+                        {
+                            "sample_revision_id": sample_revision_id,
+                            "replicate_role": _known(role),
+                        }
+                    ],
+                },
+                f"experiment-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        first = experiment(
+            "exp-batch", curated["sample_revision_id"], known_target=False
+        )
+        second = experiment(
+            "exp-target",
+            untouched["sample_revision_id"],
+            known_target=False,
+        )
+        foreign = registry.import_sample(
+            other.project_id,
+            stable_key="foreign",
+            display_name="foreign",
+            attributes={"organism": "human"},
+        )
+        foreign_sample = _post(
+            client,
+            f"/api/v1/catalog/samples/{foreign.sample.sample_id}/catalog-revisions",
+            {
+                "expected_revision_number": 1,
+                "catalog": {
+                    "schema_version": 1,
+                    "species": {"status": "unknown"},
+                    "tissue": {"status": "unknown"},
+                    "cell_type": {"status": "unknown", "values": []},
+                    "cell_line": {"status": "not_applicable", "values": []},
+                    "treatment": {"status": "not_applicable", "values": []},
+                    "tag": {"status": "unknown", "values": []},
+                },
+            },
+            "foreign-catalog",
+        )
+        assert foreign_sample.status_code == 200, foreign_sample.text
+
+        def citation(*refs: dict) -> dict:
+            return {
+                "rule_version": M2_RULE_VERSION,
+                "vocabulary_version": M2_VOCABULARY_VERSION,
+                "reason_codes": ["BATCH_TERM_MATCH"],
+                "source_refs": list(refs),
+            }
+
+        batch_item = {
+            "item_id": "item_1",
+            "target_kind": "experiment",
+            "target_id": first["experiment_id"],
+            "base_revision_id": first["experiment_revision_id"],
+            "base_revision_number": first["revision_number"],
+            "allowed_fields": ["batch"],
+            "before": {"batch": {"status": "unknown"}},
+            "after": {"batch": _known(batch)},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": first["experiment_revision_id"],
+                    "evidence_token": "exp-1-batch",
+                },
+                {
+                    "kind": "term_revision",
+                    "ref_id": batch["revision"]["term_revision_id"],
+                    "term_revision_id": batch["revision"]["term_revision_id"],
+                    "evidence_token": "batch-term",
+                },
+            ),
+        }
+        target_item = {
+            "item_id": "item_2",
+            "target_kind": "experiment",
+            "target_id": second["experiment_id"],
+            "base_revision_id": second["experiment_revision_id"],
+            "base_revision_number": second["revision_number"],
+            "allowed_fields": ["target"],
+            "before": {"target": {"status": "unknown"}},
+            "after": {"target": _known(target)},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": second["experiment_revision_id"],
+                    "evidence_token": "exp-2-target",
+                },
+                {
+                    "kind": "term_revision",
+                    "ref_id": target["revision"]["term_revision_id"],
+                    "term_revision_id": target["revision"]["term_revision_id"],
+                    "evidence_token": "target-term",
+                },
+            ),
+        }
+        sample_item = {
+            "item_id": "item_3",
+            "target_kind": "sample_catalog",
+            "target_id": curated["sample_id"],
+            "base_revision_id": curated["sample_revision_id"],
+            "base_revision_number": curated["revision_number"],
+            "allowed_fields": ["cell_type", "tag"],
+            "before": {
+                "cell_type": {"status": "unknown", "values": []},
+                "tag": {"status": "unknown", "values": []},
+            },
+            "after": {
+                "cell_type": {
+                    "status": "ambiguous",
+                    "values": [],
+                    "candidates": [_pin(cell_a), _pin(cell_b)],
+                },
+                "tag": {"status": "known", "values": [_pin(tag)]},
+            },
+            "citations": {
+                "rule_version": M2_RULE_VERSION,
+                "vocabulary_version": M2_VOCABULARY_VERSION,
+                "reason_codes": ["ALIAS_AMBIGUOUS_CANDIDATES", "TAG_TERM_MATCH"],
+                "source_refs": [
+                    {
+                        "kind": "sample_revision",
+                        "ref_id": curated["sample_revision_id"],
+                        "evidence_token": "sample-head",
+                    },
+                    {
+                        "kind": "term_revision",
+                        "ref_id": cell_a["revision"]["term_revision_id"],
+                        "term_revision_id": cell_a["revision"]["term_revision_id"],
+                        "evidence_token": "cell-a",
+                        "visibility": "admin_only",
+                    },
+                    {
+                        "kind": "term_revision",
+                        "ref_id": tag["revision"]["term_revision_id"],
+                        "term_revision_id": tag["revision"]["term_revision_id"],
+                        "evidence_token": "tag-term",
+                    },
+                ],
+            },
+        }
+        registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {
+                "source": "offline_suggestion",
+                "items": [batch_item, target_item, sample_item],
+            },
+            "register-main",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal = registered.json()
+        assert proposal["proposal_state"] == "pending"
+        assert proposal["adoptable_by_caller"] is True
+        proposal_id = proposal["proposal_id"]
+        replayed_register = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {
+                "source": "offline_suggestion",
+                "items": [batch_item, target_item, sample_item],
+            },
+            "register-main",
+        )
+        assert replayed_register.status_code == 200, replayed_register.text
+        assert replayed_register.json()["proposal_id"] == proposal_id
+        moved = _post(
+            client,
+            f"/api/v1/catalog/experiments/{second['experiment_id']}/revisions",
+            {
+                "expected_revision_number": second["revision_number"],
+                "display_name": "exp-target renamed",
+                "assay": _known(assay),
+                "target": {"status": "unknown"},
+                "batch": {"status": "unknown"},
+                "samples": [
+                    {
+                        "sample_revision_id": untouched["sample_revision_id"],
+                        "replicate_role": _known(role),
+                    }
+                ],
+            },
+            "move-second",
+        )
+        assert moved.status_code == 200, moved.text
+        frozen = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {
+                "source": "offline_suggestion",
+                "items": [batch_item, target_item, sample_item],
+            },
+            "register-main",
+        )
+        assert (
+            frozen.json()["items"][1]["current_revision_number"]
+            == second["revision_number"]
+        )
+        live = client.get(f"/api/v1/catalog/proposals/{proposal_id}")
+        assert live.status_code == 200, live.text
+        assert (
+            live.json()["items"][1]["current_revision_number"]
+            == moved.json()["revision_number"]
+        )
+        _post(
+            client,
+            f"/api/v1/catalog/experiments/{second['experiment_id']}/revisions",
+            {
+                "expected_revision_number": moved.json()["revision_number"],
+                "display_name": "exp-target",
+                "assay": _known(assay),
+                "target": {"status": "unknown"},
+                "batch": {"status": "unknown"},
+                "samples": [
+                    {
+                        "sample_revision_id": untouched["sample_revision_id"],
+                        "replicate_role": _known(role),
+                    }
+                ],
+            },
+            "restore-second",
+        )
+        # The first registration stays frozen. Adopt against the restored head.
+        second_now = client.get(
+            f"/api/v1/catalog/experiments/{second['experiment_id']}/revisions"
+        )
+        assert second_now.status_code == 200, second_now.text
+        head = second_now.json()["experiment_revisions"][-1]
+        target_item = {
+            **target_item,
+            "base_revision_id": head["experiment_revision_id"],
+            "base_revision_number": head["revision_number"],
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": head["experiment_revision_id"],
+                    "evidence_token": "exp-2-target",
+                },
+                {
+                    "kind": "term_revision",
+                    "ref_id": target["revision"]["term_revision_id"],
+                    "term_revision_id": target["revision"]["term_revision_id"],
+                    "evidence_token": "target-term",
+                },
+            ),
+        }
+        registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {
+                "source": "offline_suggestion",
+                "items": [batch_item, target_item, sample_item],
+            },
+            "register-adoptable",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal = registered.json()
+        proposal_id = proposal["proposal_id"]
+
+        member_token = "e" * 43
+        member_csrf = "f" * 43
+        _open_session(
+            seeded_app,
+            "usr_" + "e" * 32,
+            UserRole.MEMBER,
+            member_token,
+            member_csrf,
+        )
+        member = _as(seeded_app, client, member_token, member_csrf)
+        denied = member(
+            "POST",
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_1"]},
+        )
+        assert denied.status_code == 403
+        assert denied.json()["issues"][0]["code"] == "ADMINISTRATOR_REQUIRED"
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        viewed = member("GET", f"/api/v1/catalog/proposals/{proposal_id}")
+        assert viewed.status_code == 200, viewed.text
+        sample_view = next(
+            item for item in viewed.json()["items"] if item["item_id"] == "item_3"
+        )
+        assert "candidates" not in sample_view["after"]["cell_type"]
+        assert all(
+            ref["ref_id"] != cell_a["revision"]["term_revision_id"]
+            for ref in sample_view["citations"]["source_refs"]
+        )
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+
+        preview = client.post(
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_3", "item_1"]},
+        )
+        assert preview.status_code == 200, preview.text
+        preview_body = preview.json()
+        assert preview_body["selected_item_ids"] == ["item_1", "item_3"]
+        assert preview_body["excluded_item_ids"] == ["item_2"]
+        assert preview_body["has_conflicts"] is False
+        adopt_body = {
+            "preview_digest": preview_body["preview_digest"],
+            "selected_item_ids": ["item_1", "item_3"],
+            "expected_revisions": preview_body["expected_revisions"],
+        }
+        adopted = _post(
+            client,
+            f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+            adopt_body,
+            "adopt-main",
+        )
+        assert adopted.status_code == 200, adopted.text
+        receipt = adopted.json()
+        assert receipt["replayed"] is False
+        assert receipt["selected_item_ids"] == ["item_1", "item_3"]
+        assert receipt["excluded_item_ids"] == ["item_2"]
+        assert {item["item_id"] for item in receipt["applied_targets"]} == {
+            "item_1",
+            "item_3",
+        }
+        replay = _post(
+            client,
+            f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+            adopt_body,
+            "adopt-main",
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["replayed"] is True
+        assert replay.json()["receipt_id"] == receipt["receipt_id"]
+        assert _revision_count(seeded_app, first["experiment_id"]) == 2
+        assert _revision_count(seeded_app, second["experiment_id"]) == 3
+        sample_revision_id = next(
+            item["result_revision_id"]
+            for item in receipt["applied_targets"]
+            if item["item_id"] == "item_3"
+        )
+        assert _legacy_note(seeded_app, sample_revision_id) == "preserve-me"
+        listed = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert listed.status_code == 200, listed.text
+        assert [item["receipt_id"] for item in listed.json()["receipts"]] == [
+            receipt["receipt_id"]
+        ]
+
+        second_admin = "c" * 43
+        second_csrf = "d" * 43
+        _open_session(
+            seeded_app,
+            "usr_" + "d" * 32,
+            UserRole.ADMINISTRATOR,
+            second_admin,
+            second_csrf,
+        )
+        other_admin = _as(seeded_app, client, second_admin, second_csrf)
+        seeded_app.state.test_auth_tokens = None
+        overlap = other_admin(
+            "POST",
+            f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+            json={
+                "preview_digest": preview_body["preview_digest"],
+                "selected_item_ids": ["item_2"],
+                "expected_revisions": {
+                    second["experiment_id"]: head["revision_number"]
+                },
+            },
+            headers={"Idempotency-Key": "adopt-other"},
+        )
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert overlap.status_code == 409, overlap.text
+        assert overlap.json()["issues"][0]["code"] == "catalog_proposal_invalidated"
+        assert _receipt_count(seeded_app, proposal_id) == 1
+        assert _revision_count(seeded_app, second["experiment_id"]) == 3
+
+        mismatch = _post(
+            client,
+            f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+            {**adopt_body, "selected_item_ids": ["item_1"]},
+            "adopt-main",
+        )
+        assert mismatch.status_code == 409
+        assert mismatch.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        digest_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "manual", "items": [target_item]},
+            "register-digest",
+        )
+        assert digest_registered.status_code == 200, digest_registered.text
+        digest_id = digest_registered.json()["proposal_id"]
+        digest_preview = client.post(
+            f"/api/v1/catalog/proposals/{digest_id}/preview",
+            json={"selected_item_ids": ["item_2"]},
+        )
+        assert digest_preview.status_code == 200, digest_preview.text
+        bad_digest = _post(
+            client,
+            f"/api/v1/catalog/proposals/{digest_id}/adoptions",
+            {
+                "preview_digest": "ab" * 32,
+                "selected_item_ids": ["item_2"],
+                "expected_revisions": digest_preview.json()["expected_revisions"],
+            },
+            "adopt-digest",
+        )
+        assert bad_digest.status_code == 409
+        assert (
+            bad_digest.json()["issues"][0]["code"] == "catalog_preview_digest_mismatch"
+        )
+        assert _receipt_count(seeded_app, digest_id) == 0
+
+        conflict_item = {
+            **batch_item,
+            "item_id": "again_batch",
+        }
+        quiet_item = {
+            **target_item,
+            "item_id": "again_target",
+            "target_id": second["experiment_id"],
+        }
+        conflict_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "manual", "items": [conflict_item, quiet_item]},
+            "register-conflict",
+        )
+        assert conflict_registered.status_code == 200, conflict_registered.text
+        conflict_id = conflict_registered.json()["proposal_id"]
+        bumped = _post(
+            client,
+            f"/api/v1/catalog/experiments/{first['experiment_id']}/revisions",
+            {
+                "expected_revision_number": first["revision_number"] + 1,
+                "display_name": "exp-batch bumped",
+                "assay": _known(assay),
+                "target": {"status": "unknown"},
+                "batch": _known(batch),
+                "samples": [
+                    {
+                        "sample_revision_id": curated["sample_revision_id"],
+                        "replicate_role": _known(role),
+                    }
+                ],
+            },
+            "bump-first",
+        )
+        assert bumped.status_code == 200, bumped.text
+        conflict_preview = client.post(
+            f"/api/v1/catalog/proposals/{conflict_id}/preview",
+            json={"selected_item_ids": ["again_batch", "again_target"]},
+        )
+        assert conflict_preview.status_code == 200, conflict_preview.text
+        assert conflict_preview.json()["has_conflicts"] is True
+        conflict_adopt = _post(
+            client,
+            f"/api/v1/catalog/proposals/{conflict_id}/adoptions",
+            {
+                "preview_digest": conflict_preview.json()["preview_digest"],
+                "selected_item_ids": ["again_batch", "again_target"],
+                "expected_revisions": conflict_preview.json()["expected_revisions"],
+            },
+            "adopt-conflict",
+        )
+        assert conflict_adopt.status_code == 409, conflict_adopt.text
+        assert conflict_adopt.json()["issues"][0]["code"] == "catalog_revision_conflict"
+        detail = conflict_adopt.json()["conflicts"][0]
+        assert detail["target_id"] == first["experiment_id"]
+        assert detail["expected_revision_id"] == first["experiment_revision_id"]
+        assert detail["current_revision_id"] == bumped.json()["experiment_revision_id"]
+        assert _receipt_count(seeded_app, conflict_id) == 0
+        assert _revision_count(seeded_app, second["experiment_id"]) == 3
+
+        valid_sibling = {
+            **batch_item,
+            "item_id": "valid_sibling",
+            "base_revision_id": bumped.json()["experiment_revision_id"],
+            "base_revision_number": bumped.json()["revision_number"],
+            "before": {"batch": _known(batch)},
+            "after": {"batch": _known(batch)},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": bumped.json()["experiment_revision_id"],
+                    "evidence_token": "bumped-head",
+                }
+            ),
+        }
+        invalid_item = {
+            **target_item,
+            "item_id": "bad_source",
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": "expr_" + "9" * 32,
+                    "evidence_token": "missing-revision",
+                }
+            ),
+        }
+        invalid = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "agent", "items": [invalid_item, valid_sibling]},
+            "register-invalid",
+        )
+        assert invalid.status_code == 200, invalid.text
+        invalid_id = invalid.json()["proposal_id"]
+        invalid_preview = client.post(
+            f"/api/v1/catalog/proposals/{invalid_id}/preview",
+            json={"selected_item_ids": ["bad_source", "valid_sibling"]},
+        )
+        assert invalid_preview.status_code == 409
+        assert (
+            invalid_preview.json()["issues"][0]["code"]
+            == "catalog_proposal_invalidated"
+        )
+        before_revisions = _revision_count(seeded_app, second["experiment_id"])
+        before_first = _revision_count(seeded_app, first["experiment_id"])
+        invalid_expected = {
+            second["experiment_id"]: head["revision_number"],
+            first["experiment_id"]: bumped.json()["revision_number"],
+        }
+        invalid_adopt = _post(
+            client,
+            f"/api/v1/catalog/proposals/{invalid_id}/adoptions",
+            {
+                "preview_digest": compute_preview_digest(
+                    proposal_id=invalid_id,
+                    proposal_digest=invalid.json()["proposal_digest"],
+                    selected_item_ids=["bad_source", "valid_sibling"],
+                    expected_revisions=invalid_expected,
+                ),
+                "selected_item_ids": ["bad_source", "valid_sibling"],
+                "expected_revisions": invalid_expected,
+            },
+            "adopt-invalid",
+        )
+        assert invalid_adopt.status_code == 409
+        assert (
+            invalid_adopt.json()["issues"][0]["code"] == "catalog_proposal_invalidated"
+        )
+        assert _revision_count(seeded_app, second["experiment_id"]) == before_revisions
+        assert _revision_count(seeded_app, first["experiment_id"]) == before_first
+        assert _receipt_count(seeded_app, invalid_id) == 0
+
+        retired = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {
+                "source": "manual",
+                "rule_version": "retired-rules/1",
+                "vocabulary_version": M2_VOCABULARY_VERSION,
+                "projection_version": M2_PROJECTION_VERSION,
+                "items": [quiet_item],
+            },
+            "register-retired",
+        )
+        assert retired.status_code == 200, retired.text
+        retired_preview = client.post(
+            f"/api/v1/catalog/proposals/{retired.json()['proposal_id']}/preview",
+            json={"selected_item_ids": ["again_target"]},
+        )
+        assert retired_preview.status_code == 409
+        assert (
+            retired_preview.json()["issues"][0]["code"]
+            == "catalog_proposal_invalidated"
+        )
+
+        expiring = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "manual", "items": [quiet_item]},
+            "register-expiring",
+        )
+        assert expiring.status_code == 200, expiring.text
+        created_at = datetime.fromisoformat(
+            expiring.json()["created_at"].replace("Z", "+00:00")
+        )
+        service._now_factory = lambda: created_at + timedelta(minutes=31)
+        expired = client.post(
+            f"/api/v1/catalog/proposals/{expiring.json()['proposal_id']}/preview",
+            json={"selected_item_ids": ["again_target"]},
+        )
+        assert expired.status_code == 410
+        assert expired.json()["issues"][0]["code"] == "catalog_proposal_expired"
+        service._now_factory = lambda: created_at + timedelta(days=8)
+        retained = client.get(
+            f"/api/v1/catalog/proposals/{expiring.json()['proposal_id']}"
+        )
+        assert retained.status_code == 404
+        service._now_factory = lambda: datetime.now(timezone.utc)
+
+        engine = seeded_app.state.persistence.engine
+        with Session(engine) as db:
+            account = db.get(UserAccountRow, TEST_AUTH_USER_ID)
+            assert account is not None
+            account.role = "member"
+            db.commit()
+        demoted = _post(
+            client,
+            f"/api/v1/catalog/proposals/{invalid_id}/adoptions",
+            {
+                "preview_digest": "cd" * 32,
+                "selected_item_ids": ["again_target"],
+                "expected_revisions": {
+                    second["experiment_id"]: head["revision_number"]
+                },
+            },
+            "adopt-demoted",
+        )
+        assert demoted.status_code == 403
+        assert _receipt_count(seeded_app, invalid_id) == 0
+        with Session(engine) as db:
+            account = db.get(UserAccountRow, TEST_AUTH_USER_ID)
+            assert account is not None
+            account.role = "administrator"
+            db.commit()
+
+        race_first = experiment(
+            "race-a", curated["sample_revision_id"], known_target=True
+        )
+        race_second = experiment(
+            "race-b", untouched["sample_revision_id"], known_target=True
+        )
+        race_items = [
+            {
+                **batch_item,
+                "item_id": "race_1",
+                "target_id": race_first["experiment_id"],
+                "base_revision_id": race_first["experiment_revision_id"],
+                "base_revision_number": race_first["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": "race-a"},
+                "after": {"display_name": "race-a adopted"},
+                "citations": citation(
+                    {
+                        "kind": "experiment_revision",
+                        "ref_id": race_first["experiment_revision_id"],
+                        "evidence_token": "race-a",
+                    }
+                ),
+            },
+            {
+                **batch_item,
+                "item_id": "race_2",
+                "target_id": race_second["experiment_id"],
+                "base_revision_id": race_second["experiment_revision_id"],
+                "base_revision_number": race_second["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": "race-b"},
+                "after": {"display_name": "race-b adopted"},
+                "citations": citation(
+                    {
+                        "kind": "experiment_revision",
+                        "ref_id": race_second["experiment_revision_id"],
+                        "evidence_token": "race-b",
+                    }
+                ),
+            },
+        ]
+        race_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": race_items},
+            "register-race",
+        )
+        assert race_registered.status_code == 200, race_registered.text
+        race_id = race_registered.json()["proposal_id"]
+        left = client.post(
+            f"/api/v1/catalog/proposals/{race_id}/preview",
+            json={"selected_item_ids": ["race_1"]},
+        )
+        right = client.post(
+            f"/api/v1/catalog/proposals/{race_id}/preview",
+            json={"selected_item_ids": ["race_2"]},
+        )
+        assert left.status_code == 200, left.text
+        assert right.status_code == 200, right.text
+        barrier = Barrier(2)
+        statuses: list[int] = []
+
+        def adopt(token: str, csrf: str, body: dict, key: str) -> None:
+            barrier.wait()
+            response = _as(seeded_app, client, token, csrf)(
+                "POST",
+                f"/api/v1/catalog/proposals/{race_id}/adoptions",
+                json=body,
+                headers={"Idempotency-Key": key},
+            )
+            statuses.append(response.status_code)
+
+        seeded_app.state.test_auth_tokens = None
+        threads = [
+            Thread(
+                target=adopt,
+                args=(
+                    TEST_AUTH_SESSION_TOKEN,
+                    TEST_AUTH_CSRF_TOKEN,
+                    {
+                        "preview_digest": left.json()["preview_digest"],
+                        "selected_item_ids": ["race_1"],
+                        "expected_revisions": left.json()["expected_revisions"],
+                    },
+                    "race-left",
+                ),
+            ),
+            Thread(
+                target=adopt,
+                args=(
+                    second_admin,
+                    second_csrf,
+                    {
+                        "preview_digest": right.json()["preview_digest"],
+                        "selected_item_ids": ["race_2"],
+                        "expected_revisions": right.json()["expected_revisions"],
+                    },
+                    "race-right",
+                ),
+            ),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert sorted(statuses) == [200, 409]
+        assert _receipt_count(seeded_app, race_id) == 1
+        revised = {
+            _revision_count(seeded_app, race_first["experiment_id"]),
+            _revision_count(seeded_app, race_second["experiment_id"]),
+        }
+        assert revised == {1, 2}
+
+        held = experiment("exp-held", curated["sample_revision_id"], known_target=False)
+
+        def held_item(item_id: str) -> dict:
+            return {
+                "item_id": item_id,
+                "target_kind": "experiment",
+                "target_id": held["experiment_id"],
+                "base_revision_id": held["experiment_revision_id"],
+                "base_revision_number": held["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": "exp-held"},
+                "after": {"display_name": f"exp-held {item_id}"},
+                "citations": citation(
+                    {
+                        "kind": "experiment_revision",
+                        "ref_id": held["experiment_revision_id"],
+                        "evidence_token": item_id,
+                    }
+                ),
+            }
+
+        def register_held(item_id: str, key: str) -> str:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/proposals",
+                {"source": "offline_suggestion", "items": [held_item(item_id)]},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["proposal_id"]
+
+        left_proposal = register_held("held_left", "register-held-left")
+        right_proposal = register_held("held_right", "register-held-right")
+        left_preview = client.post(
+            f"/api/v1/catalog/proposals/{left_proposal}/preview",
+            json={"selected_item_ids": ["held_left"]},
+        )
+        right_preview = other_admin(
+            "POST",
+            f"/api/v1/catalog/proposals/{right_proposal}/preview",
+            json={"selected_item_ids": ["held_right"]},
+        )
+        assert left_preview.status_code == 200, left_preview.text
+        assert right_preview.status_code == 200, right_preview.text
+        collision: list[tuple[int, str]] = []
+
+        def collide(request, proposal_id: str, preview, key: str) -> None:
+            barrier = collision_barrier
+            barrier.wait()
+            response = request(
+                "POST",
+                f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+                json={
+                    "preview_digest": preview["preview_digest"],
+                    "selected_item_ids": preview["selected_item_ids"],
+                    "expected_revisions": preview["expected_revisions"],
+                },
+                headers={"Idempotency-Key": key},
+            )
+            code = ""
+            if response.status_code != 200:
+                code = response.json()["issues"][0]["code"]
+            collision.append((response.status_code, code))
+
+        collision_barrier = Barrier(2)
+        primary = _as(
+            seeded_app,
+            client,
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        threads = [
+            Thread(
+                target=collide,
+                args=(
+                    primary,
+                    left_proposal,
+                    left_preview.json(),
+                    "held-left",
+                ),
+            ),
+            Thread(
+                target=collide,
+                args=(
+                    other_admin,
+                    right_proposal,
+                    right_preview.json(),
+                    "held-right",
+                ),
+            ),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert sorted(collision) == [
+            (200, ""),
+            (409, "catalog_revision_conflict"),
+        ]
+        assert (
+            _receipt_count(seeded_app, left_proposal)
+            + _receipt_count(seeded_app, right_proposal)
+            == 1
+        )
+        assert _revision_count(seeded_app, held["experiment_id"]) == 2
+        original = client.get(
+            "/api/v1/catalog/experiments/"
+            f"{held['experiment_id']}/revisions/{held['experiment_revision_id']}"
+        )
+        assert original.status_code == 200, original.text
+        assert original.json()["revision_number"] == held["revision_number"]
+        receipts = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert receipts.status_code == 200, receipts.text
+        winning = [
+            item
+            for item in receipts.json()["receipts"]
+            if item["proposal_id"] in {left_proposal, right_proposal}
+        ]
+        assert len(winning) == 1
+        assert winning[0]["applied_targets"][0]["target_id"] == held["experiment_id"]
+
+        fresh = experiment(
+            "exp-retry", curated["sample_revision_id"], known_target=False
+        )
+        retry_item = {
+            **held_item("retry_once"),
+            "target_id": fresh["experiment_id"],
+            "base_revision_id": fresh["experiment_revision_id"],
+            "base_revision_number": fresh["revision_number"],
+            "before": {"display_name": "exp-retry"},
+            "after": {"display_name": "exp-retry adopted"},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": fresh["experiment_revision_id"],
+                    "evidence_token": "retry-once",
+                }
+            ),
+        }
+        retry_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [retry_item]},
+            "register-retry-fresh",
+        )
+        assert retry_registered.status_code == 200, retry_registered.text
+        retry_id = retry_registered.json()["proposal_id"]
+        retry_preview = client.post(
+            f"/api/v1/catalog/proposals/{retry_id}/preview",
+            json={"selected_item_ids": ["retry_once"]},
+        )
+        assert retry_preview.status_code == 200, retry_preview.text
+        retry_body = {
+            "preview_digest": retry_preview.json()["preview_digest"],
+            "selected_item_ids": ["retry_once"],
+            "expected_revisions": retry_preview.json()["expected_revisions"],
+        }
+        retry_barrier = Barrier(2)
+        retried: list[dict] = []
+
+        def retry_once() -> None:
+            retry_barrier.wait()
+            response = primary(
+                "POST",
+                f"/api/v1/catalog/proposals/{retry_id}/adoptions",
+                json=retry_body,
+                headers={"Idempotency-Key": "retry-same-request"},
+            )
+            assert response.status_code == 200, response.text
+            retried.append(response.json())
+
+        threads = [Thread(target=retry_once), Thread(target=retry_once)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert {item["receipt_id"] for item in retried} == {retried[0]["receipt_id"]}
+        assert {item["replayed"] for item in retried} == {False, True}
+        assert _receipt_count(seeded_app, retry_id) == 1
+        assert _revision_count(seeded_app, fresh["experiment_id"]) == 2
+        readable = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert readable.status_code == 200, readable.text
+        stored = [
+            item
+            for item in readable.json()["receipts"]
+            if item["proposal_id"] == retry_id
+        ]
+        assert stored[0]["receipt_id"] == retried[0]["receipt_id"]
+        assert stored[0]["replayed"] is False
+
+
+def _revision_count(app, experiment_id: str) -> int:
+    engine = app.state.persistence.engine
+    with Session(engine) as db:
+        return int(
+            db.scalar(
+                select(func.count())
+                .select_from(ExperimentRevisionRow)
+                .where(ExperimentRevisionRow.experiment_id == experiment_id)
+            )
+            or 0
+        )
+
+
+def _receipt_count(app, proposal_id: str) -> int:
+    engine = app.state.persistence.engine
+    with Session(engine) as db:
+        return int(
+            db.scalar(
+                select(func.count())
+                .select_from(CatalogAdoptionReceiptRow)
+                .where(CatalogAdoptionReceiptRow.proposal_id == proposal_id)
+            )
+            or 0
+        )
+
+
+class _RecoveryWindow:
+    """Hide the pre-write receipt read so the unique constraint opens recovery."""
+
+    def __init__(self, monkeypatch, frozen: dict[str, TargetHead]) -> None:
+        self.entered: list[str] = []
+        self.skip_receipt = False
+        self.skip_adoption = False
+        self.use_frozen = False
+        self._receipt_hidden = False
+        self._adoption_hidden = False
+        self._frozen = frozen
+        original_get = Session.get
+        original_resolve = catalog_proposal_store.resolve_adoption_conflict
+        original_adoption = catalog_proposal_store._adoption_body
+        original_heads = catalog_proposal_store._heads
+
+        def get(db, entity, ident, **kwargs):
+            if (
+                self.skip_receipt
+                and entity is CatalogWriteReceiptRow
+                and not self._receipt_hidden
+            ):
+                self._receipt_hidden = True
+                return None
+            return original_get(db, entity, ident, **kwargs)
+
+        def adoption(db, proposal_id):
+            if self.skip_adoption and not self._adoption_hidden:
+                self._adoption_hidden = True
+                return None
+            return original_adoption(db, proposal_id)
+
+        def heads(db, proposal):
+            if not self.use_frozen:
+                return original_heads(db, proposal)
+            return {
+                item.target_id: self._frozen[item.target_id] for item in proposal.items
+            }
+
+        def resolve(db, write, proposal_id):
+            self.entered.append(proposal_id)
+            return original_resolve(db, write, proposal_id)
+
+        monkeypatch.setattr(Session, "get", get)
+        monkeypatch.setattr(catalog_proposal_store, "_adoption_body", adoption)
+        monkeypatch.setattr(catalog_proposal_store, "_heads", heads)
+        monkeypatch.setattr(
+            catalog_proposal_store,
+            "resolve_adoption_conflict",
+            resolve,
+        )
+
+    def arm(self, *, receipt: bool, adoption: bool, frozen: bool) -> None:
+        self.skip_receipt = receipt
+        self.skip_adoption = adoption
+        self.use_frozen = frozen
+        self._receipt_hidden = False
+        self._adoption_hidden = False
+        self.entered.clear()
+
+
+def _frozen_head(app, experiment: dict, project_id: str) -> TargetHead:
+    with Session(app.state.persistence.engine) as db:
+        row = db.get(ExperimentRevisionRow, experiment["experiment_revision_id"])
+        assert row is not None
+        payload = row.canonical_payload
+    return TargetHead(
+        target_kind="experiment",
+        target_id=experiment["experiment_id"],
+        project_id=project_id,
+        revision_number=experiment["revision_number"],
+        revision_id=experiment["experiment_revision_id"],
+        archived=False,
+        canonical_payload=payload,
+    )
+
+
+def _adopt_body(preview) -> dict:
+    payload = preview.json()
+    return {
+        "preview_digest": payload["preview_digest"],
+        "selected_item_ids": payload["selected_item_ids"],
+        "expected_revisions": payload["expected_revisions"],
+    }
+
+
+def test_recovery_branch_matches_the_committed_write_receipt(
+    seeded_app, monkeypatch
+) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project = registry.create_project("Recovery project")
+    with ApiTestClient(seeded_app) as client:
+
+        def term(term_type: str, name: str, key: str) -> dict:
+            response = _post(
+                client,
+                "/api/v1/catalog/terms",
+                {"term_type": term_type, "display_name": name, "aliases": []},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        assay = term("assay", "CUT&Tag", "recovery-assay")
+        role = term("replicate_role", "biological replicate", "recovery-role")
+
+        def sample(key: str) -> dict:
+            created = registry.import_sample(
+                project.project_id,
+                stable_key=key,
+                display_name=key,
+                attributes={"organism": "human"},
+            )
+            response = _post(
+                client,
+                f"/api/v1/catalog/samples/{created.sample.sample_id}/catalog-revisions",
+                {
+                    "expected_revision_number": 1,
+                    "catalog": {
+                        "schema_version": 1,
+                        "species": {"status": "unknown"},
+                        "tissue": {"status": "unknown"},
+                        "cell_type": {"status": "unknown", "values": []},
+                        "cell_line": {"status": "not_applicable", "values": []},
+                        "treatment": {"status": "not_applicable", "values": []},
+                        "tag": {"status": "unknown", "values": []},
+                    },
+                },
+                f"recovery-catalog-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        left_sample = sample("recovery-left")
+        right_sample = sample("recovery-right")
+
+        def experiment(key: str, sample_revision_id: str) -> dict:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/experiments",
+                {
+                    "stable_key": key,
+                    "display_name": key,
+                    "assay": _known(assay),
+                    "target": {"status": "unknown"},
+                    "batch": {"status": "unknown"},
+                    "samples": [
+                        {
+                            "sample_revision_id": sample_revision_id,
+                            "replicate_role": _known(role),
+                        }
+                    ],
+                },
+                f"recovery-experiment-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        left = experiment("exp-left", left_sample["sample_revision_id"])
+        right = experiment("exp-right", right_sample["sample_revision_id"])
+
+        def item(item_id: str, created: dict, name: str) -> dict:
+            return {
+                "item_id": item_id,
+                "target_kind": "experiment",
+                "target_id": created["experiment_id"],
+                "base_revision_id": created["experiment_revision_id"],
+                "base_revision_number": created["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": name},
+                "after": {"display_name": f"{name} adopted"},
+                "citations": {
+                    "rule_version": M2_RULE_VERSION,
+                    "vocabulary_version": M2_VOCABULARY_VERSION,
+                    "reason_codes": ["BATCH_TERM_MATCH"],
+                    "source_refs": [
+                        {
+                            "kind": "experiment_revision",
+                            "ref_id": created["experiment_revision_id"],
+                            "evidence_token": item_id,
+                        }
+                    ],
+                },
+            }
+
+        left_item = item("item_left", left, "exp-left")
+        right_item = item("item_right", right, "exp-right")
+        registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [left_item, right_item]},
+            "register-recovery",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal_id = registered.json()["proposal_id"]
+        left_preview = client.post(
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_left"]},
+        )
+        both_preview = client.post(
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_left", "item_right"]},
+        )
+        assert left_preview.status_code == 200, left_preview.text
+        assert both_preview.status_code == 200, both_preview.text
+        left_body = _adopt_body(left_preview)
+        both_body = _adopt_body(both_preview)
+        window = _RecoveryWindow(
+            monkeypatch,
+            {
+                left["experiment_id"]: _frozen_head(
+                    seeded_app, left, project.project_id
+                ),
+                right["experiment_id"]: _frozen_head(
+                    seeded_app, right, project.project_id
+                ),
+            },
+        )
+
+        def adopt(proposal: str, body: dict, key: str):
+            return _post(
+                client,
+                f"/api/v1/catalog/proposals/{proposal}/adoptions",
+                body,
+                key,
+            )
+
+        window.arm(receipt=True, adoption=False, frozen=False)
+        reused = adopt(proposal_id, left_body, "register-recovery")
+        assert reused.status_code == 409, reused.text
+        assert reused.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 1
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        adopted = adopt(proposal_id, left_body, "adopt-recovery")
+        assert adopted.status_code == 200, adopted.text
+        assert adopted.json()["replayed"] is False
+        receipt_id = adopted.json()["receipt_id"]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+        window.arm(receipt=False, adoption=False, frozen=False)
+
+        with Session(seeded_app.state.persistence.engine) as db:
+            stored = db.scalar(
+                select(CatalogWriteReceiptRow).where(
+                    CatalogWriteReceiptRow.idempotency_key == "adopt-recovery"
+                )
+            )
+            assert stored is not None
+            committed = CatalogWrite(
+                actor_user_id=stored.actor_user_id,
+                idempotency_key=stored.idempotency_key,
+                request_sha256=stored.request_sha256,
+                operation=stored.operation,
+                now=stored.created_at,
+                target_key=stored.target_key,
+            )
+            replayed = catalog_proposal_store.resolve_adoption_conflict(
+                db,
+                committed,
+                proposal_id,
+            )
+            assert replayed["replayed"] is True
+            assert replayed["receipt_id"] == receipt_id
+            mismatches = (
+                replace(committed, request_sha256="ab" * 32),
+                replace(committed, operation="catalogReviseExperiment"),
+                replace(committed, target_key="cprop_" + "ab" * 16),
+            )
+            for mismatch in mismatches:
+                try:
+                    catalog_proposal_store.resolve_adoption_conflict(
+                        db,
+                        mismatch,
+                        proposal_id,
+                    )
+                except CatalogError as caught:
+                    assert caught.code == "catalog_idempotency_conflict"
+                else:
+                    raise AssertionError("changed request was replayed")
+            try:
+                catalog_proposal_store.resolve_adoption_conflict(
+                    db,
+                    replace(committed, idempotency_key="adopt-other"),
+                    proposal_id,
+                )
+            except CatalogError as caught:
+                assert caught.code == "catalog_proposal_invalidated"
+            else:
+                raise AssertionError("second adoption was replayed")
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        same = adopt(proposal_id, left_body, "adopt-recovery")
+        assert same.status_code == 200, same.text
+        assert same.json()["replayed"] is True
+        assert same.json()["receipt_id"] == receipt_id
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        subset = adopt(proposal_id, both_body, "adopt-recovery")
+        assert subset.status_code == 409, subset.text
+        assert subset.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        other = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [right_item]},
+            "register-other-target",
+        )
+        assert other.status_code == 200, other.text
+        other_id = other.json()["proposal_id"]
+        other_preview = client.post(
+            f"/api/v1/catalog/proposals/{other_id}/preview",
+            json={"selected_item_ids": ["item_right"]},
+        )
+        assert other_preview.status_code == 200, other_preview.text
+        window.arm(receipt=True, adoption=False, frozen=False)
+        moved_target = adopt(other_id, _adopt_body(other_preview), "adopt-recovery")
+        assert moved_target.status_code == 409, moved_target.text
+        assert (
+            moved_target.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        )
+        assert window.entered == [other_id]
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, other_id) == 0
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        second_adoption = adopt(proposal_id, left_body, "adopt-other")
+        assert second_adoption.status_code == 409, second_adoption.text
+        assert (
+            second_adoption.json()["issues"][0]["code"]
+            == "catalog_proposal_invalidated"
+        )
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+        listed = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert listed.status_code == 200, listed.text
+        assert [row["receipt_id"] for row in listed.json()["receipts"]] == [receipt_id]
+
+
+def _legacy_note(app, sample_revision_id: str) -> str:
+    engine = app.state.persistence.engine
+    with Session(engine) as db:
+        row = db.get(SampleRevisionRow, sample_revision_id)
+        assert row is not None
+        return json.loads(row.canonical_payload)["attributes"]["legacy_note"]
+
+
+def _role_change_item(
+    client: ApiTestClient, registry: DataRegistryService, project_id: str
+) -> dict:
+    prefix = "/api/v1/catalog"
+
+    def term(kind: str, name: str, key: str) -> dict:
+        response = _post(
+            client,
+            f"{prefix}/terms",
+            {"term_type": kind, "display_name": name},
+            key,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    assay = term("assay", "CUT&Tag", "role-assay")
+    original_role = term("replicate_role", "biological replicate", "role-original")
+    new_role = term("replicate_role", "control", "role-new")
+    before = [
+        {
+            "ordinal": ordinal,
+            "sample_revision_id": registry.import_sample(
+                project_id, stable_key=name, display_name=name, attributes={}
+            ).revision.sample_revision_id,
+            "replicate_group": name,
+            "replicate_role": _known(original_role),
+        }
+        for ordinal, name in enumerate(("left", "right"))
+    ]
+    after = [{**before[0], "replicate_role": _known(new_role)}, before[1]]
+    created = _post(
+        client,
+        f"{prefix}/projects/{project_id}/experiments",
+        {
+            "stable_key": "role-pins",
+            "display_name": "Role pins",
+            "assay": _known(assay),
+            "target": {"status": "unknown"},
+            "batch": {"status": "unknown"},
+            "samples": [
+                {key: value for key, value in pin.items() if key != "ordinal"}
+                for pin in before
+            ],
+        },
+        "create-role-pins",
+    )
+    assert created.status_code == 200, created.text
+    experiment = created.json()
+    experiment_id = experiment["experiment_id"]
+    revision_id = experiment["experiment_revision_id"]
+    return {
+        "item_id": "change_role",
+        "target_kind": "experiment",
+        "target_id": experiment_id,
+        "base_revision_id": revision_id,
+        "base_revision_number": 1,
+        "allowed_fields": ["samples"],
+        "before": {"samples": before},
+        "after": {"samples": after},
+        "citations": {
+            "rule_version": M2_RULE_VERSION,
+            "vocabulary_version": M2_VOCABULARY_VERSION,
+            "reason_codes": ["REPLICATE_ROLE_TERM_MATCH"],
+            "source_refs": [
+                {"kind": "experiment_revision", "ref_id": revision_id},
+                {
+                    "kind": "term_revision",
+                    "ref_id": new_role["revision"]["term_revision_id"],
+                },
+            ],
+        },
+    }
+
+
+def test_adopt_sample_role_preserves_ordered_revision_pins(seeded_app) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project_id = registry.create_project("Role proposal").project_id
+    prefix = "/api/v1/catalog"
+    with ApiTestClient(seeded_app) as client:
+        proposal = _role_change_item(client, registry, project_id)
+        experiment_id = proposal["target_id"]
+        after = proposal["after"]["samples"]
+        new_role = after[0]["replicate_role"]
+        proposals = f"{prefix}/projects/{project_id}/proposals"
+        registered = _post(
+            client,
+            proposals,
+            {"source": "offline_suggestion", "items": [proposal]},
+            "register-role",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal_id = registered.json()["proposal_id"]
+
+        preview = client.post(
+            f"{prefix}/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["change_role"]},
+        )
+        assert preview.status_code == 200, preview.text
+        preview_item = preview.json()["items"][0]
+        before_view = preview_item["before"]["samples"]
+        after_view = preview_item["after"]["samples"]
+        assert (
+            before_view[0]["replicate_role"]["display_name"] == "biological replicate"
+        )
+        assert after_view == [
+            {
+                **before_view[0],
+                "replicate_role": {**new_role, "display_name": "control"},
+            },
+            before_view[1],
+        ]
+        assert [pin["ordinal"] for pin in after_view] == [0, 1]
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        invalid = _post(
+            client,
+            proposals,
+            {
+                "source": "offline_suggestion",
+                "items": [{**proposal, "after": {"samples": [after[1], after[0]]}}],
+            },
+            "register-misordered-role",
+        )
+        assert invalid.status_code == 422, invalid.text
+        assert invalid.json()["issues"][0]["code"] == "catalog_payload_invalid"
+
+        adoption_path = f"{prefix}/proposals/{proposal_id}/adoptions"
+        adoption = _post(client, adoption_path, _adopt_body(preview), "adopt-role")
+        assert adoption.status_code == 200, adoption.text
+        receipt = adoption.json()
+        replay = _post(client, adoption_path, _adopt_body(preview), "adopt-role")
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == {**receipt, "replayed": True}
+        assert _revision_count(seeded_app, experiment_id) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        history = client.get(f"{prefix}/experiments/{experiment_id}/revisions")
+        assert history.status_code == 200, history.text
+        revisions = history.json()["experiment_revisions"]
+        by_number = {revision["revision_number"]: revision for revision in revisions}
+        assert set(by_number) == {1, 2}
+        assert (
+            by_number[2]["experiment_revision_id"]
+            == (receipt["applied_targets"][0]["result_revision_id"])
+        )
+        old_pins = by_number[1]["samples"]
+        assert old_pins[0]["replicate_role"]["display_name"] == "biological replicate"
+        assert by_number[2]["samples"] == [
+            {
+                **old_pins[0],
+                "replicate_role": {**new_role, "display_name": "control"},
+            },
+            old_pins[1],
+        ]
+
+
+@pytest.mark.parametrize("side", ["before", "after"])
+@pytest.mark.parametrize("revision_owner", ["missing", "foreign"])
+def test_role_proposal_rejects_invalid_sample_revisions(
+    seeded_app, side: str, revision_owner: str
+) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project_id = registry.create_project("Role proposal").project_id
+    invalid_revision_id = "smpr_" + "7" * 32
+    if revision_owner == "foreign":
+        other_project_id = registry.create_project("Other project").project_id
+        invalid_revision_id = registry.import_sample(
+            other_project_id, stable_key="other", display_name="Other", attributes={}
+        ).revision.sample_revision_id
+
+    prefix = "/api/v1/catalog"
+    with ApiTestClient(seeded_app) as client:
+        proposal = _role_change_item(client, registry, project_id)
+        experiment_id = proposal["target_id"]
+        first, second = proposal[side]["samples"]
+        proposal[side]["samples"] = [
+            first,
+            {**second, "sample_revision_id": invalid_revision_id},
+        ]
+        registered = _post(
+            client,
+            f"{prefix}/projects/{project_id}/proposals",
+            {"source": "offline_suggestion", "items": [proposal]},
+            "register-invalid-role",
+        )
+        assert registered.status_code == 200, registered.text
+        registration = registered.json()
+        proposal_id = registration["proposal_id"]
+        proposal_path = f"{prefix}/proposals/{proposal_id}"
+
+        selected = [proposal["item_id"]]
+        preview = client.post(
+            f"{proposal_path}/preview", json={"selected_item_ids": selected}
+        )
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        # Use the registered digest to exercise the adoption check independently.
+        expected = {experiment_id: proposal["base_revision_number"]}
+        confirmation = _post(
+            client,
+            f"{proposal_path}/adoptions",
+            {
+                "selected_item_ids": selected,
+                "expected_revisions": expected,
+                "preview_digest": compute_preview_digest(
+                    proposal_id=proposal_id,
+                    proposal_digest=registration["proposal_digest"],
+                    selected_item_ids=selected,
+                    expected_revisions=expected,
+                ),
+            },
+            "adopt-invalid-role",
+        )
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+        for response in (preview, confirmation):
+            assert response.status_code == 409, response.text
+            issue = response.json()["issues"][0]
+            assert issue["code"] == "catalog_proposal_invalidated"
+            assert issue["path"] == f"change_role.{side}.samples.1.sample_revision_id"
