@@ -34,6 +34,7 @@ const validatedSnapshot = {
     fully_managed: false,
     input_uses: [],
   },
+  experiment_binding: { status: 'unresolved' as const },
 };
 
 const successfulValidation: ValidateWorkflowResponse = {

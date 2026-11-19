@@ -22,6 +22,8 @@ from encode_pipeline.persistence.models import (
     ExperimentRevisionSampleRow,
     ExperimentRow,
     ProjectRow,
+    RunExperimentBindingRow,
+    SnapshotExperimentBindingRow,
     RunProjectBindingRow,
     RunResultStateRow,
     RunRow,
@@ -920,7 +922,6 @@ class SqlAlchemyExperimentCatalogRepository:
         cursor: str | None,
         limit: int,
     ) -> dict[str, Any]:
-        del limit
         position = decode_catalog_cursor(
             cursor,
             kind="experiment_runs",
@@ -931,16 +932,59 @@ class SqlAlchemyExperimentCatalogRepository:
             row = session.get(ExperimentRevisionRow, experiment_revision_id)
             if row is None or row.project_id != project_id:
                 raise catalog_not_found()
+            snapshot_bound = session.scalar(
+                select(SnapshotExperimentBindingRow.snapshot_id)
+                .where(
+                    SnapshotExperimentBindingRow.experiment_revision_id
+                    == experiment_revision_id,
+                    SnapshotExperimentBindingRow.payload_digest == row.payload_digest,
+                )
+                .limit(1)
+            )
+            trusted_run_ids = list(
+                session.scalars(
+                    select(RunExperimentBindingRow.run_id).where(
+                        RunExperimentBindingRow.experiment_revision_id
+                        == experiment_revision_id,
+                        RunExperimentBindingRow.payload_digest == row.payload_digest,
+                    )
+                ).all()
+            )
+            if snapshot_bound is None and not trusted_run_ids:
+                if position is not None:
+                    raise catalog_cursor_not_found()
+                return {
+                    "ok": True,
+                    "project_id": project_id,
+                    "experiment_revision_id": experiment_revision_id,
+                    "trace_status": "unresolved",
+                    "reason": "experiment_snapshot_binding_absent",
+                    "results": [],
+                    "next_cursor": None,
+                }
+            results = _published_trace_rows(session, project_id, trusted_run_ids)
+            start = 0
             if position is not None:
-                raise catalog_cursor_not_found()
+                start = _trace_index(results, position)
+            page = results[start : start + limit]
+            next_cursor = None
+            if start + limit < len(results):
+                last = page[-1]
+                next_cursor = encode_catalog_cursor(
+                    kind="experiment_runs",
+                    filters=filters,
+                    position=CatalogCursorPosition(
+                        created_at=_parse_trace_stamp(last),
+                        object_id=_trace_object_id(last),
+                    ),
+                )
             return {
                 "ok": True,
                 "project_id": project_id,
                 "experiment_revision_id": experiment_revision_id,
-                "trace_status": "unresolved",
-                "reason": "experiment_snapshot_binding_absent",
-                "results": [],
-                "next_cursor": None,
+                "trace_status": "experiment_snapshot",
+                "results": page,
+                "next_cursor": next_cursor,
             }
 
     def rebuild_sample_projection(self, sample_revision_id: str) -> None:
@@ -1723,6 +1767,41 @@ def _sample_trace_results(
     )
     if not run_ids:
         return []
+    published = _published_trace_rows(session, project_id, run_ids)
+    published_run_ids = {item["run_id"] for item in published}
+    unpublished = []
+    bindings = session.scalars(
+        select(RunProjectBindingRow).where(
+            RunProjectBindingRow.run_id.in_(run_ids),
+            RunProjectBindingRow.project_id == project_id,
+        )
+    ).all()
+    for binding in bindings:
+        if binding.run_id in published_run_ids:
+            continue
+        unpublished.append(
+            {
+                "run_id": binding.run_id,
+                "provenance": binding.provenance,
+                "publication_evidence": "absent",
+                "_sort": (1, binding.run_id),
+            }
+        )
+    unpublished.sort(key=lambda item: item["run_id"], reverse=True)
+    results = []
+    for item in [*published, *unpublished]:
+        item.pop("_sort", None)
+        results.append(item)
+    return results
+
+
+def _published_trace_rows(
+    session: Session,
+    project_id: str,
+    run_ids: Sequence[str],
+) -> list[dict[str, Any]]:
+    if not run_ids:
+        return []
     publication_rows = session.execute(
         select(
             ArtifactPublicationRow,
@@ -1746,7 +1825,6 @@ def _sample_trace_results(
         )
     ).all()
     samples_by_run = _associated_samples(session, run_ids)
-    published_run_ids = {row[0].run_id for row in publication_rows}
     published = []
     for publication, workflow_id, binding_mode, provenance, current in publication_rows:
         current_generation = current or publication.artifact_generation
@@ -1793,30 +1871,9 @@ def _sample_trace_results(
         ),
         reverse=True,
     )
-    unpublished = []
-    bindings = session.scalars(
-        select(RunProjectBindingRow).where(
-            RunProjectBindingRow.run_id.in_(run_ids),
-            RunProjectBindingRow.project_id == project_id,
-        )
-    ).all()
-    for binding in bindings:
-        if binding.run_id in published_run_ids:
-            continue
-        unpublished.append(
-            {
-                "run_id": binding.run_id,
-                "provenance": binding.provenance,
-                "publication_evidence": "absent",
-                "_sort": (1, binding.run_id),
-            }
-        )
-    unpublished.sort(key=lambda item: item["run_id"], reverse=True)
-    results = []
-    for item in [*published, *unpublished]:
+    for item in published:
         item.pop("_sort", None)
-        results.append(item)
-    return results
+    return published
 
 
 def _associated_samples(

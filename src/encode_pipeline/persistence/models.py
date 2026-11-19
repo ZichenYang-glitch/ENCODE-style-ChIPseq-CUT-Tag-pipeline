@@ -2930,3 +2930,90 @@ class CatalogWriteReceiptRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class SnapshotExperimentBindingRow(Base):
+    """Experiment revision frozen into one validation snapshot. Slice B only."""
+
+    __tablename__ = "snapshot_experiment_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(snapshot_id) = 38 AND substr(snapshot_id, 1, 6) = 'vsnap_' "
+            "AND substr(snapshot_id, 7) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_snapshot_id",
+        ),
+        CheckConstraint(
+            "length(experiment_revision_id) = 37 "
+            "AND substr(experiment_revision_id, 1, 5) = 'expr_' "
+            "AND substr(experiment_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_revision_id",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_digest",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id"],
+            ["validated_input_snapshots.snapshot_id"],
+            name="fk_snapshot_experiment_bindings_snapshot",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_snapshot_experiment_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_snapshot_experiment_bindings_experiment",
+            "experiment_revision_id",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RunExperimentBindingRow(Base):
+    """Experiment revision copied from a snapshot when a run consumes it."""
+
+    __tablename__ = "run_experiment_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(run_id) BETWEEN 1 AND 128",
+            name="ck_run_experiment_bindings_run_id",
+        ),
+        CheckConstraint(
+            "length(experiment_revision_id) = 37 "
+            "AND substr(experiment_revision_id, 1, 5) = 'expr_' "
+            "AND substr(experiment_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_run_experiment_bindings_revision_id",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_run_experiment_bindings_digest",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["runs.run_id"],
+            name="fk_run_experiment_bindings_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_run_experiment_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_run_experiment_bindings_experiment",
+            "experiment_revision_id",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)

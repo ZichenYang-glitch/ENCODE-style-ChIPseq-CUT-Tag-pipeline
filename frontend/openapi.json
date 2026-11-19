@@ -10677,12 +10677,22 @@
           },
           "trace_status": {
             "type": "string",
-            "const": "unresolved",
+            "enum": [
+              "unresolved",
+              "experiment_snapshot"
+            ],
             "title": "Trace Status"
           },
           "reason": {
-            "type": "string",
-            "const": "experiment_snapshot_binding_absent",
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "experiment_snapshot_binding_absent"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Reason"
           },
           "results": {
@@ -10718,7 +10728,6 @@
           "project_id",
           "experiment_revision_id",
           "trace_status",
-          "reason",
           "results",
           "next_cursor"
         ],
@@ -12545,6 +12554,36 @@
         ],
         "title": "CatalogUnpublishedRunResponse"
       },
+      "FrozenExperimentBindingResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "experiment_snapshot",
+            "title": "Status"
+          },
+          "experiment_revision_id": {
+            "type": "string",
+            "maxLength": 37,
+            "pattern": "^expr_[0-9a-f]{32}$",
+            "title": "Experiment Revision Id"
+          },
+          "payload_digest": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Payload Digest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "experiment_revision_id",
+          "payload_digest"
+        ],
+        "title": "FrozenExperimentBindingResponse",
+        "description": "Experiment revision id and payload digest frozen with the snapshot."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -14185,6 +14224,22 @@
         "title": "TerminalEmailPreferenceResponse",
         "description": "Address-free self projection for terminal-email preference."
       },
+      "UnresolvedExperimentBindingResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "unresolved",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "UnresolvedExperimentBindingResponse",
+        "description": "Snapshot has no trusted experiment revision."
+      },
       "ValidatedInputSnapshotResponse": {
         "properties": {
           "snapshot_id": {
@@ -14270,6 +14325,24 @@
                 "type": "null"
               }
             ]
+          },
+          "experiment_binding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UnresolvedExperimentBindingResponse"
+              },
+              {
+                "$ref": "#/components/schemas/FrozenExperimentBindingResponse"
+              }
+            ],
+            "title": "Experiment Binding",
+            "discriminator": {
+              "propertyName": "status",
+              "mapping": {
+                "experiment_snapshot": "#/components/schemas/FrozenExperimentBindingResponse",
+                "unresolved": "#/components/schemas/UnresolvedExperimentBindingResponse"
+              }
+            }
           }
         },
         "type": "object",
@@ -14286,7 +14359,8 @@
           "provenance",
           "sample_revision_ids",
           "binding_digest",
-          "input_binding"
+          "input_binding",
+          "experiment_binding"
         ],
         "title": "ValidatedInputSnapshotResponse",
         "description": "Safe public projection of one server-owned validation snapshot."
@@ -14420,6 +14494,19 @@
               }
             ],
             "title": "Reference Profile Revision Id"
+          },
+          "experiment_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 37,
+                "pattern": "^expr_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Revision Id"
           }
         },
         "additionalProperties": false,
