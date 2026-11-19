@@ -32,6 +32,9 @@ private data read. Bundles remain local operator transports; see the
 
 See the [local trial checklist](../local-trial-checklist.md) for clean
 installation, both workflow journeys, browser viewports, evidence, and cleanup.
+The upgrade procedure below targets the v0.4.0 schema head `20260827_15`.
+Later heads are recorded in the
+[server readiness gap](local-trial-server-readiness-gap.md).
 
 ## Run locally
 
