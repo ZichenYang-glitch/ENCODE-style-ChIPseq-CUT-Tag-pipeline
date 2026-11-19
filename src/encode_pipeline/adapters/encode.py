@@ -337,6 +337,14 @@ class EncodeStyleWorkflowAdapter:
 
         return build_encode_authoring_schema()
 
+    def project_authoring_fields(self, schema_payload: Mapping[str, Any]):
+        """Project the approved ENCODE suggestion fields from this schema."""
+        from encode_pipeline.adapters.encode_authoring_projection import (
+            project_encode_authoring,
+        )
+
+        return project_encode_authoring(self.metadata.workflow_id, schema_payload)
+
     def declare_input_uses(
         self,
         inputs: WorkflowInputs,

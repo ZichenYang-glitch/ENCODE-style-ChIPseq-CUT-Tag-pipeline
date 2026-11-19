@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.snapshots import canonical_workflow_inputs_json
@@ -207,6 +207,44 @@ class FieldConstraint:
         return payload
 
 
+def intersect_integer_constraint(
+    schema: object,
+    key: str,
+    policy_min: int,
+    policy_max: int | None,
+) -> FieldConstraint | None:
+    """Intersect an adapter integer policy with one live schema property.
+
+    Schema defaults, descriptions, and examples are not part of the result.
+    A bool is rejected even though it is an ``int`` subclass.
+    """
+
+    if not isinstance(schema, Mapping):
+        return None
+    properties = schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return None
+    prop = properties.get(key)
+    if not isinstance(prop, Mapping) or prop.get("type") != "integer":
+        return None
+    minimum = policy_min
+    schema_min = prop.get("minimum")
+    if isinstance(schema_min, bool) or not isinstance(schema_min, int):
+        if schema_min is not None:
+            return None
+    else:
+        minimum = max(policy_min, schema_min)
+    maximum = policy_max
+    schema_max = prop.get("maximum")
+    if schema_max is not None:
+        if isinstance(schema_max, bool) or not isinstance(schema_max, int):
+            return None
+        maximum = schema_max if maximum is None else min(maximum, schema_max)
+    if maximum is not None and minimum > maximum:
+        return None
+    return FieldConstraint(value_type="integer", minimum=minimum, maximum=maximum)
+
+
 @dataclass(frozen=True)
 class AuthoringField:
     """One resource field the assistant may read and propose."""
@@ -233,6 +271,52 @@ class IssueLabel:
 
     def public_dict(self) -> dict[str, str]:
         return {"code": self.code, "label": self.label}
+
+
+@dataclass(frozen=True)
+class AuthoringFieldProjection:
+    """Adapter-owned suggestion catalog for one workflow schema document."""
+
+    fields: tuple[AuthoringField, ...]
+    issues: tuple[IssueLabel, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.fields, tuple)
+            or not self.fields
+            or any(not isinstance(field, AuthoringField) for field in self.fields)
+        ):
+            raise ValueError("authoring projection fields are invalid")
+        tokens = [field.token for field in self.fields]
+        if len(set(tokens)) != len(tokens):
+            raise ValueError("authoring projection field tokens must be unique")
+        if not isinstance(self.issues, tuple) or any(
+            not isinstance(issue, IssueLabel) for issue in self.issues
+        ):
+            raise ValueError("authoring projection issues are invalid")
+        codes = [issue.code for issue in self.issues]
+        if len(set(codes)) != len(codes):
+            raise ValueError("authoring projection issue codes must be unique")
+
+
+@runtime_checkable
+class AuthoringFieldProjectingAdapter(Protocol):
+    """Optional adapter contract for suggestion fields.
+
+    The authoring service keeps authorization, draft revision, adoption, and
+    validation. The adapter names the fields, their bounds, and the issue
+    labels a suggestion may cite.
+
+    A class file already covered by a verified execution closure can omit this
+    method. The service then calls ``project_authoring_fields`` exported by
+    that package's ``authoring`` module.
+    """
+
+    def project_authoring_fields(
+        self,
+        schema_payload: Mapping[str, Any],
+    ) -> AuthoringFieldProjection | None:
+        """Project approved fields from the digested schema document."""
 
 
 def utc_now(clock: Any | None = None) -> datetime:

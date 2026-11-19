@@ -156,7 +156,14 @@ def test_validate_uses_the_real_service_for_failure_null_and_managed_rejection(
             "/api/v1/agent/authoring-sessions",
             json={"project_id": project.project_id, "workflow_id": "hitrac-preprocess"},
         ).json()
-        assert hitrac["authoring_capability"]["available"] is False
+        capability = hitrac["authoring_capability"]
+        assert capability["available"] is True
+        assert [field["token"] for field in capability["fields"]] == ["options.mapq"]
+        assert capability["fields"][0]["constraints"] == {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255,
+        }
         saved = client.request(
             "PUT",
             f"/api/v1/agent/authoring-sessions/{hitrac['sid']}/draft",
