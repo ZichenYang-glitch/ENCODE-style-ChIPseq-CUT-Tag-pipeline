@@ -1,13 +1,15 @@
 """Experiment catalog identities, payloads, cursors, and public projections.
 
-Slice A freezes manual vocabulary and experiment maintenance. Experiment-to-run
-bindings belong to Slice B and are intentionally absent here.
+Slice A freezes manual vocabulary and experiment maintenance. Slice B freezes an
+experiment revision onto a validation snapshot only through
+``freeze_experiment_snapshot_binding``; persistence copies that pair onto the run.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import Protocol
 from datetime import datetime, timezone
 from hashlib import sha256
 import base64
@@ -298,6 +300,160 @@ def catalog_experiment_archived() -> CatalogError:
         409,
         "catalog_experiment_archived",
         "The experiment is archived.",
+    )
+
+
+def catalog_sample_set_mismatch() -> CatalogError:
+    return CatalogError(
+        409,
+        "catalog_sample_set_mismatch",
+        "The sample revision set does not match the experiment revision.",
+    )
+
+
+@dataclass(frozen=True)
+class ExperimentSnapshotBinding:
+    """Experiment revision id and payload digest frozen onto one snapshot or run."""
+
+    experiment_revision_id: str
+    payload_digest: str
+
+    def __post_init__(self) -> None:
+        if _EXPERIMENT_REVISION_ID.fullmatch(self.experiment_revision_id) is None:
+            raise ValueError("experiment_revision_id is invalid")
+        if _DIGEST.fullmatch(self.payload_digest) is None:
+            raise ValueError("payload_digest is invalid")
+
+
+@dataclass(frozen=True)
+class ExperimentRevisionFreezeSource:
+    """Read-only view used to decide whether a snapshot may freeze one revision."""
+
+    experiment_revision_id: str
+    project_id: str
+    project_active: bool
+    experiment_archived: bool
+    payload_digest: str
+    sample_revision_ids: tuple[str, ...]
+    association_matches_payload: bool
+
+
+class ExperimentRevisionFreezeLookup(Protocol):
+    """In-memory catalog view consulted inside the validation transaction."""
+
+    def experiment_revision_freeze_source(
+        self,
+        experiment_revision_id: str,
+    ) -> ExperimentRevisionFreezeSource | None: ...
+
+
+def sample_revision_sets_equal(
+    left: Sequence[str],
+    right: Sequence[str],
+) -> bool:
+    """True when both sides are non-empty, duplicate-free, and equal ignoring order."""
+
+    left_ids = tuple(left)
+    right_ids = tuple(right)
+    if not left_ids or not right_ids:
+        return False
+    if len(set(left_ids)) != len(left_ids) or len(set(right_ids)) != len(right_ids):
+        return False
+    return set(left_ids) == set(right_ids)
+
+
+def experiment_sample_pin_identity(
+    pin: ExperimentSamplePin,
+) -> tuple[int, str, str, str | None, str, str | None, str | None]:
+    """Ordinal, revision, digest, replicate group, and role stored on one pin."""
+
+    term = pin.replicate_role.term
+    return (
+        pin.ordinal,
+        pin.sample_revision_id,
+        pin.payload_digest,
+        pin.replicate_group,
+        pin.replicate_role.status,
+        None if term is None else term.term_id,
+        None if term is None else term.term_revision_id,
+    )
+
+
+def association_pins_match(
+    payload_pins: Sequence[
+        tuple[object, str, str, str | None, str, str | None, str | None]
+    ],
+    mirror_pins: Sequence[
+        tuple[object, str, str, str | None, str, str | None, str | None]
+    ],
+) -> bool:
+    """True when every mirror row is one canonical sample pin.
+
+    Each pin is ``(ordinal, sample_revision_id, payload_digest, replicate_group,
+    role_status, role_term_id, role_term_revision_id)``. Order is ignored. The
+    ordinal is compared as stored: a non-integer such as ``0.5`` does not match
+    canonical ``0``. A different ordinal, digest, replicate group, or role does
+    not match, nor do a missing pin, an extra pin, or a duplicate ordinal or
+    revision id.
+    """
+
+    payload = tuple(payload_pins)
+    mirror = tuple(mirror_pins)
+    if not payload or len(payload) != len(mirror):
+        return False
+    if any(type(item[0]) is not int for item in (*payload, *mirror)):
+        return False
+    if len(set(payload)) != len(payload) or len(set(mirror)) != len(mirror):
+        return False
+    payload_ordinals = {item[0] for item in payload}
+    mirror_ordinals = {item[0] for item in mirror}
+    payload_ids = {item[1] for item in payload}
+    mirror_ids = {item[1] for item in mirror}
+    if (
+        len(payload_ordinals) != len(payload)
+        or len(mirror_ordinals) != len(mirror)
+        or len(payload_ids) != len(payload)
+        or len(mirror_ids) != len(mirror)
+    ):
+        return False
+    return set(payload) == set(mirror)
+
+
+def freeze_experiment_snapshot_binding(
+    source: ExperimentRevisionFreezeSource | None,
+    *,
+    project_id: str,
+    sample_revision_ids: Sequence[str],
+) -> ExperimentSnapshotBinding:
+    """Freeze one experiment revision or fail without a partial binding.
+
+    Missing revisions, inactive projects, and cross-project ids are not found.
+    An archived experiment is rejected before the sample-set comparison. The
+    sample set is the canonical payload. The association mirror must match each
+    pin's ordinal, revision id, digest, replicate group, and role; a drifted
+    mirror is rejected before the request is compared. Equality ignores order
+    and fails closed on an empty side, a duplicate, a missing pin, an extra pin,
+    or the same sample at a different revision.
+    """
+
+    if (
+        source is None
+        or source.project_id != project_id
+        or not source.project_active
+        or _EXPERIMENT_REVISION_ID.fullmatch(source.experiment_revision_id) is None
+        or _DIGEST.fullmatch(source.payload_digest) is None
+    ):
+        raise catalog_not_found()
+    if source.experiment_archived:
+        raise catalog_experiment_archived()
+    if not source.association_matches_payload or not sample_revision_sets_equal(
+        source.sample_revision_ids,
+        sample_revision_ids,
+    ):
+        raise catalog_sample_set_mismatch()
+    return ExperimentSnapshotBinding(
+        experiment_revision_id=source.experiment_revision_id,
+        payload_digest=source.payload_digest,
     )
 
 

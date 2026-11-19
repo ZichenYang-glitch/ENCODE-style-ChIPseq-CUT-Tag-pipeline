@@ -5,6 +5,8 @@
  * Reproducible omics workflows, from inputs to evidence.
  * OpenAPI spec version: 0.4.1
  */
+import type { CatalogExperimentRunListResponseTraceStatus } from './catalogExperimentRunListResponseTraceStatus';
+import type { CatalogExperimentRunListResponseReason } from './catalogExperimentRunListResponseReason';
 import type { CatalogExperimentRunListResponseResultsItem } from './catalogExperimentRunListResponseResultsItem';
 import type { CatalogExperimentRunListResponseNextCursor } from './catalogExperimentRunListResponseNextCursor';
 
@@ -12,8 +14,8 @@ export interface CatalogExperimentRunListResponse {
   ok: true;
   project_id: string;
   experiment_revision_id: string;
-  trace_status: 'unresolved';
-  reason: 'experiment_snapshot_binding_absent';
+  trace_status: CatalogExperimentRunListResponseTraceStatus;
+  reason?: CatalogExperimentRunListResponseReason;
   results: CatalogExperimentRunListResponseResultsItem[];
   next_cursor: CatalogExperimentRunListResponseNextCursor;
 }
