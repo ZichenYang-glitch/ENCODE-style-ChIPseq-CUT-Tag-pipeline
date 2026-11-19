@@ -43,6 +43,12 @@ module.exports = {
               name: 'blobFetcher',
             },
           },
+          catalogDownloadRegisteredResultRevision: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
         },
       },
     },

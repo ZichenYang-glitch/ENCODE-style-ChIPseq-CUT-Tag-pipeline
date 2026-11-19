@@ -43,6 +43,7 @@ def test_audit_action_vocabulary_covers_only_current_and_auth_owned_actions() ->
         "account.sessions_revoke",
         "run.fail",
         "run.requeue",
+        "registered_result.download",
     }
 
 
@@ -76,6 +77,7 @@ def test_audit_actor_outcome_and_resource_vocabularies_are_closed() -> None:
         "artifact",
         "reference",
         "storage",
+        "registered_result",
     }
 
 
@@ -216,6 +218,31 @@ def test_audit_resource_factory_is_stable_domain_separated_and_non_disclosing() 
     assert "artifact-1" not in artifact.resource_id
 
 
+def test_registered_result_audit_resource_binds_project_result_and_revision() -> None:
+    project_id = "prj_" + "a" * 32
+    result_id = "rreg_" + "b" * 32
+    revision_id = "rrev_" + "c" * 32
+    resource = build_audit_resource(
+        AuditResourceKind.REGISTERED_RESULT,
+        project_id,
+        result_id,
+        revision_id,
+    )
+
+    assert resource.kind is AuditResourceKind.REGISTERED_RESULT
+    assert resource.resource_id.startswith("ares_registered_result_")
+    assert len(resource.resource_id) == len("ares_registered_result_") + 64
+    assert project_id not in resource.resource_id
+    assert result_id not in resource.resource_id
+    assert revision_id not in resource.resource_id
+    assert resource == build_audit_resource(
+        "registered_result",
+        project_id,
+        result_id,
+        revision_id,
+    )
+
+
 def test_account_audit_resource_requires_an_opaque_user_id() -> None:
     resource = build_audit_resource("account", USER_ID)
     assert resource.resource_id.startswith("ares_account_")
@@ -233,6 +260,11 @@ def test_account_audit_resource_requires_an_opaque_user_id() -> None:
         (AuditResourceKind.ARTIFACT, ("run-1", "../artifact")),
         (AuditResourceKind.REFERENCE, ("refp_ABC",)),
         (AuditResourceKind.STORAGE, ("stgp_123",)),
+        (AuditResourceKind.REGISTERED_RESULT, ("prj_" + "a" * 32,)),
+        (
+            AuditResourceKind.REGISTERED_RESULT,
+            ("prj_" + "a" * 32, "rreg_" + "b" * 32, "not-a-revision"),
+        ),
     ),
 )
 def test_audit_resource_factory_rejects_invalid_or_incomplete_coordinates(
@@ -312,3 +344,10 @@ def test_new_audit_event_id_is_random_and_path_safe() -> None:
     assert first != second
     assert first.startswith("aevt_")
     assert len(first) == 37
+
+
+def test_unknown_audit_resource_kind_is_rejected() -> None:
+    from encode_pipeline.platform.security_audit import _stable_resource_identities
+
+    with pytest.raises(ValueError, match="audit resource kind is invalid"):
+        _stable_resource_identities(object(), ())  # type: ignore[arg-type]

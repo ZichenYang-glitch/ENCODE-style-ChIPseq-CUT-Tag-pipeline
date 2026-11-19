@@ -2104,7 +2104,8 @@ class SecurityAuditEventRow(Base):
             "'reference.enable', 'reference.disable', 'storage.register', "
             "'storage.archive', 'account.create', 'account.enable', "
             "'account.disable', 'account.password_reset', "
-            "'account.sessions_revoke')",
+            "'account.sessions_revoke', 'run.fail', 'run.requeue', "
+            "'registered_result.download')",
             name="ck_security_audit_events_action",
         ),
         CheckConstraint(
@@ -2122,7 +2123,8 @@ class SecurityAuditEventRow(Base):
         ),
         CheckConstraint(
             "resource_kind IS NULL OR resource_kind IN "
-            "('account', 'run', 'artifact', 'reference', 'storage')",
+            "('account', 'run', 'artifact', 'reference', 'storage', "
+            "'registered_result')",
             name="ck_security_audit_events_resource_kind",
         ),
         CheckConstraint(
@@ -3017,6 +3019,245 @@ class RunExperimentBindingRow(Base):
     run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
     payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RegisteredResultRow(Base):
+    """One logical external or downstream result series inside a Project."""
+
+    __tablename__ = "registered_results"
+    __table_args__ = (
+        CheckConstraint(
+            "length(result_id) = 37 AND substr(result_id, 1, 5) = 'rreg_'",
+            name="ck_registered_results_id",
+        ),
+        CheckConstraint(
+            "length(project_id) = 36 AND substr(project_id, 1, 4) = 'prj_'",
+            name="ck_registered_results_project",
+        ),
+        CheckConstraint(
+            "length(stable_key) BETWEEN 1 AND 255",
+            name="ck_registered_results_stable_key",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_registered_results_archive_order",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_registered_results_project",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "stable_key",
+            name="uq_registered_results_project_stable_key",
+        ),
+    )
+
+    result_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    stable_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RegisteredResultRevisionRow(Base):
+    """Immutable description, parent pins, and private byte coordinates."""
+
+    __tablename__ = "registered_result_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(result_revision_id) = 37 AND "
+            "substr(result_revision_id, 1, 5) = 'rrev_'",
+            name="ck_registered_result_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_registered_result_revisions_number",
+        ),
+        CheckConstraint(
+            "digest_scheme = 'sha256-framed-registered-result-revision-v1'",
+            name="ck_registered_result_revisions_scheme",
+        ),
+        CheckConstraint(
+            "length(revision_digest) = 64 AND revision_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_registered_result_revisions_digest",
+        ),
+        CheckConstraint(
+            "length(content_sha256) = 64 AND content_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="ck_registered_result_revisions_content_sha256",
+        ),
+        CheckConstraint(
+            "size_bytes >= 0",
+            name="ck_registered_result_revisions_size",
+        ),
+        CheckConstraint(
+            "length(storage_pool_id) = 37 AND substr(storage_pool_id, 1, 5) = 'stgp_'",
+            name="ck_registered_result_revisions_pool",
+        ),
+        CheckConstraint(
+            "length(relative_path) BETWEEN 1 AND 4096",
+            name="ck_registered_result_revisions_path",
+        ),
+        ForeignKeyConstraint(
+            ["result_id"],
+            ["registered_results.result_id"],
+            name="fk_registered_result_revisions_result",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["storage_pool_id"],
+            ["storage_pools.storage_pool_id"],
+            name="fk_registered_result_revisions_pool",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "result_id",
+            "revision_number",
+            name="uq_registered_result_revisions_number",
+        ),
+    )
+
+    result_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    result_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    canonical_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    digest_scheme: Mapped[str] = mapped_column(String(80), nullable=False)
+    revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    storage_pool_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RegisteredResultRevisionHeadRow(Base):
+    """The current revision of one registered result."""
+
+    __tablename__ = "registered_result_revision_heads"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_registered_result_revision_heads_number",
+        ),
+        ForeignKeyConstraint(
+            ["result_id"],
+            ["registered_results.result_id"],
+            name="fk_registered_result_revision_heads_result",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["result_revision_id"],
+            ["registered_result_revisions.result_revision_id"],
+            name="fk_registered_result_revision_heads_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "result_revision_id",
+            name="uq_registered_result_revision_heads_revision",
+        ),
+    )
+
+    result_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    result_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class RegisteredResultParentRow(Base):
+    """Ordered parent pins. They mirror the revision payload and cannot drift."""
+
+    __tablename__ = "registered_result_parents"
+    __table_args__ = (
+        CheckConstraint(
+            "ordinal >= 0",
+            name="ck_registered_result_parents_ordinal",
+        ),
+        CheckConstraint(
+            "length(parent_revision_digest) = 64 AND "
+            "parent_revision_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_registered_result_parents_digest",
+        ),
+        CheckConstraint(
+            "length(role) BETWEEN 1 AND 64",
+            name="ck_registered_result_parents_role",
+        ),
+        ForeignKeyConstraint(
+            ["child_result_revision_id"],
+            ["registered_result_revisions.result_revision_id"],
+            name="fk_registered_result_parents_child",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["parent_result_revision_id"],
+            ["registered_result_revisions.result_revision_id"],
+            name="fk_registered_result_parents_parent",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "child_result_revision_id",
+            "parent_result_revision_id",
+            name="uq_registered_result_parents_parent",
+        ),
+        Index(
+            "ix_registered_result_parents_parent",
+            "parent_result_revision_id",
+            "child_result_revision_id",
+        ),
+    )
+
+    child_result_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    parent_result_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    parent_revision_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RegisteredResultWriteReceiptRow(Base):
+    """One administrator idempotency receipt for a registered-result write."""
+
+    __tablename__ = "registered_result_write_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="ck_registered_result_write_receipts_digest",
+        ),
+        CheckConstraint(
+            "length(idempotency_key) BETWEEN 1 AND 128",
+            name="ck_registered_result_write_receipts_key",
+        ),
+        ForeignKeyConstraint(
+            ["actor_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_registered_result_write_receipts_actor",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["result_id"],
+            ["registered_results.result_id"],
+            name="fk_registered_result_write_receipts_result",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["result_revision_id"],
+            ["registered_result_revisions.result_revision_id"],
+            name="fk_registered_result_write_receipts_revision",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    actor_user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    result_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
 
 
 class CatalogCurationVersionRow(Base):
