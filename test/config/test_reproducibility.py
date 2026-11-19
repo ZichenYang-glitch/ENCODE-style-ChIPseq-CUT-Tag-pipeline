@@ -276,11 +276,17 @@ def test_reproducibility_idr_modes_require_replicate_analysis(tmp_path, flag, pa
     "flag", ["chipseq_broad_experimental", "cuttag_broad_experimental"]
 )
 def test_experimental_broad_idr_flags_emit_warning(tmp_path, flag):
-    with pytest.warns(UserWarning, match="Experimental IDR flag enabled"):
+    with pytest.warns(UserWarning, match="Experimental IDR flag enabled") as caught:
         validated = _validate(
             tmp_path,
             reproducibility={"enabled": True, "idr": {flag: True}},
         )
+    message = str(caught[0].message)
+    assert f"{flag}=true" in message
+    assert (
+        "eligible broad-peak experiments, IDR supplies the primary result in final/"
+        in message
+    )
     assert validated["reproducibility"]["idr"][flag] is True
 
 

@@ -228,8 +228,8 @@ genome_resources:
 - When `blacklist_mode: off`:
   Blacklist filtering is disabled; unconfigured or unused blacklist resources are not required or validated.
 
-`final.bam` may retain duplicates according to the duplicate policy.
-Default CPM coverage uses that final BAM in
+Default CPM coverage uses `<sample>.analysis.bam` with the run's resolved
+duplicate and blacklist policies in
 [`common.smk`](../workflow/rules/common.smk); MACS3 FE/ppois tracks use MACS3
 pileup/background bedGraphs, not the optional blacklist copies. See
 [QC interpretation](qc-interpretation.md#frip-fraction-of-reads-in-peaks) for

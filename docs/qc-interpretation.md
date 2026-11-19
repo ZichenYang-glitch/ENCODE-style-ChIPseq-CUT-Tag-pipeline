@@ -161,13 +161,11 @@ selected BAM. Records overlapping multiple peaks count once; an empty BAM gives
 `NA`. The script does not shift or extend reads and does not add further flag
 filters to the selected BAM.
 
-[`_frip_inputs` in qc.smk](../workflow/rules/qc.smk) selects both the
-blacklist-filtered BAM and filtered peaks when `qc.blacklist_filter` is enabled
-and the treatment sample has a blacklist resource. Otherwise it selects
-`final.bam` and the raw peak directory. This decision establishes producer
-dependencies in the DAG; it is not a fallback based on whether a file already
-exists. Raw and filtered products coexist. `final.bam` is duplicate-processed
-according to the configured strategy, not necessarily deduplicated.
+[`_frip_inputs` in qc.smk](../workflow/rules/qc.smk) uses
+`<sample>.analysis.bam` in every blacklist mode. In `analysis` mode it
+pairs that BAM with the blacklist-filtered peak file. In `copies` and `off`
+modes it uses the primary MACS3 peaks. The run's analysis policy determines
+which alignments enter the BAM and therefore the FRiP denominator.
 `peak_counts` counts raw and, conditionally, filtered peak files; it does not
 consume a filtered BAM. In `blacklist_mode: analysis`, the `peaks` column is
 the delivered (filtered) count and `blacklist_filtered_peaks` carries the same
@@ -210,7 +208,7 @@ functionality, not a planned conversion.
 These MACS3 tracks consume its treatment-pileup and control-lambda bedGraphs
 ([`qc.smk`](../workflow/rules/qc.smk)), produced from the peak-calling inputs.
 They do not consume the blacklist-filtered QC copies. The separate default CPM
-coverage track uses `final.bam` via `bamcoverage` in
+coverage track uses `<sample>.analysis.bam` via `bamcoverage` in
 [`common.smk`](../workflow/rules/common.smk); the normalization option is
 configurable. Neither branch globally replaces its signal input with the
 blacklist-filtered BAM. File generation alone does not establish platform

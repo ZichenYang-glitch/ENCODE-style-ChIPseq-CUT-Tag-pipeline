@@ -256,10 +256,10 @@ PE mode: no read extension. Fragment pairs are the biological unit for MNase-seq
 
 | Output | Rule | Tool | Input |
 | :--- | :--- | :--- | :--- |
-| `03_fragments/<s>.sub.bam` | `mnase_split_sub` | `alignmentSieve` | `final.bam` |
-| `03_fragments/<s>.mono.bam` | `mnase_split_mono` | `alignmentSieve` | `final.bam` |
-| `03_fragments/<s>.di.bam` | `mnase_split_di` | `alignmentSieve` | `final.bam` |
-| `04_signal/<s>.dyad.CPM.bw` | `mnase_dyad_bigwig` | `bamCoverage --MNase --binSize 1` | `final.bam` |
+| `03_fragments/<s>.sub.bam` | `mnase_split_sub` | `alignmentSieve` | `analysis.bam` |
+| `03_fragments/<s>.mono.bam` | `mnase_split_mono` | `alignmentSieve` | `analysis.bam` |
+| `03_fragments/<s>.di.bam` | `mnase_split_di` | `alignmentSieve` | `analysis.bam` |
+| `04_signal/<s>.dyad.CPM.bw` | `mnase_dyad_bigwig` | `bamCoverage --MNase --binSize 1` | `analysis.bam` |
 | `04_signal/<s>.mono.CPM.bw` | `mnase_mono_bigwig` | `bamCoverage` | `mono.bam` |
 
 Fragment ranges default to sub [1,139], mono [140,200], di [300,400].
