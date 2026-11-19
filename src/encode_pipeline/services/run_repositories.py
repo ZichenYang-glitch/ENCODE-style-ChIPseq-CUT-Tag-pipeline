@@ -946,39 +946,10 @@ class InMemoryRunRepository:
                 )
                 if summary.project_id != project_id:
                     continue
-                binding = summary.run_sample_binding
                 rows.append(
                     (
                         summary.published_at.astimezone(timezone.utc),
-                        {
-                            "run_id": summary.run_id,
-                            "provenance": binding.provenance.value,
-                            "publication_evidence": "present",
-                            "artifact_association_kind": "run_input_scope",
-                            "workflow_id": summary.workflow_id,
-                            "artifact_id": summary.artifact_id,
-                            "output_type": summary.output_type,
-                            "artifact_generation": summary.artifact_generation,
-                            "artifact_revision": summary.artifact_revision,
-                            "published_at": _trace_stamp(summary.published_at),
-                            "current_artifact_generation": (
-                                summary.current_artifact_generation
-                            ),
-                            "generation_status": summary.generation_status,
-                            "run_sample_binding": {
-                                "binding_mode": binding.binding_mode.value,
-                                "provenance": binding.provenance.value,
-                                "associated_run_samples": [
-                                    {
-                                        "sample_id": sample.sample_id,
-                                        "sample_revision_id": sample.sample_revision_id,
-                                        "revision_number": sample.revision_number,
-                                        "ordinal": sample.ordinal,
-                                    }
-                                    for sample in binding.associated_run_samples
-                                ],
-                            },
-                        },
+                        _publication_trace_row(summary),
                     )
                 )
             rows.sort(
@@ -991,6 +962,46 @@ class InMemoryRunRepository:
                 reverse=True,
             )
             return [item[1] for item in rows]
+
+    def publication_experiment_trace(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> dict[str, Any] | None:
+        """Return one publication row and the run's copied experiment binding."""
+
+        validate_artifact_generation(artifact_generation)
+        with self._lock:
+            try:
+                publication = self._artifact_publications[
+                    (run_id, artifact_id, artifact_generation)
+                ]
+            except KeyError:
+                return None
+            summary = _in_memory_artifact_publication_summary(
+                publication,
+                runs=self._runs,
+                bindings=self._run_data_bindings,
+                data_registry_repository=self._data_registry_repository,
+                result_states=self._result_states,
+            )
+            if (
+                summary.project_id != project_id
+                or summary.artifact_id != artifact_id
+                or summary.artifact_generation != artifact_generation
+            ):
+                return None
+            binding = self._run_experiment_bindings.get(run_id)
+            return {
+                "result": _publication_trace_row(summary),
+                "experiment_revision_id": (
+                    None if binding is None else binding.experiment_revision_id
+                ),
+                "payload_digest": None if binding is None else binding.payload_digest,
+            }
 
     def consume_validated_input_snapshot(
         self,
@@ -2994,6 +3005,39 @@ def _trace_stamp(value: datetime) -> str:
     if text_value.endswith(".000000+00:00"):
         text_value = text_value.replace(".000000+00:00", "+00:00")
     return text_value.replace("+00:00", "Z")
+
+
+def _publication_trace_row(summary: ArtifactPublicationSummary) -> dict[str, Any]:
+    """One published trace row. The samples are the run's input scope."""
+
+    binding = summary.run_sample_binding
+    return {
+        "run_id": summary.run_id,
+        "provenance": binding.provenance.value,
+        "publication_evidence": "present",
+        "artifact_association_kind": "run_input_scope",
+        "workflow_id": summary.workflow_id,
+        "artifact_id": summary.artifact_id,
+        "output_type": summary.output_type,
+        "artifact_generation": summary.artifact_generation,
+        "artifact_revision": summary.artifact_revision,
+        "published_at": _trace_stamp(summary.published_at),
+        "current_artifact_generation": summary.current_artifact_generation,
+        "generation_status": summary.generation_status,
+        "run_sample_binding": {
+            "binding_mode": binding.binding_mode.value,
+            "provenance": binding.provenance.value,
+            "associated_run_samples": [
+                {
+                    "sample_id": sample.sample_id,
+                    "sample_revision_id": sample.sample_revision_id,
+                    "revision_number": sample.revision_number,
+                    "ordinal": sample.ordinal,
+                }
+                for sample in binding.associated_run_samples
+            ],
+        },
+    }
 
 
 def canonical_decimal_text(value: Decimal) -> str:

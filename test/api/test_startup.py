@@ -270,6 +270,8 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
             "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
             "/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/reject",
             "/api/v1/agent/authoring-sessions/{sid}/validate",
+            # Blocking catalog, run, publication, and QC reads, same as artifact detail.
+            "/api/v1/agent/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/context",
         }:
             assert not inspect.iscoroutinefunction(endpoint), endpoint
         else:
