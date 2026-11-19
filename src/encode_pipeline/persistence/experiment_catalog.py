@@ -1146,7 +1146,11 @@ class SqlAlchemyExperimentCatalogRepository:
         sample_revision_id_factory,
         receipt_id_factory,
     ) -> dict[str, Any]:
-        from encode_pipeline.persistence.catalog_proposal_store import adopt_proposal
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            AdoptionConflict,
+            adopt_proposal,
+            resolve_adoption_conflict,
+        )
 
         write = bind_catalog_target(write, proposal_id)
 
@@ -1163,7 +1167,11 @@ class SqlAlchemyExperimentCatalogRepository:
                 receipt_id_factory=receipt_id_factory,
             )
 
-        return self._write(write, apply)
+        try:
+            return self._write(write, apply)
+        except AdoptionConflict:
+            with self._session_factory() as session:
+                return resolve_adoption_conflict(session, write, proposal_id)
 
     def list_adoption_receipts(
         self,
