@@ -133,7 +133,9 @@ remains owned by Snakemake; see the
 
 The Agent may interpret structured schemas, issues, run state, logs, artifacts,
 and QC through platform services. It may explain or propose next steps, but it
-must not submit, start, cancel, mutate, or delete runs.
+must not submit, start, cancel, mutate, or delete runs. The human confirmation
+and retry boundaries for those existing run routes are recorded in the
+[agent run operation boundaries](agent-run-operation-boundaries.md).
 
 Agent explanations are not provenance. Context construction applies the same
 redaction and path rules as public APIs, and unsupported operations fail closed.
