@@ -14,7 +14,7 @@ schema、技能或运行配置。
 | --- | --- |
 | [发布清单](../../RELEASE_CHECKLIST.md) | 从干净提交做出 v0.4.0 / v0.4.1 安装包、离线 bundle、schema 08 到 15 的升级说明，以及受权主机窗口的命令边界 |
 | [本地试用清单](../local-trial-checklist.md) | 精确 v0.4.0 标签在一台 Linux x86_64 systemd 或启用 systemd 的 WSL2 上的试用步骤 |
-| [v0.4.0 候选证据](../release-checks/v0.4.0-release-candidate.md) | 日期提交之前的候选包、两次独立安装和 schema 08 到 15 的迁移记录；文中写明当时尚未取得真实主机部署验收 |
+| [v0.4.0 候选证据](../release-checks/v0.4.0-release-candidate.md) | 日期提交之前的候选包、两次独立安装和 schema 08 到 15 的迁移记录。该记录写明当时尚未取得真实主机部署验收；最终发布说明随后确认主机验收已经完成 |
 | [部署与运行时决定](../architecture/supported-deployment-runtime-decision.md) | 唯一支持拓扑：一台主机、systemd、SQLite、文件存储、独立 ENCODE 与 Bulk 运行时；升级、回滚和备份顺序 |
 | [本地运行说明](local-platform-runtime.md) | v0.3.0 `20260717_08` 升到 v0.4.0 `20260827_15` 的备份与迁移步骤 |
 | [Peri 运行资格](peri-runtime-qualification/README.md) | 固定 binary 在受限 A1/C4 运行时内被接受 |
@@ -30,8 +30,9 @@ PostgreSQL、对象存储、多机执行和第二套 Viewer 继续留在
 
 ### 已有证据
 
-已发布且可下载的正式资产只有两套，均含 wheel、sdist 和只覆盖这两个文件的
-`SHA256SUMS`：
+下表只列 v0.4.x。每一版含 wheel、sdist 和只覆盖这两个文件的
+`SHA256SUMS`。[v0.3.0](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/releases/tag/v0.3.0)
+同样提供这三件可下载资产，并且是 schema `20260717_08` 迁移验证的来源；它不列入本表。
 
 | 发布 | 提交 | wheel SHA-256 | sdist SHA-256 |
 | --- | --- | --- | --- |
@@ -45,8 +46,12 @@ wheel 或 sdist，也没有安装。v0.4.0 候选记录里的日期前校验和�
 v0.4.1 发布说明写明该补丁不改变数据库 schema。v0.4.1 提交是当前基线的祖先。
 基线仍把 `encode_pipeline.__version__` 和 API 版本写成 `0.4.1`，但迁移清单
 `src/encode_pipeline/persistence/migration-execution-inventory-1.0.0.json`
-的 head 已是 `20261119_18`，清单 SHA-256 为
+的 `heads` 已是 `20261119_18`。文件内的 `inventory_sha256` 字段是
 `c7de12f1710199bac0c76ca82ec7b0fc2b61da16f304818006f4d9bed503a790`。
+在基线 `852202096db519a5e6ffdb39418fdb14e371887e` 上对这个文件运行
+`sha256sum` 得到
+`0db0fe7c9aaadd667e6661d84f56d34dae6964a2894f2a8109e7d5bc11d9b19a`。
+这两个值不是同一个对象。本说明的文档提交不改该文件。
 v0.4.1 之后才进入主干的修订是 `20261110_16`、`20261118_17` 和
 `20261119_18`。因此已发布的 v0.4.1 安装包不是这份基线的可恢复构建。
 
@@ -57,10 +62,22 @@ v0.4.1 之后才进入主干的修订是 `20261110_16`、`20261118_17` 和
 - 新 writer 启动之前，可以用迁移前的已校验 SQLite 备份恢复。新 writer 启动是
   既有决定中的 point of no return，之后不把备份恢复写成无损降级。
 
-v0.4.0 候选证据记录了该候选自己的两次检出外安装，以及用已发布 v0.3.0 wheel
-造出的 schema 08 记录迁到 `20260827_15` 后行仍保留、备份字节不变。仓库里没有
-把同一次主机窗口写成已执行的回执。发布清单要求的 `status`、`doctor`、
-`verify`、同 schema 升级回滚和 ENCODE 运行时切换，仍是待授权主机窗口的动作。
+[v0.4.0 候选证据](../release-checks/v0.4.0-release-candidate.md) 停在日期提交之前：
+它记录了该候选自己的两次检出外安装，以及用已发布 v0.3.0 wheel 造出的 schema 08
+记录迁到 `20260827_15` 后行仍保留、备份字节不变，并写明当时尚未取得真实主机
+部署验收。
+
+[v0.4.0 最终发布说明](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/releases/tag/v0.4.0)
+把随后完成的主机验收记为 v0.4.0 的历史证据。正式 wheel 与由 sdist 重建的
+wheel 都从注释标签 `v0.4.0`（提交
+`ba29c256d782d60ec4ad3e2d8c2fadddc11aae8c`，树
+`f5977e51fa35875a327837ecf24bd7513a9dccdf`）独立干净安装通过。systemd 主机
+验过部署与服务身份、数据保留、兼容的平台回滚和独立的 ENCODE 回滚，以及说明中的
+数据库迁移与拒绝边界。这些结论属于 v0.4.0，不延伸到当前基线。同一说明写明组合
+Gate `34338297346` 的实测 HEAD 是
+`539cd0be3f8bf931c8b87d9fe1d65af1324b4d04`，发布提交没有重跑该 Protected Gate。
+
+待授权的主机窗口只属于未来的服务器候选。v0.4.0 这次已完成的验收不充当该窗口。
 
 ### 待测
 
@@ -69,22 +86,27 @@ v0.4.0 候选证据记录了该候选自己的两次检出外安装，以及用�
 1. 选定一个干净的精确提交。它的包版本、API 版本、前端版本和迁移清单 head
    必须是同一身份。当前基线版本串仍是 `0.4.1`、head 已是 `20261119_18`，
    所以它还不是该候选。
-2. 按发布清单从该提交重新构建 wheel 与 sdist，再从新下载的 `SHA256SUMS`
-   做 `sha256sum --check`。
-3. 在两个全新的 Python 3.12 环境里分别安装发布 wheel，以及由 sdist 重新
-   打出的 wheel。两次都做 `pip check`、版本与 CLI、打包前端和一份新 SQLite
-   库，并确认新库停在该候选自己的 head。
+2. 候选构建时记录该次 wheel 与 sdist 的产物摘要，并用这两份本地产物完成后面的
+   安装核对。尚未获准上传时到此即可，不要求已发布的 `SHA256SUMS`。获准上传之后，
+   用该次发布附带的 `SHA256SUMS` 对重新下载的 wheel 和 sdist 执行
+   `sha256sum --check`，确认下载文件与上传时记录的摘要一致。
+3. 在两个全新的 Python 3.12 环境里分别安装该候选的 wheel，以及由该候选 sdist
+   重新打出的 wheel。尚未上传时用第 2 步记录的本地产物；上传之后用
+   `SHA256SUMS` 核对过的重新下载文件。两次都做 `pip check`、版本与 CLI、打包
+   前端和一份新 SQLite 库，并确认新库停在该候选自己的 head。
 4. 从该候选实际承认的上一发布 schema 做一次备份、迁移、point of no return
    之前的恢复，以及新 writer 启动后对旧 schema 的失败关闭。回滚只在声明了
    同一 head 的 bundle 之间证明。
-5. 一次受权主机窗口：安装、`status` / `doctor` / `verify`、一次同 schema
-   平台升级与回滚。发布清单已经排除全量故障注入、第二台主机、浸泡和压测。
+5. 对这个未来的服务器候选另做一次受权主机窗口：安装、`status` / `doctor` /
+   `verify`、一次同 schema 平台升级与回滚。v0.4.0 已经完成的主机验收不算这次
+   窗口。发布清单已经排除全量故障注入、第二台主机、浸泡和压测。
 
 ### 验收条件
 
-服务器或共享试用只安装满足上一节五项的候选。已发布的 v0.4.0 或 v0.4.1
-资产可以继续服务它们自己的 schema 15 部署；把它们装上当前主干所在的机器，
-不能当作当前目录、作者草稿或实验绑定已经随包交付。
+服务器或共享试用安装的是已经获准上传、并用该次 `SHA256SUMS` 核对过重新下载
+文件的候选。上传之前，第 2 步的本地产物摘要足够完成安装核对。已发布的
+v0.4.0 或 v0.4.1 资产可以继续服务它们自己的 schema 15 部署；把它们装上当前
+主干所在的机器，不能当作当前目录、作者草稿或实验绑定已经随包交付。
 
 ## Peri 资格
 
@@ -242,8 +264,10 @@ python3 -c 'import pathlib,re; text=pathlib.Path("src/encode_pipeline/__init__.p
 
 两条 `merge-base --is-ancestor` 在该基线上的退出码都是 1。版本命令读取
 `src/encode_pipeline/__init__.py`，打印 `0.4.1`，不要求已安装的包。迁移
-head 以清单文件的 `heads` 为准，当前为 `20261119_18`。发布校验和用对应 Release 的 `SHA256SUMS` 复核；本轮没有
-把 wheel 装进环境。
+head 以清单文件的 `heads` 为准，当前为 `20261119_18`。文件内字段
+`inventory_sha256` 与对文件本身的 `sha256sum` 是两个值，见上文。已发布的
+v0.4.x 用对应 Release 的 `SHA256SUMS` 复核重新下载的资产；尚未上传的候选用
+构建时记录的产物摘要。本轮没有把 wheel 装进环境。
 
 文档链接用 `test/docs/test_internal_links.py` 检查。该测试不安装产品、
 不迁移数据库，也不接触服务器。
