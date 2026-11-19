@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import WithJsonSchema
+from starlette.concurrency import run_in_threadpool
 
 from encode_pipeline.api.catalog_models import (
     CatalogArchiveExperimentResponse,
@@ -717,11 +718,12 @@ async def get_publication_experiment_trace(
     ``run_input_scope``.
     """
 
-    return JSONResponse(
-        content=service.get_publication_experiment_trace(
-            project_id=project_id,
-            run_id=run_id,
-            artifact_id=artifact_id,
-            artifact_generation=generation,
-        )
+    # This repository call opens SQLite. Keep it off the event loop.
+    content = await run_in_threadpool(
+        service.get_publication_experiment_trace,
+        project_id=project_id,
+        run_id=run_id,
+        artifact_id=artifact_id,
+        artifact_generation=generation,
     )
+    return JSONResponse(content=content)
