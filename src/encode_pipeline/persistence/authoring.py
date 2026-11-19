@@ -459,6 +459,17 @@ class SqlAlchemyAuthoringRepository:
             self._hook()
             return ConnectionClaim(_session_record(row), False, token)
 
+    def require_ready_connection(
+        self, actor: AuthoringActor, sid: str, *, owner_epoch: str
+    ) -> AuthoringSessionRecord:
+        with self._session_factory.begin() as session:
+            _begin_write(session)
+            now = self._now()
+            row = self._owned(session, actor, sid, now, allow_expired=False)
+            self._require_ready(session, row, actor, owner_epoch, now)
+            self._hook()
+            return _session_record(row)
+
     def mark_connection_ready(
         self,
         actor: AuthoringActor,

@@ -1,0 +1,91 @@
+"""Opt-in browser acceptance against the real app and an isolated Peri fixture."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import socket
+import subprocess
+from threading import Thread
+from time import monotonic, sleep
+
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+import uvicorn
+
+from encode_pipeline.persistence.models import RunExecutionAssignmentRow, RunRow
+from test_peri_run_actions import (
+    WORKFLOW,
+    acknowledge_stop,
+    peri_case,  # noqa: F401 - pytest discovers the shared fixture here
+    seed_run,
+)
+
+
+def test_peri_run_actions_in_chromium(peri_case, repo_root):  # noqa: F811
+    client, sid, project_id, _, stop = peri_case
+    app = client.app
+    run_a, assignment = seed_run(client, running=True)
+    run_b, _ = seed_run(client)
+    frontend = Path(repo_root) / "frontend"
+    dist = frontend / "dist"
+    assert (dist / "index.html").is_file(), "Build frontend before running this test."
+    app.mount("/assets", StaticFiles(directory=dist / "assets"))
+
+    @app.get("/workflows/{path:path}")
+    async def frontend_page():
+        return FileResponse(dist / "index.html")
+
+    @app.post("/fixture/acknowledge-stop")
+    def acknowledge():
+        acknowledge_stop(client, assignment)
+
+    policy = app.state.auth_cookie_policy
+    session_token, csrf_token = app.state.test_auth_tokens
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        server = uvicorn.Server(
+            uvicorn.Config(app, log_level="warning", loop="asyncio")
+        )
+        thread = Thread(target=server.run, kwargs={"sockets": [listener]})
+        thread.start()
+        try:
+            deadline = monotonic() + 10
+            while not server.started and thread.is_alive() and monotonic() < deadline:
+                sleep(0.02)
+            assert server.started, "Acceptance HTTP server did not start"
+            result = subprocess.run(
+                ["node", str(frontend / "e2e/peri-run-actions.acceptance.mjs")],
+                cwd=frontend,
+                input=json.dumps(
+                    {
+                        "url": url,
+                        "workflow": WORKFLOW,
+                        "sid": sid,
+                        "projectId": project_id,
+                        "runA": run_a,
+                        "runB": run_b,
+                        "session": [policy.session_cookie.name, session_token],
+                        "csrf": [policy.csrf_cookie.name, csrf_token],
+                    }
+                ),
+                text=True,
+                capture_output=True,
+                timeout=65,
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert stop.run_ids == [run_a]
+            with Session(app.state.persistence.engine) as db:
+                assert len(db.scalars(select(RunRow)).all()) == 3
+                assert db.scalars(select(RunExecutionAssignmentRow.run_id)).all() == [
+                    run_a
+                ]
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+            assert not thread.is_alive(), "Acceptance HTTP server did not stop"

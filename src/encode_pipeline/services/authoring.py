@@ -555,6 +555,24 @@ class AuthoringService:
             raise AuthoringRejected(ADMISSION_FAILED) from error
         return self._session_view(actor, record)
 
+    def require_run_action_connection(
+        self, actor: AuthoringActor, sid: str
+    ) -> AuthoringSessionRecord:
+        epoch = _safe_epoch(self._bridge)
+        if epoch is None:
+            raise AuthoringRejected(BRIDGE_UNAVAILABLE)
+        current = self._repository.require_ready_connection(
+            actor, sid, owner_epoch=epoch
+        )
+        schema, projection, _ = self._identity(current.workflow_id)
+        if (
+            projection is None
+            or schema != current.schema_digest
+            or projection != current.projection_digest
+        ):
+            raise AuthoringRejected(CAPABILITY_CHANGED)
+        return current
+
     def close_connection(self, actor: AuthoringActor, sid: str) -> SessionView:
         before = self._repository.get_session(actor, sid)
         closed = self._repository.close_connection(
