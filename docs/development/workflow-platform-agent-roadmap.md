@@ -1,6 +1,66 @@
 # HelixWeave Product Roadmap
 
-## 当前入口：2026-11-16T08:22:10Z
+## 2026-11-19 当前进度
+
+以下按主干 `6e29d2d` 核对。合入状态和部署到具体机器的状态分别记录。
+
+| 方向 | 主干交付 | 下一次验收 |
+| --- | --- | --- |
+| WashU | 独立同源页面内可以选择、加载和移除当前运行的轨道。[#222](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/222)、[#237](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/237)。早期草案 [#227](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/227) 的验收用例已纳入实现契约。 | 与目录网页合成同一份前端包后，从实验入口打开实际选中的轨道。 |
+| Peri 与 adapter | 运行时会话已分离，离线建议传输和 Hi-TrAC mapq 的 adapter 审阅已合入。[#223](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/223)、[#232](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/232)、[#234](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/234) | 已保存草稿的实验校验入口待真实用户试用。[#242](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/242)。供应商外发及 Agent 写操作先审设计。 |
+| 实验目录 | M0、目录基础、验证快照绑定及历史列表两种视图已合入。[#224](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/224)、[#225](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/225)、[#236](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/236)、[#241](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/241)。目录 CLI 可只读预览分类导入。[#230](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/230) | 目录网页、分类建议预览与采用、按结果反查分别验收。[#235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)、[#229](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/229)、[#240](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/240)、[#243](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/243) |
+| 存储与科学结果 | 外部结果登记读取契约、单份结果恢复演练、三种工作流的科学验收证据台账已合入。[#228](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/228)、[#233](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/233)、[#231](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/231) | 合成环境验证迁盘后旧链接读取、外部结果按版本下载及组合前端。[#238](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/238)、[#239](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/239)。实验室归档 SOP 见 [#244](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/244)。 |
+
+**下一阶段设计。** Agent 创建与取消运行见 [#245](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/245)，本地试用到服务器发布的差距见 [#246](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/246)，Peri 首次获准外发见 [#247](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/247)，外部 Hi-C／单细胞查看候选见 [#248](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/248)。11_17 的试用单由 IRENE-34 准备，实际样本和同事的试用反馈是另一步。涉及供应商、预算、允许外发的字段和正式部署的选择留给项目负责人。
+
+架构解耦的后续范围见下文「P1b 后续维护」。各里程碑以其主干实现和验收证据分别收口。
+
+## 快照：2026-11-17T08:13:19Z
+
+2026-11-16T08:22:10Z 及更早快照保留在后文，不倒写。
+本次查询 origin/main 为 `ff3f7d981592a844750dba502f980a356becc874`，
+即 [#220](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/220)
+的普通 merge。父提交是 roadmap 合入 `b21d941…` 与 #220 head `a299db9…`。
+本文件将由新的文档 Draft 交付，不写回本提交 SHA。根工作区未提交的 roadmap 未搬入。
+
+已合入且不再是当前阻塞：
+
+- A1 在 `1b1db4…`。Gate 与 C4 的实际运行 SHA 仍以 08:22:10Z 入口为准，不改写成在后续 SHA 上新跑。
+- Viewer 在 `2a6c22a…`，批准 head `04e5075…`。
+- roadmap 文档在 `b21d941…`。
+- #220 合入后的 push attempt 1 全部 success：
+  [CI 44039567042](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567042)、
+  [Lint 44039567053](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567053)、
+  [Lock Check 44039567123](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/actions/runs/44039567123)。
+  coverage job `133900520618` success，完整覆盖率门槛通过。
+  四个条件执行 job 为 skipped，不是执行通过。没有派发新的 Bulk Gate。
+
+下一轮分工。下面未列出的实现都还没开始。ACP 兼容不是自动获得工具、外发或运行资格。
+新增目录整理的管理员规则不改变已有 A1 草稿采用权限。
+
+| 会话 | 范围 | 状态 |
+| --- | --- | --- |
+| `HW-Agent-P1-Boundary` | 先做 P1a runtime 边界 | 尚未实施 |
+| P1b | ENCODE authoring 投影与窄 repository 接口 | 后续单独收口，不并进 P1a |
+| P2 | 真实外部模型 API。依赖稳定接点和明确 provider 配置 | 设计与实施尚未开始。不要求本地模型 |
+| `HW-Viewer-V2-Isolation` | 独立构建、同源嵌入与全页 | 尚未实施 |
+| Frontend | 配合 Viewer | 不新开重叠实现 |
+| Science | 无新增任务 | 不启动新确认批次 |
+| 数据目录 M0/M1、AI 整理、Agent 运行操作 | 各自契约和验收 | 仍待开始 |
+
+非阻塞维护，不因此自动开新测试批次：#220 的全进程 FD 断言隔离建议，
+以及 relay 第三连接断言补强。两者都不改生产行为，也不改写已有 C4 或 Gate 身份。
+
+### P1b 后续维护：实验配置服务与工作流适配器解耦
+
+`services/authoring.py` 直接调用 ENCODE 的 `project_encode_fields()` 和
+`normalize_encode_workflow_sample_plans()`。在 P1b 中将字段投影和样本组织规则交给对应的
+workflow adapter，由公共服务通过适配器接口调用。草稿保存、版本检查和提交仍由公共服务负责。
+
+验收时，已有 ENCODE 草稿应能正常回读、校验和提交。选取另一个工作流的真实配置需求
+（例如 HiTrAC 的专属字段），验证改动能集中在该适配器及其测试中，公共服务无需增加工作流专用分支。
+
+## 快照：2026-11-16T08:22:10Z
 
 2026-11-15T12:18:06Z 及更早快照保留在后文，不倒写。
 本次查询 main 为 `1b1db421ba3172bc39cf31ce0d03976511379fda`，
