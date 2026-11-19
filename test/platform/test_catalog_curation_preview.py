@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import timedelta
 import json
 from pathlib import Path
@@ -1255,3 +1256,404 @@ def test_m2_projection_row_source_ref_ownership_and_archival_checks() -> None:
         )["receipts"]
         == []
     )
+
+
+_SMP_REV = "smpr_33333333333333333333333333333331"
+_CONTROL_TERM = "term_78787878787878787878787878787878"
+_CONTROL_REV = "trmv_90909090909090909090909090909090"
+_TREATMENT_REV = "trmv_89898989898989898989898989898989"
+
+
+def _experiment_citation(
+    *refs: SourceReference, reasons: tuple[str, ...]
+) -> ProposalCitation:
+    return ProposalCitation(
+        rule_version=M2_RULE_VERSION,
+        vocabulary_version=M2_VOCABULARY_VERSION,
+        reason_codes=reasons,
+        source_refs=refs,
+    )
+
+
+def _install_experiment_proposal(
+    store,
+    *,
+    proposal_id: str,
+    allowed_fields: tuple[str, ...],
+    before: dict,
+    after: dict,
+    reasons: tuple[str, ...] = ("REPLICATE_ROLE_TERM_MATCH",),
+) -> CatalogProposal:
+    head = store.get_experiment_head(SYNTHETIC_EXP_2_ID)
+    proposal = CatalogProposal.create(
+        proposal_id=proposal_id,
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        created_at=SYNTHETIC_BASE_TIME,
+        items=(
+            ProposalItem(
+                item_id="item_samples",
+                target_kind="experiment",
+                target_id=SYNTHETIC_EXP_2_ID,
+                base_revision_id=head["experiment_revision_id"],
+                base_revision_number=head["revision_number"],
+                allowed_fields=allowed_fields,
+                before=before,
+                after=after,
+                citation=_experiment_citation(
+                    SourceReference(
+                        kind="experiment_revision",
+                        ref_id=head["experiment_revision_id"],
+                        evidence_token="proj-exp-2-sample-pins",
+                    ),
+                    SourceReference(
+                        kind="term_revision",
+                        ref_id=_CONTROL_REV,
+                        term_revision_id=_CONTROL_REV,
+                        evidence_token="vocab-replicate-control",
+                    ),
+                    reasons=reasons,
+                ),
+            ),
+        ),
+    )
+    store._proposals[proposal.proposal_id] = proposal
+    return proposal
+
+
+def test_m2_sample_pins_stay_distinct_from_terms_and_adoption_is_normalized() -> None:
+    """Sample associations are not term slots, and adoption stores only verified values."""
+
+    from encode_pipeline.platform.catalog_curation_preview import (
+        _collect_ambiguous_candidate_revision_ids,
+        _validate_and_render_slot,
+        compute_preview_digest,
+    )
+
+    now = SYNTHETIC_BASE_TIME + timedelta(minutes=2)
+    candidate_ids = _collect_ambiguous_candidate_revision_ids(
+        {
+            "samples": [
+                {
+                    "replicate_role": {
+                        "status": "ambiguous",
+                        "candidates": [
+                            {
+                                "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    )
+    assert candidate_ids == frozenset({"trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"})
+
+    for bad_samples in (
+        [{"ordinal": 0, "sample_revision_id": _SMP_REV}],
+        {"status": "unknown"},
+    ):
+        with pytest.raises(CatalogPreviewError) as slot_exc:
+            _validate_and_render_slot(
+                "samples",
+                bad_samples,
+                {},
+                include_candidates=True,
+                for_write=True,
+            )
+        assert slot_exc.value.status_code == 422
+        assert slot_exc.value.code == "catalog_payload_invalid"
+    with pytest.raises(CatalogPreviewError) as unknown_field_exc:
+        _validate_and_render_slot(
+            "notes",
+            {"status": "unknown"},
+            {},
+            include_candidates=True,
+            for_write=True,
+        )
+    assert unknown_field_exc.value.code == "catalog_payload_invalid"
+
+    with pytest.raises(CatalogPreviewError) as term_shaped_exc:
+        ProposalItem(
+            item_id="item_term_shaped_samples",
+            target_kind="experiment",
+            target_id=SYNTHETIC_EXP_2_ID,
+            base_revision_id="expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+            base_revision_number=1,
+            allowed_fields=("samples",),
+            before={"samples": {"status": "unknown"}},
+            after={"samples": {"status": "not_applicable"}},
+            citation=_experiment_citation(
+                SourceReference(
+                    kind="experiment_revision",
+                    ref_id="expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+                    evidence_token="proj-exp-2-sample-pins",
+                ),
+                reasons=("REPLICATE_ROLE_TERM_MATCH",),
+            ),
+        )
+    assert term_shaped_exc.value.code == "catalog_payload_invalid"
+
+    manual_store = build_synthetic_m2_preview_fixture()
+    original_exp2 = manual_store.get_experiment_head(SYNTHETIC_EXP_2_ID)
+    with pytest.raises(CatalogPreviewError) as manual_term_exc:
+        manual_store.manual_revise_experiment(
+            actor_user_id="usr_admin_a",
+            experiment_id=SYNTHETIC_EXP_2_ID,
+            expected_revision_number=1,
+            idempotency_key="idem-samples-as-term",
+            updates={"samples": {"status": "unknown"}},
+            now=now,
+        )
+    assert manual_term_exc.value.code == "catalog_payload_invalid"
+    assert manual_store.get_experiment_head(SYNTHETIC_EXP_2_ID) == original_exp2
+
+    # Legal pin change: keep the sample revision and group, retarget replicate_role.
+    role_store = build_synthetic_m2_preview_fixture()
+    original_samples = deepcopy(
+        role_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["payload"]["samples"]
+    )
+    original_payload = deepcopy(
+        role_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["payload"]
+    )
+    changed_pin = deepcopy(original_samples[0])
+    changed_pin["replicate_role"] = {
+        "status": "known",
+        "term_id": _CONTROL_TERM,
+        "term_revision_id": _CONTROL_REV,
+    }
+    role_proposal = _install_experiment_proposal(
+        role_store,
+        proposal_id="cprop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        allowed_fields=("samples",),
+        before={"samples": original_samples},
+        after={"samples": [changed_pin]},
+    )
+    role_preview = role_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=role_proposal.proposal_id,
+        selected_item_ids=["item_samples"],
+        now=now,
+    )
+    preview_pin = role_preview["items"][0]["after"]["samples"][0]
+    assert preview_pin["sample_revision_id"] == _SMP_REV
+    assert preview_pin["replicate_group"] == "biorep-1"
+    assert preview_pin["replicate_role"]["display_name"] == "control"
+    role_store.adopt_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=role_proposal.proposal_id,
+        preview_digest=role_preview["preview_digest"],
+        selected_item_ids=role_preview["selected_item_ids"],
+        expected_revisions=role_preview["expected_revisions"],
+        idempotency_key="idem-sample-pin-role",
+        now=now,
+    )
+    adopted_payload = role_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["payload"]
+    adopted_pin = adopted_payload["samples"][0]
+    assert adopted_pin["ordinal"] == 0
+    assert adopted_pin["sample_revision_id"] == _SMP_REV
+    assert adopted_pin["replicate_group"] == "biorep-1"
+    assert adopted_pin["replicate_role"] == {
+        "status": "known",
+        "term_id": _CONTROL_TERM,
+        "term_revision_id": _CONTROL_REV,
+    }
+    assert "display_name" not in adopted_pin["replicate_role"]
+    for unchanged in ("assay", "target", "batch", "display_name", "schema_version"):
+        assert adopted_payload[unchanged] == original_payload[unchanged]
+
+    # Classification adoption keeps every existing sample pin and drops client extras.
+    align_store = build_synthetic_m2_preview_fixture()
+    untouched_samples = deepcopy(
+        align_store.get_experiment_head(SYNTHETIC_EXP_1_ID)["payload"]["samples"]
+    )
+    align_preview = align_store.preview_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        selected_item_ids=["item_1", "item_3"],
+        now=now,
+    )
+    align_store.adopt_proposal_subset(
+        actor_user_id="usr_admin_a",
+        proposal_id=SYNTHETIC_PROPOSAL_ID,
+        preview_digest=align_preview["preview_digest"],
+        selected_item_ids=align_preview["selected_item_ids"],
+        expected_revisions=align_preview["expected_revisions"],
+        idempotency_key="idem-normalized-adopt",
+        now=now,
+    )
+    exp1 = align_store.get_experiment_head(SYNTHETIC_EXP_1_ID)
+    sample = align_store.get_sample_head(SYNTHETIC_SMP_1_ID)
+    preview_by_id = {item["item_id"]: item for item in align_preview["items"]}
+    stored_batch = exp1["payload"]["batch"]
+    preview_batch = preview_by_id["item_1"]["after"]["batch"]
+    assert stored_batch == {
+        "status": "known",
+        "term_id": preview_batch["term_id"],
+        "term_revision_id": preview_batch["term_revision_id"],
+    }
+    assert preview_batch["display_name"] == "batch-2026-11"
+    assert "display_name" not in stored_batch
+    assert exp1["payload"]["samples"] == untouched_samples
+    stored_tag = sample["catalog"]["tag"]
+    preview_tag = preview_by_id["item_3"]["after"]["tag"]
+    assert stored_tag["status"] == "known"
+    assert stored_tag["values"] == [
+        {
+            "term_id": preview_tag["values"][0]["term_id"],
+            "term_revision_id": preview_tag["values"][0]["term_revision_id"],
+        }
+    ]
+    assert preview_tag["values"][0]["display_name"] == "m2-curated"
+    assert "aliases" not in json.dumps(stored_tag)
+    assert sample["extra_attributes"] == {"legacy_note": "preserve-me-outside-catalog"}
+    assert sample["catalog"]["species"]["term_revision_id"] == (
+        "trmv_67676767676767676767676767676767"
+    )
+
+    poison_store = build_synthetic_m2_preview_fixture()
+    base_item = poison_store._proposals[SYNTHETIC_PROPOSAL_ID].items[2]
+    poisoned_after = deepcopy(base_item.after)
+    poisoned_after["tag"]["values"][0] = {
+        **poisoned_after["tag"]["values"][0],
+        "aliases": ["secret-alias"],
+        "note": "donor-17",
+    }
+    poison = CatalogProposal.create(
+        proposal_id="cprop_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        created_at=SYNTHETIC_BASE_TIME,
+        items=(
+            ProposalItem(
+                item_id="item_poison",
+                target_kind="sample_catalog",
+                target_id=base_item.target_id,
+                base_revision_id=base_item.base_revision_id,
+                base_revision_number=base_item.base_revision_number,
+                allowed_fields=base_item.allowed_fields,
+                before=deepcopy(base_item.before),
+                after=poisoned_after,
+                citation=base_item.citation,
+            ),
+        ),
+    )
+    poison_store._proposals[poison.proposal_id] = poison
+    poison_digest = compute_preview_digest(
+        proposal_id=poison.proposal_id,
+        proposal_digest=poison.proposal_digest,
+        selected_item_ids=["item_poison"],
+        expected_revisions={SYNTHETIC_SMP_1_ID: 1},
+    )
+    for call in (
+        lambda: poison_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=poison.proposal_id,
+            selected_item_ids=["item_poison"],
+            now=now,
+        ),
+        lambda: poison_store.adopt_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=poison.proposal_id,
+            preview_digest=poison_digest,
+            selected_item_ids=["item_poison"],
+            expected_revisions={SYNTHETIC_SMP_1_ID: 1},
+            idempotency_key="idem-poison-tag",
+            now=now,
+        ),
+    ):
+        with pytest.raises(CatalogPreviewError) as poison_exc:
+            call()
+        assert poison_exc.value.status_code == 422
+        assert poison_exc.value.code == "catalog_payload_invalid"
+    assert poison_store.get_sample_head(SYNTHETIC_SMP_1_ID)["revision_number"] == 1
+    assert (
+        poison_store.list_adoption_receipts(
+            actor_user_id="usr_admin_a", project_id=SYNTHETIC_PROJECT_ID
+        )["receipts"]
+        == []
+    )
+    assert "secret-alias" not in json.dumps(
+        poison_store.get_sample_head(SYNTHETIC_SMP_1_ID)
+    )
+
+    # A sample revision id is not a term, and a pin outside the project is not adopted.
+    bad_term_store = build_synthetic_m2_preview_fixture()
+    bad_term = _install_experiment_proposal(
+        bad_term_store,
+        proposal_id="cprop_cccccccccccccccccccccccccccccccc",
+        allowed_fields=("batch",),
+        before={"batch": {"status": "unknown"}},
+        after={
+            "batch": {
+                "status": "known",
+                "term_id": _SMP_REV,
+                "term_revision_id": _TREATMENT_REV,
+            }
+        },
+        reasons=("BATCH_TERM_MATCH",),
+    )
+    with pytest.raises(CatalogPreviewError) as sample_as_term_exc:
+        bad_term_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=bad_term.proposal_id,
+            selected_item_ids=["item_samples"],
+            now=now,
+        )
+    assert sample_as_term_exc.value.code == "catalog_payload_invalid"
+    assert (
+        bad_term_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
+    )
+
+    extra_store = build_synthetic_m2_preview_fixture()
+    extra_pin = deepcopy(
+        extra_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["payload"]["samples"][0]
+    )
+    extra_pin["donor_note"] = "do-not-write"
+    extra_proposal = _install_experiment_proposal(
+        extra_store,
+        proposal_id="cprop_dddddddddddddddddddddddddddddddd",
+        allowed_fields=("samples",),
+        before={
+            "samples": deepcopy(
+                extra_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["payload"][
+                    "samples"
+                ]
+            )
+        },
+        after={"samples": [extra_pin]},
+    )
+    with pytest.raises(CatalogPreviewError) as extra_exc:
+        extra_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=extra_proposal.proposal_id,
+            selected_item_ids=["item_samples"],
+            now=now,
+        )
+    assert extra_exc.value.code == "catalog_payload_invalid"
+    assert "do-not-write" not in json.dumps(
+        extra_store.get_experiment_head(SYNTHETIC_EXP_2_ID)
+    )
+
+    cross_store = build_synthetic_m2_preview_fixture()
+    cross_store._samples[SYNTHETIC_SMP_1_ID].project_id = SYNTHETIC_OTHER_PROJECT_ID
+    cross_pin = deepcopy(changed_pin)
+    cross_proposal = _install_experiment_proposal(
+        cross_store,
+        proposal_id="cprop_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        allowed_fields=("samples",),
+        before={"samples": [cross_pin]},
+        after={"samples": [cross_pin]},
+    )
+    with pytest.raises(CatalogPreviewError) as cross_exc:
+        cross_store.preview_proposal_subset(
+            actor_user_id="usr_admin_a",
+            proposal_id=cross_proposal.proposal_id,
+            selected_item_ids=["item_samples"],
+            now=now,
+        )
+    assert cross_exc.value.status_code == 409
+    assert cross_exc.value.code == "catalog_proposal_invalidated"
+    assert cross_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
