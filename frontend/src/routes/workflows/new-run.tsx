@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import {
   getWorkflowSchema,
   listCompatibleReferenceProfiles,
@@ -12,6 +14,10 @@ import {
 } from '../../api/runTypes';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
+import {
+  readCarriedHandoff,
+  type ExperimentValidationHandoff,
+} from '../../features/experiment-binding/handoff';
 import { InputWorkbench } from '../../features/input-workbench/InputWorkbench';
 import { readWorkbenchSchema } from '../../features/input-workbench/schemaContract';
 
@@ -20,6 +26,11 @@ interface NewRunWorkbenchPageProps {
 }
 
 export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
+  const location = useLocation();
+  const handoff = useMemo(
+    () => readCarriedHandoff(location.state, workflowId),
+    [location.state, workflowId],
+  );
   const { workflowClient } = useClients();
   const query = useQuery({
     queryKey: ['workflow-authoring-schema', workflowId],
@@ -82,8 +93,9 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
 
   return (
     <InputWorkbench
-      key={`${workflowId}:${parsed.value.contract.schema_version}`}
+      key={`${workflowId}:${parsed.value.contract.schema_version}:${handoffFingerprint(handoff)}`}
       workflowId={workflowId}
+      handoff={handoff}
       workflowName={detailQuery.data?.workflow?.metadata.name}
       schema={parsed.value}
       availability={detailQuery.data?.workflow?.availability ?? null}
@@ -98,6 +110,19 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
       onRefreshReferenceProfiles={() => void referenceQuery.refetch()}
     />
   );
+}
+
+function handoffFingerprint(handoff: ExperimentValidationHandoff | null): string {
+  if (handoff === null) return 'direct';
+  return JSON.stringify([
+    handoff.projectId,
+    handoff.sampleRevisionIds,
+    handoff.referenceProfileRevisionId,
+    handoff.config,
+    handoff.options,
+    handoff.samples,
+    handoff.inputSelections,
+  ]);
 }
 
 function readCompatibleProfiles(

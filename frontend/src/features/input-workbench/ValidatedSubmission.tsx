@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, ShieldCheck } from 'lucide-react';
@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { createRun } from '../../api/generated/runs/runs';
 import { validateWorkflow } from '../../api/generated/workflows/workflows';
 import type {
+  InputFileRevisionSelectionRequest,
   IssueResponse,
   ValidationRequest,
   ValidatedInputSnapshotResponse,
@@ -14,6 +15,7 @@ import { ApiError } from '../../api/fetcher';
 import { readReferenceProfileSummary } from '../../api/runTypes';
 import type { WorkflowAvailability } from '../../api/types';
 import { Button } from '../../components/Button';
+import { readExperimentBinding } from '../experiment-binding/handoff';
 import { ExecutionAvailabilityNotice } from '../workflow-detail/WorkflowAvailability';
 import type { InputDraftController } from './useInputDraft';
 
@@ -29,6 +31,7 @@ interface ValidationAttempt {
   payload: ValidationRequest & { reference_profile_revision_id: string };
   revision: number;
   referenceProfileRevisionId: string;
+  contextKey: string;
 }
 
 interface CreateAttempt {
@@ -36,11 +39,27 @@ interface CreateAttempt {
   revision: number;
 }
 
+export interface ExperimentValidationRequest {
+  projectId: string;
+  sampleRevisionIds: readonly string[];
+  inputSelections: readonly InputFileRevisionSelectionRequest[];
+  experimentRevisionId: string | null;
+}
+
+type BindingOutcome =
+  | { kind: 'idle' }
+  | { kind: 'unresolved' }
+  | { kind: 'frozen'; experimentRevisionId: string }
+  | { kind: 'failed' }
+  | { kind: 'unconfirmed' }
+  | { kind: 'missing' };
+
 interface ValidatedSubmissionProps {
   workflowId: string;
   draft: InputDraftController;
   availability: WorkflowAvailability | null;
   referenceSelectionAvailable: boolean;
+  experimentRequest?: ExperimentValidationRequest | null;
   onValidationFeedback: Dispatch<SetStateAction<ValidationFeedback | null>>;
 }
 
@@ -55,6 +74,13 @@ function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
     path: issue.path,
     hint: issue.hint,
   }));
+}
+
+function gatewayCouldNotConfirm(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 502 || error.status === 503 || error.status === 504)
+  );
 }
 
 function requestIssues(error: unknown, fallback: SafeIssue): SafeIssue[] {
@@ -78,10 +104,12 @@ export function ValidatedSubmission({
   draft,
   availability,
   referenceSelectionAvailable,
+  experimentRequest = null,
   onValidationFeedback,
 }: ValidatedSubmissionProps) {
   const navigate = useNavigate();
   const [snapshotState, setSnapshotState] = useState<SnapshotState | null>(null);
+  const [bindingOutcome, setBindingOutcome] = useState<BindingOutcome>({ kind: 'idle' });
   // Creation outcomes survive editing and revalidation, including uncertain outcomes.
   const [issues, setIssues] = useState<SafeIssue[]>([]);
   const latestValidationRequest = useRef(0);
@@ -90,16 +118,48 @@ export function ValidatedSubmission({
       ? snapshotState.snapshot
       : null;
   const executionAvailable = availability?.execution === 'available';
+  const contextKey = experimentRequest === null
+    ? ''
+    : JSON.stringify({
+        projectId: experimentRequest.projectId,
+        sampleRevisionIds: experimentRequest.sampleRevisionIds,
+        inputSelections: experimentRequest.inputSelections,
+        experimentRevisionId: experimentRequest.experimentRevisionId,
+      });
+  const contextKeyRef = useRef(contextKey);
+  contextKeyRef.current = contextKey;
+  const previousContextKey = useRef(contextKey);
+  useEffect(() => {
+    const contextChanged = previousContextKey.current !== contextKey;
+    previousContextKey.current = contextKey;
+    setSnapshotState(null);
+    setBindingOutcome({ kind: 'idle' });
+    if (!contextChanged) return;
+    onValidationFeedback((current) =>
+      current === null
+        ? current
+        : { revision: -1, issues: [], changedInFlight: false },
+    );
+  }, [contextKey, draft.state.semanticRevision, onValidationFeedback]);
 
   const validationMutation = useMutation({
     mutationFn: (attempt: ValidationAttempt) =>
       validateWorkflow(workflowId, attempt.payload),
     onSuccess: (response, attempt) => {
-      if (attempt.requestId !== latestValidationRequest.current) return;
+      if (
+        attempt.requestId !== latestValidationRequest.current ||
+        attempt.contextKey !== contextKeyRef.current
+      ) {
+        return;
+      }
       const report = (issues: SafeIssue[], notice?: string, snapshotId?: string) =>
         onValidationFeedback({ revision: attempt.revision, issues, notice, snapshotId });
+      const failBinding = () => {
+        if (experimentRequest !== null) setBindingOutcome({ kind: 'failed' });
+      };
       if (attempt.revision !== draft.state.semanticRevision) {
         setSnapshotState(null);
+        failBinding();
         onValidationFeedback({ revision: attempt.revision, issues: [], changedInFlight: true });
         return;
       }
@@ -108,6 +168,7 @@ export function ValidatedSubmission({
         const frozenReference = readReferenceProfileSummary(response.snapshot.reference_profile);
         if (frozenReference?.revision_id !== attempt.referenceProfileRevisionId) {
           setSnapshotState(null);
+          failBinding();
           report([{
             code: 'REFERENCE_PROFILE_NOT_CONFIRMED',
             message: 'Backend validation did not confirm the selected reference revision.',
@@ -118,11 +179,13 @@ export function ValidatedSubmission({
       }
       if (response.ok && response.snapshot === null && !executionAvailable) {
         setSnapshotState(null);
+        failBinding();
         report(responseIssues, 'Backend validation succeeded. No runnable snapshot was issued because execution is unavailable.');
         return;
       }
       if (!response.ok || response.snapshot === null || response.snapshot.workflow_id !== workflowId) {
         setSnapshotState(null);
+        failBinding();
         report(responseIssues.length > 0 ? responseIssues : [{
           code: 'VALIDATION_NOT_CONFIRMED',
           message: 'Backend validation did not return a usable snapshot.',
@@ -130,14 +193,36 @@ export function ValidatedSubmission({
         return;
       }
       setSnapshotState({ snapshot: response.snapshot, revision: attempt.revision });
+      if (experimentRequest !== null) {
+        const binding = readExperimentBinding(response.snapshot.experiment_binding);
+        setBindingOutcome(
+          binding === null
+            ? { kind: 'missing' }
+            : binding.status === 'unresolved'
+              ? { kind: 'unresolved' }
+              : { kind: 'frozen', experimentRevisionId: binding.experimentRevisionId },
+        );
+      }
       report(responseIssues, executionAvailable
         ? 'Backend validation succeeded. This exact draft can create one run.'
         : 'Backend validation succeeded. This exact draft is saved, but execution is unavailable.',
         response.snapshot.snapshot_id);
     },
     onError: (error, attempt) => {
-      if (attempt.requestId !== latestValidationRequest.current) return;
+      if (
+        attempt.requestId !== latestValidationRequest.current ||
+        attempt.contextKey !== contextKeyRef.current
+      ) {
+        return;
+      }
       setSnapshotState(null);
+      if (experimentRequest !== null) {
+        setBindingOutcome(
+          error instanceof ApiError && !gatewayCouldNotConfirm(error)
+            ? { kind: 'failed' }
+            : { kind: 'unconfirmed' },
+        );
+      }
       if (attempt.revision !== draft.state.semanticRevision) {
         onValidationFeedback({ revision: attempt.revision, issues: [], changedInFlight: true });
         return;
@@ -291,9 +376,35 @@ export function ValidatedSubmission({
                   payload: {
                     ...draft.review.payload,
                     reference_profile_revision_id: referenceProfileRevisionId,
+                    ...(experimentRequest === null
+                      ? {}
+                      : {
+                          project_id: experimentRequest.projectId,
+                          sample_revision_ids: [...experimentRequest.sampleRevisionIds],
+                          ...(experimentRequest.inputSelections.length === 0
+                            ? {}
+                            : {
+                                input_selections: experimentRequest.inputSelections.map(
+                                  (selection) => ({
+                                    input_use_key: selection.input_use_key,
+                                    occurrence: selection.occurrence,
+                                    input_file_revision_ids: [
+                                      ...selection.input_file_revision_ids,
+                                    ],
+                                  }),
+                                ),
+                              }),
+                          ...(experimentRequest.experimentRevisionId === null
+                            ? {}
+                            : {
+                                experiment_revision_id:
+                                  experimentRequest.experimentRevisionId,
+                              }),
+                        }),
                   },
                   revision: draft.state.semanticRevision,
                   referenceProfileRevisionId,
+                  contextKey,
                 });
               }
             }}
@@ -333,6 +444,12 @@ export function ValidatedSubmission({
           </Button>
         </div>
       </div>
+
+      {experimentRequest !== null && (
+        <p className="mt-3 text-sm" role="status" data-testid="experiment-binding-status">
+          {bindingStatusCopy(bindingOutcome)}
+        </p>
+      )}
 
       <div className="mt-3 min-h-12" aria-live="polite">
         {activeSnapshot !== null && expiryLabel !== null && (
@@ -391,4 +508,25 @@ export function ValidatedSubmission({
       </div>
     </section>
   );
+}
+
+function bindingStatusCopy(outcome: BindingOutcome): string {
+  switch (outcome.kind) {
+    case 'idle':
+      return 'No experiment binding. Choosing a revision or opening this page does not create one.';
+    case 'unresolved':
+      return 'Not bound. This validation did not select an experiment revision.';
+    case 'frozen':
+      return `Bound to experiment revision ${outcome.experimentRevisionId} for this validation snapshot.`;
+    case 'failed':
+      return 'No experiment binding was saved.';
+    case 'unconfirmed':
+      return 'The validation result is unconfirmed. Retry to see whether an experiment binding was saved.';
+    case 'missing':
+      return 'The validation response did not include an experiment binding status.';
+    default: {
+      const unreachable: never = outcome;
+      return unreachable;
+    }
+  }
 }
