@@ -2633,7 +2633,7 @@ def test_experiment_snapshot_binding_migration_is_empty_and_reversible(tmp_path)
     } <= set(inspector.get_table_names())
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_32"
+            "20261119_18"
         )
         assert (
             connection.scalar(text("SELECT count(*) FROM snapshot_experiment_bindings"))
