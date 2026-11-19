@@ -21,7 +21,7 @@ principal 写入运行安全审计。它们不要求管理员，也没有按项�
 | snapshot | `POST /workflows/{workflow_id}/validate` | `ValidatedInputService` | 执行可用且校验通过时保存不可变 snapshot。执行不可用时成功体里的 snapshot 为 null，没有可提交身份。 |
 | 创建 | `POST /workflows/{workflow_id}/runs`，`createRun` | `ValidatedRunCreationService.create_run` | 请求体只有 `snapshot_id` 和 `tags`。首次消耗为 201、`created`；同一 snapshot 配同一 tags 再提交为 200 和原来的 run。 |
 | 预检 | `POST /runs/{run_id}/preflight`，`triggerPreflight` | `RunService.transition_run`，随后 `LocalPreflightService` | 只接受 `created`。成功先变成 `validating` 并返回 202，干跑在 HTTP 响应之后的后台任务里做完才到 `planned`。离开 `created` 后再调用是 409 `PREFLIGHT_ALREADY_TRIGGERED`。 |
-| 启动 | `POST /runs/{run_id}/start`，`startRun` | `RunSubmissionService.start_run` | 显式提交。`created` 和 `validating` 为 409。`planned` 才预约执行身份并入队；`queued` 或已带 dispatch 标记的后续状态返回该 run，不再入队。 |
+| 启动 | `POST /runs/{run_id}/start`，`startRun` | `RunSubmissionService.start_run` | 显式提交。`created` 和 `validating` 为 409。`planned` 才预约执行身份并入队。已经 `queued` 时仍先复核执行资格、构建身份和队列身份；复核通过才返回该 run 且不再入队，复核失败是 503 或 409，已排队的 run 保持原样。公共 GET 没有 dispatch 字段。 |
 | 取消 | `POST /runs/{run_id}/cancel`，`cancelRun` | `RunCancellationService.cancel_run` | 只作用于路径里的这个 `run_id`。尚未 running 时直接进入 `cancelled` 并返回 200。running 时先记下停止意图，202 只表示已请求停止。已终态的 run 原样返回，不再发新的停止。 |
 | 读回 | `GET /runs/{run_id}`，以及 `/events` | `RunService.get_run` | SQLite 里的 status 是终态来源。公共 `RunRecordResponse` 含 status、时间和 `cancellation_reason`，不含原始 inputs、snapshot id，也不含取消请求时间或 worker 确认时间。 |
 
@@ -47,8 +47,12 @@ Agent 聊天仍走 `POST /workflows/{workflow_id}/agent/chat`。`ReadOnlyToolReg
 | Start run | 这一条已经 `planned` 的 `run_id`，以及预检时冻结的构建身份 | 不换 snapshot，不另开一条 run |
 | Cancel run | 路径中的这一条 `run_id` | 不取消同 snapshot 的概念本身，也不把 202 当成已经停止 |
 
-snapshot 过期、构建身份变了、tags 与已消耗的 run 不一致，或执行资格不再可用时，
-创建或启动拒绝，人需要重新校验后再确认。旧确认不能套到新 snapshot 上。
+过期、构建变化和执行资格只挡住 snapshot 的第一次消费。创建响应丢失时，先用原来的
+`snapshot_id` 和同一组 tags 重放 `createRun`。第一次创建已经落库时，即使 snapshot
+已经过期，只要 tags 和冻结绑定一致，仍返回 200 和原来的 run。这时不要重新校验再创建：
+新 snapshot 是另一次创建，可能再开一条 run。只有重放说明这份 snapshot 还没被消耗，
+并且它已过期、陈旧或执行不可用，创建才会拒绝；那时才重新校验。tags 或绑定不一致是
+409，仍然不新建。旧确认不能套到另一份 snapshot 上。
 
 ## 幂等键绑定什么
 
@@ -57,12 +61,12 @@ snapshot 过期、构建身份变了、tags 与已消耗的 run 不一致，或�
 
 | 操作 | 键绑定 | 断线后怎么重试 |
 | --- | --- | --- |
-| 创建 | `snapshot_id`，加上同一组 tags，以及该 snapshot 已冻结的项目/样本、输入、参考和实验绑定 | 同一 snapshot、同一 tags：200，返回原来的 run。tags 或绑定对不上：409 `VALIDATED_SNAPSHOT_REPLAY_CONFLICT`，仍不新建。没有按 snapshot 查询 run 的 GET，丢失的创建响应靠这次重放找回来。 |
+| 创建 | `snapshot_id`，加上同一组 tags，以及该 snapshot 已冻结的项目/样本、输入、参考和实验绑定 | 丢失创建响应时先重放原 snapshot。已消耗后，即使过期，同一 tags 且绑定一致仍是 200 和原来的 run。tags 或绑定对不上：409 `VALIDATED_SNAPSHOT_REPLAY_CONFLICT`，仍不新建。没有按 snapshot 查询 run 的 GET。 |
 | 预检 | 这个 `run_id` 且 status 仍是 `created` | 第一次成功后 status 已离开 `created`，再调得到 409，不会再排一次后台预检。响应丢失时先 GET：仍是 `created` 才可以再触发一次。 |
-| 启动 | `run_id` 决定 job。`build_execution_job_id` 是 `run-execution-` 加该 run id 的 SHA-256；同一 run 只保留第一条执行分配 | `queued`，或 running 及终态上已经有 dispatch 标记时，再次 start 返回这条 run，不第二次入队。队列没有确认时 run 保持可重试，不把失败写成 `queued`。 |
+| 启动 | `run_id` 决定 job。`build_execution_job_id` 是 `run-execution-` 加该 run id 的 SHA-256；同一 run 只保留第一条执行分配 | 读到 `queued` 后继续 GET 这一条 run，不再靠 start 补派。再次 start 会先复核执行资格、构建和队列身份，可能 503 或 409，同时保留已排队的 run。公共响应没有 dispatch 字段，不能用它决定要不要重试。复核通过才返回同一条 run，不第二次入队。status 仍是 `planned` 且队列上次没确认时，同一次启动确认可以重试；失败不会被写成 `queued`。 |
 | 取消 | 这个 `run_id`；running 时还要带上已领取分配的 job、backend 和 queue | 终态上再取消返回当前记录。running 上重复取消不另写一条取消意图，也不新派一个执行 job；它可能对同一分配再请求一次停止。是否已停止仍看 GET 的 status。 |
 
-重试使用同一成员会话。会话已经无效时请求在写入前被拒绝，不能为了补发而换成模型侧的另一套身份。
+重试使用同一成员会话。会话已经无效时，GET 和写操作都是 401，不能为了补发而换成模型侧的另一套身份。
 
 ## 怎样读真实终态
 
@@ -73,7 +77,7 @@ snapshot 过期、构建身份变了、tags 与已消耗的 run 不一致，或�
 - 预检的 202 只说明已经进入 `validating`。`planned` 要等后续 GET。
 - 启动的 202 只说明这次调用被接受。入队与否看响应体或下一次 GET 的 status。
 - 取消在 running 上的 202 只说明停止已请求。status 仍可能是 `running`。公共响应没有请求时间和 worker 确认时间，不能从 202 或单独的 `cancellation_reason` 推断已经取消。
-- 预检期间 API 重启时，`recover_interrupted_runs` 把仍为 `validating` 的 run 标成 `failed`，issue 为 `RUN_INTERRUPTED_BY_API_RESTART`。这就是终态。该 run 不能再预检；恢复提示里的 “submit a new preflight” 与当前路由不符，因为路由只接受 `created`。要继续，必须重新校验并确认一条新 run。
+- 预检期间 API 重启时，`recover_interrupted_runs` 把仍为 `validating` 的 run 标成 `failed`，issue 为 `RUN_INTERRUPTED_BY_API_RESTART`。这就是终态。该 run 不能再预检；恢复提示里的 “submit a new preflight” 与当前路由不符，因为路由只接受 `created`。要继续，必须重新校验并确认一条新 run。这不代替创建响应丢失时对原 snapshot 的重放。
 - `queued` 或 `running` 但没有对应的 dispatch 或 claim 时，同一次恢复可以把它们标成 `failed`（`RUN_ORPHANED_AFTER_API_RESTART`）。已经有确认标记的派发不靠这次恢复改写。展示以恢复之后的 GET 为准。
 
 ## 例：一次获准的创建和启动
@@ -86,18 +90,18 @@ snapshot 过期、构建身份变了、tags 与已消耗的 run 不一致，或�
 3. 人在这一条 run 上点击 Start run。确认的是这个 `run_id`。job id 由该 run id 算出，形如 `run-execution-` 加它的 SHA-256。调用返回 202 后，用 GET 读到 `queued` 或更后的真实 status。
 4. 终态再次 GET。只有 `succeeded`、`failed` 或 `cancelled` 可以当作这次运行的结果。
 
-创建响应若丢失，用同一个 snapshot id 和同一组空 tags 再调用 `createRun`。结果是 200 和同一个 `run_id`，没有第二条 run，也没有因为这次重放就入队。
+创建响应若丢失，先用同一个 snapshot id 和同一组空 tags 再调用 `createRun`，即使这份 snapshot 现在已经过期。第一次创建已经落库时，结果是 200 和同一个 `run_id`，没有第二条 run，也没有因为这次重放就入队。不要为了补看响应而重新校验。
 
 ## 例：撤权，以及断线后的启动重试
 
 上例的 run 已经是 `planned`，人点击了启动，但浏览器没有收到响应。
 
-- 会话仍有效，而且 GET 已经是 `queued` 或更后并带有这条 run 的 dispatch：再调用 `startRun` 得到同一条记录，job id 不变，不第二次入队。页面继续显示这次 GET 的 status，而不是“启动失败所以再派一次”。
-- 若 GET 仍是 `planned`，且上一次是队列未能确认的 503：可以用同一次启动确认重试。重试仍绑定同一个 job id。在 GET 变成 `queued` 或更后之前，不把它展示成已经启动。
-- 重试前会话被撤销，或账号被禁用：`resolve_session` 不再给出 principal，下一次 start、preflight 或 cancel 为 401，不写新状态。已经创建的 run 保留。撤权不会补做启动，也不会收回一个已经派发的 job。之后要取消，仍须一个有效成员会话，并且路径里仍是这个 `run_id`。在 GET 变成 `cancelled` 之前，展示保持 `queued` 或 `running`。
-- 启动前执行资格撤回，或构建身份与预检时不一致：start 返回 503 或 409，不入队。GET 仍是 `planned` 或其他拒绝时读到的 status。
+- 先 GET 同一个 `run_id`。读到 `queued`、`running` 或终态后，继续读取这一条 run，不再调用 start 补派。再次 start 会先复核执行资格、构建和队列身份，可能返回 503 或 409，已排队的记录保持不变。公共 run 没有 dispatch 字段，页面不能用它决定要不要重试。
+- GET 仍是 `planned`，且上一次是队列未能确认的 503：可以用同一次启动确认重试。重试仍绑定同一个 job id。在 GET 变成 `queued` 或更后之前，不把它展示成已经启动。
+- 会话被撤销或账号被禁用后，GET、start、preflight 和 cancel 都是 401。页面标明当前状态无法刷新，不再把上次看到的 `queued` 或 `running` 当成仍在更新。已经创建的 run 保留。撤权不会补做启动，也不会收回一个已经派发的 job。恢复有效会话后，按原来的 run id 重新 GET，展示实际 status。取消和自然完成竞争时，终态可以是 `cancelled`，也可以是 `succeeded` 或 `failed`。
+- 启动前执行资格撤回，或构建身份与预检时不一致：start 返回 503 或 409，不入队。已经 `queued` 时，同样的复核失败也不改写这条 run。展示以有效会话下一次 GET 为准。
 
-若断线发生在预检的 `validating`，并且 API 已重启，GET 的 status 是 `failed`，issue 为 `RUN_INTERRUPTED_BY_API_RESTART`。不再对这条 run 预检或启动。人若要再跑，先重新校验，再确认新的 snapshot。
+若断线发生在预检的 `validating`，并且 API 已重启，GET 的 status 是 `failed`，issue 为 `RUN_INTERRUPTED_BY_API_RESTART`。不再对这条 run 预检或启动。人若要再跑，先重新校验，再确认新的 snapshot。这是一条新 run，不是丢失的创建响应的补救；创建响应丢失时先重放原 snapshot。
 
 ## 当前不能称为可运行的路径
 
@@ -105,7 +109,7 @@ snapshot 过期、构建身份变了、tags 与已消耗的 run 不一致，或�
 - 选择了受管修订而执行资格不可用：校验失败，码为 `INPUT_USE_CAPABILITY_UNAVAILABLE`，没有 snapshot。
 - 输入用途的 provenance 为 `managed_revision_v1`：`ManagedInputVerificationService.verify_run` 在执行前返回 `MANAGED_INPUT_EXECUTION_UNAVAILABLE`，不进入实际工作流。即便 snapshot 或 run 已经写上，这条路径仍未开放。本轮不改这个交接。
 - Agent 的 `validate_workflow_input`、聊天里的说明，以及附录里尚未实现的 `submit_confirmed` / `cancel_confirmed`：都不是运行入口。
-- 过期、陈旧、缺失或绑定损坏的 snapshot：创建返回 409 或 404，不产生新 run。
+- 尚未消耗的 snapshot 若过期、陈旧、缺失或绑定损坏：首次创建返回 409 或 404，不产生 run。已经消耗的 snapshot 不因过期拒绝同一 tags、同一绑定的重放；重放仍返回原来的 run。
 - `validating` 和 `planned` 不是已启动。取消的 202 不是已取消。
 
 只读的实验反查不在本文件开放执行。成员读一条已有 run 的终态，仍用上面的 GET。

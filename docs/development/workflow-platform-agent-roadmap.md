@@ -185,7 +185,7 @@ C4、整个 A1、真实 provider、Agent 运行操作和最终组合 Gate 仍分
 | Viewer 隔离 V2 | WashU 首版通过；版本化轨道契约 | 同仓独立构建与样式/依赖隔离，保持同源认证 | 独立构建可嵌入；不直接查 SQL/调执行；worker/Peri 停止后仍可读已有结果 | 独立 PR 待创建 |
 | Peri 收口 P1／真实模型 P2 | `5cc82caf…` 只在固定受限范围被接受；旧 binary 记录保留。业务适配层尚未实现 | C4 可使用该已接受摘要。真实 provider 和 Agent 运行操作仍不开始 | 更换 runtime 不改业务 API，但新实现单独验收。不新增通用 Agent 框架 | #212 后续独立 PR |
 | AI 元数据整理 M2 | M1、P2、目录投影及工具资格 | 先读与建议，再接管理员批量采用；网页/终端共用契约 | 无 SQL 工具；有来源、差异、版本、期限和回执；撤权/冲突拒绝写入 | 独立 PR 待创建 |
-| Agent 运行操作 | 现有 snapshot 与 run 生命周期 | 边界见 [Agent 运行操作边界](../architecture/agent-run-operation-boundaries.md)。不实现写工具或受管输入执行 | 人的确认绑定既有 snapshot 或具体 run；断线重试不另派发；终态只读 GET run | 设计 spec；实现未开始 |
+| Agent 运行操作 | A1、真实 provider、业务确认设计 | 设计进度见 [Agent 运行操作边界](../architecture/agent-run-operation-boundaries.md)。本轮不实现写工具或受管输入执行 | 不另造任务 API；确认范围、重试、取消请求/确认及审计有明确契约 | 设计 spec；实现未开始 |
 | 文档、skills、测试与 CI 运维 | 实际反馈及已确认缺陷 | 当前入口保持一份；按具体收益处理维护 | 历史不倒改；skip 不当通过；不为省测试弱化契约 | 本状态在 Draft #213，未合并；#194/#195 待审 |
 
 ## 顺序与并行规则
