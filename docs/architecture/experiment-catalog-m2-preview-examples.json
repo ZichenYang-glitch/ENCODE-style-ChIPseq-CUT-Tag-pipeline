@@ -1,0 +1,902 @@
+{
+  "contract_version": "hw-m2-catalog-preview/1",
+  "member_proposal_view": {
+    "ok": true,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "source": "offline_suggestion",
+    "proposal_state": "pending",
+    "adoptable_by_caller": false,
+    "rule_version": "m2-catalog-rules/1",
+    "vocabulary_version": "terms-snapshot/2026-11-18",
+    "projection_version": "hw-m2-catalog/1",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "created_at": "2026-11-18T10:00:00Z",
+    "expires_at": "2026-11-18T10:30:00Z",
+    "retention_until": "2026-11-25T10:00:00Z",
+    "adoption_receipt": null,
+    "items": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_44444444444444444444444444444441",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "batch"
+        ],
+        "before": {
+          "batch": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "batch": {
+            "status": "known",
+            "term_id": "term_34343434343434343434343434343434",
+            "term_revision_id": "trmv_56565656565656565656565656565656",
+            "display_name": "batch-2026-11"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "BATCH_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_44444444444444444444444444444441",
+              "evidence_token": "proj-exp-1-batch-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_56565656565656565656565656565656",
+              "term_revision_id": "trmv_56565656565656565656565656565656",
+              "evidence_token": "vocab-batch-2026-11"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_2",
+        "target_kind": "experiment",
+        "target_id": "exp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "target"
+        ],
+        "before": {
+          "target": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "target": {
+            "status": "known",
+            "term_id": "term_23232323232323232323232323232323",
+            "term_revision_id": "trmv_45454545454545454545454545454545",
+            "display_name": "H3K4me3"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "TARGET_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "evidence_token": "proj-exp-2-target-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_45454545454545454545454545454545",
+              "term_revision_id": "trmv_45454545454545454545454545454545",
+              "evidence_token": "vocab-h3k4me3"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "base_revision_number": 1,
+        "current_revision_id": "smpr_33333333333333333333333333333331",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "cell_type",
+          "tag"
+        ],
+        "before": {
+          "cell_type": {
+            "status": "unknown",
+            "values": []
+          },
+          "tag": {
+            "status": "unknown",
+            "values": []
+          }
+        },
+        "after": {
+          "cell_type": {
+            "status": "ambiguous",
+            "values": []
+          },
+          "tag": {
+            "status": "known",
+            "values": [
+              {
+                "term_id": "term_89898989898989898989898989898989",
+                "term_revision_id": "trmv_10101010101010101010101010101010",
+                "display_name": "m2-curated"
+              }
+            ]
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "ALIAS_AMBIGUOUS_CANDIDATES",
+            "TAG_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "sample_revision",
+              "ref_id": "smpr_33333333333333333333333333333331",
+              "evidence_token": "proj-smp-1-catalog-slots"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_10101010101010101010101010101010",
+              "term_revision_id": "trmv_10101010101010101010101010101010",
+              "evidence_token": "vocab-m2-curated"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "admin_proposal_view": {
+    "ok": true,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "source": "offline_suggestion",
+    "proposal_state": "pending",
+    "adoptable_by_caller": true,
+    "rule_version": "m2-catalog-rules/1",
+    "vocabulary_version": "terms-snapshot/2026-11-18",
+    "projection_version": "hw-m2-catalog/1",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "created_at": "2026-11-18T10:00:00Z",
+    "expires_at": "2026-11-18T10:30:00Z",
+    "retention_until": "2026-11-25T10:00:00Z",
+    "adoption_receipt": null,
+    "items": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_44444444444444444444444444444441",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "batch"
+        ],
+        "before": {
+          "batch": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "batch": {
+            "status": "known",
+            "term_id": "term_34343434343434343434343434343434",
+            "term_revision_id": "trmv_56565656565656565656565656565656",
+            "display_name": "batch-2026-11"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "BATCH_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_44444444444444444444444444444441",
+              "evidence_token": "proj-exp-1-batch-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_56565656565656565656565656565656",
+              "term_revision_id": "trmv_56565656565656565656565656565656",
+              "evidence_token": "vocab-batch-2026-11"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_2",
+        "target_kind": "experiment",
+        "target_id": "exp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "target"
+        ],
+        "before": {
+          "target": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "target": {
+            "status": "known",
+            "term_id": "term_23232323232323232323232323232323",
+            "term_revision_id": "trmv_45454545454545454545454545454545",
+            "display_name": "H3K4me3"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "TARGET_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "evidence_token": "proj-exp-2-target-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_45454545454545454545454545454545",
+              "term_revision_id": "trmv_45454545454545454545454545454545",
+              "evidence_token": "vocab-h3k4me3"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "base_revision_number": 1,
+        "current_revision_id": "smpr_33333333333333333333333333333331",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "cell_type",
+          "tag"
+        ],
+        "before": {
+          "cell_type": {
+            "status": "unknown",
+            "values": []
+          },
+          "tag": {
+            "status": "unknown",
+            "values": []
+          }
+        },
+        "after": {
+          "cell_type": {
+            "status": "ambiguous",
+            "values": [],
+            "candidates": [
+              {
+                "term_id": "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "display_name": "regulatory T cell"
+              },
+              {
+                "term_id": "term_cccccccccccccccccccccccccccccccc",
+                "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+                "display_name": "keratinocyte"
+              }
+            ]
+          },
+          "tag": {
+            "status": "known",
+            "values": [
+              {
+                "term_id": "term_89898989898989898989898989898989",
+                "term_revision_id": "trmv_10101010101010101010101010101010",
+                "display_name": "m2-curated"
+              }
+            ]
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "ALIAS_AMBIGUOUS_CANDIDATES",
+            "TAG_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "sample_revision",
+              "ref_id": "smpr_33333333333333333333333333333331",
+              "evidence_token": "proj-smp-1-catalog-slots"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "evidence_token": "alias-candidate-treg"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "evidence_token": "alias-candidate-kc"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_10101010101010101010101010101010",
+              "term_revision_id": "trmv_10101010101010101010101010101010",
+              "evidence_token": "vocab-m2-curated"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "admin_subset_preview": {
+    "ok": true,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "preview_digest": "044c77eb6754a143dfc647e6cbf03e0e2e2039415b4da5858e61d6a01ea4447c",
+    "selected_item_ids": [
+      "item_1",
+      "item_3"
+    ],
+    "excluded_item_ids": [
+      "item_2"
+    ],
+    "expected_revisions": {
+      "exp_44444444444444444444444444444444": 1,
+      "smp_22222222222222222222222222222222": 1
+    },
+    "has_conflicts": false,
+    "conflicts": [],
+    "expires_at": "2026-11-18T10:30:00Z",
+    "items": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "expected_revision_number": 1,
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "current_revision_number": 1,
+        "current_revision_id": "expr_44444444444444444444444444444441",
+        "conflict_detected": false,
+        "allowed_fields": [
+          "batch"
+        ],
+        "before": {
+          "batch": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "batch": {
+            "status": "known",
+            "term_id": "term_34343434343434343434343434343434",
+            "term_revision_id": "trmv_56565656565656565656565656565656",
+            "display_name": "batch-2026-11"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "BATCH_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_44444444444444444444444444444441",
+              "evidence_token": "proj-exp-1-batch-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_56565656565656565656565656565656",
+              "term_revision_id": "trmv_56565656565656565656565656565656",
+              "evidence_token": "vocab-batch-2026-11"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "expected_revision_number": 1,
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "current_revision_number": 1,
+        "current_revision_id": "smpr_33333333333333333333333333333331",
+        "conflict_detected": false,
+        "allowed_fields": [
+          "cell_type",
+          "tag"
+        ],
+        "before": {
+          "cell_type": {
+            "status": "unknown",
+            "values": []
+          },
+          "tag": {
+            "status": "unknown",
+            "values": []
+          }
+        },
+        "after": {
+          "cell_type": {
+            "status": "ambiguous",
+            "values": [],
+            "candidates": [
+              {
+                "term_id": "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "display_name": "regulatory T cell"
+              },
+              {
+                "term_id": "term_cccccccccccccccccccccccccccccccc",
+                "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+                "display_name": "keratinocyte"
+              }
+            ]
+          },
+          "tag": {
+            "status": "known",
+            "values": [
+              {
+                "term_id": "term_89898989898989898989898989898989",
+                "term_revision_id": "trmv_10101010101010101010101010101010",
+                "display_name": "m2-curated"
+              }
+            ]
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "ALIAS_AMBIGUOUS_CANDIDATES",
+            "TAG_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "sample_revision",
+              "ref_id": "smpr_33333333333333333333333333333331",
+              "evidence_token": "proj-smp-1-catalog-slots"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "evidence_token": "alias-candidate-treg"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "evidence_token": "alias-candidate-kc"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_10101010101010101010101010101010",
+              "term_revision_id": "trmv_10101010101010101010101010101010",
+              "evidence_token": "vocab-m2-curated"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "concurrent_revision_conflict_response": {
+    "ok": false,
+    "issues": [
+      {
+        "code": "catalog_revision_conflict",
+        "message": "One or more selected catalog targets changed before adoption.",
+        "severity": "error",
+        "path": null,
+        "source": "catalog_m2_preview",
+        "hint": null
+      }
+    ],
+    "conflicts": [
+      {
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "expected_revision_number": 1,
+        "current_revision_number": 2,
+        "current_revision_id": "expr_00000000000000000000000000000001",
+        "expected_revision_id": "expr_44444444444444444444444444444441"
+      }
+    ]
+  },
+  "adopt_success_receipt": {
+    "ok": true,
+    "replayed": false,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "receipt_id": "cadopt_00000000000000000000000000000003",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "preview_digest": "044c77eb6754a143dfc647e6cbf03e0e2e2039415b4da5858e61d6a01ea4447c",
+    "actor_user_id": "usr_admin_a",
+    "idempotency_key": "idem-admin-a-adopt-1",
+    "selected_item_ids": [
+      "item_1",
+      "item_3"
+    ],
+    "excluded_item_ids": [
+      "item_2"
+    ],
+    "applied_targets": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "base_revision_number": 1,
+        "result_revision_id": "expr_00000000000000000000000000000001",
+        "result_revision_number": 2,
+        "changed_fields": [
+          "batch"
+        ]
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "base_revision_number": 1,
+        "result_revision_id": "smpr_00000000000000000000000000000002",
+        "result_revision_number": 2,
+        "changed_fields": [
+          "cell_type",
+          "tag"
+        ]
+      }
+    ],
+    "adopted_at": "2026-11-18T10:04:00Z"
+  },
+  "reopened_adopted_proposal_view": {
+    "ok": true,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "source": "offline_suggestion",
+    "proposal_state": "adopted",
+    "adoptable_by_caller": false,
+    "rule_version": "m2-catalog-rules/1",
+    "vocabulary_version": "terms-snapshot/2026-11-18",
+    "projection_version": "hw-m2-catalog/1",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "created_at": "2026-11-18T10:00:00Z",
+    "expires_at": "2026-11-18T10:30:00Z",
+    "retention_until": "2026-11-25T10:00:00Z",
+    "adoption_receipt": {
+      "ok": true,
+      "replayed": false,
+      "contract_version": "hw-m2-catalog-preview/1",
+      "receipt_id": "cadopt_00000000000000000000000000000003",
+      "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+      "project_id": "prj_11111111111111111111111111111111",
+      "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+      "preview_digest": "044c77eb6754a143dfc647e6cbf03e0e2e2039415b4da5858e61d6a01ea4447c",
+      "actor_user_id": "usr_admin_a",
+      "idempotency_key": "idem-admin-a-adopt-1",
+      "selected_item_ids": [
+        "item_1",
+        "item_3"
+      ],
+      "excluded_item_ids": [
+        "item_2"
+      ],
+      "applied_targets": [
+        {
+          "item_id": "item_1",
+          "target_kind": "experiment",
+          "target_id": "exp_44444444444444444444444444444444",
+          "base_revision_id": "expr_44444444444444444444444444444441",
+          "base_revision_number": 1,
+          "result_revision_id": "expr_00000000000000000000000000000001",
+          "result_revision_number": 2,
+          "changed_fields": [
+            "batch"
+          ]
+        },
+        {
+          "item_id": "item_3",
+          "target_kind": "sample_catalog",
+          "target_id": "smp_22222222222222222222222222222222",
+          "base_revision_id": "smpr_33333333333333333333333333333331",
+          "base_revision_number": 1,
+          "result_revision_id": "smpr_00000000000000000000000000000002",
+          "result_revision_number": 2,
+          "changed_fields": [
+            "cell_type",
+            "tag"
+          ]
+        }
+      ],
+      "adopted_at": "2026-11-18T10:04:00Z"
+    },
+    "items": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_00000000000000000000000000000001",
+        "current_revision_number": 2,
+        "allowed_fields": [
+          "batch"
+        ],
+        "before": {
+          "batch": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "batch": {
+            "status": "known",
+            "term_id": "term_34343434343434343434343434343434",
+            "term_revision_id": "trmv_56565656565656565656565656565656",
+            "display_name": "batch-2026-11"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "BATCH_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_44444444444444444444444444444441",
+              "evidence_token": "proj-exp-1-batch-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_56565656565656565656565656565656",
+              "term_revision_id": "trmv_56565656565656565656565656565656",
+              "evidence_token": "vocab-batch-2026-11"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_2",
+        "target_kind": "experiment",
+        "target_id": "exp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "base_revision_number": 1,
+        "current_revision_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+        "current_revision_number": 1,
+        "allowed_fields": [
+          "target"
+        ],
+        "before": {
+          "target": {
+            "status": "unknown"
+          }
+        },
+        "after": {
+          "target": {
+            "status": "known",
+            "term_id": "term_23232323232323232323232323232323",
+            "term_revision_id": "trmv_45454545454545454545454545454545",
+            "display_name": "H3K4me3"
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "TARGET_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "experiment_revision",
+              "ref_id": "expr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+              "evidence_token": "proj-exp-2-target-slot"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_45454545454545454545454545454545",
+              "term_revision_id": "trmv_45454545454545454545454545454545",
+              "evidence_token": "vocab-h3k4me3"
+            }
+          ]
+        }
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "base_revision_number": 1,
+        "current_revision_id": "smpr_00000000000000000000000000000002",
+        "current_revision_number": 2,
+        "allowed_fields": [
+          "cell_type",
+          "tag"
+        ],
+        "before": {
+          "cell_type": {
+            "status": "unknown",
+            "values": []
+          },
+          "tag": {
+            "status": "unknown",
+            "values": []
+          }
+        },
+        "after": {
+          "cell_type": {
+            "status": "ambiguous",
+            "values": [],
+            "candidates": [
+              {
+                "term_id": "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "display_name": "regulatory T cell"
+              },
+              {
+                "term_id": "term_cccccccccccccccccccccccccccccccc",
+                "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+                "display_name": "keratinocyte"
+              }
+            ]
+          },
+          "tag": {
+            "status": "known",
+            "values": [
+              {
+                "term_id": "term_89898989898989898989898989898989",
+                "term_revision_id": "trmv_10101010101010101010101010101010",
+                "display_name": "m2-curated"
+              }
+            ]
+          }
+        },
+        "citations": {
+          "rule_version": "m2-catalog-rules/1",
+          "vocabulary_version": "terms-snapshot/2026-11-18",
+          "reason_codes": [
+            "ALIAS_AMBIGUOUS_CANDIDATES",
+            "TAG_TERM_MATCH"
+          ],
+          "source_refs": [
+            {
+              "kind": "sample_revision",
+              "ref_id": "smpr_33333333333333333333333333333331",
+              "evidence_token": "proj-smp-1-catalog-slots"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "term_revision_id": "trmv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "evidence_token": "alias-candidate-treg"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "term_revision_id": "trmv_dddddddddddddddddddddddddddddddd",
+              "evidence_token": "alias-candidate-kc"
+            },
+            {
+              "kind": "term_revision",
+              "ref_id": "trmv_10101010101010101010101010101010",
+              "term_revision_id": "trmv_10101010101010101010101010101010",
+              "evidence_token": "vocab-m2-curated"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "disjoint_subset_after_adoption_conflict": {
+    "ok": false,
+    "issues": [
+      {
+        "code": "catalog_proposal_invalidated",
+        "message": "This proposal has already been adopted.",
+        "severity": "error",
+        "path": null,
+        "source": "catalog_m2_preview",
+        "hint": "Reopen the proposal or query adoption receipts to view the committed result."
+      }
+    ]
+  },
+  "adopt_dropped_response_replay": {
+    "ok": true,
+    "replayed": true,
+    "contract_version": "hw-m2-catalog-preview/1",
+    "receipt_id": "cadopt_00000000000000000000000000000003",
+    "proposal_id": "cprop_0123456789abcdef0123456789abcdef",
+    "project_id": "prj_11111111111111111111111111111111",
+    "proposal_digest": "fcd3511fd6d875b58014813dc702aed023a61dc58b5eeea2eb5ece5bb3325bd8",
+    "preview_digest": "044c77eb6754a143dfc647e6cbf03e0e2e2039415b4da5858e61d6a01ea4447c",
+    "actor_user_id": "usr_admin_a",
+    "idempotency_key": "idem-admin-a-adopt-1",
+    "selected_item_ids": [
+      "item_1",
+      "item_3"
+    ],
+    "excluded_item_ids": [
+      "item_2"
+    ],
+    "applied_targets": [
+      {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": "exp_44444444444444444444444444444444",
+        "base_revision_id": "expr_44444444444444444444444444444441",
+        "base_revision_number": 1,
+        "result_revision_id": "expr_00000000000000000000000000000001",
+        "result_revision_number": 2,
+        "changed_fields": [
+          "batch"
+        ]
+      },
+      {
+        "item_id": "item_3",
+        "target_kind": "sample_catalog",
+        "target_id": "smp_22222222222222222222222222222222",
+        "base_revision_id": "smpr_33333333333333333333333333333331",
+        "base_revision_number": 1,
+        "result_revision_id": "smpr_00000000000000000000000000000002",
+        "result_revision_number": 2,
+        "changed_fields": [
+          "cell_type",
+          "tag"
+        ]
+      }
+    ],
+    "adopted_at": "2026-11-18T10:04:00Z"
+  },
+  "idempotency_conflict_response": {
+    "ok": false,
+    "issues": [
+      {
+        "code": "catalog_idempotency_conflict",
+        "message": "The idempotency key was already used for a different operation, target, or request body.",
+        "severity": "error",
+        "path": null,
+        "source": "catalog_m2_preview",
+        "hint": null
+      }
+    ]
+  }
+}
