@@ -86,7 +86,7 @@ addopts = [
 ]
 xfail_strict = true
 markers = [
-    "full_main: deterministic but broader contracts run on full-main, dispatch, nightly, and release tiers",
+    "full_main: broader deterministic contracts included in the complete suite",
     "platform_real_execution: requires real Redis/RQ, POSIX process control, or a real Snakemake process",
     "real_execution: requires external scientific workflow or bioinformatics executables",
     "bulk_rnaseq_real_execution: requires the pinned local nf-core/rnaseq runtime, real Redis/RQ, Docker, and controlled tiny data",
