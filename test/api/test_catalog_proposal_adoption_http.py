@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 import sys
@@ -25,11 +26,22 @@ from conftest import (  # noqa: E402
     seed_test_authentication,
 )
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.persistence import (  # noqa: E402
+    catalog_proposal_store,
+)
 from encode_pipeline.persistence.models import (  # noqa: E402
     CatalogAdoptionReceiptRow,
+    CatalogWriteReceiptRow,
     ExperimentRevisionRow,
     SampleRevisionRow,
     UserAccountRow,
+)
+from encode_pipeline.platform.catalog_proposal_adoption import (  # noqa: E402
+    TargetHead,
+)
+from encode_pipeline.platform.experiment_catalog import (  # noqa: E402
+    CatalogError,
+    CatalogWrite,
 )
 from encode_pipeline.platform.authentication import (  # noqa: E402
     UserAccount,
@@ -942,6 +954,208 @@ def test_admin_adopts_only_the_selected_subset(seeded_app) -> None:
         }
         assert revised == {1, 2}
 
+        held = experiment("exp-held", curated["sample_revision_id"], known_target=False)
+
+        def held_item(item_id: str) -> dict:
+            return {
+                "item_id": item_id,
+                "target_kind": "experiment",
+                "target_id": held["experiment_id"],
+                "base_revision_id": held["experiment_revision_id"],
+                "base_revision_number": held["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": "exp-held"},
+                "after": {"display_name": f"exp-held {item_id}"},
+                "citations": citation(
+                    {
+                        "kind": "experiment_revision",
+                        "ref_id": held["experiment_revision_id"],
+                        "evidence_token": item_id,
+                    }
+                ),
+            }
+
+        def register_held(item_id: str, key: str) -> str:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/proposals",
+                {"source": "offline_suggestion", "items": [held_item(item_id)]},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["proposal_id"]
+
+        left_proposal = register_held("held_left", "register-held-left")
+        right_proposal = register_held("held_right", "register-held-right")
+        left_preview = client.post(
+            f"/api/v1/catalog/proposals/{left_proposal}/preview",
+            json={"selected_item_ids": ["held_left"]},
+        )
+        right_preview = other_admin(
+            "POST",
+            f"/api/v1/catalog/proposals/{right_proposal}/preview",
+            json={"selected_item_ids": ["held_right"]},
+        )
+        assert left_preview.status_code == 200, left_preview.text
+        assert right_preview.status_code == 200, right_preview.text
+        collision: list[tuple[int, str]] = []
+
+        def collide(request, proposal_id: str, preview, key: str) -> None:
+            barrier = collision_barrier
+            barrier.wait()
+            response = request(
+                "POST",
+                f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+                json={
+                    "preview_digest": preview["preview_digest"],
+                    "selected_item_ids": preview["selected_item_ids"],
+                    "expected_revisions": preview["expected_revisions"],
+                },
+                headers={"Idempotency-Key": key},
+            )
+            code = ""
+            if response.status_code != 200:
+                code = response.json()["issues"][0]["code"]
+            collision.append((response.status_code, code))
+
+        collision_barrier = Barrier(2)
+        primary = _as(
+            seeded_app,
+            client,
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        threads = [
+            Thread(
+                target=collide,
+                args=(
+                    primary,
+                    left_proposal,
+                    left_preview.json(),
+                    "held-left",
+                ),
+            ),
+            Thread(
+                target=collide,
+                args=(
+                    other_admin,
+                    right_proposal,
+                    right_preview.json(),
+                    "held-right",
+                ),
+            ),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert sorted(collision) == [
+            (200, ""),
+            (409, "catalog_revision_conflict"),
+        ]
+        assert (
+            _receipt_count(seeded_app, left_proposal)
+            + _receipt_count(seeded_app, right_proposal)
+            == 1
+        )
+        assert _revision_count(seeded_app, held["experiment_id"]) == 2
+        original = client.get(
+            "/api/v1/catalog/experiments/"
+            f"{held['experiment_id']}/revisions/{held['experiment_revision_id']}"
+        )
+        assert original.status_code == 200, original.text
+        assert original.json()["revision_number"] == held["revision_number"]
+        receipts = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert receipts.status_code == 200, receipts.text
+        winning = [
+            item
+            for item in receipts.json()["receipts"]
+            if item["proposal_id"] in {left_proposal, right_proposal}
+        ]
+        assert len(winning) == 1
+        assert winning[0]["applied_targets"][0]["target_id"] == held["experiment_id"]
+
+        fresh = experiment(
+            "exp-retry", curated["sample_revision_id"], known_target=False
+        )
+        retry_item = {
+            **held_item("retry_once"),
+            "target_id": fresh["experiment_id"],
+            "base_revision_id": fresh["experiment_revision_id"],
+            "base_revision_number": fresh["revision_number"],
+            "before": {"display_name": "exp-retry"},
+            "after": {"display_name": "exp-retry adopted"},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": fresh["experiment_revision_id"],
+                    "evidence_token": "retry-once",
+                }
+            ),
+        }
+        retry_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [retry_item]},
+            "register-retry-fresh",
+        )
+        assert retry_registered.status_code == 200, retry_registered.text
+        retry_id = retry_registered.json()["proposal_id"]
+        retry_preview = client.post(
+            f"/api/v1/catalog/proposals/{retry_id}/preview",
+            json={"selected_item_ids": ["retry_once"]},
+        )
+        assert retry_preview.status_code == 200, retry_preview.text
+        retry_body = {
+            "preview_digest": retry_preview.json()["preview_digest"],
+            "selected_item_ids": ["retry_once"],
+            "expected_revisions": retry_preview.json()["expected_revisions"],
+        }
+        retry_barrier = Barrier(2)
+        retried: list[dict] = []
+
+        def retry_once() -> None:
+            retry_barrier.wait()
+            response = primary(
+                "POST",
+                f"/api/v1/catalog/proposals/{retry_id}/adoptions",
+                json=retry_body,
+                headers={"Idempotency-Key": "retry-same-request"},
+            )
+            assert response.status_code == 200, response.text
+            retried.append(response.json())
+
+        threads = [Thread(target=retry_once), Thread(target=retry_once)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert {item["receipt_id"] for item in retried} == {retried[0]["receipt_id"]}
+        assert {item["replayed"] for item in retried} == {False, True}
+        assert _receipt_count(seeded_app, retry_id) == 1
+        assert _revision_count(seeded_app, fresh["experiment_id"]) == 2
+        readable = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert readable.status_code == 200, readable.text
+        stored = [
+            item
+            for item in readable.json()["receipts"]
+            if item["proposal_id"] == retry_id
+        ]
+        assert stored[0]["receipt_id"] == retried[0]["receipt_id"]
+        assert stored[0]["replayed"] is False
+
 
 def _revision_count(app, experiment_id: str) -> int:
     engine = app.state.persistence.engine
@@ -967,6 +1181,364 @@ def _receipt_count(app, proposal_id: str) -> int:
             )
             or 0
         )
+
+
+class _RecoveryWindow:
+    """Hide the pre-write receipt read so the unique constraint opens recovery."""
+
+    def __init__(self, monkeypatch, frozen: dict[str, TargetHead]) -> None:
+        self.entered: list[str] = []
+        self.skip_receipt = False
+        self.skip_adoption = False
+        self.use_frozen = False
+        self._receipt_hidden = False
+        self._adoption_hidden = False
+        self._frozen = frozen
+        original_get = Session.get
+        original_resolve = catalog_proposal_store.resolve_adoption_conflict
+        original_adoption = catalog_proposal_store._adoption_body
+        original_heads = catalog_proposal_store._heads
+
+        def get(db, entity, ident, **kwargs):
+            if (
+                self.skip_receipt
+                and entity is CatalogWriteReceiptRow
+                and not self._receipt_hidden
+            ):
+                self._receipt_hidden = True
+                return None
+            return original_get(db, entity, ident, **kwargs)
+
+        def adoption(db, proposal_id):
+            if self.skip_adoption and not self._adoption_hidden:
+                self._adoption_hidden = True
+                return None
+            return original_adoption(db, proposal_id)
+
+        def heads(db, proposal):
+            if not self.use_frozen:
+                return original_heads(db, proposal)
+            return {
+                item.target_id: self._frozen[item.target_id] for item in proposal.items
+            }
+
+        def resolve(db, write, proposal_id):
+            self.entered.append(proposal_id)
+            return original_resolve(db, write, proposal_id)
+
+        monkeypatch.setattr(Session, "get", get)
+        monkeypatch.setattr(catalog_proposal_store, "_adoption_body", adoption)
+        monkeypatch.setattr(catalog_proposal_store, "_heads", heads)
+        monkeypatch.setattr(
+            catalog_proposal_store,
+            "resolve_adoption_conflict",
+            resolve,
+        )
+
+    def arm(self, *, receipt: bool, adoption: bool, frozen: bool) -> None:
+        self.skip_receipt = receipt
+        self.skip_adoption = adoption
+        self.use_frozen = frozen
+        self._receipt_hidden = False
+        self._adoption_hidden = False
+        self.entered.clear()
+
+
+def _frozen_head(app, experiment: dict, project_id: str) -> TargetHead:
+    with Session(app.state.persistence.engine) as db:
+        row = db.get(ExperimentRevisionRow, experiment["experiment_revision_id"])
+        assert row is not None
+        payload = row.canonical_payload
+    return TargetHead(
+        target_kind="experiment",
+        target_id=experiment["experiment_id"],
+        project_id=project_id,
+        revision_number=experiment["revision_number"],
+        revision_id=experiment["experiment_revision_id"],
+        archived=False,
+        canonical_payload=payload,
+    )
+
+
+def _adopt_body(preview) -> dict:
+    payload = preview.json()
+    return {
+        "preview_digest": payload["preview_digest"],
+        "selected_item_ids": payload["selected_item_ids"],
+        "expected_revisions": payload["expected_revisions"],
+    }
+
+
+def test_recovery_branch_matches_the_committed_write_receipt(
+    seeded_app, monkeypatch
+) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project = registry.create_project("Recovery project")
+    with ApiTestClient(seeded_app) as client:
+
+        def term(term_type: str, name: str, key: str) -> dict:
+            response = _post(
+                client,
+                "/api/v1/catalog/terms",
+                {"term_type": term_type, "display_name": name, "aliases": []},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        assay = term("assay", "CUT&Tag", "recovery-assay")
+        role = term("replicate_role", "biological replicate", "recovery-role")
+
+        def sample(key: str) -> dict:
+            created = registry.import_sample(
+                project.project_id,
+                stable_key=key,
+                display_name=key,
+                attributes={"organism": "human"},
+            )
+            response = _post(
+                client,
+                f"/api/v1/catalog/samples/{created.sample.sample_id}/catalog-revisions",
+                {
+                    "expected_revision_number": 1,
+                    "catalog": {
+                        "schema_version": 1,
+                        "species": {"status": "unknown"},
+                        "tissue": {"status": "unknown"},
+                        "cell_type": {"status": "unknown", "values": []},
+                        "cell_line": {"status": "not_applicable", "values": []},
+                        "treatment": {"status": "not_applicable", "values": []},
+                        "tag": {"status": "unknown", "values": []},
+                    },
+                },
+                f"recovery-catalog-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        left_sample = sample("recovery-left")
+        right_sample = sample("recovery-right")
+
+        def experiment(key: str, sample_revision_id: str) -> dict:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/experiments",
+                {
+                    "stable_key": key,
+                    "display_name": key,
+                    "assay": _known(assay),
+                    "target": {"status": "unknown"},
+                    "batch": {"status": "unknown"},
+                    "samples": [
+                        {
+                            "sample_revision_id": sample_revision_id,
+                            "replicate_role": _known(role),
+                        }
+                    ],
+                },
+                f"recovery-experiment-{key}",
+            )
+            assert response.status_code == 200, response.text
+            return response.json()
+
+        left = experiment("exp-left", left_sample["sample_revision_id"])
+        right = experiment("exp-right", right_sample["sample_revision_id"])
+
+        def item(item_id: str, created: dict, name: str) -> dict:
+            return {
+                "item_id": item_id,
+                "target_kind": "experiment",
+                "target_id": created["experiment_id"],
+                "base_revision_id": created["experiment_revision_id"],
+                "base_revision_number": created["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": name},
+                "after": {"display_name": f"{name} adopted"},
+                "citations": {
+                    "rule_version": M2_RULE_VERSION,
+                    "vocabulary_version": M2_VOCABULARY_VERSION,
+                    "reason_codes": ["BATCH_TERM_MATCH"],
+                    "source_refs": [
+                        {
+                            "kind": "experiment_revision",
+                            "ref_id": created["experiment_revision_id"],
+                            "evidence_token": item_id,
+                        }
+                    ],
+                },
+            }
+
+        left_item = item("item_left", left, "exp-left")
+        right_item = item("item_right", right, "exp-right")
+        registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [left_item, right_item]},
+            "register-recovery",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal_id = registered.json()["proposal_id"]
+        left_preview = client.post(
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_left"]},
+        )
+        both_preview = client.post(
+            f"/api/v1/catalog/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["item_left", "item_right"]},
+        )
+        assert left_preview.status_code == 200, left_preview.text
+        assert both_preview.status_code == 200, both_preview.text
+        left_body = _adopt_body(left_preview)
+        both_body = _adopt_body(both_preview)
+        window = _RecoveryWindow(
+            monkeypatch,
+            {
+                left["experiment_id"]: _frozen_head(
+                    seeded_app, left, project.project_id
+                ),
+                right["experiment_id"]: _frozen_head(
+                    seeded_app, right, project.project_id
+                ),
+            },
+        )
+
+        def adopt(proposal: str, body: dict, key: str):
+            return _post(
+                client,
+                f"/api/v1/catalog/proposals/{proposal}/adoptions",
+                body,
+                key,
+            )
+
+        window.arm(receipt=True, adoption=False, frozen=False)
+        reused = adopt(proposal_id, left_body, "register-recovery")
+        assert reused.status_code == 409, reused.text
+        assert reused.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 1
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        adopted = adopt(proposal_id, left_body, "adopt-recovery")
+        assert adopted.status_code == 200, adopted.text
+        assert adopted.json()["replayed"] is False
+        receipt_id = adopted.json()["receipt_id"]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+        window.arm(receipt=False, adoption=False, frozen=False)
+
+        with Session(seeded_app.state.persistence.engine) as db:
+            stored = db.scalar(
+                select(CatalogWriteReceiptRow).where(
+                    CatalogWriteReceiptRow.idempotency_key == "adopt-recovery"
+                )
+            )
+            assert stored is not None
+            committed = CatalogWrite(
+                actor_user_id=stored.actor_user_id,
+                idempotency_key=stored.idempotency_key,
+                request_sha256=stored.request_sha256,
+                operation=stored.operation,
+                now=stored.created_at,
+                target_key=stored.target_key,
+            )
+            replayed = catalog_proposal_store.resolve_adoption_conflict(
+                db,
+                committed,
+                proposal_id,
+            )
+            assert replayed["replayed"] is True
+            assert replayed["receipt_id"] == receipt_id
+            mismatches = (
+                replace(committed, request_sha256="ab" * 32),
+                replace(committed, operation="catalogReviseExperiment"),
+                replace(committed, target_key="cprop_" + "ab" * 16),
+            )
+            for mismatch in mismatches:
+                try:
+                    catalog_proposal_store.resolve_adoption_conflict(
+                        db,
+                        mismatch,
+                        proposal_id,
+                    )
+                except CatalogError as caught:
+                    assert caught.code == "catalog_idempotency_conflict"
+                else:
+                    raise AssertionError("changed request was replayed")
+            try:
+                catalog_proposal_store.resolve_adoption_conflict(
+                    db,
+                    replace(committed, idempotency_key="adopt-other"),
+                    proposal_id,
+                )
+            except CatalogError as caught:
+                assert caught.code == "catalog_proposal_invalidated"
+            else:
+                raise AssertionError("second adoption was replayed")
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        same = adopt(proposal_id, left_body, "adopt-recovery")
+        assert same.status_code == 200, same.text
+        assert same.json()["replayed"] is True
+        assert same.json()["receipt_id"] == receipt_id
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        subset = adopt(proposal_id, both_body, "adopt-recovery")
+        assert subset.status_code == 409, subset.text
+        assert subset.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        other = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [right_item]},
+            "register-other-target",
+        )
+        assert other.status_code == 200, other.text
+        other_id = other.json()["proposal_id"]
+        other_preview = client.post(
+            f"/api/v1/catalog/proposals/{other_id}/preview",
+            json={"selected_item_ids": ["item_right"]},
+        )
+        assert other_preview.status_code == 200, other_preview.text
+        window.arm(receipt=True, adoption=False, frozen=False)
+        moved_target = adopt(other_id, _adopt_body(other_preview), "adopt-recovery")
+        assert moved_target.status_code == 409, moved_target.text
+        assert (
+            moved_target.json()["issues"][0]["code"] == "catalog_idempotency_conflict"
+        )
+        assert window.entered == [other_id]
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, other_id) == 0
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        window.arm(receipt=True, adoption=True, frozen=True)
+        second_adoption = adopt(proposal_id, left_body, "adopt-other")
+        assert second_adoption.status_code == 409, second_adoption.text
+        assert (
+            second_adoption.json()["issues"][0]["code"]
+            == "catalog_proposal_invalidated"
+        )
+        assert window.entered == [proposal_id]
+        assert _revision_count(seeded_app, left["experiment_id"]) == 2
+        assert _revision_count(seeded_app, right["experiment_id"]) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 1
+        listed = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert listed.status_code == 200, listed.text
+        assert [row["receipt_id"] for row in listed.json()["receipts"]] == [receipt_id]
 
 
 def _legacy_note(app, sample_revision_id: str) -> str:

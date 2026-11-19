@@ -23,6 +23,7 @@ from encode_pipeline.persistence.experiment_catalog import (
 from encode_pipeline.persistence.models import (
     CatalogAdoptionReceiptRow,
     CatalogCurationVersionRow,
+    CatalogWriteReceiptRow,
     CatalogProposalRow,
     CatalogTermRevisionRow,
     CatalogTermRow,
@@ -59,11 +60,29 @@ from encode_pipeline.platform.experiment_catalog import (
     CatalogError,
     CatalogWrite,
     catalog_idempotency_conflict,
+    matches_committed_catalog_request,
     catalog_not_found,
     catalog_payload_invalid,
+    catalog_revision_conflict,
     interpret_sample_catalog,
     sample_catalog_object,
     validate_display_name,
+)
+
+
+class AdoptionConflict(Exception):
+    """A committed adoption receipt may already represent this attempt."""
+
+
+_REVISION_INTEGRITY_TOKENS = (
+    "experiment_revisions",
+    "experiment_revision_heads",
+    "experiment_revision_samples",
+    "sample_revisions",
+)
+_RECEIPT_INTEGRITY_TOKENS = (
+    "catalog_adoption_receipts",
+    "catalog_write_receipts",
 )
 
 
@@ -249,54 +268,51 @@ def adopt_proposal(
         sources=_SqlSourceCatalog(session),
         lookup=SessionTermLookup(session),
     )
-    applied = [
-        _apply_item(
-            session,
-            write,
-            item,
-            experiment_revision_id_factory=experiment_revision_id_factory,
-            sample_revision_id_factory=sample_revision_id_factory,
-        )
-        for item in selected
-    ]
     if not isinstance(preview_digest, str):
         raise catalog_payload_invalid()
-    body = adoption_receipt(
-        proposal,
-        selected=selected,
-        preview_digest=preview_digest,
-        actor_user_id=write.actor_user_id,
-        idempotency_key=write.idempotency_key,
-        receipt_id=receipt_id_factory(),
-        applied_targets=applied,
-        now=write.now,
-    )
-    session.add(
-        CatalogAdoptionReceiptRow(
-            receipt_id=body["receipt_id"],
-            proposal_id=proposal.proposal_id,
-            project_id=proposal.project_id,
+    try:
+        applied = [
+            _apply_item(
+                session,
+                write,
+                item,
+                experiment_revision_id_factory=experiment_revision_id_factory,
+                sample_revision_id_factory=sample_revision_id_factory,
+            )
+            for item in selected
+        ]
+        body = adoption_receipt(
+            proposal,
+            selected=selected,
+            preview_digest=preview_digest,
             actor_user_id=write.actor_user_id,
             idempotency_key=write.idempotency_key,
-            response_json=_dump(body),
-            created_at=write.now,
+            receipt_id=receipt_id_factory(),
+            applied_targets=applied,
+            now=write.now,
         )
-    )
-    try:
+        session.add(
+            CatalogAdoptionReceiptRow(
+                receipt_id=body["receipt_id"],
+                proposal_id=proposal.proposal_id,
+                project_id=proposal.project_id,
+                actor_user_id=write.actor_user_id,
+                idempotency_key=write.idempotency_key,
+                response_json=_dump(body),
+                created_at=write.now,
+            )
+        )
         session.flush()
+        _add_receipt(
+            session,
+            write,
+            subject_id=proposal.project_id,
+            result_revision_id=None,
+            result_archived_at=None,
+        )
     except IntegrityError as exc:
-        raise CatalogError(
-            409,
-            "catalog_proposal_invalidated",
-            "This proposal has already been adopted.",
-        ) from exc
-    _add_receipt(
-        session,
-        write,
-        subject_id=proposal.project_id,
-        result_revision_id=None,
-        result_archived_at=None,
-    )
+        _raise_for_adoption_integrity(exc)
+        raise
     return body
 
 
@@ -341,6 +357,60 @@ def replay_register(session: Session, actor_user_id: str, idempotency_key: str):
     if row is None:
         raise catalog_idempotency_conflict()
     return _load(row.response_json)
+
+
+def resolve_adoption_conflict(
+    session: Session,
+    write: CatalogWrite,
+    proposal_id: str,
+) -> dict[str, Any]:
+    """Judge a rolled-back attempt against the committed catalog write receipt."""
+
+    committed = session.get(
+        CatalogWriteReceiptRow,
+        (write.actor_user_id, write.idempotency_key),
+    )
+    if committed is not None:
+        if not matches_committed_catalog_request(
+            write,
+            operation=committed.operation,
+            target_key=committed.target_key,
+            request_sha256=committed.request_sha256,
+        ):
+            raise catalog_idempotency_conflict()
+        return replay_adopt(session, write.actor_user_id, write.idempotency_key)
+    existing = _adoption_body(session, proposal_id)
+    if existing is not None:
+        raise CatalogError(
+            409,
+            "catalog_proposal_invalidated",
+            "This proposal has already been adopted.",
+        )
+    raise catalog_revision_conflict()
+
+
+def _reported_unique_columns(exc: IntegrityError) -> str:
+    """Return the columns named by the database, without SQL or parameters."""
+
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", None)
+    if not args or not isinstance(args[0], str):
+        return ""
+    marker = "UNIQUE constraint failed:"
+    if marker not in args[0]:
+        return ""
+    return args[0].split(marker, 1)[1].splitlines()[0]
+
+
+def _raise_for_adoption_integrity(exc: IntegrityError) -> None:
+    """Separate a head collision from the one committed adoption receipt."""
+
+    reported = _reported_unique_columns(exc)
+    if any(token in reported for token in _REVISION_INTEGRITY_TOKENS):
+        raise catalog_revision_conflict() from exc
+    if any(token in reported for token in _RECEIPT_INTEGRITY_TOKENS):
+        raise AdoptionConflict() from exc
+    raise exc
 
 
 def replay_adopt(session: Session, actor_user_id: str, idempotency_key: str):

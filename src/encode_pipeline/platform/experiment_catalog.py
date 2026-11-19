@@ -115,6 +115,22 @@ def bind_catalog_target(write: CatalogWrite, target_key: str) -> CatalogWrite:
     return replace(write, target_key=target_key)
 
 
+def matches_committed_catalog_request(
+    write: CatalogWrite,
+    *,
+    operation: str,
+    target_key: str,
+    request_sha256: str,
+) -> bool:
+    """Return whether this attempt is the request stored for the same key."""
+
+    return (
+        write.operation == operation
+        and write.target_key == target_key
+        and write.request_sha256 == request_sha256
+    )
+
+
 class CatalogBlockRequiresCatalogCommand(ValueError):
     """Local sample edits must not author or drop a catalog block."""
 
