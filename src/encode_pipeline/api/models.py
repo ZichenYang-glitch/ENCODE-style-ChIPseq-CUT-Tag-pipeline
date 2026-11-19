@@ -1438,7 +1438,7 @@ class PublishedResultContextResponse(BaseModel):
     current_stage: str | None = Field(default=None, max_length=128)
     reference_evidence: Literal["absent", "present"]
     reference_profile: ReferenceProfileRevisionResponse | None = None
-    qc_evidence: Literal["absent", "present"]
+    qc_evidence: Literal["absent", "present", "unverifiable"]
     qc_generation: str | None = Field(
         default=None,
         pattern=r"^qcgen-[0-9a-f]{64}$",
@@ -1461,12 +1461,12 @@ class PublishedResultContextResponse(BaseModel):
             raise ValueError("absent reference evidence includes a profile")
         if self.reference_evidence == "present" and self.reference_profile is None:
             raise ValueError("present reference evidence has no profile")
-        if self.qc_evidence == "absent" and (
+        if self.qc_evidence != "present" and (
             self.qc_generation is not None
             or self.qc_metrics
             or self.qc_next_cursor is not None
         ):
-            raise ValueError("absent QC evidence includes metrics")
+            raise ValueError("QC evidence without a bound generation includes metrics")
         if self.qc_evidence == "present" and self.qc_generation is None:
             raise ValueError("present QC evidence has no generation")
         if self.preflight_failure_evidence == "absent" and self.preflight_failures:

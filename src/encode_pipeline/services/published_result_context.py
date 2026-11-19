@@ -1,8 +1,10 @@
 """Read-only context for one published result.
 
-The catalog trace is resolved first, so a publication outside the requested
-project never reaches the run, reference, QC, or event stores. Nothing in this
-reader creates a run, starts one, or triggers preflight.
+Publication visibility follows the publication detail. A publication in another
+project never reaches the run, reference, QC, or event stores. A visible
+legacy publication is explained as unbound here; the catalog project gate is
+unchanged. Nothing in this reader creates a run, starts one, or triggers
+preflight.
 """
 
 from __future__ import annotations
@@ -11,6 +13,11 @@ from dataclasses import dataclass
 import re
 from typing import Literal
 
+from encode_pipeline.platform.data_registry import LEGACY_PROJECT_ID
+from encode_pipeline.platform.experiment_catalog import (
+    catalog_not_found,
+    publication_experiment_trace,
+)
 from encode_pipeline.platform.reference_profiles import (
     ReferenceProfileRevisionSummary,
 )
@@ -19,8 +26,18 @@ from encode_pipeline.platform.result_generations import (
     encode_qc_metric_cursor,
 )
 from encode_pipeline.platform.runs import RunQcMetric, RunStatus
+from encode_pipeline.services.artifact_publications import (
+    ArtifactPublicationDataInvalidError,
+    ArtifactPublicationFilterInvalidError,
+    ArtifactPublicationNotFoundError,
+    ArtifactPublicationQueryService,
+)
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 from encode_pipeline.services.reference_profiles import ReferenceProfileService
+from encode_pipeline.services.run_repositories import (
+    ResultGenerationChangedError,
+    _publication_trace_row,
+)
 from encode_pipeline.services.runs import RunService
 
 
@@ -61,7 +78,7 @@ class PublishedResultContext:
     current_stage: str | None
     reference_evidence: Literal["absent", "present"]
     reference: ReferenceProfileRevisionSummary | None
-    qc_evidence: Literal["absent", "present"]
+    qc_evidence: Literal["absent", "present", "unverifiable"]
     qc_generation: str | None
     qc_metrics: tuple[RunQcMetric, ...]
     qc_next_cursor: str | None
@@ -77,10 +94,12 @@ class PublishedResultContextReader:
         catalog: ExperimentCatalogService,
         runs: RunService,
         reference_profiles: ReferenceProfileService,
+        publications: ArtifactPublicationQueryService,
     ) -> None:
         self._catalog = catalog
         self._runs = runs
         self._reference_profiles = reference_profiles
+        self._publications = publications
 
     def read(
         self,
@@ -90,12 +109,31 @@ class PublishedResultContextReader:
         artifact_id: str,
         artifact_generation: str,
     ) -> PublishedResultContext:
-        trace = self._catalog.get_publication_experiment_trace(
+        publication = self._visible_publication(
             project_id=project_id,
             run_id=run_id,
             artifact_id=artifact_id,
             artifact_generation=artifact_generation,
         )
+        if publication.project_id == LEGACY_PROJECT_ID:
+            trace = publication_experiment_trace(
+                project_id=project_id,
+                run_id=run_id,
+                artifact_id=artifact_id,
+                artifact_generation=artifact_generation,
+                result=_publication_trace_row(publication),
+                binding_revision_id=None,
+                binding_payload_digest=None,
+                revision_project_id=None,
+                revision_payload_digest=None,
+            )
+        else:
+            trace = self._catalog.get_publication_experiment_trace(
+                project_id=project_id,
+                run_id=run_id,
+                artifact_id=artifact_id,
+                artifact_generation=artifact_generation,
+            )
         try:
             record = self._runs.get_run(run_id)
         except KeyError as exc:
@@ -106,7 +144,10 @@ class PublishedResultContextReader:
         status = record.status
         run_status = status.value if isinstance(status, RunStatus) else str(status)
         reference_evidence, reference = self._reference(run_id)
-        qc_evidence, generation, metrics, cursor = self._qc(run_id)
+        qc_evidence, generation, metrics, cursor = self._qc(
+            run_id,
+            artifact_generation,
+        )
         failures = self._preflight_failures(run_id)
         return PublishedResultContext(
             trace=trace,
@@ -146,18 +187,74 @@ class PublishedResultContextReader:
             )
         return "present", summary
 
+    def _visible_publication(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ):
+        try:
+            publication = self._publications.get_artifact_publication(
+                run_id=run_id,
+                artifact_id=artifact_id,
+                artifact_generation=artifact_generation,
+            )
+        except ArtifactPublicationNotFoundError as exc:
+            raise catalog_not_found() from exc
+        except ArtifactPublicationFilterInvalidError as exc:
+            raise catalog_not_found() from exc
+        except ArtifactPublicationDataInvalidError as exc:
+            raise PublishedResultEvidenceError(
+                "RUN_RESULT_CONTEXT_INCONSISTENT",
+                "Published result context could not be read.",
+            ) from exc
+        if publication.project_id != project_id:
+            raise catalog_not_found()
+        return publication
+
     def _qc(
         self,
         run_id: str,
+        artifact_generation: str,
     ) -> tuple[
-        Literal["absent", "present"], str | None, tuple[RunQcMetric, ...], str | None
+        Literal["absent", "present", "unverifiable"],
+        str | None,
+        tuple[RunQcMetric, ...],
+        str | None,
     ]:
+        try:
+            state = self._runs.get_result_state(run_id)
+        except ValueError as exc:
+            if str(exc) == _MISSING_RESULT_STATE:
+                return "absent", None, (), None
+            raise PublishedResultEvidenceError(
+                "RUN_QC_METRIC_DATA_INVALID",
+                "Persisted QC metric data is unavailable.",
+            ) from exc
+        except KeyError as exc:
+            raise PublishedResultEvidenceError(
+                "RUN_QC_METRIC_DATA_INVALID",
+                "Persisted QC metric data is unavailable.",
+            ) from exc
+        qc_matches_publication = (
+            state.qc_generation is not None
+            and state.qc_artifact_generation == artifact_generation
+            and state.artifact_generation == artifact_generation
+        )
+        if not qc_matches_publication:
+            if state.artifact_generation != artifact_generation:
+                return "unverifiable", None, (), None
+            return "absent", None, (), None
         try:
             generation, metrics = self._runs.list_qc_metrics_page(
                 run_id,
-                expected_generation=None,
+                expected_generation=state.qc_generation,
                 limit=_QC_PAGE_LIMIT + 1,
             )
+        except ResultGenerationChangedError:
+            return "unverifiable", None, (), None
         except ValueError as exc:
             if str(exc) == _MISSING_RESULT_STATE:
                 return "absent", None, (), None
@@ -186,7 +283,7 @@ class PublishedResultContextReader:
                     after_metric_id=page[-1].metric_id,
                 )
             )
-        if generation is None and page:
+        if generation != state.qc_generation or (generation is None and page):
             raise PublishedResultEvidenceError(
                 "RUN_QC_METRIC_DATA_INVALID",
                 "Persisted QC metric data is unavailable.",

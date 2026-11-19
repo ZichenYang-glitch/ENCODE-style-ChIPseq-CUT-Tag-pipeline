@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from encode_pipeline.api.catalog_models import CatalogErrorResponse
 from encode_pipeline.api.dependencies import (
+    get_artifact_publication_service,
     get_reference_profile_service,
     get_run_service,
 )
@@ -17,6 +18,9 @@ from encode_pipeline.api.models import (
     ReferenceProfileRevisionResponse,
 )
 from encode_pipeline.api.routes.catalog import get_catalog_service
+from encode_pipeline.services.artifact_publications import (
+    ArtifactPublicationQueryService,
+)
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 from encode_pipeline.services.published_result_context import (
     PublishedResultContextReader,
@@ -53,14 +57,23 @@ def read_published_result_context(
     reference_profiles: ReferenceProfileService = Depends(
         get_reference_profile_service
     ),
+    publications: ArtifactPublicationQueryService = Depends(
+        get_artifact_publication_service
+    ),
 ) -> JSONResponse:
-    """Read one published result with the caller's existing project visibility.
+    """Read one published result the publication detail can already show.
 
     This is a GET. It does not trigger preflight, create a run, or start one.
-    Missing reference, QC, and preflight evidence stay explicit.
+    A visible legacy publication is explained as unbound. QC metrics are
+    returned only when they belong to this artifact generation.
     """
 
-    reader = PublishedResultContextReader(catalog, runs, reference_profiles)
+    reader = PublishedResultContextReader(
+        catalog,
+        runs,
+        reference_profiles,
+        publications,
+    )
     try:
         context = reader.read(
             project_id=project_id,
@@ -105,7 +118,7 @@ def read_published_result_context(
             "Published result context could not be read.",
         )
     content = body.model_dump(mode="json", exclude_none=True)
-    if body.qc_evidence == "absent":
+    if body.qc_evidence != "present":
         content.pop("qc_metrics", None)
     else:
         # QC metrics keep explicit null coordinates; exclude_none would drop them.

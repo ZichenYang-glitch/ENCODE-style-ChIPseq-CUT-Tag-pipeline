@@ -16,7 +16,7 @@ M0 契约不把 `experiment_binding` 放进运行记录或发布摘要。本读�
 
 操作 ID 是 `catalogGetArtifactPublicationExperimentTrace`。它只读取 `artifact_publications`、`run_experiment_bindings` 和 `experiment_revisions`，不新增表，也不回填旧运行。
 
-可见范围与目录的其他项目读取相同。发布不存在、项目不对、或代数不对时返回 `catalog_not_found`。信封始终带上这一条已发布结果，关联类型保持 `run_input_scope`。
+可见范围与目录的其他项目读取相同。发布不存在、项目不对、Legacy 项目、或代数不对时返回 `catalog_not_found`。信封始终带上这一条已发布结果，关联类型保持 `run_input_scope`。
 
 - 运行没有实验绑定：`trace_status=unresolved`，`reason=experiment_snapshot_binding_absent`。不返回修订 ID 或摘要。
 - 复制的修订 ID 能找到同一项目的修订，且修订摘要与运行上复制的摘要一致：`trace_status=experiment_snapshot`，返回那一对复制值。实验之后出现新修订，不改变旧结果的答案。已归档实验仍可按修订 ID 读取。
@@ -28,12 +28,13 @@ M0 契约不把 `experiment_binding` 放进运行记录或发布摘要。本读�
 
 `GET /api/v1/agent/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/context?generation=...`
 
-操作 ID 是 `readPublishedResultContext`。结果页和 Agent 使用调用者当前的成员会话，先做上面的目录追溯，再读取运行状态、参考、QC 和已经存在的预检失败。它不调用触发预检、创建运行或启动运行。
+操作 ID 是 `readPublishedResultContext`。结果页和 Agent 使用调用者当前的成员会话。能打开发布详情的结果才能读到上下文；请求的项目与这条发布不一致时仍是 `catalog_not_found`。Legacy 发布沿用详情的可见范围，返回 `trace_status=unresolved` 和 `experiment_snapshot_binding_absent`，不把 Legacy 项目放进目录追溯。目录接口对 Legacy 项目和错误项目保持原来的 404。它不调用触发预检、创建运行或启动运行。
 
 缺值用证据字段表示，不补猜：
 
 - `reference_evidence` 为 `absent` 或 `present`。参考绑定缺失时是 `absent`。身份不一致时返回 `RUN_REFERENCE_EVIDENCE_INVALID`，与 `getRun` 相同。
-- `qc_evidence` 为 `absent` 表示没有结果代状态，或这一代没有 QC。已有 QC 代时为 `present`，并沿用 QC 列表的分页。摘要缺失却存在指标时返回 `RUN_QC_METRIC_DATA_INVALID`。
-- `preflight_failure_evidence` 只反映已经记录的失败。事件上下文不外传；带路径的消息改成固定说明。事件页读不完时返回 `RUN_EVENT_READ_INCOMPLETE`，而不是声称没有失败。
+- QC 只在结果状态把 `qc_artifact_generation` 绑到这一代产物时才可读。`qc_evidence` 为 `present` 时返回这一代的指标，并沿用 QC 列表的分页。当前代还没有 QC 时为 `absent`。这一代已被新的产物代取代，原指标已不可核实时为 `unverifiable`，不返回其他代的指标或 QC 代。摘要缺失却存在指标时返回 `RUN_QC_METRIC_DATA_INVALID`。
+- `preflight_failure_evidence` 只反映已经记录、并且挂在这条已发布结果上的失败。事件上下文不外传；带路径的消息改成固定说明。事件页读不完时返回 `RUN_EVENT_READ_INCOMPLETE`，而不是声称没有失败。
+- 预检在任何发布之前失败时，没有产物代可供这个入口读取。Agent 只凭 run ID 读取 `getRun` 和 `listRunEvents`。运行状态说明失败，事件的 `context.reason_code` 和 `issue.context.reason_code` 保留具体原因，例如 `REFERENCE_PROFILE_BINDING_INVALID`。这两次 GET 不改变运行状态，也不增加事件。
 
 项目权限和历史绑定数据保持不变。历史列表的显示修复留在 IRENE-42。

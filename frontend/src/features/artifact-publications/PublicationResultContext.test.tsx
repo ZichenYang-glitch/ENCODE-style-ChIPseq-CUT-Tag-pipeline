@@ -154,5 +154,27 @@ describe('PublicationResultContext', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('No preflight failure was recorded.')).toBeInTheDocument();
     expect(screen.queryByText(REVISION_ID)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Result context could not be read.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does not show a later generation QC value on a superseded result', async () => {
+    readContext.mockResolvedValue(
+      context({
+        qc_evidence: 'unverifiable',
+        qc_generation: undefined,
+        qc_metrics: undefined,
+      }),
+    );
+    renderContext();
+
+    expect(
+      await screen.findByText(
+        'No verifiable QC metrics were recorded for this generation.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Mapped fraction/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\.9/)).not.toBeInTheDocument();
   });
 });

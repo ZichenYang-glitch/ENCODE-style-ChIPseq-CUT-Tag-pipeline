@@ -17,7 +17,9 @@ from encode_pipeline.api.catalog_models import (
     CatalogPublicationExperimentTraceResponse,
 )
 from encode_pipeline.api.models import PublishedResultContextResponse
+from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.authentication import UserAccount, UserRole, UserStatus
+from encode_pipeline.platform.data_registry import LEGACY_PROJECT_ID
 from encode_pipeline.platform.results import Issue, IssueSeverity
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -184,6 +186,39 @@ def _context_url(project_id: str, run_id: str, artifact_id: str = "artifact-1") 
         project_id=project_id,
         run_id=run_id,
         artifact_id=artifact_id,
+    )
+
+
+def _mapped_fraction(run_id: str, artifact_id: str, value: str) -> RunQcMetric:
+    return RunQcMetric(
+        metric_id=build_qc_metric_id("alignment.mapped_fraction", "run", None, None),
+        run_id=run_id,
+        metric_key="alignment.mapped_fraction",
+        display_name="Mapped fraction",
+        value=Decimal(value),
+        unit="fraction",
+        scope="run",
+        source_artifact_id=artifact_id,
+        produced_at=datetime.now(timezone.utc),
+    )
+
+
+def _replace_peaks(app, run_id: str, artifact_name: str) -> None:
+    app.state.run_service.replace_artifacts(
+        run_id,
+        (
+            RunArtifactRef(
+                artifact_id="artifact-1",
+                run_id=run_id,
+                artifact_type="file",
+                name=artifact_name,
+                uri=f"run://runs/{run_id}/artifacts/artifact-1",
+                mime_type="text/plain",
+                produced_at=datetime.now(timezone.utc),
+                revision="artifactrev-" + sha256(artifact_name.encode()).hexdigest(),
+                metadata={"output_type": "peaks"},
+            ),
+        ),
     )
 
 
@@ -414,19 +449,7 @@ def test_published_result_traces_the_copied_revision_and_reads_context(
         artifacts = app.state.persistence.repository.list_artifacts(run_id)
         app.state.run_service.replace_qc_metrics(
             run_id,
-            (
-                RunQcMetric(
-                    metric_id=build_qc_metric_id(metric_key, "run", None, None),
-                    run_id=run_id,
-                    metric_key=metric_key,
-                    display_name="Mapped fraction",
-                    value=Decimal("0.5"),
-                    unit="fraction",
-                    scope="run",
-                    source_artifact_id=artifacts[0].artifact_id,
-                    produced_at=datetime.now(timezone.utc),
-                ),
-            ),
+            (_mapped_fraction(run_id, artifacts[0].artifact_id, "0.5"),),
             expected_artifacts=artifacts,
         )
         app.state.run_service.add_event(
@@ -440,10 +463,6 @@ def test_published_result_traces_the_copied_revision_and_reads_context(
                 severity=IssueSeverity.ERROR,
             ),
         )
-        bindings_before = _count(app, "run_experiment_bindings")
-        events_before = _count(app, "run_events")
-        status_before = _status(app, run_id)
-
         app.state.test_auth_tokens = ("c" * 43, "d" * 43)
         member_context = client.get(
             _context_url(project.project_id, run_id),
@@ -487,6 +506,64 @@ def test_published_result_traces_the_copied_revision_and_reads_context(
                 "code": "PREFLIGHT_FAILED",
             }
         ]
+
+        _replace_peaks(app, run_id, "bound-peaks-next")
+        next_artifacts = app.state.persistence.repository.list_artifacts(run_id)
+        app.state.run_service.replace_qc_metrics(
+            run_id,
+            (_mapped_fraction(run_id, next_artifacts[0].artifact_id, "0.9"),),
+            expected_artifacts=next_artifacts,
+        )
+        next_generation = app.state.run_service.get_result_state(
+            run_id
+        ).artifact_generation
+        assert next_generation is not None
+        assert next_generation != generation
+        bindings_before = _count(app, "run_experiment_bindings")
+        events_before = _count(app, "run_events")
+        status_before = _status(app, run_id)
+
+        superseded_publication = client.get(
+            f"/api/v1/artifact-publications/{run_id}/artifact-1",
+            params={"generation": generation},
+        )
+        current_publication = client.get(
+            f"/api/v1/artifact-publications/{run_id}/artifact-1",
+            params={"generation": next_generation},
+        )
+        superseded_context = client.get(
+            _context_url(project.project_id, run_id),
+            params={"generation": generation},
+        )
+        current_context = client.get(
+            _context_url(project.project_id, run_id),
+            params={"generation": next_generation},
+        )
+        assert superseded_publication.status_code == 200, superseded_publication.text
+        assert current_publication.status_code == 200, current_publication.text
+        assert (
+            superseded_publication.json()["publication"]["generation_status"]
+            == "superseded"
+        )
+        assert (
+            current_publication.json()["publication"]["generation_status"] == "current"
+        )
+        assert superseded_context.status_code == 200, superseded_context.text
+        assert current_context.status_code == 200, current_context.text
+        superseded_body = superseded_context.json()
+        current_body = current_context.json()
+        PublishedResultContextResponse.model_validate(superseded_body)
+        PublishedResultContextResponse.model_validate(current_body)
+        assert superseded_body["experiment_trace"]["experiment_revision_id"] == (
+            experiment_revision_id
+        )
+        assert superseded_body["qc_evidence"] == "unverifiable"
+        assert "qc_metrics" not in superseded_body
+        assert "qc_generation" not in superseded_body
+        assert current_body["qc_evidence"] == "present"
+        assert current_body["qc_metrics"][0]["metric_key"] == metric_key
+        assert current_body["qc_metrics"][0]["value"] == "0.9"
+        assert all(metric["value"] != "0.5" for metric in current_body["qc_metrics"])
 
         unbound_context = client.get(
             _context_url(project.project_id, unbound_run_id),
@@ -575,5 +652,139 @@ def test_published_result_traces_the_copied_revision_and_reads_context(
         assert forward_after.json()["results"] == []
 
         assert _count(app, "run_experiment_bindings") == bindings_before
+        assert _count(app, "run_events") == events_before
+        assert _status(app, run_id) == status_before
+
+
+def test_visible_legacy_publication_context_explains_it_is_unbound(
+    reference_ready_app,
+) -> None:
+    app = reference_ready_app
+    registry = DataRegistryService(
+        repository=app.state.persistence.data_registry_repository
+    )
+    other = registry.create_project("Other project")
+    _seed_member(app)
+    run_id = app.state.run_service.create_run(
+        WORKFLOW_ID,
+        WorkflowInputs(config={}),
+    ).run_id
+    _publish(app, run_id, "legacy-peaks")
+    generation = _generation(app, run_id, "artifact-1")
+    with ApiTestClient(app) as client:
+        detail = client.get(
+            f"/api/v1/artifact-publications/{run_id}/artifact-1",
+            params={"generation": generation},
+        )
+        assert detail.status_code == 200, detail.text
+        publication = detail.json()["publication"]
+        assert publication["project_id"] == LEGACY_PROJECT_ID
+        assert publication["run_sample_binding"]["binding_mode"] == "legacy_v1"
+        assert publication["run_sample_binding"]["provenance"] == "unresolved"
+
+        app.state.test_auth_tokens = ("c" * 43, "d" * 43)
+        context = client.get(
+            _context_url(LEGACY_PROJECT_ID, run_id),
+            params={"generation": generation},
+        )
+        assert context.status_code == 200, context.text
+        body = context.json()
+        PublishedResultContextResponse.model_validate(body)
+        trace = body["experiment_trace"]
+        assert trace["trace_status"] == "unresolved"
+        assert trace["reason"] == "experiment_snapshot_binding_absent"
+        assert "experiment_revision_id" not in trace
+        assert "payload_digest" not in trace
+        assert trace["result"]["artifact_association_kind"] == "run_input_scope"
+        assert trace["result"]["run_sample_binding"]["binding_mode"] == "legacy_v1"
+        assert trace["result"]["run_id"] == run_id
+
+        catalog_legacy = client.get(
+            _trace_url(LEGACY_PROJECT_ID, run_id),
+            params={"generation": generation},
+        )
+        wrong_project = client.get(
+            _context_url(other.project_id, run_id),
+            params={"generation": generation},
+        )
+        catalog_other = client.get(
+            _trace_url(other.project_id, run_id),
+            params={"generation": generation},
+        )
+        for response in (catalog_legacy, wrong_project, catalog_other):
+            assert response.status_code == 404, response.text
+            assert response.json()["issues"][0]["code"] == "catalog_not_found"
+            assert "run_status" not in response.text
+            assert "legacy_v1" not in response.text
+
+
+def test_agent_reads_reference_preflight_failure_from_the_run_id(
+    tmp_path,
+    reference_ready_app,
+) -> None:
+    app = reference_ready_app
+    registry = DataRegistryService(
+        repository=app.state.persistence.data_registry_repository
+    )
+    project = registry.create_project("Preflight project")
+    _seed_member(app)
+    with ApiTestClient(app) as client:
+        imported = [
+            registry.import_sample(
+                project.project_id,
+                stable_key=name,
+                display_name=name,
+                attributes={"organism": "human"},
+            )
+            for name in ("alpha", "beta")
+        ]
+        samples = [item.revision.sample_revision_id for item in imported]
+        validated = _validate(client, app, tmp_path, project.project_id, samples)
+        assert validated.status_code == 200, validated.text
+        created = client.post(
+            f"/api/v1/workflows/{WORKFLOW_ID}/runs",
+            json={"snapshot_id": validated.json()["snapshot"]["snapshot_id"]},
+        )
+        assert created.status_code == 201, created.text
+        run_id = created.json()["run"]["run_id"]
+        app.state.reference_profile_service.disable(
+            app.state.test_reference_profile.profile_id
+        )
+        outcome = app.state.preflight_service.preflight(run_id)
+        assert outcome.is_failure
+        publications = client.get(
+            "/api/v1/artifact-publications",
+            params={"run_id": run_id, "current_only": False},
+        )
+        assert publications.status_code == 200, publications.text
+        assert publications.json()["publications"] == []
+
+        events_before = _count(app, "run_events")
+        status_before = _status(app, run_id)
+        assert status_before == "failed"
+        app.state.test_auth_tokens = ("c" * 43, "d" * 43)
+        run_response = client.get(f"/api/v1/runs/{run_id}")
+        events_response = client.get(f"/api/v1/runs/{run_id}/events")
+        assert run_response.status_code == 200, run_response.text
+        assert events_response.status_code == 200, events_response.text
+        assert run_response.json()["run"]["status"] == "failed"
+        events = events_response.json()["events"]
+        reason_codes = {
+            code
+            for event in events
+            for code in (
+                (event.get("context") or {}).get("reason_code"),
+                ((event.get("issue") or {}).get("context") or {}).get("reason_code"),
+            )
+            if isinstance(code, str)
+        }
+        assert "REFERENCE_PROFILE_BINDING_INVALID" in reason_codes
+
+        reread_run = client.get(f"/api/v1/runs/{run_id}")
+        reread_events = client.get(f"/api/v1/runs/{run_id}/events")
+        assert reread_run.status_code == 200, reread_run.text
+        assert reread_events.status_code == 200, reread_events.text
+        assert reread_run.json()["run"]["status"] == "failed"
+        assert len(reread_events.json()["events"]) == len(events)
         assert _count(app, "run_events") == events_before
         assert _status(app, run_id) == status_before

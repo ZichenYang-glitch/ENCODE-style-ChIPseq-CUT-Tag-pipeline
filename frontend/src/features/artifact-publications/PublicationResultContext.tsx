@@ -108,6 +108,8 @@ function ContextFacts({ context }: { context: PublishedResultContextResponse }) 
             </li>
           ))}
         </ul>
+      ) : context.qc_evidence === 'unverifiable' ? (
+        <p>No verifiable QC metrics were recorded for this generation.</p>
       ) : (
         <p>No QC metrics were recorded for this run.</p>
       )}

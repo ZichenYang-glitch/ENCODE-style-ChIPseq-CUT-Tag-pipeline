@@ -13,10 +13,11 @@ import type {
 import { fetcher } from '../../fetcher';
 
 /**
- * Read one published result with the caller's existing project visibility.
+ * Read one published result the publication detail can already show.
 
 This is a GET. It does not trigger preflight, create a run, or start one.
-Missing reference, QC, and preflight evidence stay explicit.
+A visible legacy publication is explained as unbound. QC metrics are
+returned only when they belong to this artifact generation.
  * @summary Read Published Result Context
  */
 export const getReadPublishedResultContextUrl = (projectId: string,

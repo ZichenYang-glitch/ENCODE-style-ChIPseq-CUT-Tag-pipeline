@@ -6683,7 +6683,7 @@
           "result-context"
         ],
         "summary": "Read Published Result Context",
-        "description": "Read one published result with the caller's existing project visibility.\n\nThis is a GET. It does not trigger preflight, create a run, or start one.\nMissing reference, QC, and preflight evidence stay explicit.",
+        "description": "Read one published result the publication detail can already show.\n\nThis is a GET. It does not trigger preflight, create a run, or start one.\nA visible legacy publication is explained as unbound. QC metrics are\nreturned only when they belong to this artifact generation.",
         "operationId": "readPublishedResultContext",
         "parameters": [
           {
@@ -13628,7 +13628,8 @@
             "type": "string",
             "enum": [
               "absent",
-              "present"
+              "present",
+              "unverifiable"
             ],
             "title": "Qc Evidence"
           },

@@ -13,4 +13,5 @@ export type PublishedResultContextResponseQcEvidence = typeof PublishedResultCon
 export const PublishedResultContextResponseQcEvidence = {
   absent: 'absent',
   present: 'present',
+  unverifiable: 'unverifiable',
 } as const;
