@@ -116,11 +116,16 @@ class LocalGrant:
         ):
             raise NativeRejected("outbound_field_not_granted")
         with self.lock:
-            if self.remaining is None:
+            remaining = self.remaining
+            if (
+                not isinstance(remaining, tuple)
+                or len(remaining) != len(RESERVATION)
+                or any(type(amount) is not int or amount < 0 for amount in remaining)
+            ):
                 raise NativeRejected("budget_unproven")
             amounts = tuple(
                 left - needed
-                for left, needed in zip(self.remaining, RESERVATION, strict=True)
+                for left, needed in zip(remaining, RESERVATION, strict=True)
             )
             if min(amounts) < 0:
                 raise NativeRejected("budget_exhausted")
@@ -493,6 +498,27 @@ def test_inflight_reply_cannot_use_the_old_grant(local_peri, gate):
     [
         ({"allowed": frozenset()}, "outbound_field_not_granted"),
         ({"remaining": None}, "budget_unproven"),
+        pytest.param(
+            {"remaining": (1, 512, 64, 0.5)},
+            "budget_unproven",
+            id="fractional-balance",
+        ),
+        pytest.param(
+            {"remaining": (1, 512, 64, False)},
+            "budget_unproven",
+            id="boolean-balance",
+        ),
+        pytest.param(
+            {"remaining": (1, 512, 64, -1)},
+            "budget_unproven",
+            id="negative-balance",
+        ),
+        pytest.param(
+            {"remaining": (1, 512, 64)}, "budget_unproven", id="short-balance"
+        ),
+        pytest.param(
+            {"remaining": (1, 512, 64, 0, 0)}, "budget_unproven", id="long-balance"
+        ),
         ({"remaining": (0, 512, 64, 0)}, "budget_exhausted"),
     ],
 )
@@ -504,10 +530,13 @@ def test_fields_and_budget_refuse_before_the_business_request(
     selection.next_grant = LocalGrant(**grant)
     _open(client, url)
     endpoint = selection.selected
+    endpoint.answer_once()
     before = len(endpoint.stub.requests)
+    balance_before = selection.next_grant.remaining
     result = _turn(client, url, "denied").json()
     assert result["status"] == "failed"
     assert result["proposal"] is None
+    assert selection.next_grant.remaining is balance_before
     assert len(endpoint.stub.requests) == before
     assert selection.receipts == []
     assert selection.session.preflight_failure == reason
