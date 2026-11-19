@@ -1056,6 +1056,160 @@ class SqlAlchemyExperimentCatalogRepository:
             publications = _publication_statement(project_id, run_ids)
             return _explain(session, lookup) + "\n" + _explain(session, publications)
 
+    def register_proposal(
+        self,
+        write: CatalogWrite,
+        *,
+        project_id: str,
+        source: str,
+        items: object,
+        rule_version: str | None,
+        vocabulary_version: str | None,
+        projection_version: str | None,
+    ) -> dict[str, Any]:
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            register_proposal,
+        )
+        from encode_pipeline.platform.catalog_proposal_adoption import (
+            stable_proposal_id,
+        )
+
+        proposal_id = stable_proposal_id(
+            write.actor_user_id,
+            write.idempotency_key,
+            project_id,
+        )
+        write = bind_catalog_target(write, proposal_id)
+
+        def apply(session: Session) -> dict[str, Any]:
+            return register_proposal(
+                session,
+                write,
+                project_id=project_id,
+                proposal_id=proposal_id,
+                source=source,
+                items=items,
+                rule_version=rule_version,
+                vocabulary_version=vocabulary_version,
+                projection_version=projection_version,
+            )
+
+        return self._write(write, apply)
+
+    def get_proposal(
+        self,
+        *,
+        proposal_id: str,
+        include_candidates: bool,
+        now: datetime,
+    ) -> dict[str, Any]:
+        from encode_pipeline.persistence.catalog_proposal_store import get_proposal
+
+        with self._session_factory() as session:
+            return get_proposal(
+                session,
+                proposal_id=proposal_id,
+                include_candidates=include_candidates,
+                now=now,
+            )
+
+    def preview_proposal(
+        self,
+        *,
+        actor_user_id: str,
+        proposal_id: str,
+        selected_item_ids: object,
+        now: datetime,
+    ) -> dict[str, Any]:
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            preview_proposal,
+        )
+
+        with self._session_factory() as session:
+            _require_administrator(session, actor_user_id)
+            return preview_proposal(
+                session,
+                proposal_id=proposal_id,
+                selected_item_ids=selected_item_ids,
+                now=now,
+            )
+
+    def adopt_proposal(
+        self,
+        write: CatalogWrite,
+        *,
+        proposal_id: str,
+        selected_item_ids: object,
+        expected_revisions: object,
+        preview_digest: object,
+        experiment_revision_id_factory,
+        sample_revision_id_factory,
+        receipt_id_factory,
+    ) -> dict[str, Any]:
+        from encode_pipeline.persistence.catalog_proposal_store import adopt_proposal
+
+        write = bind_catalog_target(write, proposal_id)
+
+        def apply(session: Session) -> dict[str, Any]:
+            return adopt_proposal(
+                session,
+                write,
+                proposal_id=proposal_id,
+                selected_item_ids=selected_item_ids,
+                expected_revisions=expected_revisions,
+                preview_digest=preview_digest,
+                experiment_revision_id_factory=experiment_revision_id_factory,
+                sample_revision_id_factory=sample_revision_id_factory,
+                receipt_id_factory=receipt_id_factory,
+            )
+
+        return self._write(write, apply)
+
+    def list_adoption_receipts(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        proposal_id: str | None,
+    ) -> dict[str, Any]:
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            list_adoption_receipts,
+        )
+
+        with self._session_factory() as session:
+            _require_administrator(session, actor_user_id)
+            return list_adoption_receipts(
+                session,
+                project_id=project_id,
+                proposal_id=proposal_id,
+            )
+
+    def set_active_curation_versions(
+        self,
+        *,
+        rule_version: str,
+        vocabulary_version: str,
+        projection_version: str,
+    ) -> None:
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            write_active_versions,
+        )
+        from encode_pipeline.platform.catalog_proposal_adoption import (
+            ActiveCurationVersions,
+            _require_version,
+        )
+
+        _require_version(rule_version)
+        _require_version(vocabulary_version)
+        _require_version(projection_version)
+        versions = ActiveCurationVersions(
+            rule_version=rule_version,
+            vocabulary_version=vocabulary_version,
+            projection_version=projection_version,
+        )
+        with self._session_factory.begin() as session:
+            write_active_versions(session, versions)
+
     def _write(self, write: CatalogWrite, apply) -> dict[str, Any]:
         try:
             with self._session_factory.begin() as session:
@@ -2139,6 +2293,22 @@ def _replay(
             session,
             receipt.result_revision_id,
             include_candidates=True,
+        )
+    if operation == "catalogRegisterProposal":
+        from encode_pipeline.persistence.catalog_proposal_store import replay_register
+
+        return replay_register(
+            session,
+            receipt.actor_user_id,
+            receipt.idempotency_key,
+        )
+    if operation == "catalogAdoptProposal":
+        from encode_pipeline.persistence.catalog_proposal_store import replay_adopt
+
+        return replay_adopt(
+            session,
+            receipt.actor_user_id,
+            receipt.idempotency_key,
         )
     raise catalog_idempotency_conflict()
 

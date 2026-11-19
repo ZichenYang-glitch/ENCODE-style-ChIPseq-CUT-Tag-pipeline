@@ -8,6 +8,9 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
+from encode_pipeline.platform.catalog_proposal_adoption import (
+    assert_request_within_limit,
+)
 from encode_pipeline.platform.experiment_catalog import (
     CatalogWrite,
     catalog_payload_invalid,
@@ -34,6 +37,7 @@ class ExperimentCatalogService:
         experiment_id_factory: Callable[[], str] | None = None,
         experiment_revision_id_factory: Callable[[], str] | None = None,
         sample_revision_id_factory: Callable[[], str] | None = None,
+        adoption_receipt_id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._repository = repository
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
@@ -49,6 +53,9 @@ class ExperimentCatalogService:
         )
         self._sample_revision_id_factory = sample_revision_id_factory or (
             lambda: _prefixed_id("smpr_")
+        )
+        self._adoption_receipt_id_factory = adoption_receipt_id_factory or (
+            lambda: _prefixed_id("cadopt_")
         )
 
     def create_term(
@@ -280,6 +287,117 @@ class ExperimentCatalogService:
             project_id=project_id,
             experiment_revision_id=experiment_revision_id,
             **page,
+        )
+
+    def register_proposal(
+        self,
+        *,
+        actor_user_id: str,
+        idempotency_key: str | None,
+        raw_body: bytes,
+        project_id: str,
+        source: str,
+        items: object,
+        rule_version: str | None,
+        vocabulary_version: str | None,
+        projection_version: str | None,
+    ) -> dict[str, Any]:
+        assert_request_within_limit(raw_body)
+        return self._repository.register_proposal(
+            self._write(
+                actor_user_id,
+                idempotency_key,
+                raw_body,
+                "catalogRegisterProposal",
+            ),
+            project_id=project_id,
+            source=source,
+            items=items,
+            rule_version=rule_version,
+            vocabulary_version=vocabulary_version,
+            projection_version=projection_version,
+        )
+
+    def get_proposal(
+        self,
+        *,
+        proposal_id: str,
+        include_candidates: bool,
+    ) -> dict[str, Any]:
+        return self._repository.get_proposal(
+            proposal_id=proposal_id,
+            include_candidates=include_candidates,
+            now=self._now_factory(),
+        )
+
+    def preview_proposal(
+        self,
+        *,
+        actor_user_id: str,
+        raw_body: bytes,
+        proposal_id: str,
+        selected_item_ids: object,
+    ) -> dict[str, Any]:
+        assert_request_within_limit(raw_body)
+        return self._repository.preview_proposal(
+            actor_user_id=actor_user_id,
+            proposal_id=proposal_id,
+            selected_item_ids=selected_item_ids,
+            now=self._now_factory(),
+        )
+
+    def adopt_proposal(
+        self,
+        *,
+        actor_user_id: str,
+        idempotency_key: str | None,
+        raw_body: bytes,
+        proposal_id: str,
+        selected_item_ids: object,
+        expected_revisions: object,
+        preview_digest: object,
+    ) -> dict[str, Any]:
+        assert_request_within_limit(raw_body)
+        return self._repository.adopt_proposal(
+            self._write(
+                actor_user_id,
+                idempotency_key,
+                raw_body,
+                "catalogAdoptProposal",
+            ),
+            proposal_id=proposal_id,
+            selected_item_ids=selected_item_ids,
+            expected_revisions=expected_revisions,
+            preview_digest=preview_digest,
+            experiment_revision_id_factory=self._experiment_revision_id_factory,
+            sample_revision_id_factory=self._sample_revision_id_factory,
+            receipt_id_factory=self._adoption_receipt_id_factory,
+        )
+
+    def list_adoption_receipts(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        proposal_id: str | None,
+    ) -> dict[str, Any]:
+        return self._repository.list_adoption_receipts(
+            actor_user_id=actor_user_id,
+            project_id=project_id,
+            proposal_id=proposal_id,
+        )
+
+    def set_active_curation_versions(
+        self,
+        *,
+        rule_version: str,
+        vocabulary_version: str,
+        projection_version: str,
+    ) -> None:
+        self._repository.set_active_curation_versions(
+            rule_version=rule_version,
+            vocabulary_version=vocabulary_version,
+            projection_version=projection_version,
         )
 
     def _write(

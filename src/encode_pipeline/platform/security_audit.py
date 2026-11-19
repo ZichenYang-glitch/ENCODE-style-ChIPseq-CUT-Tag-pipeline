@@ -17,6 +17,9 @@ _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _REFERENCE_ID = re.compile(r"^refp_[0-9a-f]{32}$")
 _STORAGE_ID = re.compile(r"^stgp_[0-9a-f]{32}$")
+_PROJECT_ID = re.compile(r"^prj_[0-9a-f]{32}$")
+_REGISTERED_RESULT_ID = re.compile(r"^rreg_[0-9a-f]{32}$")
+_REGISTERED_REVISION_ID = re.compile(r"^rrev_[0-9a-f]{32}$")
 _RESOURCE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _RESOURCE_DIGEST_DOMAIN = b"helixweave-security-audit-resource-v1\0"
 
@@ -42,6 +45,7 @@ class AuditAction(str, Enum):
     ACCOUNT_SESSIONS_REVOKE = "account.sessions_revoke"
     RUN_FAIL = "run.fail"
     RUN_REQUEUE = "run.requeue"
+    REGISTERED_RESULT_DOWNLOAD = "registered_result.download"
 
 
 class AuditOutcome(str, Enum):
@@ -84,6 +88,7 @@ class AuditResourceKind(str, Enum):
     ARTIFACT = "artifact"
     REFERENCE = "reference"
     STORAGE = "storage"
+    REGISTERED_RESULT = "registered_result"
 
 
 def new_audit_event_id() -> str:
@@ -214,8 +219,12 @@ def _stable_resource_identities(
         patterns = (_RUN_ID, _ARTIFACT_ID)
     elif kind is AuditResourceKind.REFERENCE:
         patterns = (_REFERENCE_ID,)
-    else:
+    elif kind is AuditResourceKind.STORAGE:
         patterns = (_STORAGE_ID,)
+    elif kind is AuditResourceKind.REGISTERED_RESULT:
+        patterns = (_PROJECT_ID, _REGISTERED_RESULT_ID, _REGISTERED_REVISION_ID)
+    else:
+        raise ValueError("audit resource kind is invalid")
     if len(values) != len(patterns):
         raise ValueError("audit resource has the wrong stable identity coordinates")
     normalized: list[str] = []
@@ -269,6 +278,7 @@ _ACTION_ACTORS = {
     AuditAction.RUN_REQUEUE: frozenset(
         {AuditActorKind.USER, AuditActorKind.LOCAL_OPERATOR}
     ),
+    AuditAction.REGISTERED_RESULT_DOWNLOAD: frozenset({AuditActorKind.USER}),
 }
 
 _ACTION_RESOURCE_KINDS = {
@@ -288,6 +298,7 @@ _ACTION_RESOURCE_KINDS = {
     AuditAction.ACCOUNT_SESSIONS_REVOKE: AuditResourceKind.ACCOUNT,
     AuditAction.RUN_FAIL: AuditResourceKind.RUN,
     AuditAction.RUN_REQUEUE: AuditResourceKind.RUN,
+    AuditAction.REGISTERED_RESULT_DOWNLOAD: AuditResourceKind.REGISTERED_RESULT,
 }
 
 _LOGIN_FAILURE_REASONS = frozenset(

@@ -10,6 +10,9 @@ from fastapi.responses import JSONResponse
 from pydantic import WithJsonSchema
 
 from encode_pipeline.api.catalog_models import (
+    CatalogAdoptProposalRequest,
+    CatalogAdoptionReceiptListResponse,
+    CatalogAdoptionReceiptResponse,
     CatalogArchiveExperimentResponse,
     CatalogArchiveRequest,
     CatalogCreateExperimentRequest,
@@ -19,6 +22,10 @@ from encode_pipeline.api.catalog_models import (
     CatalogExperimentResponse,
     CatalogExperimentRevisionListResponse,
     CatalogExperimentRunListResponse,
+    CatalogPreviewProposalRequest,
+    CatalogProposalPreviewResponse,
+    CatalogProposalResponse,
+    CatalogRegisterProposalRequest,
     CatalogReviseExperimentRequest,
     CatalogReviseSampleRequest,
     CatalogReviseTermRequest,
@@ -29,7 +36,10 @@ from encode_pipeline.api.catalog_models import (
     CatalogTermListResponse,
     CatalogTermResponse,
 )
-from encode_pipeline.api.dependencies import require_administrator
+from encode_pipeline.api.dependencies import (
+    require_administrator,
+    require_principal,
+)
 from encode_pipeline.api.models import ValidationResponse
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
@@ -50,6 +60,11 @@ _ERRORS = {
     409: {"model": CatalogErrorResponse},
     422: {"model": CatalogErrorResponse},
     500: {"model": ValidationResponse},
+}
+_M2_ERRORS = {
+    **_ERRORS,
+    410: {"model": CatalogErrorResponse},
+    413: {"model": CatalogErrorResponse},
 }
 
 
@@ -685,5 +700,121 @@ async def list_experiment_run_results(
                 field_terms={},
                 field_statuses={},
             ),
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/proposals",
+    response_model=CatalogProposalResponse,
+    operation_id="catalogRegisterProposal",
+    responses=_M2_ERRORS,
+)
+async def register_proposal(
+    project_id: str,
+    request: Request,
+    body: CatalogRegisterProposalRequest,
+    idempotency_key: str = Depends(_idempotency_key),
+    principal: AuthenticatedPrincipal = Depends(require_administrator),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    result = service.register_proposal(
+        actor_user_id=principal.user_id,
+        idempotency_key=idempotency_key,
+        raw_body=await _raw_body(request),
+        project_id=project_id,
+        source=body.source,
+        items=body.items,
+        rule_version=body.rule_version,
+        vocabulary_version=body.vocabulary_version,
+        projection_version=body.projection_version,
+    )
+    return JSONResponse(content=result)
+
+
+@router.get(
+    "/proposals/{proposal_id}",
+    response_model=CatalogProposalResponse,
+    operation_id="catalogGetProposal",
+    responses=_M2_ERRORS,
+)
+async def get_proposal(
+    proposal_id: str,
+    principal: AuthenticatedPrincipal = Depends(require_principal),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    return JSONResponse(
+        content=service.get_proposal(
+            proposal_id=proposal_id,
+            include_candidates=principal.is_administrator,
+        )
+    )
+
+
+@router.post(
+    "/proposals/{proposal_id}/preview",
+    response_model=CatalogProposalPreviewResponse,
+    operation_id="catalogPreviewProposal",
+    responses=_M2_ERRORS,
+)
+async def preview_proposal(
+    proposal_id: str,
+    request: Request,
+    body: CatalogPreviewProposalRequest,
+    principal: AuthenticatedPrincipal = Depends(require_administrator),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    result = service.preview_proposal(
+        actor_user_id=principal.user_id,
+        raw_body=await _raw_body(request),
+        proposal_id=proposal_id,
+        selected_item_ids=body.selected_item_ids,
+    )
+    return JSONResponse(content=result)
+
+
+@router.post(
+    "/proposals/{proposal_id}/adoptions",
+    response_model=CatalogAdoptionReceiptResponse,
+    operation_id="catalogAdoptProposal",
+    responses=_M2_ERRORS,
+)
+async def adopt_proposal(
+    proposal_id: str,
+    request: Request,
+    body: CatalogAdoptProposalRequest,
+    idempotency_key: str = Depends(_idempotency_key),
+    principal: AuthenticatedPrincipal = Depends(require_administrator),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    result = service.adopt_proposal(
+        actor_user_id=principal.user_id,
+        idempotency_key=idempotency_key,
+        raw_body=await _raw_body(request),
+        proposal_id=proposal_id,
+        selected_item_ids=body.selected_item_ids,
+        expected_revisions=body.expected_revisions,
+        preview_digest=body.preview_digest,
+    )
+    return JSONResponse(content=result)
+
+
+@router.get(
+    "/projects/{project_id}/adoption-receipts",
+    response_model=CatalogAdoptionReceiptListResponse,
+    operation_id="catalogListAdoptionReceipts",
+    responses=_M2_ERRORS,
+)
+async def list_adoption_receipts(
+    project_id: str,
+    principal: AuthenticatedPrincipal = Depends(require_administrator),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+    proposal_id: str | None = Query(default=None),
+) -> JSONResponse:
+    return JSONResponse(
+        content=service.list_adoption_receipts(
+            actor_user_id=principal.user_id,
+            project_id=project_id,
+            proposal_id=proposal_id,
         )
     )

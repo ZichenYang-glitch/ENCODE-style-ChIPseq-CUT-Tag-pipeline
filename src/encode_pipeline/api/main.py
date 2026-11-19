@@ -58,8 +58,12 @@ from encode_pipeline.services.authentication import BrowserSessionCookiePolicy
 from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.api.authoring_models import AuthoringValidationResponse
 from encode_pipeline.services.authoring_owner_client import load_authoring_bridge
+from encode_pipeline.persistence.registered_results import (
+    SqlAlchemyRegisteredResultRepository,
+)
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
+from encode_pipeline.services.registered_results import RegisteredResultService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -168,6 +172,16 @@ def create_app(
     )
     authentication_repository = SqlAlchemyAuthenticationRepository(
         create_session_factory(persistence.engine)
+    )
+    registered_result_service = RegisteredResultService(
+        SqlAlchemyRegisteredResultRepository(
+            create_session_factory(persistence.engine)
+        ),
+        input_registry=persistence.input_registry_repository,
+        reference_profiles=persistence.reference_profile_repository,
+        authentication=authentication_repository,
+        storage_pool_config_path=worker_settings.storage_pool_config,
+        response_root=worker_settings.workspace_root / "registered-result-responses",
     )
     try:
         terminal_notifier = compose_terminal_run_notifier(
@@ -323,6 +337,7 @@ def create_app(
     # Stub driver is intentionally not attached in production.
 
     app.state.authentication_repository = authentication_repository
+    app.state.registered_result_service = registered_result_service
     app.state.authentication_service = AuthenticationService(
         repository=authentication_repository
     )
@@ -373,14 +388,15 @@ def _handle_catalog_error(_request: Request, exc: CatalogError) -> JSONResponse:
                 severity="error",
                 path=exc.path,
                 source="api",
-                hint=None,
+                hint=exc.hint,
             )
-        ]
+        ],
+        conflicts=None if not exc.conflicts else list(exc.conflicts),
     )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=body.model_dump(mode="json"),
-    )
+    content = body.model_dump(mode="json")
+    if not exc.conflicts:
+        content.pop("conflicts", None)
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 def _handle_catalog_block_command(

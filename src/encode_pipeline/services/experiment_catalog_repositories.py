@@ -115,6 +115,20 @@ class ExperimentCatalogRepository(Protocol):
 
     def list_experiment_run_results(self, **kwargs: Any) -> dict[str, Any]: ...
 
+    def register_proposal(
+        self, write: CatalogWrite, **kwargs: Any
+    ) -> dict[str, Any]: ...
+
+    def get_proposal(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def preview_proposal(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def adopt_proposal(self, write: CatalogWrite, **kwargs: Any) -> dict[str, Any]: ...
+
+    def list_adoption_receipts(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def set_active_curation_versions(self, **kwargs: Any) -> None: ...
+
 
 @dataclass
 class _TermRevision:
@@ -218,6 +232,13 @@ class InMemoryExperimentCatalogRepository:
         self._experiment_revisions: dict[str, _ExperimentRevision] = {}
         self._receipts: dict[tuple[str, str], _Receipt] = {}
         self._trace_evidence: ExperimentTraceEvidence | None = None
+        self._proposals: dict[str, dict[str, Any]] = {}
+        self._adoptions: dict[str, dict[str, Any]] = {}
+        from encode_pipeline.platform.catalog_proposal_adoption import (
+            DEFAULT_CURATION_VERSIONS,
+        )
+
+        self._active_versions = DEFAULT_CURATION_VERSIONS
         self._lock = RLock()
 
     def attach_experiment_trace_evidence(
@@ -964,6 +985,151 @@ class InMemoryExperimentCatalogRepository:
             if revision.canonical_payload != before:
                 raise catalog_payload_invalid()
 
+    def register_proposal(
+        self,
+        write: CatalogWrite,
+        *,
+        project_id: str,
+        source: str,
+        items: object,
+        rule_version: str | None,
+        vocabulary_version: str | None,
+        projection_version: str | None,
+    ) -> dict[str, Any]:
+        from encode_pipeline.platform.catalog_proposal_adoption import (
+            stable_proposal_id,
+        )
+        from encode_pipeline.services.catalog_proposal_memory import (
+            register_proposal,
+        )
+
+        proposal_id = stable_proposal_id(
+            write.actor_user_id,
+            write.idempotency_key,
+            project_id,
+        )
+        write = bind_catalog_target(write, proposal_id)
+        return self._write(
+            write,
+            lambda: register_proposal(
+                self,
+                write,
+                project_id=project_id,
+                proposal_id=proposal_id,
+                source=source,
+                items=items,
+                rule_version=rule_version,
+                vocabulary_version=vocabulary_version,
+                projection_version=projection_version,
+            ),
+        )
+
+    def get_proposal(
+        self,
+        *,
+        proposal_id: str,
+        include_candidates: bool,
+        now: datetime,
+    ) -> dict[str, Any]:
+        from encode_pipeline.services.catalog_proposal_memory import get_proposal
+
+        with self._lock:
+            return get_proposal(
+                self,
+                proposal_id=proposal_id,
+                include_candidates=include_candidates,
+                now=now,
+            )
+
+    def preview_proposal(
+        self,
+        *,
+        actor_user_id: str,
+        proposal_id: str,
+        selected_item_ids: object,
+        now: datetime,
+    ) -> dict[str, Any]:
+        from encode_pipeline.services.catalog_proposal_memory import preview_proposal
+
+        with self._lock:
+            if not self._is_administrator(actor_user_id):
+                raise administrator_required()
+            return preview_proposal(
+                self,
+                proposal_id=proposal_id,
+                selected_item_ids=selected_item_ids,
+                now=now,
+            )
+
+    def adopt_proposal(
+        self,
+        write: CatalogWrite,
+        *,
+        proposal_id: str,
+        selected_item_ids: object,
+        expected_revisions: object,
+        preview_digest: object,
+        experiment_revision_id_factory,
+        sample_revision_id_factory,
+        receipt_id_factory,
+    ) -> dict[str, Any]:
+        from encode_pipeline.services.catalog_proposal_memory import adopt_proposal
+
+        write = bind_catalog_target(write, proposal_id)
+        return self._write(
+            write,
+            lambda: adopt_proposal(
+                self,
+                write,
+                proposal_id=proposal_id,
+                selected_item_ids=selected_item_ids,
+                expected_revisions=expected_revisions,
+                preview_digest=preview_digest,
+                experiment_revision_id_factory=experiment_revision_id_factory,
+                sample_revision_id_factory=sample_revision_id_factory,
+                receipt_id_factory=receipt_id_factory,
+            ),
+        )
+
+    def list_adoption_receipts(
+        self,
+        *,
+        actor_user_id: str,
+        project_id: str,
+        proposal_id: str | None,
+    ) -> dict[str, Any]:
+        from encode_pipeline.services.catalog_proposal_memory import (
+            list_adoption_receipts,
+        )
+
+        with self._lock:
+            if not self._is_administrator(actor_user_id):
+                raise administrator_required()
+            return list_adoption_receipts(
+                self,
+                project_id=project_id,
+                proposal_id=proposal_id,
+            )
+
+    def set_active_curation_versions(
+        self,
+        *,
+        rule_version: str,
+        vocabulary_version: str,
+        projection_version: str,
+    ) -> None:
+        from encode_pipeline.services.catalog_proposal_memory import (
+            set_active_versions,
+        )
+
+        with self._lock:
+            set_active_versions(
+                self,
+                rule_version=rule_version,
+                vocabulary_version=vocabulary_version,
+                projection_version=projection_version,
+            )
+
     def _write(
         self, write: CatalogWrite, apply: Callable[[], dict[str, Any]]
     ) -> dict[str, Any]:
@@ -1015,6 +1181,16 @@ class InMemoryExperimentCatalogRepository:
                 receipt.result_revision_id,
                 include_candidates=True,
             )
+        if receipt.operation == "catalogRegisterProposal":
+            from encode_pipeline.services.catalog_proposal_memory import (
+                replay_register,
+            )
+
+            return replay_register(self, receipt.target_key)
+        if receipt.operation == "catalogAdoptProposal":
+            from encode_pipeline.services.catalog_proposal_memory import replay_adopt
+
+            return replay_adopt(self, receipt.target_key)
         raise catalog_idempotency_conflict()
 
     def _add_receipt(
