@@ -67,6 +67,7 @@ from encode_pipeline.platform.experiment_catalog import (
     catalog_experiment_archived,
     catalog_not_found,
     catalog_payload_invalid,
+    publication_experiment_trace,
     catalog_revision_conflict,
     catalog_idempotency_conflict,
     collect_experiment_term_revision_ids,
@@ -986,6 +987,49 @@ class SqlAlchemyExperimentCatalogRepository:
                 "results": page,
                 "next_cursor": next_cursor,
             }
+
+    def get_publication_experiment_trace(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> dict[str, Any]:
+        with self._session_factory() as session:
+            _require_active_project(session, project_id)
+            matches = [
+                row
+                for row in _published_trace_rows(session, project_id, [run_id])
+                if row["artifact_id"] == artifact_id
+                and row["artifact_generation"] == artifact_generation
+            ]
+            if len(matches) != 1:
+                raise catalog_not_found()
+            binding = session.get(RunExperimentBindingRow, run_id)
+            revision = None
+            if binding is not None:
+                revision = session.get(
+                    ExperimentRevisionRow,
+                    binding.experiment_revision_id,
+                )
+            return publication_experiment_trace(
+                project_id=project_id,
+                run_id=run_id,
+                artifact_id=artifact_id,
+                artifact_generation=artifact_generation,
+                result=matches[0],
+                binding_revision_id=(
+                    None if binding is None else binding.experiment_revision_id
+                ),
+                binding_payload_digest=(
+                    None if binding is None else binding.payload_digest
+                ),
+                revision_project_id=(None if revision is None else revision.project_id),
+                revision_payload_digest=(
+                    None if revision is None else revision.payload_digest
+                ),
+            )
 
     def rebuild_sample_projection(self, sample_revision_id: str) -> None:
         with self._session_factory.begin() as session:

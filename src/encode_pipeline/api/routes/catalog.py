@@ -19,6 +19,7 @@ from encode_pipeline.api.catalog_models import (
     CatalogExperimentResponse,
     CatalogExperimentRevisionListResponse,
     CatalogExperimentRunListResponse,
+    CatalogPublicationExperimentTraceResponse,
     CatalogReviseExperimentRequest,
     CatalogReviseSampleRequest,
     CatalogReviseTermRequest,
@@ -685,5 +686,42 @@ async def list_experiment_run_results(
                 field_terms={},
                 field_statuses={},
             ),
+        )
+    )
+
+
+@router.get(
+    "/projects/{project_id}/artifact-publications/"
+    "{run_id}/{artifact_id}/experiment-trace",
+    response_model=CatalogPublicationExperimentTraceResponse,
+    operation_id="catalogGetArtifactPublicationExperimentTrace",
+    responses=_ERRORS,
+)
+async def get_publication_experiment_trace(
+    project_id: str,
+    run_id: str,
+    artifact_id: str,
+    generation: str = Query(
+        min_length=76,
+        max_length=76,
+        pattern=r"^artifactgen-[0-9a-f]{64}$",
+    ),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    """Return the experiment revision copied onto this publication's run.
+
+    The copied revision id and payload digest are compared with that stored
+    revision. A newer experiment revision does not replace them. A missing
+    binding, or a binding that does not match the stored revision, returns
+    the published row with an unresolved reason. The row stays
+    ``run_input_scope``.
+    """
+
+    return JSONResponse(
+        content=service.get_publication_experiment_trace(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            artifact_generation=generation,
         )
     )

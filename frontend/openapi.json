@@ -6553,6 +6553,222 @@
           }
         }
       }
+    },
+    "/api/v1/catalog/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/experiment-trace": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Publication Experiment Trace",
+        "description": "Return the experiment revision copied onto this publication's run.\n\nThe copied revision id and payload digest are compared with that stored\nrevision. A newer experiment revision does not replace them. A missing\nbinding, or a binding that does not match the stored revision, returns\nthe published row with an unresolved reason. The row stays\n``run_input_scope``.",
+        "operationId": "catalogGetArtifactPublicationExperimentTrace",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 76,
+              "maxLength": 76,
+              "pattern": "^artifactgen-[0-9a-f]{64}$",
+              "title": "Generation"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogPublicationExperimentTraceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/agent/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/context": {
+      "get": {
+        "tags": [
+          "result-context"
+        ],
+        "summary": "Read Published Result Context",
+        "description": "Read one published result with the caller's existing project visibility.\n\nThis is a GET. It does not trigger preflight, create a run, or start one.\nMissing reference, QC, and preflight evidence stay explicit.",
+        "operationId": "readPublishedResultContext",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 76,
+              "maxLength": 76,
+              "pattern": "^artifactgen-[0-9a-f]{64}$",
+              "title": "Generation"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedResultContextResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishedResultContextErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10892,6 +11108,92 @@
         ],
         "title": "CatalogNegativeSingleSlotResponse"
       },
+      "CatalogPublicationExperimentTraceResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "artifact_generation": {
+            "type": "string",
+            "title": "Artifact Generation"
+          },
+          "trace_status": {
+            "type": "string",
+            "enum": [
+              "unresolved",
+              "experiment_snapshot"
+            ],
+            "title": "Trace Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "experiment_snapshot_binding_absent",
+                  "experiment_revision_evidence_inconsistent"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "experiment_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Revision Id"
+          },
+          "payload_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Digest"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CatalogPublishedRunResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "run_id",
+          "artifact_id",
+          "artifact_generation",
+          "trace_status",
+          "result"
+        ],
+        "title": "CatalogPublicationExperimentTraceResponse",
+        "description": "One published result traced back to the revision copied onto its run."
+      },
       "CatalogPublishedRunResponse": {
         "properties": {
           "run_id": {
@@ -13171,6 +13473,230 @@
           "display_name"
         ],
         "title": "ProjectSummaryResponse"
+      },
+      "PublishedPreflightFailureResponse": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Event Id"
+          },
+          "event_type": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Event Type"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_id",
+          "event_type",
+          "message"
+        ],
+        "title": "PublishedPreflightFailureResponse",
+        "description": "One already recorded preflight failure, without event context."
+      },
+      "PublishedResultContextErrorResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": false,
+            "title": "Ok",
+            "default": false
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,127}$",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PublishedResultContextErrorResponse",
+        "description": "Disclosure-safe failure for the published-result context read."
+      },
+      "PublishedResultContextResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 36,
+            "pattern": "^prj_[0-9a-f]{32}$",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "artifact_generation": {
+            "type": "string",
+            "maxLength": 76,
+            "pattern": "^artifactgen-[0-9a-f]{64}$",
+            "title": "Artifact Generation"
+          },
+          "experiment_trace": {
+            "$ref": "#/components/schemas/CatalogPublicationExperimentTraceResponse"
+          },
+          "run_status": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Run Status"
+          },
+          "current_stage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Stage"
+          },
+          "reference_evidence": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present"
+            ],
+            "title": "Reference Evidence"
+          },
+          "reference_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferenceProfileRevisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "qc_evidence": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present"
+            ],
+            "title": "Qc Evidence"
+          },
+          "qc_generation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 70,
+                "pattern": "^qcgen-[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Generation"
+          },
+          "qc_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/QcMetricResponse"
+            },
+            "type": "array",
+            "title": "Qc Metrics"
+          },
+          "qc_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^qccur_[A-Za-z0-9_-]{1,1018}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Next Cursor"
+          },
+          "preflight_failure_evidence": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present"
+            ],
+            "title": "Preflight Failure Evidence"
+          },
+          "preflight_failures": {
+            "items": {
+              "$ref": "#/components/schemas/PublishedPreflightFailureResponse"
+            },
+            "type": "array",
+            "title": "Preflight Failures"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "run_id",
+          "artifact_id",
+          "artifact_generation",
+          "experiment_trace",
+          "run_status",
+          "reference_evidence",
+          "qc_evidence",
+          "preflight_failure_evidence"
+        ],
+        "title": "PublishedResultContextResponse",
+        "description": "Read-only context for one exact published generation."
       },
       "QcMetricResponse": {
         "properties": {

@@ -18,6 +18,7 @@ import type {
   CatalogExperimentResponse,
   CatalogExperimentRevisionListResponse,
   CatalogExperimentRunListResponse,
+  CatalogGetArtifactPublicationExperimentTraceParams,
   CatalogGetSampleRevision200,
   CatalogListExperimentRevisionRunResultsParams,
   CatalogListExperimentRevisionsParams,
@@ -26,6 +27,7 @@ import type {
   CatalogListSampleRevisionsParams,
   CatalogListSamplesParams,
   CatalogListTermsParams,
+  CatalogPublicationExperimentTraceResponse,
   CatalogReviseExperimentHeaders,
   CatalogReviseExperimentRequest,
   CatalogReviseSampleCatalog200,
@@ -529,6 +531,49 @@ export const catalogListExperimentRevisionRunResults = async (projectId: string,
     params?: CatalogListExperimentRevisionRunResultsParams, options?: RequestInit): Promise<CatalogExperimentRunListResponse> => {
 
   return fetcher<CatalogExperimentRunListResponse>(getCatalogListExperimentRevisionRunResultsUrl(projectId,experimentRevisionId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Return the experiment revision copied onto this publication's run.
+
+The copied revision id and payload digest are compared with that stored
+revision. A newer experiment revision does not replace them. A missing
+binding, or a binding that does not match the stored revision, returns
+the published row with an unresolved reason. The row stays
+``run_input_scope``.
+ * @summary Get Publication Experiment Trace
+ */
+export const getCatalogGetArtifactPublicationExperimentTraceUrl = (projectId: string,
+    runId: string,
+    artifactId: string,
+    params: CatalogGetArtifactPublicationExperimentTraceParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/catalog/projects/${projectId}/artifact-publications/${runId}/${artifactId}/experiment-trace?${stringifiedParams}` : `/api/v1/catalog/projects/${projectId}/artifact-publications/${runId}/${artifactId}/experiment-trace`
+}
+
+export const catalogGetArtifactPublicationExperimentTrace = async (projectId: string,
+    runId: string,
+    artifactId: string,
+    params: CatalogGetArtifactPublicationExperimentTraceParams, options?: RequestInit): Promise<CatalogPublicationExperimentTraceResponse> => {
+
+  return fetcher<CatalogPublicationExperimentTraceResponse>(getCatalogGetArtifactPublicationExperimentTraceUrl(projectId,runId,artifactId,params),
   {
     ...options,
     method: 'GET'

@@ -527,3 +527,54 @@ class CatalogExperimentRunListResponse(BaseModel):
         ):
             raise ValueError("bound experiment trace lists published rows only")
         return self
+
+
+class CatalogPublicationExperimentTraceResponse(BaseModel):
+    """One published result traced back to the revision copied onto its run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    project_id: str
+    run_id: str
+    artifact_id: str
+    artifact_generation: str
+    trace_status: Literal["unresolved", "experiment_snapshot"]
+    reason: (
+        Literal[
+            "experiment_snapshot_binding_absent",
+            "experiment_revision_evidence_inconsistent",
+        ]
+        | None
+    ) = None
+    experiment_revision_id: str | None = None
+    payload_digest: str | None = None
+    result: CatalogPublishedRunResponse
+
+    @model_validator(mode="after")
+    def trace_shape(self) -> "CatalogPublicationExperimentTraceResponse":
+        if (
+            self.result.run_id != self.run_id
+            or self.result.artifact_id != self.artifact_id
+            or self.result.artifact_generation != self.artifact_generation
+            or self.result.artifact_association_kind != "run_input_scope"
+        ):
+            raise ValueError("publication trace result does not match its envelope")
+        if self.trace_status == "unresolved":
+            if (
+                self.reason
+                not in {
+                    "experiment_snapshot_binding_absent",
+                    "experiment_revision_evidence_inconsistent",
+                }
+                or self.experiment_revision_id is not None
+                or self.payload_digest is not None
+            ):
+                raise ValueError("unresolved publication trace has no revision")
+        elif (
+            self.reason is not None
+            or self.experiment_revision_id is None
+            or self.payload_digest is None
+        ):
+            raise ValueError("frozen publication trace requires the copied revision")
+        return self

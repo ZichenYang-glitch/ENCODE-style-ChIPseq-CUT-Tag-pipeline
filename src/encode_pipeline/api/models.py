@@ -39,6 +39,9 @@ from encode_pipeline.platform.data_registry import (
     BindingProvenance,
     ProjectSampleBinding,
 )
+from encode_pipeline.api.catalog_models import (
+    CatalogPublicationExperimentTraceResponse,
+)
 from encode_pipeline.platform.experiment_catalog import ExperimentSnapshotBinding
 from encode_pipeline.platform.input_registry import (
     InputBindingContractMode,
@@ -1403,3 +1406,88 @@ class AccountSessionsRevokeResponse(BaseModel):
     ok: bool
     revoked_count: int
     issues: list[IssueResponse]
+
+
+class PublishedPreflightFailureResponse(BaseModel):
+    """One already recorded preflight failure, without event context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(min_length=1, max_length=128)
+    event_type: str = Field(min_length=1, max_length=64)
+    message: str = Field(min_length=1, max_length=240)
+    stage: str | None = Field(default=None, max_length=64)
+    code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{0,127}$")
+
+
+class PublishedResultContextResponse(BaseModel):
+    """Read-only context for one exact published generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    project_id: ProjectId
+    run_id: str
+    artifact_id: str
+    artifact_generation: str = Field(
+        pattern=r"^artifactgen-[0-9a-f]{64}$",
+        max_length=76,
+    )
+    experiment_trace: CatalogPublicationExperimentTraceResponse
+    run_status: str = Field(min_length=1, max_length=64)
+    current_stage: str | None = Field(default=None, max_length=128)
+    reference_evidence: Literal["absent", "present"]
+    reference_profile: ReferenceProfileRevisionResponse | None = None
+    qc_evidence: Literal["absent", "present"]
+    qc_generation: str | None = Field(
+        default=None,
+        pattern=r"^qcgen-[0-9a-f]{64}$",
+        max_length=70,
+    )
+    qc_metrics: list[QcMetricResponse] = Field(default_factory=list)
+    qc_next_cursor: str | None = Field(
+        default=None,
+        pattern=r"^qccur_[A-Za-z0-9_-]{1,1018}$",
+        max_length=1024,
+    )
+    preflight_failure_evidence: Literal["absent", "present"]
+    preflight_failures: list[PublishedPreflightFailureResponse] = Field(
+        default_factory=list
+    )
+
+    @model_validator(mode="after")
+    def evidence_matches_payload(self) -> "PublishedResultContextResponse":
+        if self.reference_evidence == "absent" and self.reference_profile is not None:
+            raise ValueError("absent reference evidence includes a profile")
+        if self.reference_evidence == "present" and self.reference_profile is None:
+            raise ValueError("present reference evidence has no profile")
+        if self.qc_evidence == "absent" and (
+            self.qc_generation is not None
+            or self.qc_metrics
+            or self.qc_next_cursor is not None
+        ):
+            raise ValueError("absent QC evidence includes metrics")
+        if self.qc_evidence == "present" and self.qc_generation is None:
+            raise ValueError("present QC evidence has no generation")
+        if self.preflight_failure_evidence == "absent" and self.preflight_failures:
+            raise ValueError("absent preflight evidence includes failures")
+        if self.preflight_failure_evidence == "present" and not self.preflight_failures:
+            raise ValueError("present preflight evidence has no failures")
+        if (
+            self.experiment_trace.run_id != self.run_id
+            or self.experiment_trace.artifact_id != self.artifact_id
+            or self.experiment_trace.artifact_generation != self.artifact_generation
+            or self.experiment_trace.project_id != self.project_id
+        ):
+            raise ValueError("experiment trace does not match the result context")
+        return self
+
+
+class PublishedResultContextErrorResponse(BaseModel):
+    """Disclosure-safe failure for the published-result context read."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[False] = False
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,127}$")
+    message: str = Field(min_length=1, max_length=240)

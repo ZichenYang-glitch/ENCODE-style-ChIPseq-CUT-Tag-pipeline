@@ -42,6 +42,7 @@ from encode_pipeline.platform.experiment_catalog import (
     build_experiment_revision_payload_digest,
     catalog_not_found,
     catalog_payload_invalid,
+    publication_experiment_trace,
     catalog_revision_conflict,
     catalog_term_archived,
     collect_experiment_term_revision_ids,
@@ -114,6 +115,8 @@ class ExperimentCatalogRepository(Protocol):
     def list_sample_run_results(self, **kwargs: Any) -> dict[str, Any]: ...
 
     def list_experiment_run_results(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def get_publication_experiment_trace(self, **kwargs: Any) -> dict[str, Any]: ...
 
 
 @dataclass
@@ -890,6 +893,57 @@ class InMemoryExperimentCatalogRepository:
             "results": page,
             "next_cursor": next_cursor,
         }
+
+    def get_publication_experiment_trace(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._project(project_id)
+            evidence = self._trace_evidence
+            revisions = {
+                revision.experiment_revision_id: (
+                    revision.project_id,
+                    build_experiment_revision_payload_digest(
+                        revision.canonical_payload
+                    ),
+                )
+                for revision in self._experiment_revisions.values()
+            }
+        if evidence is None or not hasattr(evidence, "publication_experiment_trace"):
+            raise catalog_not_found()
+        found = evidence.publication_experiment_trace(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            artifact_generation=artifact_generation,
+        )
+        if not isinstance(found, dict) or not isinstance(found.get("result"), dict):
+            raise catalog_not_found()
+        binding_revision_id = found.get("experiment_revision_id")
+        binding_digest = found.get("payload_digest")
+        if binding_revision_id is not None and not isinstance(binding_revision_id, str):
+            raise catalog_not_found()
+        if binding_digest is not None and not isinstance(binding_digest, str):
+            raise catalog_not_found()
+        stored = revisions.get(binding_revision_id) if binding_revision_id else None
+        revision_project_id = None if stored is None else stored[0]
+        revision_digest = None if stored is None else stored[1]
+        return publication_experiment_trace(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            artifact_generation=artifact_generation,
+            result=found["result"],
+            binding_revision_id=binding_revision_id,
+            binding_payload_digest=binding_digest,
+            revision_project_id=revision_project_id,
+            revision_payload_digest=revision_digest,
+        )
 
     def experiment_revision_freeze_source(
         self,

@@ -3,6 +3,7 @@ import { ArrowLeft, Download, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getArtifactPublication } from '../../api/generated/artifact-publications/artifact-publications';
+import { PublicationResultContext } from './PublicationResultContext';
 import { downloadRunArtifact } from '../../api/generated/artifacts/artifacts';
 import type { ArtifactPublicationResponse } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
@@ -182,6 +183,12 @@ export function ArtifactPublicationDetail({
 
               <PublicationFacts publication={publication} />
               <AssociatedRunSamples publication={publication} />
+              <PublicationResultContext
+                projectId={publication.project_id}
+                runId={publication.run_id}
+                artifactId={publication.artifact_id}
+                generation={publication.artifact_generation}
+              />
             </>
           ) : null}
         </div>
