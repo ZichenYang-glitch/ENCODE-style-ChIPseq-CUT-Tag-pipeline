@@ -891,6 +891,24 @@ def _validate_and_render_slot(
             )
         return resolve_pin(raw_pin)
 
+    def resolve_nested_pins(raw_pins: list[object]) -> list[dict[str, str]]:
+        """Resolve term pins and reject a repeated term_id, matching M1 A."""
+
+        rendered_pins: list[dict[str, str]] = []
+        seen_term_ids: set[str] = set()
+        for raw_pin in raw_pins:
+            rendered_pin = resolve_nested_pin(raw_pin)
+            if rendered_pin["term_id"] in seen_term_ids:
+                raise catalog_preview_error(
+                    422,
+                    "catalog_payload_invalid",
+                    f"Duplicate term_id on {field_name}.",
+                    path=field_name,
+                )
+            seen_term_ids.add(rendered_pin["term_id"])
+            rendered_pins.append(rendered_pin)
+        return rendered_pins
+
     if not is_multi:
         if status == "known":
             if set(slot_value) != {"status", "term_id", "term_revision_id"}:
@@ -921,7 +939,7 @@ def _validate_and_render_slot(
             raise catalog_preview_error(
                 422, "catalog_payload_invalid", "Ambiguous candidates must be a list."
             )
-        resolved_candidates = [resolve_nested_pin(item) for item in raw_candidates]
+        resolved_candidates = resolve_nested_pins(raw_candidates)
         if include_candidates:
             rendered["candidates"] = resolved_candidates
         return rendered
@@ -943,7 +961,7 @@ def _validate_and_render_slot(
             )
         return {
             "status": "known",
-            "values": [resolve_nested_pin(item) for item in raw_values],
+            "values": resolve_nested_pins(raw_values),
         }
     if slot_value.get("values") != []:
         raise catalog_preview_error(
@@ -973,7 +991,7 @@ def _validate_and_render_slot(
         raise catalog_preview_error(
             422, "catalog_payload_invalid", "Ambiguous candidates must be a list."
         )
-    resolved_candidates = [resolve_nested_pin(item) for item in raw_candidates]
+    resolved_candidates = resolve_nested_pins(raw_candidates)
     rendered = {"status": "ambiguous", "values": []}
     if include_candidates:
         rendered["candidates"] = resolved_candidates
@@ -2204,6 +2222,36 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
             }
         ],
     )
+    sample_ctrl = _SampleState(
+        sample_id=SYNTHETIC_SMP_CTRL_ID,
+        project_id=SYNTHETIC_PROJECT_ID,
+        stable_key="treg-control-1",
+        revisions=[
+            {
+                "sample_revision_id": "smpr_abababababababababababababababab",
+                "revision_number": 1,
+                "display_name": "Treg control",
+                "catalog": {
+                    "schema_version": 1,
+                    "species": {
+                        "status": "known",
+                        "term_id": "term_45454545454545454545454545454545",
+                        "term_revision_id": "trmv_67676767676767676767676767676767",
+                    },
+                    "tissue": {
+                        "status": "known",
+                        "term_id": "term_56565656565656565656565656565656",
+                        "term_revision_id": "trmv_78787878787878787878787878787878",
+                    },
+                    "cell_type": {"status": "unknown", "values": []},
+                    "cell_line": {"status": "not_applicable", "values": []},
+                    "treatment": {"status": "not_detected", "values": []},
+                    "tag": {"status": "unknown", "values": []},
+                },
+                "extra_attributes": {},
+            }
+        ],
+    )
 
     item_1 = ProposalItem(
         item_id="item_1",
@@ -2380,7 +2428,10 @@ def build_synthetic_m2_preview_fixture() -> SyntheticCatalogPreviewStore:
         },
         terms_by_revision=terms_by_revision,
         experiments={SYNTHETIC_EXP_1_ID: exp_1, SYNTHETIC_EXP_2_ID: exp_2},
-        samples={SYNTHETIC_SMP_1_ID: sample_1},
+        samples={
+            SYNTHETIC_SMP_1_ID: sample_1,
+            SYNTHETIC_SMP_CTRL_ID: sample_ctrl,
+        },
         proposals={
             proposal.proposal_id: proposal,
             second_proposal.proposal_id: second_proposal,

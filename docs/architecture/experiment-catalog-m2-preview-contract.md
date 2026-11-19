@@ -75,7 +75,7 @@ flowchart LR
 - **身份前缀**：Project `prj_`、Experiment `exp_`、ExperimentRevision `expr_`、Sample `smp_`、SampleRevision `smpr_`、Term `term_`、TermRevision `trmv_`（32 位小写十六进制）。本契约新增提案身份 `cprop_`、预览回执身份 `cadopt_`（同样为前缀加 32 位小写十六进制，供未来目录负责人落地表与路由时使用或调整）。
 - **栏位语义**：
   - 实验分类字段：`assay`、`target`、`batch`（单值槽位），以及每个样本钉上的 `replicate_role`（单值）与可选 `replicate_group`。
-  - 实验 `samples` 是样本修订关联列表，不是分类词槽。每项包含从 0 连续编号的 `ordinal`、本项目内已有的 `sample_revision_id`、单值 `replicate_role`，以及可选 `replicate_group`。角色建议的 reason code 为 `REPLICATE_ROLE_TERM_MATCH`。把 `samples` 写成 `{status: ...}`、把样本修订号填进 `term_id`，或在词条钉 / 样本钉上附带 `aliases`、自由文本等未知属性，在提案构造、预览、手工修订和采用入口返回 `422 catalog_payload_invalid`；样本修订不在本项目时返回 `409 catalog_proposal_invalidated`。上述失败整批零写入，不能把有效样本当成词条。
+  - 实验 `samples` 是样本修订关联列表，不是分类词槽。每项包含从 0 连续编号的 `ordinal`、本项目内已有的 `sample_revision_id`、单值 `replicate_role`，以及可选 `replicate_group`。角色建议的 reason code 为 `REPLICATE_ROLE_TERM_MATCH`。把 `samples` 写成 `{status: ...}`、把样本修订号填进 `term_id`，或在词条钉 / 样本钉上附带 `aliases`、自由文本等未知属性，在提案构造、预览、手工修订和采用入口返回 `422 catalog_payload_invalid`；同一次 `values` 或 `candidates` 里重复同一个 `term_id` 同样返回 `422 catalog_payload_invalid`。样本修订不在本项目时返回 `409 catalog_proposal_invalidated`。上述失败整批零写入，不能把有效样本当成词条。合成夹具同时登记实验钉住的处理样本和对照样本修订。
   - 样本材料字段：`species`、`tissue`（单值）；`cell_type`、`cell_line`、`treatment`、`tag`（多值 `{status, values}`）。
   - 模拟采用只写入预览已经核验的规范值。预览可为管理员带上词表 `display_name` 供核对，修订正文不保存这份显示名，也不保存客户端附带的未知属性。样本钉只保留序号、样本修订、可选分组和已核验的 `replicate_role`。本次变更未点名的样本钉原样保留。
   - `ambiguous` 栏位及其对应候选 `source_refs` 仅对管理员可见；成员视图省略 `candidates`、候选引用及 `aliases`。样本钉里的歧义 `replicate_role` 同样参与这条约定。
