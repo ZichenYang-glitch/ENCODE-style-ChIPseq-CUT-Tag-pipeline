@@ -1,0 +1,266 @@
+{
+  "example_schema": "registered-result-read-examples-v1",
+  "external_v1": {
+    "project_id": "prj_11111111111111111111111111111111",
+    "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result_revision_id": "rrev_11111111111111111111111111111111",
+    "revision_number": 1,
+    "revision_status": "current",
+    "display_name": "GM12878 Hi-C contact map",
+    "format": "hic",
+    "schema_version": 1,
+    "origin": {
+      "kind": "external",
+      "source": {
+        "status": "known",
+        "namespace": "NCBI GEO",
+        "accession": "GSE000000",
+        "version": "original-2026-01"
+      }
+    },
+    "method": {
+      "status": "known",
+      "name": "Juicer",
+      "version": "1.6"
+    },
+    "reference": {
+      "status": "known",
+      "kind": "reference_profile_revision",
+      "reference_profile_revision_id": "refpr_77777777777777777777777777777777",
+      "public_identity_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "bytes": {
+      "size_bytes": 1048576,
+      "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "created_at": "2026-11-18T00:00:00Z"
+  },
+  "external_renamed": {
+    "project_id": "prj_11111111111111111111111111111111",
+    "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result_revision_id": "rrev_22222222222222222222222222222222",
+    "revision_number": 2,
+    "revision_status": "superseded",
+    "display_name": "GM12878 Hi-C contact matrix (renamed)",
+    "format": "hic",
+    "schema_version": 1,
+    "origin": {
+      "kind": "external",
+      "source": {
+        "status": "known",
+        "namespace": "NCBI GEO",
+        "accession": "GSE000000",
+        "version": "original-2026-01"
+      }
+    },
+    "method": {
+      "status": "known",
+      "name": "Juicer",
+      "version": "1.6"
+    },
+    "reference": {
+      "status": "known",
+      "kind": "reference_profile_revision",
+      "reference_profile_revision_id": "refpr_77777777777777777777777777777777",
+      "public_identity_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "bytes": {
+      "size_bytes": 1048576,
+      "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "created_at": "2026-11-18T01:00:00Z"
+  },
+  "external_upstream_v2": {
+    "project_id": "prj_11111111111111111111111111111111",
+    "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result_revision_id": "rrev_33333333333333333333333333333333",
+    "revision_number": 3,
+    "revision_status": "current",
+    "display_name": "GM12878 Hi-C contact matrix (renamed)",
+    "format": "hic",
+    "schema_version": 1,
+    "origin": {
+      "kind": "external",
+      "source": {
+        "status": "known",
+        "namespace": "NCBI GEO",
+        "accession": "GSE000000",
+        "version": "reprocessed-2026-02"
+      }
+    },
+    "method": {
+      "status": "known",
+      "name": "Juicer",
+      "version": "1.6"
+    },
+    "reference": {
+      "status": "known",
+      "kind": "reference_profile_revision",
+      "reference_profile_revision_id": "refpr_77777777777777777777777777777777",
+      "public_identity_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "bytes": {
+      "size_bytes": 2097152,
+      "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "created_at": "2026-11-18T02:00:00Z"
+  },
+  "downstream_after_upstream_v2": {
+    "project_id": "prj_11111111111111111111111111111111",
+    "result_id": "rreg_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "result_revision_id": "rrev_44444444444444444444444444444444",
+    "revision_number": 1,
+    "revision_status": "current",
+    "display_name": "GM12878 normalized Hi-C comparison",
+    "format": "hic",
+    "schema_version": 1,
+    "origin": {
+      "kind": "downstream",
+      "parents": [
+        {
+          "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "result_revision_id": "rrev_11111111111111111111111111111111",
+          "revision_number": 1,
+          "revision_status": "superseded",
+          "current_result_revision_id": "rrev_33333333333333333333333333333333",
+          "display_name": "GM12878 Hi-C contact map",
+          "role": "primary"
+        },
+        {
+          "result_id": "rreg_cccccccccccccccccccccccccccccccc",
+          "result_revision_id": "rrev_55555555555555555555555555555555",
+          "revision_number": 1,
+          "revision_status": "current",
+          "current_result_revision_id": "rrev_55555555555555555555555555555555",
+          "display_name": "GM12878 control Hi-C contact map",
+          "role": "control"
+        }
+      ]
+    },
+    "method": {
+      "status": "known",
+      "name": "cooltools",
+      "version": "0.7"
+    },
+    "reference": {
+      "status": "known",
+      "kind": "reference_profile_revision",
+      "reference_profile_revision_id": "refpr_77777777777777777777777777777777",
+      "public_identity_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "bytes": {
+      "size_bytes": 4096,
+      "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "created_at": "2026-11-18T00:30:00Z"
+  },
+  "missing_source": {
+    "project_id": "prj_11111111111111111111111111111111",
+    "result_id": "rreg_dddddddddddddddddddddddddddddddd",
+    "result_revision_id": "rrev_66666666666666666666666666666666",
+    "revision_number": 1,
+    "revision_status": "current",
+    "display_name": "External single-cell counts",
+    "format": "h5ad",
+    "schema_version": 1,
+    "origin": {
+      "kind": "external",
+      "source": {
+        "status": "unknown"
+      }
+    },
+    "method": {
+      "status": "unknown"
+    },
+    "reference": {
+      "status": "unknown"
+    },
+    "bytes": {
+      "size_bytes": 2048,
+      "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "created_at": "2026-11-18T03:00:00Z"
+  },
+  "download_examples": {
+    "active_member_old_revision": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "active",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 200,
+      "response_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "successful_download_audit_count": 1,
+      "audit_target_identity_inputs": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_id": "rreg_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "audit_event": {
+        "event_id": "aevt_99999999999999999999999999999999",
+        "occurred_at": "2026-11-18T04:00:00Z",
+        "action": "registered_result.download",
+        "outcome": "succeeded",
+        "actor_kind": "user",
+        "actor_user_id": "usr_88888888888888888888888888888888",
+        "resource": {
+          "kind": "registered_result",
+          "resource_id": "ares_registered_result_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "reason_code": null
+      }
+    },
+    "same_link_after_revocation": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "revoked",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 401,
+      "error_code": "AUTHENTICATION_REQUIRED",
+      "successful_download_audit_count": 0
+    },
+    "anonymous_same_link": {
+      "request": {
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "anonymous"
+      },
+      "response_status": 401,
+      "error_code": "AUTHENTICATION_REQUIRED",
+      "successful_download_audit_count": 0
+    },
+    "wrong_project": {
+      "request": {
+        "project_id": "prj_22222222222222222222222222222222",
+        "result_revision_id": "rrev_11111111111111111111111111111111"
+      },
+      "principal": {
+        "state": "active",
+        "user_id": "usr_88888888888888888888888888888888"
+      },
+      "response_status": 404,
+      "error_code": "catalog_not_found",
+      "successful_download_audit_count": 0
+    }
+  },
+  "source_mutation_after_verification": {
+    "request": {
+      "project_id": "prj_11111111111111111111111111111111",
+      "result_revision_id": "rrev_11111111111111111111111111111111"
+    },
+    "response_private_copy_verified": true,
+    "source_changed_in_place_after_verification": true,
+    "response_status": 200,
+    "expected_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "response_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
