@@ -308,7 +308,7 @@ async function loadEntryProjects(): Promise<EntryProject[]> {
   const seenProjects = new Set<string>();
   const projects: EntryProject[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < 20; page += 1) {
+  for (;;) {
     const response = await authoringListProjects({
       limit: 50,
       ...(cursor === null ? {} : { cursor }),
@@ -330,7 +330,6 @@ async function loadEntryProjects(): Promise<EntryProject[]> {
     seenCursors.add(next);
     cursor = next;
   }
-  throw new Error('The project list did not finish.');
 }
 
 async function loadEntrySamples(projectId: string): Promise<EntrySample[]> {
@@ -338,7 +337,7 @@ async function loadEntrySamples(projectId: string): Promise<EntrySample[]> {
   const seenSamples = new Set<string>();
   const samples: EntrySample[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < 20; page += 1) {
+  for (;;) {
     const response = await authoringListProjectSamples(projectId, {
       limit: 50,
       ...(cursor === null ? {} : { cursor }),
@@ -360,5 +359,4 @@ async function loadEntrySamples(projectId: string): Promise<EntrySample[]> {
     seenCursors.add(next);
     cursor = next;
   }
-  throw new Error('The sample list did not finish.');
 }

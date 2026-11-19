@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/fetcher';
@@ -622,5 +622,105 @@ describe('experiment binding entry', () => {
       limit: 50,
       cursor: 'samples-2',
     });
+  });
+
+  it('keeps reading a valid cursor through the twenty-first page', async () => {
+    generatedMocks.listProjects.mockImplementation(async (params?: { cursor?: string | null }) => {
+      const page = params?.cursor === undefined || params.cursor === null
+        ? 0
+        : Number(params.cursor);
+      const number = page + 1;
+      return {
+        ok: true,
+        projects: [{
+          project_id: `prj_${number.toString(16).padStart(32, '0')}`,
+          display_name: `Project ${number}`,
+        }],
+        next_cursor: number >= 21 ? null : String(number),
+      };
+    });
+    generatedMocks.listSamples.mockImplementation(async (
+      projectId: string,
+      params?: { cursor?: string | null },
+    ) => {
+      const page = params?.cursor === undefined || params.cursor === null
+        ? 0
+        : Number(params.cursor);
+      const number = page + 1;
+      return {
+        ok: true,
+        project_id: projectId,
+        samples: [{
+          sample_id: `smp_${number.toString(16).padStart(32, '0')}`,
+          display_name: `Sample ${number}`,
+          sample_revision_id: `smpr_${number.toString(16).padStart(32, '0')}`,
+        }],
+        next_cursor: number >= 21 ? null : String(number),
+      };
+    });
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByRole('option', { name: 'Project 21' })).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: 'Sample 21' })).toBeInTheDocument();
+    expect(generatedMocks.listProjects).toHaveBeenCalledWith({ limit: 50, cursor: '20' });
+    expect(generatedMocks.listSamples).toHaveBeenCalledWith(
+      `prj_${'1'.padStart(32, '0')}`,
+      { limit: 50, cursor: '20' },
+    );
+    expect(screen.queryByText('Active projects could not be loaded.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Project samples could not be loaded.')).not.toBeInTheDocument();
+  });
+
+  it('rejects a repeated project or sample cursor', async () => {
+    generatedMocks.listProjects.mockImplementation(async (params?: { cursor?: string | null }) => (
+      params?.cursor === 'again'
+        ? { ok: true, projects: [], next_cursor: 'again' }
+        : {
+            ok: true,
+            projects: [{
+              project_id: `prj_${'1'.repeat(32)}`,
+              display_name: 'Project 1',
+            }],
+            next_cursor: 'again',
+          }
+    ));
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByText('Active projects could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Project 1' })).not.toBeInTheDocument();
+    cleanup();
+
+    generatedMocks.listProjects.mockResolvedValue({
+      ok: true,
+      projects: [{
+        project_id: PROJECT,
+        display_name: 'Synthetic project',
+      }],
+      next_cursor: null,
+    });
+    generatedMocks.listSamples.mockImplementation(async (
+      projectId: string,
+      params?: { cursor?: string | null },
+    ) => (
+      params?.cursor === 'again'
+        ? { ok: true, project_id: projectId, samples: [], next_cursor: 'again' }
+        : {
+            ok: true,
+            project_id: projectId,
+            samples: [{
+              sample_id: `smp_${'a'.repeat(32)}`,
+              display_name: 'Sample 1',
+              sample_revision_id: REV_A,
+            }],
+            next_cursor: 'again',
+          }
+    ));
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByText('Project samples could not be loaded.')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Sample 1' })).not.toBeInTheDocument();
   });
 });
