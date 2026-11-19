@@ -3,7 +3,10 @@
 Use this checklist for the exact v0.4.0 tag or pre-tag candidate on one Linux
 x86_64/systemd or systemd-enabled WSL2 host in a trusted laboratory LAN. It is
 not a multi-tenant, high-availability, biological-validation, or performance
-benchmark guide.
+benchmark guide. A later checkout can still report version 0.4.1 after this
+checklist's schema target. Evidence for a server move or shared trial of that
+later tree is in the
+[server readiness gap](development/local-trial-server-readiness-gap.md).
 
 ## Assets and identity
 

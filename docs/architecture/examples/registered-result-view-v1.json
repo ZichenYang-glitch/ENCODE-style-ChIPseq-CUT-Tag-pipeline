@@ -1,0 +1,185 @@
+{
+  "example_schema": "registered-result-view-examples-v1",
+  "pinned_registration_commit": "29d508647c18df94016f94d7da437e794b846f9e",
+  "viewer_baseline_commit": "f52a2c20adae6c6e61375b34e47211c84aa035f7",
+  "adapters_added_this_round": [],
+  "implementation_authorized": false,
+  "awaiting_lab_choice": true,
+  "decisions_independent": true,
+  "candidates": [
+    {
+      "action_id": "view-hic-region-resolution",
+      "assay": "hic",
+      "required_format": "hic",
+      "reusable_reader": {
+        "name": "washu-hic-track",
+        "catalog": "src/encode_pipeline/adapters/browser/catalog.py",
+        "panel": "frontend/src/features/run-artifacts/GenomeBrowserPanel.tsx",
+        "wash_u_type": "hic",
+        "session_scope": "run_artifact",
+        "passes_resolution": false,
+        "passes_normalization": false,
+        "can_open_registered_revision": false
+      },
+      "request": {
+        "coordinate": "exact_result_revision",
+        "project_id": "prj_11111111111111111111111111111111",
+        "result_revision_id": "rrev_11111111111111111111111111111111",
+        "region": "chr1:0-2000000",
+        "resolution_bp": 1000000,
+        "normalization": "NONE"
+      },
+      "registration_example": {
+        "commit": "29d508647c18df94016f94d7da437e794b846f9e",
+        "record": "external_v1",
+        "format": "hic",
+        "bytes_are_shape_illustration": true,
+        "matrix_observed": false
+      },
+      "current_outcome": {
+        "status": "unsupported",
+        "reason": "registered_revision_has_no_matrix_reader"
+      },
+      "success_when_implemented": {
+        "shows_requested_region": true,
+        "shows_requested_resolution_bp": true,
+        "shows_requested_normalization": true,
+        "shows_one_contact_bound_to_revision_sha256": true,
+        "same_contact_on_embedded_and_full_page": true,
+        "unknown_reference_label": "未知",
+        "old_revision_stays_on_its_own_bytes": true,
+        "paint_only_after_sha256_match": true
+      },
+      "unsupported": [
+        {
+          "case": "cool",
+          "format": "cool",
+          "reason": "unsupported_contact_matrix",
+          "page_text": "Unsupported format"
+        },
+        {
+          "case": "mcool",
+          "format": "mcool",
+          "reason": "unsupported_contact_matrix",
+          "page_text": "Unsupported format"
+        },
+        {
+          "case": "resolution_absent",
+          "page_state": "requested_bin_absent"
+        },
+        {
+          "case": "normalization_absent",
+          "page_state": "requested_normalization_absent"
+        },
+        {
+          "case": "revoked_session",
+          "http_status": 401,
+          "page_state": "no_matrix"
+        },
+        {
+          "case": "wrong_project",
+          "http_status": 404,
+          "page_state": "no_matrix"
+        },
+        {
+          "case": "bytes_unavailable",
+          "http_status": 409,
+          "page_state": "no_matrix"
+        },
+        {
+          "case": "non_matrix_format",
+          "formats": ["tsv", "h5ad"],
+          "page_state": "no_matrix"
+        }
+      ]
+    },
+    {
+      "action_id": "view-single-cell-qc-cluster-counts",
+      "assay": "single_cell",
+      "choice": "qc",
+      "choices_considered": ["qc", "embedding", "expression"],
+      "required_format": "tsv",
+      "required_columns": ["cluster_id", "cell_count"],
+      "reusable_reader": {
+        "name": "catalogDownloadRegisteredResultRevision",
+        "reads": "whole_file",
+        "accept_ranges": "none",
+        "parses_table": false,
+        "can_return_these_bytes": true
+      },
+      "bytes": {
+        "filename_at_pinned_commit": "test/fixtures/irene39/fixture39.tsv",
+        "present_on_viewer_baseline": false,
+        "size_bytes": 50,
+        "content_sha256": "d6cb16f73da05e9d2e6f9a70e838dc9955dafdf560a955f6f62bb1dc2907817a",
+        "media": "cluster_id\tcell_count\nsynthetic-A\t3\nsynthetic-B\t2\n",
+        "method": {
+          "status": "unknown",
+          "label": "未知"
+        },
+        "reference": {
+          "status": "unknown",
+          "label": "未知"
+        },
+        "live_result_revision_id_in_repository": null
+      },
+      "current_outcome": {
+        "status": "bytes_verified_table_not_shown",
+        "reason": "no_table_view"
+      },
+      "success_when_implemented": {
+        "rows": [
+          {
+            "cluster_id": "synthetic-A",
+            "cell_count": 3
+          },
+          {
+            "cluster_id": "synthetic-B",
+            "cell_count": 2
+          }
+        ],
+        "same_rows_on_embedded_and_full_page": true,
+        "paint_only_after_sha256_match": true,
+        "unknown_method_label": "未知",
+        "unknown_reference_label": "未知",
+        "old_revision_keeps_these_rows": true
+      },
+      "not_selected": [
+        {
+          "choice": "embedding",
+          "reason": "no_reader"
+        },
+        {
+          "choice": "expression",
+          "reason": "h5ad_is_not_parsed"
+        }
+      ],
+      "unsupported": [
+        {
+          "case": "h5ad",
+          "format": "h5ad",
+          "page_state": "no_reader"
+        },
+        {
+          "case": "unexpected_columns",
+          "page_state": "unsupported_table"
+        },
+        {
+          "case": "revoked_session",
+          "http_status": 401,
+          "page_state": "no_table"
+        },
+        {
+          "case": "wrong_project",
+          "http_status": 404,
+          "page_state": "no_table"
+        },
+        {
+          "case": "bytes_unavailable",
+          "http_status": 409,
+          "page_state": "no_table"
+        }
+      ]
+    }
+  ]
+}

@@ -4,6 +4,9 @@ Use this checklist from a clean exact commit in the repository-locked
 environments. Temporary packages, wheelhouses, caches, bundles, databases, and
 host evidence stay outside Git. Passing the checklist makes a commit
 release-ready; tagging and publication always require a separate authorization.
+The v0.4.0 and v0.4.1 sections below stay bound to those tags. Inventory for
+a later server candidate is in
+[docs/development/local-trial-server-readiness-gap.md](docs/development/local-trial-server-readiness-gap.md).
 
 ## v0.4.1 patch release
 
