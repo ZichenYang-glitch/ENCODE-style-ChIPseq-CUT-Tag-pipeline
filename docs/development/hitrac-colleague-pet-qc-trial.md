@@ -1,8 +1,9 @@
 # 同事试用：从已核验样本找到 PET 和 QC
 
 状态：试用单设计。写给一位没有参与本预处理实现、本文件、以及该批次计算或核验的同事。
-完成下表只说明这位同事从受权入口找到了目标 PET、说清了 QC 分母，并打开了自己勾选的
-WashU 轨道。它不是用户签字，不是整批发布，也不是生物学确认。
+完成记录只说明这位同事从受权入口找到了获准样本的 PET、说清了该行的 QC 分母，并按当时构建
+记下 WashU 的结果。轨道可以打开，也可以停在「已定位 PET，轨道未打开，试用未完成」。
+它不是用户签字，不是整批发布，也不是生物学确认。
 
 设计写于 2026-11-19，跟着它合并进去的 main；复审时以该 PR 的 base SHA 为准。
 当时该人源 Hi-TrAC 预处理批次的正式结果包尚未发布，执行入口是本机资格脚本，
@@ -72,20 +73,41 @@ summary 里有一行数字，本身不是通过结论。原生通过和重放通
 - 上游 tracPre2 提交 `de6cc732fa00b408551b9f4272933640c08447f1`
 - WashU 页面实际加载的构建 SHA。自选行为对照契约「在 WashU 内选择轨道文件（IRENE-21）」
 
-### 2. 从项目找到目标 PET
+### 2. 从项目找到获准样本的 PET
 
-平台 run：打开该实验绑定的运行，在产物里点选一份 PET。目标类型只在
-`hitrac_bedpe_all`（all，MAPQ 过滤后的 BEDPE 行）和 `hitrac_bedpe_no_bg`
-（去背景再按 BEDPE 前六列去重后的行）之中二选一。记下类型、artifact id 和 generation。
-同一 generation 的 `hitrac_summary` 是配套 QC。BAM 和裁剪 FASTQ 保持私有，本试用不下载。
+一代可以有多个样本。all 与 noBg 按样本各一份，整批共用一份 `hitrac_summary`。
+只按产物类型和 generation 点选，会读到另一个样本的行。
 
-外部登记：从项目打开上面两个 `rrev_`。显示名只作辨认，身份是修订 id。
-两个修订的方法版本和参考状态要能对上同一次资格；对不上就停。
+平台 run 在页面上核对三处，三处相同才继续：
+
+1. 数据主人点名的获准样本。
+2. 所选 PET 的 `metadata.sample_id`。产物表的 Sample 列就是它，是发布时的显示名，不是内部 token。类型仍只在 `hitrac_bedpe_all` 与 `hitrac_bedpe_no_bg` 里二选一。
+3. QC 页 `/runs/<run_id>?view=qc` 上准备解释的那一行的 `sample_id`。
+
+再看这一行的 `source_artifact_id`。点 View source，打开的必须是本代那份
+`hitrac_summary`，且它的 `metadata.scope` 为 `run`。summary 文件本身不带样本身份。
+三处有任一不一致、打开的不是本代 summary、或对应关系说不清，就停在这一步。
+不按行序、文件名或 Yield 高低挑选。
+
+外部登记没有平台 QC 行。受权核验记录必须把精确的 PET `rrev_` 指到 summary `rrev_`
+里的具体一行。记录没有这层对应时停在这一步。显示名和行序都不是对应。
+
+下面用同一代的两个合成样本演示排除错行。页面上的 `syn-a`、`syn-b` 只存在于这个例子，
+不是真实文库，也不是通过。获准的是 `syn-a`。
+
+| 页面对象 | 同代里能看见的 | 获准 `syn-a` 时留下什么 |
+| --- | --- | --- |
+| PET | 两份 `hitrac_bedpe_no_bg`。`metadata.sample_id` 分别是 `syn-a` 和 `syn-b` | 只留 `syn-a`。`syn-b` 的类型和 generation 相同，仍然排除 |
+| summary | 一份 `hitrac_summary`，`metadata.scope` 为 `run` | 两行 QC 都指向它 |
+| QC | 两行 `sample_id` 分别是 `syn-a` 和 `syn-b`，`source_artifact_id` 都是这份 summary 的 artifact id | 只解释 `syn-a` 那一行。另一行即使数字更好看也排除 |
+
+脱敏回执不写 `syn-a` 或 `syn-b`，只写匹配结果：PET 的 `metadata.sample_id`、QC 的
+`sample_id` 与获准样本一致；`source_artifact_id` 指向本代 summary；已排除同代另一行。
+三处对不上时，回执写停在第 2 步，不解释那一行的分母。BAM 和裁剪 FASTQ 保持私有，本试用不下载。
 
 ### 3. 说明 QC 分母
 
-打开 `/runs/<run_id>?view=qc`，或打开已登记的 summary。只解释与第 2 步同一 generation
-或同一对 `rrev_` 的那一行。同事对着列名说出下表。符号 R、L、T、U、C、K、M、D、N、V、Cn
+只解释第 2 步已经对齐的那一行。同事对着列名说出下表。符号 R、L、T、U、C、K、M、D、N、V、Cn
 的定义在契约第 3 节，此处不改写。
 
 | 原列 | `metric_key` | 同事要说出的分母 |
@@ -116,19 +138,32 @@ MAPQ 缺省 10 与 threads 缺省 2 的科学地位沿用证据台账：它们�
 
 ### 4. 在 WashU 中只打开所选轨道
 
-这一步从第 2 步的平台 run 打开 WashU。勾选、移除和代次变化按契约「在 WashU 内选择轨道文件（IRENE-21）」。
-外部登记没有 `run_id`。外部结果契约不提供 WashU 会话。在出现不把登记结果写成 run 的查看入口之前，
-checkout 产物做到第 3 步为止，WashU 一行写「入口未提供」，试用未完成。
-不要把本机文件路径填进查看器。
+从第 2 步已经对齐的那份平台 run PET 打开 WashU。勾选、移除和代次变化按契约
+「在 WashU 内选择轨道文件（IRENE-21）」。外部登记没有 `run_id`。外部结果契约不提供
+WashU 会话。在出现不把登记结果写成 run 的查看入口之前，checkout 产物做到第 3 步为止，
+WashU 一行写「入口未提供」，试用未完成。不要把本机文件路径填进查看器。
+
+转换器 `washu-display-derivative-1` 对每份源文件最多接收 2,000,000 条记录
+（`MAX_SOURCE_RECORDS`，`src/encode_pipeline/services/browser_derivatives.py`）。
+超过就拒绝，原因是 `source_too_large`。页面写 “This file is too large to index here
+and is not shown as empty data.” 空白画面不是空数据，也不是轨道已打开。
+`test/services/test_browser_derivatives.py` 把源记录上限降到 1 时，两行合成 PET 得到
+同一个 `source_too_large`。
+
+IRENE-9 的脱敏审计里，10 个通过核验的样本中，最小的 all 文件有 25,799,851 条，最小的
+noBg 文件有 15,829,716 条。两者都高于 2,000,000。当前构建不能为这批完整 PET 生成轨道。
+即使以后取得访问授权，只要打开的仍是这些完整文件、上限仍是 2,000,000，记录就是
+「已定位 PET，轨道未打开，试用未完成」。
 
 平台 run 上按打开的那个构建做：
 
 1. 从当前 run 打开 WashU。直接打开时选择为空；勾选之前，轨道数据请求为零。
-2. 只勾选第 2 步选定的那一份 PET。未勾选的文件留在列表里，不发起读取。
-3. 对着画面说明：类型是 `longrange`；源文件是 PET；每条 PET 记 1 对；两条锚点的分数 `1` 是显示标志，不是 MAPQ，两行不能相加；`pair_count` 在衍生物来源摘要里。显著 loop 和 `.hic` 接触矩阵是别的产物类型。
-4. 区域摘要超过 WashU 自身的 10 万行绘制上限时，页面会说明绘制不完整。记录这一句。画面不代替完整 PET 计数。
-5. 去掉最后一条轨道后，选择回到空，后续不再读这些轨道。
-6. 翻页时若代次变化，会话返回 409 `generation_changed`。先刷新并重选，再读新版文件。
+2. 只勾选第 2 步对齐的那一份 PET。未勾选的文件留在列表里，不发起读取。
+3. 文件还在上限以内、索引尚未准备时，文案是 “An index is not prepared yet. Choose this file, then prepare it.” 勾选后只点这一份的 `Prepare`。准备完成之前不把画面当成轨道。
+4. 页面报 `source_too_large` 时不点准备，也不改读另一个样本。记录「已定位 PET，轨道未打开，试用未完成」。这一句就是本步结论。
+5. 只有索引成功、轨道已经打开之后，才说明：类型是 `longrange`；源文件是 PET；每条 PET 记 1 对；两条锚点的分数 `1` 是显示标志，不是 MAPQ，两行不能相加；`pair_count` 在衍生物来源摘要里。显著 loop 和 `.hic` 接触矩阵是别的产物类型。区域摘要超过 WashU 自身的 10 万行绘制上限时，页面会说明绘制不完整。那句话发生在索引成功之后，不能用来描述超限而未打开的文件。画面不代替完整 PET 计数。
+6. 去掉最后一条轨道后，选择回到空，后续不再读这些轨道。
+7. 翻页时若代次变化，会话返回 409 `generation_changed`。先刷新并重选，再读新版文件。重新核对第 2 步的三处身份，不沿用上一份 PET。
 
 若打开的构建在进入时已经勾选轨道，或未勾选的文件仍有数据请求，记下该构建 SHA，
 这一步记为产品差距，试用未完成。
@@ -144,10 +179,11 @@ checkout 产物做到第 3 步为止，WashU 一行写「入口未提供」，�
 | 入口 | 无。示例不登录 | `platform run` 或 `external registration` |
 | 版本 | 契约第 6 节；上游 `de6cc732fa00b408551b9f4272933640c08447f1` | 第 1 步的 SHA、`run_id` 或两个 `rrev_` |
 | 核验 | 合成基线，无批次裁决 | `native pass` 或 `replay pass` |
-| 目标 PET | 类型 `hitrac_bedpe_no_bg`；契约预期 5 行 | 类型与 artifact id 或 `rrev_` |
-| 分母 | `Yield` = N/R = 5/8；close 的分母是 cis 数 | 列名、分子、分母、与契约是否一致 |
-| WashU | 未打开 | 初始选择为空；只读了所选 `longrange`；绘制是否完整 |
-| 结论 | 只演示表格 | 找到 / 说清分母 / 打开轨道，或停在哪一条前置 |
+| 样本对应 | 三者一致；已排除同代另一行。不写页面上的 sample id | 匹配成立，或停在第 2 步 |
+| 目标 PET | 类型 `hitrac_bedpe_no_bg`；与获准样本的 `metadata.sample_id` 一致 | 类型与 artifact id 或 `rrev_`。回执只写是否匹配 |
+| 分母 | `Yield` = N/R = 5/8；close 的分母是 cis 数 | 列名、分子、分母、与契约是否一致。只解释对齐的那一行 |
+| WashU | 上限以内的小文件先点 `Prepare`。本批完整 PET 不走这条 | 「已定位 PET，轨道未打开，试用未完成」，或索引成功后的轨道观察 |
+| 结论 | 只演示如何排除错行 | 找到且说清分母；轨道已打开，或已定位但轨道未打开 |
 
 记录里不写样本显示名、供方编号、读名、基因组坐标、FASTQ 或 BAM 内容、本机绝对路径、
 凭据。内部 token 与用户样本名的对应留在平台 metadata，不抄进这份脱敏记录。
@@ -169,6 +205,8 @@ contract = (root / "docs/development/hitrac-preprocess-contract.md").read_text(e
 washu = (root / "docs/development/washu-browser-read-contract.md").read_text(encoding="utf-8")
 ops = (root / "docs/development/hitrac-preprocess-operations.md").read_text(encoding="utf-8")
 results = (root / "src/encode_pipeline/adapters/hitrac_preprocess/results.py").read_text(encoding="utf-8")
+derivatives = (root / "src/encode_pipeline/services/browser_derivatives.py").read_text(encoding="utf-8")
+derivative_test = (root / "test/services/test_browser_derivatives.py").read_text(encoding="utf-8")
 assert "## 3. PET、输出和 QC 单位" in contract
 assert "| `Yield` | N/R |" in contract
 assert "1−U/T" in contract and "K/C" in contract
@@ -183,6 +221,10 @@ assert "不表示相应表、API 或客户端已经存在" in registered
 assert "registered-result-read-contract.md" in prose
 assert "## Hi-TrAC" in ledger
 assert "scientific-workflow-evidence-ledger.md" in prose
+assert "MAX_SOURCE_RECORDS = 2_000_000" in derivatives
+assert "def test_source_record_cap_stops_before_sorting_extra_pairs" in derivative_test
+assert '"sample_id": sample["display_id"]' in results
+assert "source_artifact_id=document.source.artifact_id" in results
 keys = (
     "raw_pairs", "trimmed_pairs", "mapping_ratio", "all_pets", "all_redundancy",
     "all_cis_ratio", "all_close_ratio", "all_middle_ratio", "all_distal_ratio",
@@ -192,8 +234,14 @@ keys = (
 for key in keys:
     assert f'"{key}"' in results
     assert f"`{key}`" in prose
-for phrase in ("N/R", "1−U/T", "C/U", "K/C", "pair_support_missing", "rreg_", "rrev_", "experiment_snapshot", "generation_changed"):
-    assert phrase in prose
+for phrase in (
+    "N/R", "1−U/T", "C/U", "K/C", "pair_support_missing", "rreg_", "rrev_",
+    "experiment_snapshot", "generation_changed", "metadata.sample_id",
+    "source_artifact_id", "source_too_large", "2,000,000",
+    "已定位 PET，轨道未打开，试用未完成", "已排除同代另一行",
+):
+    assert phrase in prose, phrase
+assert "只按产物类型和 generation 点选，会读到另一个样本的行" in prose
 for banned in ("s000", "/home/", "11_17", "helixweave-hitrac-preprocess."):
     assert banned not in prose
 print("hitrac-colleague-trial ok")
