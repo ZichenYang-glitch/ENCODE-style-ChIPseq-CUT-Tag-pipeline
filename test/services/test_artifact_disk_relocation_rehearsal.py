@@ -8,6 +8,7 @@ import importlib
 import os
 from hashlib import sha256
 from pathlib import Path
+import shutil
 import stat
 import sys
 import threading
@@ -34,6 +35,7 @@ from encode_pipeline.services.artifact_disk_relocation import (
     PUBLIC_UNAVAILABLE,
     ArtifactDiskRelocation,
     ArtifactDiskRelocationError,
+    DownloadRelocation,
     RelocationJournal,
     lookup_switched_download,
 )
@@ -685,3 +687,107 @@ def test_capture_rejects_oversized_file_before_reading_it(
         assert not journal.exists()
     finally:
         _close(app)
+
+
+def _switch_small(tmp_path: Path) -> tuple[ArtifactDiskRelocation, RelocationJournal]:
+    relocation, journal = _capture_small(tmp_path)
+    for stage in ("copied", "verified", "switched"):
+        assert (
+            relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == stage
+        )
+    return relocation, journal
+
+
+def _lookup_small(tmp_path: Path, journal: RelocationJournal) -> DownloadRelocation:
+    return lookup_switched_download(
+        tmp_path / "durable",
+        run_id="run-1",
+        artifact_id="artifact-1",
+        generation=journal.generation,
+        revision=journal.revision,
+        relative_path=RELATIVE_PATH,
+        size_bytes=journal.size_bytes,
+    )
+
+
+def test_verify_and_download_do_not_follow_managed_symlinks(tmp_path: Path) -> None:
+    relocation, journal = _capture_small(tmp_path)
+    assert relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "copied"
+    durable = tmp_path / "durable"
+    outside_payload = tmp_path / "outside-payload"
+    copied = outside_payload / "run-1" / RELATIVE_PATH
+    copied.parent.mkdir(parents=True)
+    copied.write_bytes(SOURCE_CONTENT)
+    os.chmod(copied, SOURCE_MODE)
+    payload = durable / "payload"
+    held = durable / "payload-real"
+    payload.rename(held)
+    payload.symlink_to(outside_payload, target_is_directory=True)
+    try:
+        relocation.resume(run_id="run-1", artifact_id="artifact-1")
+    except ArtifactDiskRelocationError as exc:
+        assert exc.reason_code == "relocation_source_unavailable"
+    else:
+        raise AssertionError("verify followed a symlinked payload directory")
+    payload.unlink()
+    held.rename(payload)
+    assert (
+        relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "verified"
+    )
+    assert (
+        relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "switched"
+    )
+
+    leaked = tmp_path / "leaked-payload"
+    leaked_file = leaked / "run-1" / RELATIVE_PATH
+    leaked_file.parent.mkdir(parents=True)
+    leaked_file.write_bytes(b"chr1\t1\t2\toutside\t1\t+\n")
+    os.chmod(leaked_file, SOURCE_MODE)
+    payload.rename(held)
+    payload.symlink_to(leaked, target_is_directory=True)
+    decision = _lookup_small(tmp_path, journal)
+    assert decision.kind == "reject"
+    assert decision.reason_code == PUBLIC_UNAVAILABLE
+    assert b"outside" not in decision.content
+    payload.unlink()
+    held.rename(payload)
+    assert _lookup_small(tmp_path, journal).kind == "serve"
+
+    outside_journals = tmp_path / "outside-journals"
+    shutil.copytree(durable / "journals", outside_journals)
+    journals = durable / "journals"
+    journals_held = durable / "journals-real"
+    journals.rename(journals_held)
+    journals.symlink_to(outside_journals, target_is_directory=True)
+    followed = _lookup_small(tmp_path, journal)
+    assert followed.kind == "reject"
+    assert followed.reason_code == PUBLIC_UNAVAILABLE
+    try:
+        relocation.load("run-1", "artifact-1")
+    except ArtifactDiskRelocationError as exc:
+        assert exc.reason_code == "relocation_journal_invalid"
+    else:
+        raise AssertionError("resume read followed a symlinked journals directory")
+
+
+def test_switched_journal_fifo_fails_without_blocking(tmp_path: Path) -> None:
+    _relocation, journal = _switch_small(tmp_path)
+    journal_path = tmp_path / "durable" / "journals" / "run-1" / "artifact-1.json"
+    journal_path.unlink()
+    os.mkfifo(journal_path)
+    holder: dict[str, object] = {}
+
+    def read() -> None:
+        try:
+            holder["decision"] = _lookup_small(tmp_path, journal)
+        except Exception as exc:  # noqa: BLE001 - the thread must not hang the test
+            holder["error"] = exc
+
+    worker = threading.Thread(target=read, daemon=True)
+    worker.start()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert "error" not in holder
+    decision = holder["decision"]
+    assert getattr(decision, "kind") == "reject"
+    assert getattr(decision, "reason_code") == PUBLIC_UNAVAILABLE

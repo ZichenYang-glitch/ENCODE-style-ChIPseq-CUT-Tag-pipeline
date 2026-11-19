@@ -5,8 +5,10 @@ last finished stage. Capture seals a byte string only after the scratch file
 still satisfies the indexed download revision; the stored checksum is that
 byte string. The run, artifact, generation, and revision stored for the
 download link are not rewritten. After switch, that same link reads the
-verified durable bytes. This is not a catalog migration, and it does not delete
-the scratch file or choose a production retention disk.
+verified durable bytes. Verification, resume, and download open each durable
+directory from the managed root and confirm a journal on its open descriptor.
+This is not a catalog migration, and it does not delete the scratch file or
+choose a production retention disk.
 """
 
 from __future__ import annotations
@@ -66,6 +68,13 @@ class ArtifactDiskRelocationError(RuntimeError):
     def __init__(self, reason_code: str) -> None:
         super().__init__(reason_code)
         self.reason_code = reason_code
+
+
+class _ManagedFileMissing(ArtifactDiskRelocationError):
+    """A managed component is absent. Callers choose missing versus invalid."""
+
+    def __init__(self) -> None:
+        super().__init__("relocation_source_unavailable")
 
 
 @dataclass(frozen=True)
@@ -194,10 +203,7 @@ class ArtifactDiskRelocation:
     def load(self, run_id: str, artifact_id: str) -> RelocationJournal:
         """Return the current journal for one artifact."""
         safe_run, safe_artifact = _ids(run_id, artifact_id)
-        info = _lstat(self._journal_path(safe_run, safe_artifact))
-        if info is None:
-            raise ArtifactDiskRelocationError("relocation_journal_missing")
-        return _parse_journal(self._journal_path(safe_run, safe_artifact), info)
+        return _read_journal(self._durable_root, safe_run, safe_artifact)
 
     def payload_file(self, run_id: str, artifact_id: str) -> Path:
         """Return the durable regular-file path named by the journal."""
@@ -252,8 +258,8 @@ class ArtifactDiskRelocation:
 
     def _require_sealed(self, journal: RelocationJournal) -> None:
         content, mode = _read_tree(
-            self._durable_root / "payload" / journal.run_id,
-            PurePosixPath(journal.relative_path),
+            self._durable_root,
+            _payload_relative(journal.run_id, journal.relative_path),
         )
         digest = sha256(content).hexdigest()
         if len(content) != journal.size_bytes or digest != journal.content_sha256:
@@ -383,11 +389,15 @@ def lookup_switched_download(
     try:
         root = _absolute_root(durable_root, "durable_root")
         safe_run, safe_artifact = _ids(run_id, artifact_id)
-        journal_path = root / "journals" / safe_run / f"{safe_artifact}.json"
-        info = _lstat(journal_path)
-        if info is None:
-            return DownloadRelocation(kind="absent")
-        journal = _parse_journal(journal_path, info)
+        try:
+            journal = _read_journal(root, safe_run, safe_artifact)
+        except ArtifactDiskRelocationError as exc:
+            if exc.reason_code == "relocation_journal_missing":
+                return DownloadRelocation(kind="absent")
+            return DownloadRelocation(
+                kind="reject",
+                reason_code=_public_reason(exc.reason_code),
+            )
         if journal.stage != "switched":
             return DownloadRelocation(kind="absent")
         if (
@@ -400,8 +410,8 @@ def lookup_switched_download(
         ):
             return DownloadRelocation(kind="reject", reason_code=PUBLIC_UNAVAILABLE)
         content, mode = _read_tree(
-            root / "payload" / journal.run_id,
-            PurePosixPath(journal.relative_path),
+            root,
+            _payload_relative(journal.run_id, journal.relative_path),
         )
         digest = sha256(content).hexdigest()
         if len(content) != journal.size_bytes or digest != journal.content_sha256:
@@ -624,16 +634,36 @@ def _lstat(path: Path) -> os.stat_result | None:
         return None
 
 
-def _parse_journal(path: Path, info: os.stat_result) -> RelocationJournal:
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise ArtifactDiskRelocationError("relocation_journal_invalid")
-    if info.st_size > 8192:
-        raise ArtifactDiskRelocationError("relocation_journal_invalid")
-    descriptor = os.open(path, _FILE_READ_FLAGS)
+def _payload_relative(run_id: str, relative_path: str) -> PurePosixPath:
+    return PurePosixPath("payload", run_id, *PurePosixPath(relative_path).parts)
+
+
+def _read_journal(root: Path, run_id: str, artifact_id: str) -> RelocationJournal:
+    """Read one journal from ``root`` and check type and size on its descriptor."""
+    file_name = f"{artifact_id}.json"
     try:
-        raw = _read_exact(descriptor, info.st_size)
-    finally:
-        os.close(descriptor)
+        content, _mode = _read_tree(
+            root,
+            PurePosixPath("journals", run_id, file_name),
+            max_bytes=8192,
+        )
+    except _ManagedFileMissing:
+        raise ArtifactDiskRelocationError("relocation_journal_missing") from None
+    except ArtifactDiskRelocationError as exc:
+        raise ArtifactDiskRelocationError("relocation_journal_invalid") from exc
+    return _parse_journal_content(
+        content,
+        run_directory=run_id,
+        file_name=file_name,
+    )
+
+
+def _parse_journal_content(
+    raw: bytes,
+    *,
+    run_directory: str,
+    file_name: str,
+) -> RelocationJournal:
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -652,8 +682,7 @@ def _parse_journal(path: Path, info: os.stat_result) -> RelocationJournal:
         )
     except ArtifactDiskRelocationError:
         raise
-    expected_name = path.parent.name
-    if run_id != expected_name or path.name != f"{artifact_id}.json":
+    if run_id != run_directory or file_name != f"{artifact_id}.json":
         raise ArtifactDiskRelocationError("relocation_journal_invalid")
     size_bytes = payload["size_bytes"]
     mode = payload["mode"]
@@ -776,18 +805,39 @@ def _read_indexed_file(
             os.close(descriptor)
 
 
-def _read_tree(root: Path, relative: PurePosixPath) -> tuple[bytes, int]:
-    """Return the bytes and permission bits of one regular file, without following links."""
-    if not root.is_absolute():
+def _read_tree(
+    root: Path,
+    relative: PurePosixPath,
+    *,
+    max_bytes: int = MAX_RELOCATION_BYTES,
+) -> tuple[bytes, int]:
+    """Return the bytes and permission bits of one regular file, without following links.
+
+    ``root`` is opened first. Every later component is opened from that
+    descriptor. The final descriptor is checked for a regular file and for
+    ``max_bytes`` before any byte is read, then checked again after the read.
+    """
+    if not root.is_absolute() or not relative.parts:
         raise ArtifactDiskRelocationError("relocation_source_unavailable")
     descriptors: list[int] = []
     try:
-        current = os.open(root, _DIRECTORY_FLAGS)
+        try:
+            current = os.open(root, _DIRECTORY_FLAGS)
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                raise _ManagedFileMissing() from exc
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
+                raise ArtifactDiskRelocationError(
+                    "relocation_source_unavailable"
+                ) from exc
+            raise
         descriptors.append(current)
         info = os.fstat(current)
         if not stat.S_ISDIR(info.st_mode):
             raise ArtifactDiskRelocationError("relocation_source_unavailable")
         for index, component in enumerate(relative.parts):
+            if component in {"", ".", ".."}:
+                raise ArtifactDiskRelocationError("relocation_source_unavailable")
             final = index == len(relative.parts) - 1
             try:
                 opened = os.open(
@@ -796,12 +846,9 @@ def _read_tree(root: Path, relative: PurePosixPath) -> tuple[bytes, int]:
                     dir_fd=current,
                 )
             except OSError as exc:
-                if exc.errno in {
-                    errno.ENOENT,
-                    errno.ELOOP,
-                    errno.ENOTDIR,
-                    errno.ENXIO,
-                }:
+                if exc.errno == errno.ENOENT:
+                    raise _ManagedFileMissing() from exc
+                if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
                     raise ArtifactDiskRelocationError(
                         "relocation_source_unavailable"
                     ) from exc
@@ -813,11 +860,13 @@ def _read_tree(root: Path, relative: PurePosixPath) -> tuple[bytes, int]:
                 raise ArtifactDiskRelocationError("relocation_source_unavailable")
             if final and not stat.S_ISREG(info.st_mode):
                 raise ArtifactDiskRelocationError("relocation_source_unavailable")
-        if info.st_size > MAX_RELOCATION_BYTES:
+        if info.st_size > max_bytes:
             raise ArtifactDiskRelocationError("relocation_too_large")
         first = _read_exact(current, info.st_size)
         os.lseek(current, 0, os.SEEK_SET)
         second_info = os.fstat(current)
+        if not stat.S_ISREG(second_info.st_mode):
+            raise ArtifactDiskRelocationError("relocation_source_unavailable")
         if stat.S_IMODE(second_info.st_mode) != stat.S_IMODE(info.st_mode):
             raise ArtifactDiskRelocationError("relocation_permission_mismatch")
         if second_info.st_size != info.st_size:
