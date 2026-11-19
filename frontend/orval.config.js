@@ -10,6 +10,9 @@ module.exports = {
       schemas: './src/api/generated/models',
       mode: 'tags-split',
       clean: true,
+      // Catalog writes declare a required Idempotency-Key header. Orval
+      // only emits header parameters when this flag is on.
+      headers: true,
       override: {
         mutator: {
           path: './src/api/fetcher.ts',
@@ -17,6 +20,9 @@ module.exports = {
         },
         fetch: {
           includeHttpResponseReturnType: false,
+          // OpenAPI form arrays repeat the query key. Orval otherwise joins
+          // the values with a comma, which catalog filters reject.
+          explode: true,
         },
         operations: {
           downloadRunArtifact: {

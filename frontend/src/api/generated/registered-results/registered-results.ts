@@ -7,8 +7,11 @@
  */
 import type {
   ArchiveRegisteredResultRequest,
+  CatalogArchiveRegisteredResultHeaders,
   CatalogListRegisteredResultRevisionsParams,
   CatalogListRegisteredResultsParams,
+  CatalogRegisterRegisteredResultHeaders,
+  CatalogReviseRegisteredResultHeaders,
   RegisterRegisteredResultRequest,
   RegisteredResultArchiveResponse,
   RegisteredResultDetailResponse,
@@ -65,13 +68,14 @@ export const getCatalogRegisterRegisteredResultUrl = (projectId: string,) => {
 }
 
 export const catalogRegisterRegisteredResult = async (projectId: string,
-    registerRegisteredResultRequest: RegisterRegisteredResultRequest, options?: RequestInit): Promise<RegisteredResultDetailResponse> => {
+    registerRegisteredResultRequest: RegisterRegisteredResultRequest,
+    headers: CatalogRegisterRegisteredResultHeaders, options?: RequestInit): Promise<RegisteredResultDetailResponse> => {
 
   return fetcher<RegisteredResultDetailResponse>(getCatalogRegisterRegisteredResultUrl(projectId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       registerRegisteredResultRequest,)
   }
@@ -128,13 +132,14 @@ export const getCatalogReviseRegisteredResultUrl = (projectId: string,
 
 export const catalogReviseRegisteredResult = async (projectId: string,
     resultId: string,
-    reviseRegisteredResultRequest: ReviseRegisteredResultRequest, options?: RequestInit): Promise<RegisteredResultDetailResponse> => {
+    reviseRegisteredResultRequest: ReviseRegisteredResultRequest,
+    headers: CatalogReviseRegisteredResultHeaders, options?: RequestInit): Promise<RegisteredResultDetailResponse> => {
 
   return fetcher<RegisteredResultDetailResponse>(getCatalogReviseRegisteredResultUrl(projectId,resultId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       reviseRegisteredResultRequest,)
   }
@@ -156,13 +161,14 @@ export const getCatalogArchiveRegisteredResultUrl = (projectId: string,
 
 export const catalogArchiveRegisteredResult = async (projectId: string,
     resultId: string,
-    archiveRegisteredResultRequest: ArchiveRegisteredResultRequest, options?: RequestInit): Promise<RegisteredResultArchiveResponse> => {
+    archiveRegisteredResultRequest: ArchiveRegisteredResultRequest,
+    headers: CatalogArchiveRegisteredResultHeaders, options?: RequestInit): Promise<RegisteredResultArchiveResponse> => {
 
   return fetcher<RegisteredResultArchiveResponse>(getCatalogArchiveRegisteredResultUrl(projectId,resultId),
   {
     ...options,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
     body: JSON.stringify(
       archiveRegisteredResultRequest,)
   }

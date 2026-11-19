@@ -1,12 +1,12 @@
 """Register external results and extend download audit targets.
 
-Revision ID: 20261119_18
-Revises: 20261110_16
+Revision ID: 20261119_39
+Revises: 20261119_18
 
-Main's unique head at this change is 20261110_16. Slice A reserves
-20261118_17 for the experiment catalog. This revision stays 20261119_18.
-If 20261118_17 lands first, reparent down_revision onto it before merging
-and do not renumber 20261118_17.
+The merged chain is 20261118_17 then 20261119_18. Revision 20261119_18
+already creates experiment snapshot bindings, so this change uses a new id.
+IRENE-32 reserves 20261119_32, currently parented on 20261118_17 in its
+own branch. This revision continues the merged head and does not take 32.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20261119_18"
-down_revision = "20261110_16"
+revision = "20261119_39"
+down_revision = "20261119_18"
 branch_labels = None
 depends_on = None
 

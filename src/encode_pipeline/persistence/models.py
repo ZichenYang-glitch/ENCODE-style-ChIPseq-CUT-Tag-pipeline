@@ -2371,6 +2371,656 @@ class AgentAuthoringTurnRow(Base):
     )
 
 
+_CATALOG_FIELD_STATUS = (
+    "'known', 'unknown', 'not_applicable', 'not_detected', 'ambiguous'"
+)
+_LEGACY_PROJECT_ID = "prj_00000000000000000000000000000000"
+
+
+class CatalogTermRow(Base):
+    """Deployment-wide vocabulary entry. Archival does not rewrite history."""
+
+    __tablename__ = "catalog_terms"
+    __table_args__ = (
+        CheckConstraint(
+            "length(term_id) = 37 AND substr(term_id, 1, 5) = 'term_' "
+            "AND substr(term_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_terms_id",
+        ),
+        CheckConstraint(
+            "term_type IN ('species', 'tissue', 'cell_type', 'cell_line', "
+            "'treatment', 'tag', 'assay', 'target', 'batch', 'replicate_role')",
+            name="ck_catalog_terms_type",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_catalog_terms_archive_order",
+        ),
+        Index(
+            "ix_catalog_terms_active_created",
+            "archived_at",
+            "created_at",
+            "term_id",
+        ),
+    )
+
+    term_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    term_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CatalogTermRevisionRow(Base):
+    """Immutable editorial revision of one catalog term."""
+
+    __tablename__ = "catalog_term_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(term_revision_id) = 37 AND substr(term_revision_id, 1, 5) = 'trmv_' "
+            "AND substr(term_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_term_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_catalog_term_revisions_number",
+        ),
+        CheckConstraint(
+            "length(trim(display_name)) BETWEEN 1 AND 255",
+            name="ck_catalog_term_revisions_display_name",
+        ),
+        CheckConstraint(
+            "change_kind IN ('initial', 'editorial')",
+            name="ck_catalog_term_revisions_change_kind",
+        ),
+        CheckConstraint(
+            "(revision_number = 1 AND change_kind = 'initial') OR "
+            "(revision_number > 1 AND change_kind = 'editorial')",
+            name="ck_catalog_term_revisions_initial_kind",
+        ),
+        ForeignKeyConstraint(
+            ["term_id"],
+            ["catalog_terms.term_id"],
+            name="fk_catalog_term_revisions_term",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "term_id",
+            "revision_number",
+            name="uq_catalog_term_revisions_number",
+        ),
+        Index(
+            "ix_catalog_term_revisions_term_created",
+            "term_id",
+            "created_at",
+            "term_revision_id",
+        ),
+    )
+
+    term_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    term_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    namespace: Mapped[str | None] = mapped_column(String(255))
+    accession: Mapped[str | None] = mapped_column(String(255))
+    aliases_json: Mapped[str] = mapped_column(Text, nullable=False)
+    change_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ExperimentRow(Base):
+    """Project-scoped experiment identity. Archival keeps every revision."""
+
+    __tablename__ = "experiments"
+    __table_args__ = (
+        CheckConstraint(
+            "length(experiment_id) = 36 AND substr(experiment_id, 1, 4) = 'exp_' "
+            "AND substr(experiment_id, 5) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_experiments_id",
+        ),
+        CheckConstraint(
+            "length(trim(stable_key)) BETWEEN 1 AND 255",
+            name="ck_experiments_stable_key",
+        ),
+        CheckConstraint(
+            f"project_id != '{_LEGACY_PROJECT_ID}'",
+            name="ck_experiments_not_legacy",
+        ),
+        CheckConstraint(
+            "archived_at IS NULL OR archived_at >= created_at",
+            name="ck_experiments_archive_order",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_experiments_project",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "stable_key",
+            name="uq_experiments_project_stable_key",
+        ),
+        UniqueConstraint(
+            "experiment_id",
+            "project_id",
+            name="uq_experiments_id_project",
+        ),
+        Index(
+            "ix_experiments_project_created",
+            "project_id",
+            "created_at",
+            "experiment_id",
+        ),
+    )
+
+    experiment_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    stable_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExperimentRevisionRow(Base):
+    """Immutable experiment payload. The digest covers the pinned sample set."""
+
+    __tablename__ = "experiment_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "length(experiment_revision_id) = 37 "
+            "AND substr(experiment_revision_id, 1, 5) = 'expr_' "
+            "AND substr(experiment_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_experiment_revisions_id",
+        ),
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_experiment_revisions_number",
+        ),
+        CheckConstraint(
+            "payload_digest_scheme = 'sha256-framed-experiment-revision-payload-v1'",
+            name="ck_experiment_revisions_digest_scheme",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_experiment_revisions_digest",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_id", "project_id"],
+            ["experiments.experiment_id", "experiments.project_id"],
+            name="fk_experiment_revisions_experiment",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "experiment_id",
+            "revision_number",
+            name="uq_experiment_revisions_number",
+        ),
+        Index(
+            "ix_experiment_revisions_experiment_created",
+            "experiment_id",
+            "created_at",
+            "experiment_revision_id",
+        ),
+    )
+
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    canonical_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_digest_scheme: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ExperimentRevisionHeadRow(Base):
+    """Current experiment revision pointer, written in the same transaction."""
+
+    __tablename__ = "experiment_revision_heads"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_experiment_revision_heads_number",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_id", "project_id"],
+            ["experiments.experiment_id", "experiments.project_id"],
+            name="fk_experiment_revision_heads_experiment",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_experiment_revision_heads_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "experiment_revision_id",
+            name="uq_experiment_revision_heads_revision",
+        ),
+        Index(
+            "ix_experiment_revision_heads_project_created",
+            "project_id",
+            "created_at",
+            "experiment_id",
+        ),
+    )
+
+    experiment_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revision_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ExperimentRevisionSampleRow(Base):
+    """Foreign-key mirror of the sample pins inside one experiment payload."""
+
+    __tablename__ = "experiment_revision_samples"
+    __table_args__ = (
+        CheckConstraint(
+            "ordinal >= 0",
+            name="ck_experiment_revision_samples_ordinal",
+        ),
+        CheckConstraint(
+            "replicate_role_status IN (" + _CATALOG_FIELD_STATUS + ")",
+            name="ck_experiment_revision_samples_role_status",
+        ),
+        CheckConstraint(
+            "(replicate_role_status = 'known' AND "
+            "replicate_role_term_id IS NOT NULL AND "
+            "replicate_role_term_revision_id IS NOT NULL) OR "
+            "(replicate_role_status != 'known' AND "
+            "replicate_role_term_id IS NULL AND "
+            "replicate_role_term_revision_id IS NULL)",
+            name="ck_experiment_revision_samples_role_term",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_experiment_revision_samples_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "sample_revision_id", "payload_digest"],
+            [
+                "sample_revisions.project_id",
+                "sample_revisions.sample_revision_id",
+                "sample_revisions.payload_digest",
+            ],
+            name="fk_experiment_revision_samples_sample_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["replicate_role_term_revision_id"],
+            ["catalog_term_revisions.term_revision_id"],
+            name="fk_experiment_revision_samples_role_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "experiment_revision_id",
+            "sample_revision_id",
+            name="uq_experiment_revision_samples_revision",
+        ),
+        Index(
+            "ix_experiment_revision_samples_sample_revision",
+            "sample_revision_id",
+            "experiment_revision_id",
+        ),
+    )
+
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    replicate_group: Mapped[str | None] = mapped_column(String(255))
+    replicate_role_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    replicate_role_term_id: Mapped[str | None] = mapped_column(String(37))
+    replicate_role_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+
+
+class ExperimentCatalogProjectionRow(Base):
+    """Queryable assay, target, and batch state for one experiment revision."""
+
+    __tablename__ = "experiment_catalog_projection"
+    __table_args__ = (
+        CheckConstraint(
+            "assay_status IN (" + _CATALOG_FIELD_STATUS + ")",
+            name="ck_experiment_catalog_projection_assay_status",
+        ),
+        CheckConstraint(
+            "target_status IN (" + _CATALOG_FIELD_STATUS + ")",
+            name="ck_experiment_catalog_projection_target_status",
+        ),
+        CheckConstraint(
+            "batch_status IN (" + _CATALOG_FIELD_STATUS + ")",
+            name="ck_experiment_catalog_projection_batch_status",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_experiment_catalog_projection_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_id", "project_id"],
+            ["experiments.experiment_id", "experiments.project_id"],
+            name="fk_experiment_catalog_projection_experiment",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_experiment_catalog_projection_assay",
+            "project_id",
+            "assay_term_id",
+            "experiment_revision_id",
+        ),
+    )
+
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    assay_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    assay_term_id: Mapped[str | None] = mapped_column(String(37))
+    assay_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+    target_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_term_id: Mapped[str | None] = mapped_column(String(37))
+    target_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+    batch_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    batch_term_id: Mapped[str | None] = mapped_column(String(37))
+    batch_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+
+
+class SampleRevisionHeadRow(Base):
+    """Current sample revision pointer. One row for every existing sample."""
+
+    __tablename__ = "sample_revision_heads"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_sample_revision_heads_number",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "sample_id"],
+            ["samples.project_id", "samples.sample_id"],
+            name="fk_sample_revision_heads_sample",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_revision_heads_revision",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "sample_revision_id",
+            name="uq_sample_revision_heads_revision",
+        ),
+    )
+
+    sample_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class SampleRevisionCatalogTrustRow(Base):
+    """Whether a sample revision's catalog key came from a trusted classification.
+
+    Projection rows may be deleted and rebuilt. This row is written with the
+    revision and is not a projection: rebuild reads it, and a missing row stays
+    an unclassified historical attribute.
+    """
+
+    __tablename__ = "sample_revision_catalog_trust"
+    __table_args__ = (
+        CheckConstraint(
+            "length(sample_revision_id) = 37 "
+            "AND substr(sample_revision_id, 1, 5) = 'smpr_'",
+            name="ck_sample_revision_catalog_trust_id",
+        ),
+        CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_revision_catalog_trust_flag",
+        ),
+        ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_revision_catalog_trust_revision",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    sample_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    catalog_trusted: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class SampleCatalogProjectionRow(Base):
+    """One classification projection for a sample revision, including absence."""
+
+    __tablename__ = "sample_catalog_projection"
+    __table_args__ = (
+        CheckConstraint(
+            "catalog_state IN ('absent', 'present')",
+            name="ck_sample_catalog_projection_state",
+        ),
+        CheckConstraint(
+            "catalog_trusted IN (0, 1)",
+            name="ck_sample_catalog_projection_trusted",
+        ),
+        CheckConstraint(
+            "(catalog_trusted = 0 AND catalog_state = 'absent') OR catalog_trusted = 1",
+            name="ck_sample_catalog_projection_trust_source",
+        ),
+        ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_catalog_projection_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_sample_catalog_projection_project_state",
+            "project_id",
+            "catalog_state",
+            "sample_revision_id",
+        ),
+    )
+
+    sample_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    sample_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    catalog_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    catalog_trusted: Mapped[int] = mapped_column(Integer, nullable=False)
+    species_status: Mapped[str | None] = mapped_column(String(32))
+    species_term_id: Mapped[str | None] = mapped_column(String(37))
+    species_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+    tissue_status: Mapped[str | None] = mapped_column(String(32))
+    tissue_term_id: Mapped[str | None] = mapped_column(String(37))
+    tissue_term_revision_id: Mapped[str | None] = mapped_column(String(37))
+    cell_type_status: Mapped[str | None] = mapped_column(String(32))
+    cell_line_status: Mapped[str | None] = mapped_column(String(32))
+    treatment_status: Mapped[str | None] = mapped_column(String(32))
+    tag_status: Mapped[str | None] = mapped_column(String(32))
+
+
+class SampleCatalogValueRow(Base):
+    """Known multi-value term pins. Unknown and ambiguous states stay off this table."""
+
+    __tablename__ = "sample_catalog_values"
+    __table_args__ = (
+        CheckConstraint(
+            "field_name IN ('cell_type', 'cell_line', 'treatment', 'tag')",
+            name="ck_sample_catalog_values_field",
+        ),
+        ForeignKeyConstraint(
+            ["sample_revision_id"],
+            ["sample_revisions.sample_revision_id"],
+            name="fk_sample_catalog_values_revision",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["term_revision_id"],
+            ["catalog_term_revisions.term_revision_id"],
+            name="fk_sample_catalog_values_term_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_sample_catalog_values_field_term",
+            "field_name",
+            "term_id",
+            "sample_revision_id",
+        ),
+    )
+
+    sample_revision_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    field_name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    term_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    term_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+
+
+class CatalogWriteReceiptRow(Base):
+    """Durable idempotency receipt for one administrator and key."""
+
+    __tablename__ = "catalog_write_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(idempotency_key) BETWEEN 1 AND 128",
+            name="ck_catalog_write_receipts_key",
+        ),
+        CheckConstraint(
+            "length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_write_receipts_digest",
+        ),
+        CheckConstraint(
+            "length(target_key) BETWEEN 1 AND 64",
+            name="ck_catalog_write_receipts_target",
+        ),
+        ForeignKeyConstraint(
+            ["actor_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_catalog_write_receipts_actor",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_catalog_write_receipts_subject",
+            "operation",
+            "subject_id",
+        ),
+    )
+
+    actor_user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    result_revision_id: Mapped[str | None] = mapped_column(String(37))
+    result_archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class SnapshotExperimentBindingRow(Base):
+    """Experiment revision frozen into one validation snapshot. Slice B only."""
+
+    __tablename__ = "snapshot_experiment_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(snapshot_id) = 38 AND substr(snapshot_id, 1, 6) = 'vsnap_' "
+            "AND substr(snapshot_id, 7) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_snapshot_id",
+        ),
+        CheckConstraint(
+            "length(experiment_revision_id) = 37 "
+            "AND substr(experiment_revision_id, 1, 5) = 'expr_' "
+            "AND substr(experiment_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_revision_id",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_snapshot_experiment_bindings_digest",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id"],
+            ["validated_input_snapshots.snapshot_id"],
+            name="fk_snapshot_experiment_bindings_snapshot",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_snapshot_experiment_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_snapshot_experiment_bindings_experiment",
+            "experiment_revision_id",
+            "snapshot_id",
+        ),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RunExperimentBindingRow(Base):
+    """Experiment revision copied from a snapshot when a run consumes it."""
+
+    __tablename__ = "run_experiment_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "length(run_id) BETWEEN 1 AND 128",
+            name="ck_run_experiment_bindings_run_id",
+        ),
+        CheckConstraint(
+            "length(experiment_revision_id) = 37 "
+            "AND substr(experiment_revision_id, 1, 5) = 'expr_' "
+            "AND substr(experiment_revision_id, 6) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_run_experiment_bindings_revision_id",
+        ),
+        CheckConstraint(
+            "length(payload_digest) = 64 AND payload_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_run_experiment_bindings_digest",
+        ),
+        ForeignKeyConstraint(
+            ["run_id"],
+            ["runs.run_id"],
+            name="fk_run_experiment_bindings_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            name="fk_run_experiment_bindings_revision",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_run_experiment_bindings_experiment",
+            "experiment_revision_id",
+            "run_id",
+        ),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class RegisteredResultRow(Base):
     """One logical external or downstream result series inside a Project."""
 

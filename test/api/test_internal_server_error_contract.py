@@ -175,6 +175,41 @@ FAULTS = {
         "registered_result_service",
         "archive",
     ),
+    "catalogListExperiments": ("experiment_catalog_service", "list_experiments"),
+    "catalogListSamples": ("experiment_catalog_service", "list_samples"),
+    "catalogListSampleRevisions": (
+        "experiment_catalog_service",
+        "list_sample_revisions",
+    ),
+    "catalogGetSampleRevision": ("experiment_catalog_service", "get_sample_revision"),
+    "catalogListExperimentRevisions": (
+        "experiment_catalog_service",
+        "list_experiment_revisions",
+    ),
+    "catalogGetExperimentRevision": (
+        "experiment_catalog_service",
+        "get_experiment_revision",
+    ),
+    "catalogListTerms": ("experiment_catalog_service", "list_terms"),
+    "catalogGetTerm": ("experiment_catalog_service", "get_term"),
+    "catalogCreateTerm": ("experiment_catalog_service", "create_term"),
+    "catalogReviseTerm": ("experiment_catalog_service", "revise_term"),
+    "catalogArchiveTerm": ("experiment_catalog_service", "archive_term"),
+    "catalogCreateExperiment": ("experiment_catalog_service", "create_experiment"),
+    "catalogReviseExperiment": ("experiment_catalog_service", "revise_experiment"),
+    "catalogArchiveExperiment": ("experiment_catalog_service", "archive_experiment"),
+    "catalogReviseSampleCatalog": (
+        "experiment_catalog_service",
+        "revise_sample_catalog",
+    ),
+    "catalogListSampleRevisionRunResults": (
+        "experiment_catalog_service",
+        "list_sample_run_results",
+    ),
+    "catalogListExperimentRevisionRunResults": (
+        "experiment_catalog_service",
+        "list_experiment_run_results",
+    ),
 }
 SPECIAL_MODELS = {
     "createRun": "RunResponse",
@@ -259,6 +294,11 @@ def error_api(tmp_path):
             revision=REVISION,
             file_token=REVISION,
             project_id="prj_" + "1" * 32,
+            sample_id="smp_" + "1" * 32,
+            sample_revision_id="smpr_" + "1" * 32,
+            experiment_id="exp_" + "1" * 32,
+            experiment_revision_id="expr_" + "1" * 32,
+            term_id="term_" + "1" * 32,
             sid="aas_" + "ab" * 16,
             turn_id="atr_" + "cd" * 16,
             proposal_id="prop_" + "ef" * 16,
@@ -315,6 +355,34 @@ def error_api(tmp_path):
             },
             "catalogReviseRegisteredResult": {"expected_revision_number": 1},
             "catalogArchiveRegisteredResult": {"expected_revision_number": 1},
+            "catalogCreateTerm": {"term_type": "tag", "display_name": "tag"},
+            "catalogReviseTerm": {
+                "expected_revision_number": 1,
+                "change_kind": "editorial",
+                "display_name": "tag",
+            },
+            "catalogArchiveTerm": {"expected_revision_number": 1},
+            "catalogCreateExperiment": {
+                "stable_key": "exp",
+                "display_name": "exp",
+                "assay": {},
+                "target": {},
+                "batch": {},
+                "samples": [],
+            },
+            "catalogReviseExperiment": {
+                "expected_revision_number": 1,
+                "display_name": "exp",
+                "assay": {},
+                "target": {},
+                "batch": {},
+                "samples": [],
+            },
+            "catalogArchiveExperiment": {"expected_revision_number": 1},
+            "catalogReviseSampleCatalog": {
+                "expected_revision_number": 1,
+                "catalog": None,
+            },
         }
         params = {}
         if operation in {
@@ -327,16 +395,12 @@ def error_api(tmp_path):
             params["revision"] = REVISION
         if operation == "summarizeRunBrowserTrackRegion":
             params.update(chrom="chr1", start=0, end=1)
-        headers = {}
-        if operation in {
-            "catalogRegisterRegisteredResult",
-            "catalogReviseRegisteredResult",
-            "catalogArchiveRegisteredResult",
-        }:
-            headers["Idempotency-Key"] = "contract-key-1"
         app.state.test_auth_tokens = (
             member_tokens if "terminal_email_preference" in operation else admin_tokens
         )
+        headers = {}
+        if operation.startswith("catalog") and method.lower() == "post":
+            headers["Idempotency-Key"] = "contract-fault"
         async with seeded_auth_async_client(
             app,
             transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),

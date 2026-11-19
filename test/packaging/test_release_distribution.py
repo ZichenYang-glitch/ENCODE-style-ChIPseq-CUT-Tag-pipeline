@@ -376,14 +376,22 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(
         ) in names
         assert (
             "encode_pipeline/persistence/alembic/versions/"
-            "20261119_18_registered_results.py"
+            "20261118_17_experiment_catalog.py"
+        ) in names
+        assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20261119_18_experiment_snapshot_bindings.py"
+        ) in names
+        assert (
+            "encode_pipeline/persistence/alembic/versions/"
+            "20261119_39_registered_results.py"
         ) in names
         assert (
             sum(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 18
+            == 20
         )
         assert not any(name.startswith("test/") for name in names)
 

@@ -89,6 +89,7 @@ EXPECTED_TABLES = {
     "run_logs",
     "run_project_bindings",
     "run_qc_metrics",
+    "run_experiment_bindings",
     "run_reference_bindings",
     "run_result_attempts",
     "run_result_states",
@@ -98,6 +99,7 @@ EXPECTED_TABLES = {
     "sample_revisions",
     "samples",
     "snapshot_project_bindings",
+    "snapshot_experiment_bindings",
     "snapshot_reference_bindings",
     "snapshot_input_bindings",
     "snapshot_input_members",
@@ -109,6 +111,18 @@ EXPECTED_TABLES = {
     "validated_input_snapshots",
     "agent_authoring_sessions",
     "agent_authoring_turns",
+    "catalog_terms",
+    "catalog_term_revisions",
+    "catalog_write_receipts",
+    "experiment_catalog_projection",
+    "experiment_revision_heads",
+    "experiment_revision_samples",
+    "experiment_revisions",
+    "experiments",
+    "sample_catalog_projection",
+    "sample_catalog_values",
+    "sample_revision_catalog_trust",
+    "sample_revision_heads",
     "registered_results",
     "registered_result_revisions",
     "registered_result_revision_heads",
@@ -180,7 +194,7 @@ def test_initial_migration_creates_versioned_run_schema(tmp_path):
     assert set(inspector.get_table_names()) == EXPECTED_TABLES
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         assert connection.scalar(text("PRAGMA foreign_keys")) == 1
         assert connection.scalar(text("PRAGMA journal_mode")) == "wal"
@@ -431,7 +445,7 @@ def test_project_sample_registry_upgrades_rev08_with_conservative_legacy_binding
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         legacy = (
             connection.execute(
@@ -1020,7 +1034,7 @@ def test_project_sample_registry_upgrade_preflights_before_ddl_and_can_retry(
     retried = create_database_engine(database_url)
     with retried.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         assert (
             connection.scalar(
@@ -1074,7 +1088,7 @@ def test_input_registry_upgrade_backfills_only_unresolved_compatibility_envelope
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         snapshot_binding = (
             connection.execute(
@@ -1259,7 +1273,7 @@ def test_input_registry_upgrade_preflights_stage2_evidence_before_ddl_and_can_re
     assert INPUT_REGISTRY_TABLES <= set(inspect(retried).get_table_names())
     with retried.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
     retried.dispose()
 
@@ -1973,7 +1987,7 @@ def test_qc_metric_migration_upgrades_current_main_without_changing_existing_row
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
     upgraded.dispose()
 
@@ -2027,7 +2041,7 @@ def test_validated_snapshot_migration_upgrades_current_main_without_changing_run
             == 0
         )
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
     upgraded.dispose()
 
@@ -2072,7 +2086,7 @@ def test_run_history_index_migration_preserves_rows_and_supports_all_query_shape
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM runs")) == 1
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         plans = {
             "ix_runs_created_run_id": (
@@ -2400,7 +2414,7 @@ def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_39"
         )
         run = (
             connection.execute(
@@ -2597,3 +2611,354 @@ def test_v030_supported_prior_schema_upgrade_preserves_complete_product_record(
     with pytest.raises(ValueError, match="generation is unbound"):
         repository.list_qc_metrics(run_id)
     upgraded.dispose()
+
+
+def test_experiment_snapshot_binding_migration_is_empty_and_reversible(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20261118_17")
+    before = create_database_engine(database_url)
+    assert "snapshot_experiment_bindings" not in inspect(before).get_table_names()
+    assert "run_experiment_bindings" not in inspect(before).get_table_names()
+    before.dispose()
+
+    upgrade_database(database_url, "20261119_18")
+    upgraded = create_database_engine(database_url)
+    inspector = inspect(upgraded)
+    assert {
+        "snapshot_experiment_bindings",
+        "run_experiment_bindings",
+    } <= set(inspector.get_table_names())
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20261119_18"
+        )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM snapshot_experiment_bindings"))
+            == 0
+        )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM run_experiment_bindings")) == 0
+        )
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type='trigger'")
+            )
+        }
+    assert {
+        "trg_snapshot_experiment_bindings_no_update",
+        "trg_snapshot_experiment_bindings_no_delete",
+        "trg_run_experiment_bindings_no_update",
+        "trg_run_experiment_bindings_no_delete",
+    } <= triggers
+    upgraded.dispose()
+
+    downgrade_database(database_url, "20261118_17")
+    downgraded = create_database_engine(database_url)
+    names = set(inspect(downgraded).get_table_names())
+    assert "snapshot_experiment_bindings" not in names
+    assert "run_experiment_bindings" not in names
+    with downgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20261118_17"
+        )
+    downgraded.dispose()
+
+
+def test_registered_result_migration_preserves_m1_bindings_and_audit(tmp_path):
+    from sqlalchemy.orm import Session
+
+    from encode_pipeline.persistence.data_registry import (
+        SqlAlchemyDataRegistryRepository,
+    )
+    from encode_pipeline.persistence.experiment_catalog import (
+        CatalogWrite,
+        SqlAlchemyExperimentCatalogRepository,
+    )
+    from encode_pipeline.persistence.models import UserAccountRow
+    from encode_pipeline.services.data_registry import DataRegistryService
+
+    database_url = f"sqlite:///{tmp_path / 'platform.db'}"
+    upgrade_database(database_url, "20261119_18")
+    engine = create_database_engine(database_url)
+    now = datetime(2026, 11, 19, tzinfo=timezone.utc)
+    actor = "usr_" + "c" * 32
+    with Session(engine) as session:
+        session.add(
+            UserAccountRow(
+                user_id=actor,
+                username="m1-admin",
+                role="administrator",
+                status="enabled",
+                password_hash="hash",
+                created_at=now,
+                updated_at=now,
+                password_changed_at=now,
+            )
+        )
+        session.commit()
+    factory = create_session_factory(engine)
+    registry = DataRegistryService(repository=SqlAlchemyDataRegistryRepository(factory))
+    catalog = SqlAlchemyExperimentCatalogRepository(factory)
+    project = registry.create_project("M1")
+    sample = registry.import_sample(
+        project.project_id,
+        stable_key="m1-sample",
+        display_name="M1 sample",
+        attributes={},
+    )
+
+    def write(key: str, operation: str) -> CatalogWrite:
+        return CatalogWrite(
+            actor_user_id=actor,
+            idempotency_key=key,
+            request_sha256="ab" * 32,
+            operation=operation,
+            now=now,
+        )
+
+    def known(term: dict) -> dict:
+        return {
+            "status": "known",
+            "term_id": term["term_id"],
+            "term_revision_id": term["revision"]["term_revision_id"],
+        }
+
+    def make_term(label: str, term_type: str) -> dict:
+        return catalog.create_term(
+            write(f"term-{label}", "catalogCreateTerm"),
+            term_id="term_" + label.encode().hex()[:32].ljust(32, "0"),
+            term_revision_id="trmv_" + label.encode().hex()[:32].ljust(32, "1"),
+            term_type=term_type,
+            display_name=label,
+            namespace=None,
+            accession=None,
+            aliases=(),
+        )
+
+    assay = make_term("assay", "assay")
+    target = make_term("target", "target")
+    batch = make_term("batch", "batch")
+    role = make_term("role", "replicate_role")
+    revision_id = "expr_" + "a" * 32
+    catalog.create_experiment(
+        write("create-experiment", "catalogCreateExperiment"),
+        project_id=project.project_id,
+        experiment_id="exp_" + "a" * 32,
+        experiment_revision_id=revision_id,
+        stable_key="m1-experiment",
+        display_name="M1 experiment",
+        assay=known(assay),
+        target=known(target),
+        batch=known(batch),
+        samples=[
+            {
+                "sample_revision_id": sample.revision.sample_revision_id,
+                "replicate_role": known(role),
+            }
+        ],
+    )
+    with engine.begin() as connection:
+        payload_digest = connection.scalar(
+            text(
+                "SELECT payload_digest FROM experiment_revisions "
+                "WHERE experiment_revision_id = :revision_id"
+            ),
+            {"revision_id": revision_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO validated_input_snapshots (
+                    snapshot_id, workflow_id, adapter_version, schema_version,
+                    schema_dialect, canonical_payload, payload_digest_scheme,
+                    payload_digest, validation_outcome, validation_issue_codes,
+                    validated_at, expires_at, build_adapter_version, build_scheme,
+                    build_logical_entrypoint, build_digest, build_captured_at,
+                    consumed_run_id, consumed_at
+                ) VALUES (
+                    :snapshot_id, 'workflow', '1.0.0', '1.0.0',
+                    'https://json-schema.org/draft/2020-12/schema',
+                    '{}', 'sha256-framed-workflow-inputs-v1', :payload_digest,
+                    'adapter_validation_succeeded', '[]', :now, :expires,
+                    '1.0.0', 'sha256-tree-v1', 'main.nf', :payload_digest, :now,
+                    NULL, NULL
+                )
+                """
+            ),
+            {
+                "snapshot_id": "vsnap_" + "b" * 32,
+                "payload_digest": payload_digest,
+                "now": "2026-11-19 00:00:00",
+                "expires": "2026-11-20 00:00:00",
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO runs (
+                    run_id, workflow_id, inputs, status, created_at, updated_at, tags
+                ) VALUES (
+                    'm1-bound-run', 'workflow', '{}', 'created', :now, :now, '{}'
+                )
+                """
+            ),
+            {"now": "2026-11-19 00:00:00"},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO snapshot_experiment_bindings (
+                    snapshot_id, experiment_revision_id, payload_digest
+                ) VALUES (:snapshot_id, :revision_id, :payload_digest)
+                """
+            ),
+            {
+                "snapshot_id": "vsnap_" + "b" * 32,
+                "revision_id": revision_id,
+                "payload_digest": payload_digest,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO run_experiment_bindings (
+                    run_id, experiment_revision_id, payload_digest
+                ) VALUES ('m1-bound-run', :revision_id, :payload_digest)
+                """
+            ),
+            {"revision_id": revision_id, "payload_digest": payload_digest},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO security_audit_events (
+                    event_id, occurred_at, action, outcome, actor_kind,
+                    actor_user_id, resource_kind, resource_id, reason_code
+                ) VALUES (
+                    :event_id, :now, 'run.fail', 'failed', 'local_operator',
+                    NULL, 'run', 'm1-bound-run', 'INTERNAL_FAILURE'
+                )
+                """
+            ),
+            {"event_id": "aevt_" + "d" * 32, "now": "2026-11-19 00:00:00"},
+        )
+        before = {
+            "bindings": connection.execute(
+                text(
+                    "SELECT snapshot_id, experiment_revision_id, payload_digest "
+                    "FROM snapshot_experiment_bindings"
+                )
+            ).fetchall(),
+            "run_bindings": connection.execute(
+                text(
+                    "SELECT run_id, experiment_revision_id, payload_digest "
+                    "FROM run_experiment_bindings"
+                )
+            ).fetchall(),
+            "audit": connection.execute(
+                text(
+                    "SELECT event_id, action, outcome, resource_kind, resource_id, "
+                    "reason_code FROM security_audit_events"
+                )
+            ).fetchall(),
+            "receipts": connection.scalar(
+                text("SELECT count(*) FROM catalog_write_receipts")
+            ),
+            "experiments": connection.scalar(text("SELECT count(*) FROM experiments")),
+        }
+    engine.dispose()
+
+    upgrade_database(database_url)
+    upgraded = create_database_engine(database_url)
+    with upgraded.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20261119_39"
+        )
+        assert connection.scalar(text("SELECT count(*) FROM registered_results")) == 0
+        assert (
+            before["bindings"]
+            == connection.execute(
+                text(
+                    "SELECT snapshot_id, experiment_revision_id, payload_digest "
+                    "FROM snapshot_experiment_bindings"
+                )
+            ).fetchall()
+        )
+        assert (
+            before["run_bindings"]
+            == connection.execute(
+                text(
+                    "SELECT run_id, experiment_revision_id, payload_digest "
+                    "FROM run_experiment_bindings"
+                )
+            ).fetchall()
+        )
+        assert (
+            before["audit"]
+            == connection.execute(
+                text(
+                    "SELECT event_id, action, outcome, resource_kind, resource_id, "
+                    "reason_code FROM security_audit_events"
+                )
+            ).fetchall()
+        )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM catalog_write_receipts"))
+            == before["receipts"]
+        )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM experiments"))
+            == before["experiments"]
+        )
+    upgraded.dispose()
+
+    downgrade_database(database_url, "20261119_18")
+    restored = create_database_engine(database_url)
+    names = set(inspect(restored).get_table_names())
+    assert "registered_results" not in names
+    assert "registered_result_revisions" not in names
+    with restored.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20261119_18"
+        )
+        assert (
+            before["bindings"]
+            == connection.execute(
+                text(
+                    "SELECT snapshot_id, experiment_revision_id, payload_digest "
+                    "FROM snapshot_experiment_bindings"
+                )
+            ).fetchall()
+        )
+        assert (
+            before["audit"]
+            == connection.execute(
+                text(
+                    "SELECT event_id, action, outcome, resource_kind, resource_id, "
+                    "reason_code FROM security_audit_events"
+                )
+            ).fetchall()
+        )
+    with pytest.raises(IntegrityError):
+        with restored.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO security_audit_events (
+                        event_id, occurred_at, action, outcome, actor_kind,
+                        actor_user_id, resource_kind, resource_id, reason_code
+                    ) VALUES (
+                        :event_id, :now, 'registered_result.download', 'succeeded',
+                        'user', :actor, 'registered_result', :resource, NULL
+                    )
+                    """
+                ),
+                {
+                    "event_id": "aevt_" + "e" * 32,
+                    "now": "2026-11-19 01:00:00",
+                    "actor": actor,
+                    "resource": "prj_" + "a" * 32,
+                },
+            )
+    restored.dispose()

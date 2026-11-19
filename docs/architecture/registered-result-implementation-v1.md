@@ -23,7 +23,7 @@ IRENE-39 把 [读取契约](registered-result-read-contract.md) 落到临时 SQL
 
 ## 表与迁移
 
-`20261119_18` 的父修订是当时 main 的唯一头 `20261110_16`。它创建：
+`20261119_39` 的父修订是主干当前唯一头 `20261119_18`（实验 snapshot 绑定，已经合入，不改写）。它创建：
 
 - `registered_results`
 - `registered_result_revisions`
@@ -34,7 +34,7 @@ IRENE-39 把 [读取契约](registered-result-read-contract.md) 落到临时 SQL
 同时把 `registered_result.download` 和资源种类 `registered_result` 加入审计约束。
 成功下载的资源身份只由 `(project_id, result_id, result_revision_id)` 经现有封闭工厂派生。
 
-实验目录 Slice A 使用 `20261118_17`。本分支不包含那份迁移。若 #225 先合并，合并前把本修订的 `down_revision` 改到 `20261118_17`，不要改 #225 的修订号。
+同一条链是 `20261118_17`（实验目录）之后的 `20261119_18`（snapshot 绑定）。IRENE-32 在自己的分支上保留 `20261119_32`，父修订仍是 `20261118_17`。本修订不占用 18 或 32。
 
 ## 下载
 

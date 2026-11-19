@@ -161,6 +161,7 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
             project_sample_selection: object,
             input_file_revision_selections: object,
             reference_profile_revision_id: object,
+            experiment_revision_id: object = None,
         ) -> Result[None]:
             observed.update(
                 workflow_id=workflow_id,
@@ -168,6 +169,7 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
                 project_sample_selection=project_sample_selection,
                 input_file_revision_selections=input_file_revision_selections,
                 reference_profile_revision_id=reference_profile_revision_id,
+                experiment_revision_id=experiment_revision_id,
             )
             return Result.success(None)
 
@@ -190,6 +192,7 @@ def test_validate_route_passes_opaque_selection_outside_workflow_inputs() -> Non
     assert getattr(selection, "occurrence") == 0
     assert getattr(selection, "input_file_revision_ids") == (INPUT_FILE_REVISION_ID,)
     assert observed["reference_profile_revision_id"] == REFERENCE_PROFILE_REVISION_ID
+    assert observed["experiment_revision_id"] is None
     assert response.ok is True  # type: ignore[union-attr]
 
 

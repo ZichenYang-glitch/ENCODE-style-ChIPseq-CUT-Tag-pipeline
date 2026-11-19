@@ -9,6 +9,7 @@ import type { ValidatedInputSnapshotResponseBindingMode } from './validatedInput
 import type { ValidatedInputSnapshotResponseProvenance } from './validatedInputSnapshotResponseProvenance';
 import type { InputBindingResponse } from './inputBindingResponse';
 import type { ValidatedInputSnapshotResponseReferenceProfile } from './validatedInputSnapshotResponseReferenceProfile';
+import type { ValidatedInputSnapshotResponseExperimentBinding } from './validatedInputSnapshotResponseExperimentBinding';
 
 /**
  * Safe public projection of one server-owned validation snapshot.
@@ -44,4 +45,5 @@ export interface ValidatedInputSnapshotResponse {
   binding_digest: string;
   input_binding: InputBindingResponse;
   reference_profile?: ValidatedInputSnapshotResponseReferenceProfile;
+  experiment_binding: ValidatedInputSnapshotResponseExperimentBinding;
 }
