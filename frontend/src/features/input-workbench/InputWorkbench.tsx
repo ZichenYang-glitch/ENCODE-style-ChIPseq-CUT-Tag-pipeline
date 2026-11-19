@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import type { WorkflowAvailability } from '../../api/types';
 import type { ReferenceProfileSummary } from '../../api/runTypes';
+import { ExperimentRevisionPanel } from '../experiment-binding/ExperimentRevisionPanel';
+import type { ExperimentValidationHandoff } from '../experiment-binding/handoff';
 import { ConfigEditor, type ConfigMode } from './ConfigEditor';
 import { DraftReview } from './DraftReview';
 import { OptionsEditor } from './OptionsEditor';
 import { ReferenceProfileSelector } from './ReferenceProfileSelector';
 import { SampleEditor } from './SampleEditor';
-import type { WorkbenchSchema } from './schemaContract';
+import { rjsfValidator, type WorkbenchSchema } from './schemaContract';
 import { useInputDraft } from './useInputDraft';
 import { ValidatedSubmission } from './ValidatedSubmission';
 import { ValidationFeedbackPanel } from './ValidationFeedbackPanel';
@@ -49,6 +51,7 @@ interface InputWorkbenchProps {
   referenceProfilesRefreshing: boolean;
   referenceProfilesError: string | null;
   onRefreshReferenceProfiles: () => void;
+  handoff?: ExperimentValidationHandoff | null;
 }
 
 export function InputWorkbench({
@@ -61,9 +64,20 @@ export function InputWorkbench({
   referenceProfilesRefreshing,
   referenceProfilesError,
   onRefreshReferenceProfiles,
+  handoff = null,
 }: InputWorkbenchProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const draft = useInputDraft(schema);
+  const draft = useInputDraft(
+    schema,
+    handoff === null ? null : { config: handoff.config, options: handoff.options },
+  );
+  const [sampleRevisionIds, setSampleRevisionIds] = useState<string[]>(
+    () => (handoff === null ? [] : [...handoff.sampleRevisionIds]),
+  );
+  const [experimentRevisionId, setExperimentRevisionId] = useState<string | null>(null);
+  const clearExperimentRevision = useCallback((revisionId: string | null) => {
+    setExperimentRevisionId(revisionId);
+  }, []);
   const [validationFeedback, setValidationFeedback] = useState<ValidationFeedback | null>(null);
   const [configFocus, setConfigFocus] = useState<ConfigFocusRequest | null>(null);
   const validationIssues = useMemo(
@@ -85,6 +99,30 @@ export function InputWorkbench({
   useEffect(() => {
     if (mode === 'yaml') draft.syncYaml();
   }, [mode, draft]);
+
+  useEffect(() => {
+    if (handoff === null) return;
+    if (handoff.referenceProfileRevisionId !== null) {
+      draft.setReferenceProfileRevisionId(handoff.referenceProfileRevisionId);
+    }
+    if (
+      handoff.samples !== null &&
+      rjsfValidator.isValid(schema.sampleSchema, handoff.samples, schema.sampleSchema)
+    ) {
+      draft.replaceSamples(
+        handoff.samples.map((values) => ({
+          id: crypto.randomUUID(),
+          values,
+        })),
+        'saved-draft',
+      );
+    }
+  }, [
+    draft.replaceSamples,
+    draft.setReferenceProfileRevisionId,
+    handoff,
+    schema.sampleSchema,
+  ]);
 
   const selectedReference = useMemo(
     () =>
@@ -200,6 +238,15 @@ export function InputWorkbench({
           onRefresh={onRefreshReferenceProfiles}
         />
 
+        {handoff !== null && (
+          <ExperimentRevisionPanel
+            handoff={handoff}
+            sampleRevisionIds={sampleRevisionIds}
+            experimentRevisionId={experimentRevisionId}
+            onSampleRevisionIdsChange={setSampleRevisionIds}
+            onExperimentRevisionIdChange={clearExperimentRevision}
+          />
+        )}
         <ValidationFeedbackPanel
           feedback={validationFeedback}
           revision={draft.state.semanticRevision}
@@ -270,6 +317,16 @@ export function InputWorkbench({
               availability={availability}
               referenceSelectionAvailable={
                 selectedReference !== null && referenceProfilesError === null
+              }
+              experimentRequest={
+                handoff === null
+                  ? null
+                  : {
+                      projectId: handoff.projectId,
+                      sampleRevisionIds,
+                      inputSelections: handoff.inputSelections,
+                      experimentRevisionId,
+                    }
               }
               onValidationFeedback={setValidationFeedback}
             />

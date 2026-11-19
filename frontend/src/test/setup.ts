@@ -1,6 +1,20 @@
 import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
 
+// Node's Request rejects a DOM AbortSignal. React Router builds one for every
+// client navigation, so the location never changes under jsdom on this runtime.
+const OriginalRequest = globalThis.Request;
+globalThis.Request = class Request extends OriginalRequest {
+  constructor(input: RequestInfo | URL, init?: RequestInit) {
+    if (init && 'signal' in init) {
+      const { signal: _signal, ...rest } = init;
+      super(input, rest);
+      return;
+    }
+    super(input, init);
+  }
+};
+
 vi.mock('../api/authClient', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../api/authClient')>();
