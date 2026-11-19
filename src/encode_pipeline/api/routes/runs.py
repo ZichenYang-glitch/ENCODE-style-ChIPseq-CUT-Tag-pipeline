@@ -31,6 +31,7 @@ from encode_pipeline.api.models import (
     RunSummaryResponse,
 )
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.authoring import PeriRunAuthorization
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.run_cancellation import (
     RunCancellationConflictError,
@@ -316,6 +317,26 @@ def create_run(
     ),
 ) -> RunResponse | JSONResponse:
     """Create or replay one run using a server-owned validated snapshot."""
+    return create_run_response(
+        workflow_id,
+        request_body,
+        principal,
+        creation_service,
+        run_service,
+        reference_profiles,
+    )
+
+
+def create_run_response(
+    workflow_id: str,
+    request_body: RunCreateRequest,
+    principal: AuthenticatedPrincipal,
+    creation_service: ValidatedRunCreationService,
+    run_service: RunService,
+    reference_profiles: ReferenceProfileService,
+    *,
+    peri_authorization: PeriRunAuthorization | None = None,
+) -> RunResponse | JSONResponse:
     try:
         creation = creation_service.create_run(
             workflow_id,
@@ -323,6 +344,7 @@ def create_run(
             tags=request_body.tags,
             requested_by_user_id=principal.user_id,
             security_audit_actor=principal,
+            peri_authorization=peri_authorization,
         )
     except ValidatedSnapshotNotFoundError:
         return JSONResponse(
@@ -725,11 +747,22 @@ def cancel_run(
     ),
 ) -> RunResponse | JSONResponse:
     """Cancel before execution or request an acknowledged RQ process stop."""
+    return cancel_run_response(run_id, principal, cancellation_service)
+
+
+def cancel_run_response(
+    run_id: str,
+    principal: AuthenticatedPrincipal,
+    cancellation_service: RunCancellationService,
+    *,
+    peri_authorization: PeriRunAuthorization | None = None,
+) -> RunResponse | JSONResponse:
     try:
         result = cancellation_service.cancel_run(
             run_id,
             reason="User requested cancellation.",
             security_audit_actor=principal,
+            peri_authorization=peri_authorization,
         )
     except KeyError:
         return JSONResponse(

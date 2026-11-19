@@ -230,9 +230,16 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
         if path.startswith("/api/v1/")
     ]
 
-    assert route_handlers
+    # Preview checks the SQLite connection and target. Confirm also writes via
+    # the synchronous run services.
+    peri_run_action_paths = {
+        "/api/v1/agent/authoring-sessions/{sid}/run-actions/preview",
+        "/api/v1/agent/authoring-sessions/{sid}/run-actions/confirm",
+    }
+    assert peri_run_action_paths <= {path for path, _ in route_handlers}
     for path, endpoint in route_handlers:
         if path in {
+            *peri_run_action_paths,
             "/api/v1/workflows",
             "/api/v1/workflows/{workflow_id}",
             "/api/v1/workflows/{workflow_id}/reference-profiles",
