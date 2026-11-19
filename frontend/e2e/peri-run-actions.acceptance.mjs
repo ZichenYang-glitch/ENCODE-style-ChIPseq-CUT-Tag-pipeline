@@ -82,6 +82,9 @@ try {
   expect((await context.request.post('/fixture/acknowledge-stop')).ok()).toBeTruthy();
   await expect(page.getByText('Run status: cancelled.')).toBeVisible();
   await expect(page.getByText('Stop requested.')).toHaveCount(0);
+
+  await page.getByRole('link', { name: 'Open experiment validation' }).click();
+  await expect(page.getByRole('combobox', { name: 'Experiment revision' })).toBeVisible();
 } finally {
   await browser.close();
 }

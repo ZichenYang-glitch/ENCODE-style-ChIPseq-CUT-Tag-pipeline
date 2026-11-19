@@ -6,15 +6,21 @@ import json
 from pathlib import Path
 import socket
 import subprocess
+import sys
 from threading import Thread
 from time import monotonic, sleep
+from zipfile import ZipFile
 
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 import uvicorn
 
+from encode_pipeline.deployment.frontend import ManifestStaticApplication
+from encode_pipeline.frontend_assets import (
+    VerifiedFrontendAssets,
+    parse_manifest_bytes,
+    verify_frontend_api_contract,
+)
 from encode_pipeline.persistence.models import RunExecutionAssignmentRow, RunRow
 from test_peri_run_actions import (
     WORKFLOW,
@@ -24,23 +30,20 @@ from test_peri_run_actions import (
 )
 
 
-def test_peri_run_actions_in_chromium(peri_case, repo_root):  # noqa: F811
+def test_peri_run_actions_from_wheel_in_chromium(peri_case, repo_root, tmp_path):  # noqa: F811
     client, sid, project_id, _, stop = peri_case
     app = client.app
     run_a, assignment = seed_run(client, running=True)
     run_b, _ = seed_run(client)
     frontend = Path(repo_root) / "frontend"
-    dist = frontend / "dist"
-    assert (dist / "index.html").is_file(), "Build frontend before running this test."
-    app.mount("/assets", StaticFiles(directory=dist / "assets"))
+    assets = _build_wheel_assets(repo_root, tmp_path)
 
-    @app.get("/workflows/{path:path}")
-    async def frontend_page():
-        return FileResponse(dist / "index.html")
-
-    @app.post("/fixture/acknowledge-stop")
+    @app.post("/fixture/acknowledge-stop", include_in_schema=False)
     def acknowledge():
         acknowledge_stop(client, assignment)
+
+    verify_frontend_api_contract(assets.manifest, app.openapi())
+    app.mount("/", ManifestStaticApplication(assets), name="frontend")
 
     policy = app.state.auth_cookie_policy
     session_token, csrf_token = app.state.test_auth_tokens
@@ -89,3 +92,35 @@ def test_peri_run_actions_in_chromium(peri_case, repo_root):  # noqa: F811
             server.should_exit = True
             thread.join(timeout=10)
             assert not thread.is_alive(), "Acceptance HTTP server did not stop"
+
+
+def _build_wheel_assets(repo_root, tmp_path) -> VerifiedFrontendAssets:
+    output = tmp_path / "wheel"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "build",
+            "--wheel",
+            "--no-isolation",
+            "--outdir",
+            str(output),
+        ],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    (wheel,) = output.glob("*.whl")
+    prefix = "encode_pipeline/frontend_assets/"
+    with ZipFile(wheel) as package:
+        manifest = parse_manifest_bytes(package.read(prefix + "asset-manifest.json"))
+        static = prefix + "static/"
+        content = {
+            item.filename.removeprefix(static): package.read(item)
+            for item in package.infolist()
+            if item.filename.startswith(static) and not item.is_dir()
+        }
+    return VerifiedFrontendAssets.create(manifest, content)

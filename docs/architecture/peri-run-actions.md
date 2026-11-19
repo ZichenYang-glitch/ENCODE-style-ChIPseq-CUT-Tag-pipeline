@@ -10,6 +10,8 @@ IRENE-45 实施 [#245 的仅创建与取消决定](https://github.com/ZichenYang
 
 确认复用现有创建和取消的生命周期服务及安全审计。创建返回 run ID 和首次创建或重放的 HTTP 状态。取消 202 表示已请求停止。工作台用现有 GET 回读该 ID，并跟踪停止请求直到权威终态。浏览器内部路由沿用作者会话的认证和错误边界，公开 OpenAPI 保持原契约。建议工具、模型传输、现有人用按钮、预检和启动沿用现有路径。
 
+创建、运行前取消和运行中停止意图均在各自的 SQLite 写事务内复核登录、Peri 连接代数、目标及确认时限。创建还核对草稿当前验证的 snapshot。写入与撤权共享 SQLite 写锁。撤权先提交时拒绝旧确认。运行中取消只有在事务复核及写入成功后才调用停止队列。
+
 ## 验收
 
 用真实 FastAPI 应用、隔离 SQLite、合成 Peri 连接和记录调用的队列验证。不派发科学工作流。创建首次返回 201、原目标重试返回 200 和同一 ID，执行分配与入队计数为零。取消 A 时 B 不变，running 的 202 经 GET 仍为 running，直到写入权威终态。核对登录撤销、重新连接、错误会话、换目标、改 tags 和普通 Agent 请求。浏览器验收从工作台发出请求，检查显示目标和独立确认按钮，核对确认后读取的确切 run ID。
@@ -21,7 +23,8 @@ python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test/api/
 npm --prefix frontend ci
 npm --prefix frontend exec -- playwright install chromium
 npm --prefix frontend run build
+python3 scripts/package_frontend_assets.py
 python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test/api/peri_run_actions_browser.py
 ```
 
-Chromium 用例发出真实 HTTP 请求，丢弃第一次创建响应后重试，并等待确切 run 的 GET 返回停止终态。测试使用的 Peri 连接和队列确认均为本地合成。
+Chromium 用例构建 wheel，从该 wheel 读取并校验静态资源，由正式静态处理器提供页面。用例发出真实 HTTP 请求，丢弃第一次创建响应后重试，等待确切 run 的 GET 返回停止终态，并从同一工作台打开实验修订选择。测试使用的 Peri 连接和队列确认均为本地合成。
