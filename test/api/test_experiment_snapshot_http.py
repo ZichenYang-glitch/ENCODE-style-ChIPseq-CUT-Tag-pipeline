@@ -489,6 +489,21 @@ def test_validate_freezes_reversed_set_and_traces_published_rows(
         )
         CatalogExperimentRunListResponse.model_validate(published_body)
 
+        history_url = (
+            f"/api/v1/catalog/experiments/{created['experiment_id']}/revisions"
+        )
+        for view, expected in (
+            ("linked", samples),
+            ("current_sample_catalog", [newer.sample_revision_id, samples[1]]),
+        ):
+            history = client.get(history_url, params={"revision_view": view})
+            assert history.status_code == 200, history.text
+            pins = history.json()["experiment_revisions"][0]["samples"]
+            assert [pin["sample_revision_id"] for pin in pins] == expected
+            assert "linked_sample_revision_id" not in pins[1]
+            assert "current_sample_revision_id" not in pins[1]
+            assert client.get(trace_url).json() == published_body
+
         replay_body = {"snapshot_id": snapshot_id, "tags": {"owner": "lab"}}
         with app.state.persistence.engine.begin() as connection:
             connection.execute(

@@ -849,7 +849,7 @@ class SqlAlchemyExperimentCatalogRepository:
             render=lambda session, revision_id: self._experiment_summary(
                 session,
                 revision_id,
-                revision_view="linked",
+                revision_view=filters.revision_view,
                 include_candidates=False,
             ),
         )
@@ -1096,6 +1096,12 @@ class SqlAlchemyExperimentCatalogRepository:
         del model
         position = decode_catalog_cursor(cursor, kind=kind, filters=filters)
         with self._session_factory() as session:
+            if (
+                filters.revision_view == "current_sample_catalog"
+                and session.get_bind().dialect.name == "sqlite"
+            ):
+                # Resolve term names and sample heads from one SQLite read snapshot.
+                session.connection().exec_driver_sql("BEGIN")
             owner = _owner_project(session, kind, owner_id)
             _require_active_project(session, owner)
             statement = select(id_column, created_column).where(
