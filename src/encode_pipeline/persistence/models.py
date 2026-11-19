@@ -3017,3 +3017,168 @@ class RunExperimentBindingRow(Base):
     run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     experiment_revision_id: Mapped[str] = mapped_column(String(37), nullable=False)
     payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CatalogCurationVersionRow(Base):
+    """The one active rule, vocabulary, and projection version for M2 adoption."""
+
+    __tablename__ = "catalog_curation_versions"
+    __table_args__ = (
+        CheckConstraint(
+            "version_id = 1",
+            name="ck_catalog_curation_versions_singleton",
+        ),
+        CheckConstraint(
+            "length(rule_version) BETWEEN 1 AND 64",
+            name="ck_catalog_curation_versions_rule",
+        ),
+        CheckConstraint(
+            "length(vocabulary_version) BETWEEN 1 AND 64",
+            name="ck_catalog_curation_versions_vocabulary",
+        ),
+        CheckConstraint(
+            "length(projection_version) BETWEEN 1 AND 64",
+            name="ck_catalog_curation_versions_projection",
+        ),
+    )
+
+    version_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    vocabulary_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class CatalogProposalRow(Base):
+    """One immutable offline suggestion waiting for a single administrator adoption."""
+
+    __tablename__ = "catalog_proposals"
+    __table_args__ = (
+        CheckConstraint(
+            "length(proposal_id) = 38 AND substr(proposal_id, 1, 6) = 'cprop_' "
+            "AND substr(proposal_id, 7) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_proposals_id",
+        ),
+        CheckConstraint(
+            "source IN ('offline_suggestion', 'agent', 'manual')",
+            name="ck_catalog_proposals_source",
+        ),
+        CheckConstraint(
+            "length(proposal_digest) = 64 AND proposal_digest NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_proposals_digest",
+        ),
+        CheckConstraint(
+            "length(register_idempotency_key) BETWEEN 1 AND 128",
+            name="ck_catalog_proposals_key",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_catalog_proposals_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["created_by_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_catalog_proposals_creator",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["register_actor_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_catalog_proposals_actor",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "register_actor_user_id",
+            "register_idempotency_key",
+            name="uq_catalog_proposals_register_key",
+        ),
+        Index(
+            "ix_catalog_proposals_project_created",
+            "project_id",
+            "created_at",
+            "proposal_id",
+        ),
+    )
+
+    proposal_id: Mapped[str] = mapped_column(String(38), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    vocabulary_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    proposal_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_json: Mapped[str] = mapped_column(Text, nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    register_actor_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    register_idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    retention_until: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class CatalogAdoptionReceiptRow(Base):
+    """The one committed adoption of a proposal. Retries replay this body."""
+
+    __tablename__ = "catalog_adoption_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "length(receipt_id) = 39 AND substr(receipt_id, 1, 7) = 'cadopt_' "
+            "AND substr(receipt_id, 8) NOT GLOB '*[^0-9a-f]*'",
+            name="ck_catalog_adoption_receipts_id",
+        ),
+        CheckConstraint(
+            "length(idempotency_key) BETWEEN 1 AND 128",
+            name="ck_catalog_adoption_receipts_key",
+        ),
+        ForeignKeyConstraint(
+            ["proposal_id"],
+            ["catalog_proposals.proposal_id"],
+            name="fk_catalog_adoption_receipts_proposal",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id"],
+            ["projects.project_id"],
+            name="fk_catalog_adoption_receipts_project",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["actor_user_id"],
+            ["user_accounts.user_id"],
+            name="fk_catalog_adoption_receipts_actor",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "proposal_id",
+            name="uq_catalog_adoption_receipts_proposal",
+        ),
+        UniqueConstraint(
+            "actor_user_id",
+            "idempotency_key",
+            name="uq_catalog_adoption_receipts_actor_key",
+        ),
+        Index(
+            "ix_catalog_adoption_receipts_project_created",
+            "project_id",
+            "created_at",
+            "receipt_id",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(39), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(String(38), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

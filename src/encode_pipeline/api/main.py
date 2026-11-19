@@ -373,14 +373,15 @@ def _handle_catalog_error(_request: Request, exc: CatalogError) -> JSONResponse:
                 severity="error",
                 path=exc.path,
                 source="api",
-                hint=None,
+                hint=exc.hint,
             )
-        ]
+        ],
+        conflicts=None if not exc.conflicts else list(exc.conflicts),
     )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=body.model_dump(mode="json"),
-    )
+    content = body.model_dump(mode="json")
+    if not exc.conflicts:
+        content.pop("conflicts", None)
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 def _handle_catalog_block_command(

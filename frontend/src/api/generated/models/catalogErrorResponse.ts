@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.4.1
  */
 import type { CatalogIssueResponse } from './catalogIssueResponse';
+import type { CatalogErrorResponseConflicts } from './catalogErrorResponseConflicts';
 
 export interface CatalogErrorResponse {
   issues: CatalogIssueResponse[];
+  conflicts?: CatalogErrorResponseConflicts;
 }
