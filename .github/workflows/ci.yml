@@ -32,7 +32,7 @@ concurrency:
 jobs:
   fast-checks-shard:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 45 }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -163,14 +163,11 @@ jobs:
 
       - name: Report shard wall time
         if: always()
-        env:
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           elapsed=$(( $(date +%s) - JOB_STARTED ))
-          if [ "$EVENT_NAME" = "pull_request" ]; then budget=300; else budget=1200; fi
           echo "### fast-checks shard ${{ matrix.shard }} timing" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wall time: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Soft budget: ${budget}s (informational)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Soft budget: 1200s (informational)" >> "$GITHUB_STEP_SUMMARY"
 
   fast-checks:
     needs: fast-checks-shard

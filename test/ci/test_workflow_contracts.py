@@ -190,13 +190,9 @@ def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer(
 
     assert shard_job["strategy"]["matrix"]["shard"] == [1, 2]
     assert shard_job["strategy"]["fail-fast"] is False
-    assert (
-        shard_job["timeout-minutes"]
-        == "${{ github.event_name == 'pull_request' && 25 || 45 }}"
-    )
+    assert shard_job["timeout-minutes"] == 45
     producer = _runs(shard_job)
-    assert "budget=300" in producer
-    assert "budget=1200" in producer
+    assert "Soft budget: 1200s (informational)" in producer
     assert (
         producer.count(
             "python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest"
@@ -399,9 +395,8 @@ def test_documented_python_timing_budgets_match_the_workflow():
     harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
         encoding="utf-8"
     )
-    assert "| PR `fast-checks` shards | 5 min | 25 min |" in harness
-    assert "| PR `fast-checks` aggregate | 1 min | 10 min |" in harness
-    assert "| Full-main Python | 20 min | 45 min |" in harness
+    assert "| Deterministic Python shards | 20 min | 45 min |" in harness
+    assert "| `fast-checks` aggregate | 1 min | 10 min |" in harness
 
 
 def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():

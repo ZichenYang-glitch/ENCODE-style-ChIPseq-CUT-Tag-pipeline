@@ -82,10 +82,9 @@ Hard timeouts only stop hangs.
 
 | Check or tier | Soft budget | Hard timeout |
 | --- | ---: | ---: |
-| PR `fast-checks` shards | 5 min | 25 min |
-| PR `fast-checks` aggregate | 1 min | 10 min |
+| Deterministic Python shards | 20 min | 45 min |
+| `fast-checks` aggregate | 1 min | 10 min |
 | Coverage artifact gate | 1 min | 5 min |
-| Full-main Python | 20 min | 45 min |
 | Frontend | 2 min | 8 min |
 | Browser E2E | 4 min | 20 min |
 | Lint | 1 min | 5 min |
