@@ -660,3 +660,105 @@ def test_memory_trace_orders_the_same_instant_by_run_then_artifact() -> None:
         ("run-a", "peaks"),
     ]
     assert cursor is None
+
+
+def test_memory_publication_trace_bound_unbound_and_missing() -> None:
+    data, catalog, runs, _ = _world()
+    seeded = _experiment(data, catalog, 1)
+    revision_id = seeded["experiment"]["experiment_revision_id"]
+    selection = ProjectSampleSelection(
+        project_id=seeded["project_id"],
+        sample_revision_ids=seeded["sample_revision_ids"],
+    )
+    for digit, run_id, bind in (
+        ("6", "run-bound", True),
+        ("7", "run-unbound", False),
+    ):
+        snapshot = _snapshot("vsnap_" + digit * 32)
+        runs.create_validated_input_snapshot(
+            snapshot,
+            project_sample_selection=selection,
+            experiment_revision_id=revision_id if bind else None,
+        )
+        runs.consume_validated_input_snapshot(
+            snapshot.snapshot_id,
+            workflow_id="workflow-a",
+            expected_build_identity=snapshot.workflow_build_identity,
+            record=_record(run_id, snapshot),
+            consumed_at=NOW + timedelta(minutes=1),
+            event=_event(),
+        )
+        _publish(runs, run_id, NOW + timedelta(minutes=2), ("peaks",))
+
+    bound_generation = runs.get_result_state("run-bound").artifact_generation
+    assert bound_generation is not None
+    bound = catalog.get_publication_experiment_trace(
+        project_id=seeded["project_id"],
+        run_id="run-bound",
+        artifact_id="peaks",
+        artifact_generation=bound_generation,
+    )
+    assert bound["trace_status"] == "experiment_snapshot"
+    assert bound["experiment_revision_id"] == revision_id
+    expected_digest = runs._run_experiment_bindings["run-bound"].payload_digest
+    assert bound["payload_digest"] == expected_digest
+    assert len(bound["payload_digest"]) == 64
+    assert bound["result"]["run_id"] == "run-bound"
+    assert bound["result"]["artifact_generation"] == bound_generation
+    assert bound["result"]["artifact_association_kind"] == "run_input_scope"
+
+    unbound_generation = runs.get_result_state("run-unbound").artifact_generation
+    assert unbound_generation is not None
+    unbound = catalog.get_publication_experiment_trace(
+        project_id=seeded["project_id"],
+        run_id="run-unbound",
+        artifact_id="peaks",
+        artifact_generation=unbound_generation,
+    )
+    assert unbound["trace_status"] == "unresolved"
+    assert unbound["reason"] == "experiment_snapshot_binding_absent"
+    assert "experiment_revision_id" not in unbound
+    assert "payload_digest" not in unbound
+    assert unbound["result"]["run_id"] == "run-unbound"
+
+    for project_id, run_id, generation in (
+        (seeded["project_id"], "run-bound", "artifactgen-" + "0" * 64),
+        (data.create_project("Other").project_id, "run-bound", bound_generation),
+    ):
+        with pytest.raises(CatalogError) as missing:
+            catalog.get_publication_experiment_trace(
+                project_id=project_id,
+                run_id=run_id,
+                artifact_id="peaks",
+                artifact_generation=generation,
+            )
+        assert missing.value.code == "catalog_not_found"
+
+    binding = runs._run_experiment_bindings["run-bound"]
+    for field in ("experiment_revision_id", "payload_digest"):
+        original = getattr(binding, field)
+        object.__setattr__(binding, field, 123)
+        try:
+            with pytest.raises(CatalogError) as invalid:
+                catalog.get_publication_experiment_trace(
+                    project_id=seeded["project_id"],
+                    run_id="run-bound",
+                    artifact_id="peaks",
+                    artifact_generation=bound_generation,
+                )
+            assert invalid.value.code == "catalog_not_found"
+        finally:
+            object.__setattr__(binding, field, original)
+
+
+def test_memory_publication_trace_without_evidence_is_not_found() -> None:
+    data, catalog, _, _ = _world(attach_trace=False)
+    seeded = _experiment(data, catalog, 1)
+    with pytest.raises(CatalogError) as missing:
+        catalog.get_publication_experiment_trace(
+            project_id=seeded["project_id"],
+            run_id="run-without-evidence",
+            artifact_id="peaks",
+            artifact_generation="artifactgen-" + "0" * 64,
+        )
+    assert missing.value.code == "catalog_not_found"

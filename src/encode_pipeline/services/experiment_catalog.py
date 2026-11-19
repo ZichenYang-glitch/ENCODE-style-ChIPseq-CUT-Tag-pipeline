@@ -400,6 +400,21 @@ class ExperimentCatalogService:
             projection_version=projection_version,
         )
 
+    def get_publication_experiment_trace(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        artifact_id: str,
+        artifact_generation: str,
+    ) -> dict[str, Any]:
+        return self._repository.get_publication_experiment_trace(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            artifact_generation=artifact_generation,
+        )
+
     def _write(
         self,
         actor_user_id: str,

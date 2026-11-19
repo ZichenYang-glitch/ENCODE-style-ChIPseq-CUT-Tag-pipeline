@@ -190,6 +190,32 @@ async function main() {
     }
 
     step(`scope ${scopeText.replace(/\s+/g, ' ').slice(0, 240)}`);
+
+    step('published result context');
+    const contextResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(
+          `/agent/projects/${manifest.project_id}/artifact-publications/${manifest.run_id}/${manifest.artifact_id}/context`,
+        ) &&
+        response.request().method() === 'GET' &&
+        response.status() === 200,
+    );
+    await page.goto(
+      `/artifacts/${encodeURIComponent(manifest.run_id)}/${encodeURIComponent(manifest.artifact_id)}?generation=${encodeURIComponent(manifest.generation)}`,
+    );
+    const context = await (await contextResponse).json();
+    if (
+      context.experiment_trace?.trace_status !== 'experiment_snapshot' ||
+      context.experiment_trace?.experiment_revision_id !==
+        manifest.experiment_revision_id
+    ) {
+      throw new Error(`published result context drifted ${JSON.stringify(context)}`);
+    }
+    await page
+      .getByRole('heading', { name: 'Frozen experiment revision' })
+      .waitFor();
+    await page.getByTitle(manifest.experiment_revision_id).waitFor();
+
     step('viewer');
     const sessionResponse = page.waitForResponse(
       (response) =>
@@ -348,6 +374,7 @@ async function main() {
       track_sha256: sha256(trackBody),
       track_bytes_match_download: sha256(trackBody) === beforeSha,
       track_source_form: track.source_form,
+      published_result_context: true,
       same_file: true,
     };
     clearTimeout(hardStop);

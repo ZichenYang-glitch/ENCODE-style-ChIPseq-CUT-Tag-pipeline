@@ -24,6 +24,7 @@ from encode_pipeline.api.routes.qc_metrics import router as qc_metrics_router
 from encode_pipeline.api.routes.registered_results import (
     router as registered_results_router,
 )
+from encode_pipeline.api.routes.result_context import router as result_context_router
 from encode_pipeline.api.routes.runs import router as runs_router
 from encode_pipeline.api.routes.workflows import router as workflows_router
 
@@ -50,5 +51,9 @@ api_v1_router.include_router(qc_metrics_router, dependencies=_member_dependencie
 api_v1_router.include_router(catalog_router, dependencies=_member_dependencies)
 api_v1_router.include_router(
     registered_results_router,
+    dependencies=_member_dependencies,
+)
+api_v1_router.include_router(
+    result_context_router,
     dependencies=_member_dependencies,
 )
