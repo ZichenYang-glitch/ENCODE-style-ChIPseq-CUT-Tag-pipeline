@@ -4,7 +4,10 @@
 路径和上游耦合点；科学契约与政策见
 [hitrac-preprocess-contract.md](hitrac-preprocess-contract.md)，维护顺序见
 [workflow-platform-agent-roadmap.md](workflow-platform-agent-roadmap.md)。
-所有身份值来自固定锁文件与本轮实测记录，不是示例。
+所有身份值来自固定锁文件与本轮实测记录，不是示例。同事从项目定位已核验
+PET、核对 QC 分母并在 WashU 自选轨道的短试用单见
+[hitrac-colleague-pet-qc-trial.md](hitrac-colleague-pet-qc-trial.md)。该单复用本文与
+科学契约，不改变部署准入。
 
 ## 1. 固定身份
 
