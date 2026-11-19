@@ -1,35 +1,77 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import {
+  authoringListProjectSamples,
+  authoringListProjects,
+} from '../../api/generated/authoring/authoring';
 import { loadSelectableExperiments } from './experimentCatalog';
 import {
   sampleRevisionSetsEqual,
   type ExperimentValidationHandoff,
 } from './handoff';
 
+const SAMPLE_REVISION_ID = /^smpr_[0-9a-f]{32}$/;
+const PROJECT_ID = /^prj_[0-9a-f]{32}$/;
+
+interface EntryProject {
+  projectId: string;
+  displayName: string;
+}
+
+interface EntrySample {
+  sampleRevisionId: string;
+  displayName: string;
+}
+
 interface ExperimentRevisionPanelProps {
-  handoff: ExperimentValidationHandoff;
+  handoff: ExperimentValidationHandoff | null;
+  projectId: string | null;
   sampleRevisionIds: readonly string[];
   experimentRevisionId: string | null;
+  onDirectProjectChange?: (projectId: string) => void;
   onSampleRevisionIdsChange: (ids: string[]) => void;
   onExperimentRevisionIdChange: (id: string | null) => void;
 }
 
 export function ExperimentRevisionPanel({
   handoff,
+  projectId,
   sampleRevisionIds,
   experimentRevisionId,
+  onDirectProjectChange,
   onSampleRevisionIdsChange,
   onExperimentRevisionIdChange,
 }: ExperimentRevisionPanelProps) {
-  const experiments = useQuery({
-    queryKey: ['catalog-experiments', handoff.projectId],
-    queryFn: () => loadSelectableExperiments(handoff.projectId),
+  const directEntry = handoff === null;
+  const projects = useQuery({
+    queryKey: ['experiment-entry-projects'],
+    queryFn: loadEntryProjects,
+    enabled: directEntry,
     retry: false,
   });
+  const samples = useQuery({
+    queryKey: ['experiment-entry-samples', projectId],
+    queryFn: () => loadEntrySamples(projectId ?? ''),
+    enabled: directEntry && projectId !== null,
+    retry: false,
+  });
+  const experiments = useQuery({
+    queryKey: ['catalog-experiments', projectId],
+    queryFn: () => loadSelectableExperiments(projectId ?? ''),
+    enabled: projectId !== null,
+    retry: false,
+  });
+  const projectChoices = projects.data ?? [];
+  const sampleChoices = samples.data ?? [];
   const choices = experiments.data ?? [];
   const selected =
     choices.find((item) => item.experimentRevisionId === experimentRevisionId) ??
     null;
+
+  useEffect(() => {
+    if (!directEntry || projectId !== null || projectChoices.length === 0) return;
+    onDirectProjectChange?.(projectChoices[0].projectId);
+  }, [directEntry, onDirectProjectChange, projectChoices, projectId]);
 
   useEffect(() => {
     if (experimentRevisionId === null || !experiments.isSuccess) return;
@@ -47,6 +89,17 @@ export function ExperimentRevisionPanel({
     onExperimentRevisionIdChange,
   ]);
 
+  function toggleSample(sampleRevisionId: string, checked: boolean) {
+    if (checked) {
+      if (sampleRevisionIds.includes(sampleRevisionId)) return;
+      onSampleRevisionIdsChange([...sampleRevisionIds, sampleRevisionId]);
+      return;
+    }
+    onSampleRevisionIdsChange(
+      sampleRevisionIds.filter((id) => id !== sampleRevisionId),
+    );
+  }
+
   return (
     <section
       className="mt-4 space-y-3 border-t border-[var(--color-border)] pt-4"
@@ -58,61 +111,122 @@ export function ExperimentRevisionPanel({
           Experiment selection
         </h3>
         <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-          Carried from the saved draft. Choosing a revision does not bind it.
-          A binding appears only after this page&apos;s validation returns one.
+          {directEntry
+            ? 'Choose a project and sample revisions, then select or omit an experiment. Choosing a revision does not bind it.'
+            : "Carried from the saved draft. Choosing a revision does not bind it. A binding appears only after this page's validation returns one."}
         </p>
       </div>
-      <dl className="grid gap-2 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs text-[var(--color-text-muted)]">Project</dt>
-          <dd data-testid="carried-project-id">
-            <code className="break-all">{handoff.projectId}</code>
-          </dd>
+      {handoff !== null && (
+        <>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Project</dt>
+              <dd data-testid="carried-project-id">
+                <code className="break-all">{handoff.projectId}</code>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Reference profile</dt>
+              <dd data-testid="carried-reference-profile">
+                {handoff.referenceProfileRevisionId ?? 'Not copied'}
+              </dd>
+            </div>
+          </dl>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--color-text-muted)]">
+            {handoff.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {directEntry && (
+        <>
+          <label className="block text-sm font-medium" htmlFor="experiment-project-choice">
+            Project
+            <select
+              id="experiment-project-choice"
+              className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-sm sm:h-9"
+              value={projectId ?? ''}
+              disabled={projects.isLoading}
+              onChange={(event) => {
+                if (event.target.value !== '') onDirectProjectChange?.(event.target.value);
+              }}
+            >
+              <option value="">Select a project</option>
+              {projectChoices.map((project) => (
+                <option key={project.projectId} value={project.projectId}>
+                  {project.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          {projects.isLoading && <p>Loading projects.</p>}
+          {projects.isError && <p>Active projects could not be loaded.</p>}
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Project samples</legend>
+            {projectId === null && (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Select a project to list its sample revisions.
+              </p>
+            )}
+            {samples.isLoading && <p>Loading project samples.</p>}
+            {samples.isError && <p>Project samples could not be loaded.</p>}
+            {samples.isSuccess && sampleChoices.length === 0 && (
+              <p>This project has no sample revisions yet.</p>
+            )}
+            <ul className="space-y-1" aria-label="Project sample revisions">
+              {sampleChoices.map((sample) => (
+                <li key={sample.sampleRevisionId}>
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={sampleRevisionIds.includes(sample.sampleRevisionId)}
+                      onChange={(event) =>
+                        toggleSample(sample.sampleRevisionId, event.target.checked)
+                      }
+                    />
+                    {sample.displayName}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        </>
+      )}
+      {(handoff !== null || sampleRevisionIds.length > 0) && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">Submitted sample revisions</p>
+            <button
+              type="button"
+              className="min-h-9 rounded-[4px] border border-[var(--color-border-strong)] px-2 text-xs"
+              onClick={() => onSampleRevisionIdsChange([...sampleRevisionIds].reverse())}
+            >
+              Reverse sample revision order
+            </button>
+          </div>
+          <ol className="space-y-2">
+            {sampleRevisionIds.map((id, index) => (
+              <li key={`${index}:${sampleRevisionIds.length}`}>
+                <label className="block text-xs" htmlFor={`submitted-sample-revision-${index}`}>
+                  Submitted sample revision {index + 1}
+                  <input
+                    id={`submitted-sample-revision-${index}`}
+                    className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 font-mono text-xs sm:h-9"
+                    value={id}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      const next = [...sampleRevisionIds];
+                      next[index] = event.target.value;
+                      onSampleRevisionIdsChange(next);
+                    }}
+                  />
+                </label>
+              </li>
+            ))}
+          </ol>
         </div>
-        <div>
-          <dt className="text-xs text-[var(--color-text-muted)]">Reference profile</dt>
-          <dd data-testid="carried-reference-profile">
-            {handoff.referenceProfileRevisionId ?? 'Not copied'}
-          </dd>
-        </div>
-      </dl>
-      <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--color-text-muted)]">
-        {handoff.notes.map((note) => (
-          <li key={note}>{note}</li>
-        ))}
-      </ul>
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium">Submitted sample revisions</p>
-          <button
-            type="button"
-            className="min-h-9 rounded-[4px] border border-[var(--color-border-strong)] px-2 text-xs"
-            onClick={() => onSampleRevisionIdsChange([...sampleRevisionIds].reverse())}
-          >
-            Reverse sample revision order
-          </button>
-        </div>
-        <ol className="space-y-2">
-          {sampleRevisionIds.map((id, index) => (
-            <li key={`${index}:${sampleRevisionIds.length}`}>
-              <label className="block text-xs" htmlFor={`submitted-sample-revision-${index}`}>
-                Submitted sample revision {index + 1}
-                <input
-                  id={`submitted-sample-revision-${index}`}
-                  className="mt-1 block h-11 w-full rounded-[4px] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 font-mono text-xs sm:h-9"
-                  value={id}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    const next = [...sampleRevisionIds];
-                    next[index] = event.target.value;
-                    onSampleRevisionIdsChange(next);
-                  }}
-                />
-              </label>
-            </li>
-          ))}
-        </ol>
-      </div>
+      )}
       <label className="block text-sm font-medium" htmlFor="experiment-revision-choice">
         Experiment revision
         <select
@@ -158,4 +272,39 @@ function selectionPreview(
     return `${selected.displayName} pins the same sample revisions. Order does not matter. Validation can freeze this revision.`;
   }
   return `${selected.displayName} does not pin this sample revision set. Validation will not freeze a binding.`;
+}
+
+async function loadEntryProjects(): Promise<EntryProject[]> {
+  const response = await authoringListProjects({ limit: 50 });
+  if (!Array.isArray(response.projects)) {
+    throw new Error('The project list could not be verified.');
+  }
+  return response.projects.flatMap((project) => {
+    if (
+      !PROJECT_ID.test(project.project_id) ||
+      project.project_id === `prj_${'0'.repeat(32)}`
+    ) {
+      return [];
+    }
+    const displayName = project.display_name.trim();
+    return [{
+      projectId: project.project_id,
+      displayName: displayName.length > 0 ? displayName : project.project_id,
+    }];
+  });
+}
+
+async function loadEntrySamples(projectId: string): Promise<EntrySample[]> {
+  const response = await authoringListProjectSamples(projectId, { limit: 50 });
+  if (response.project_id !== projectId || !Array.isArray(response.samples)) {
+    throw new Error('The sample list could not be verified.');
+  }
+  return response.samples.flatMap((sample) => {
+    if (!SAMPLE_REVISION_ID.test(sample.sample_revision_id)) return [];
+    const displayName = sample.display_name.trim();
+    return [{
+      sampleRevisionId: sample.sample_revision_id,
+      displayName: displayName.length > 0 ? displayName : sample.sample_revision_id,
+    }];
+  });
 }

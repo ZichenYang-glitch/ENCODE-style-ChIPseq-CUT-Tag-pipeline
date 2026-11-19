@@ -367,6 +367,12 @@ describe('experiment binding entry', () => {
     expect(screen.getByTestId('experiment-binding-status')).toHaveTextContent(
       'No experiment binding. Choosing a revision or opening this page does not create one.',
     );
+    await waitFor(() => {
+      expect(screen.getByTestId('create-validated-run-button')).toBeDisabled();
+      expect(screen.getByTestId('validation-feedback')).not.toHaveTextContent(
+        'This exact draft can create one run.',
+      );
+    });
     await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
     expect(await screen.findByText('Not bound. This validation did not select an experiment revision.')).toBeInTheDocument();
     const unboundBody = generatedMocks.validateWorkflow.mock.calls.at(-1)?.[1] as ValidateBody;
@@ -411,4 +417,72 @@ describe('experiment binding entry', () => {
     expect(Object.keys(generatedMocks.createRun.mock.calls[0][1] as object)).toEqual(['snapshot_id']);
     expect(generatedMocks.validateDraft).not.toHaveBeenCalled();
   }, 30_000);
+
+  it('keeps the carried sample sheet and experiment selector across tabs', async () => {
+    const user = userEvent.setup();
+    await openCarriedValidation(user);
+    await user.click(screen.getByRole('button', { name: 'Reverse sample revision order' }));
+    await user.click(screen.getByRole('tab', { name: 'Config' }));
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByTestId('carried-project-id')).toHaveTextContent(PROJECT);
+    expect(screen.getByLabelText('Submitted sample revision 1')).toHaveValue(REV_B);
+    expect(screen.getByLabelText('Submitted sample revision 2')).toHaveValue(REV_A);
+    expect(document.getElementById('experiment-revision-choice')).toBeInTheDocument();
+    expect(screen.getByTestId('draft-review-json')).toHaveTextContent('S1');
+  });
+
+  it('leaves a lost validation response unconfirmed', async () => {
+    generatedMocks.validateWorkflow.mockRejectedValue(new TypeError('network down'));
+    const user = userEvent.setup();
+    await openCarriedValidation(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText('VALIDATION_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByTestId('experiment-binding-status')).toHaveTextContent(
+      'The validation result is unconfirmed.',
+    );
+    expect(screen.getByTestId('experiment-binding-status')).not.toHaveTextContent(
+      'No experiment binding was saved.',
+    );
+  });
+
+  it('lets the ordinary entry choose a project, samples, and an experiment', async () => {
+    generatedMocks.listSamples.mockResolvedValue({
+      ok: true,
+      project_id: PROJECT,
+      samples: [
+        {
+          sample_id: `smp_${'a'.repeat(32)}`,
+          display_name: 'Sample A',
+          sample_revision_id: REV_A,
+        },
+        {
+          sample_id: `smp_${'b'.repeat(32)}`,
+          display_name: 'Sample B',
+          sample_revision_id: REV_B,
+        },
+      ],
+      next_cursor: null,
+    });
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByRole('heading', { name: 'Input workbench' })).toBeInTheDocument();
+    expect(document.getElementById('experiment-revision-choice')).toBeInTheDocument();
+    const project = await screen.findByRole('combobox', { name: 'Project' });
+    await waitFor(() => expect(project).toHaveValue(PROJECT));
+    await user.click(screen.getByRole('checkbox', { name: 'Sample A' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Sample B' }));
+    expect(screen.getByLabelText('Submitted sample revision 1')).toHaveValue(REV_A);
+    expect(screen.getByLabelText('Submitted sample revision 2')).toHaveValue(REV_B);
+    const choice = screen.getByRole('combobox', { name: 'Experiment revision' });
+    await waitFor(() => expect(choice).toBeEnabled());
+    await user.selectOptions(choice, 'Synthetic experiment');
+    expect(screen.getByTestId('experiment-selection-preview')).toHaveTextContent(
+      'Order does not matter',
+    );
+    expect(screen.getByTestId('experiment-binding-status')).toHaveTextContent(
+      'No experiment binding. Choosing a revision or opening this page does not create one.',
+    );
+  });
 });

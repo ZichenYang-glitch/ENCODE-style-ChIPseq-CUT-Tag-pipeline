@@ -51,6 +51,7 @@ type BindingOutcome =
   | { kind: 'unresolved' }
   | { kind: 'frozen'; experimentRevisionId: string }
   | { kind: 'failed' }
+  | { kind: 'unconfirmed' }
   | { kind: 'missing' };
 
 interface ValidatedSubmissionProps {
@@ -120,10 +121,19 @@ export function ValidatedSubmission({
       });
   const contextKeyRef = useRef(contextKey);
   contextKeyRef.current = contextKey;
+  const previousContextKey = useRef(contextKey);
   useEffect(() => {
+    const contextChanged = previousContextKey.current !== contextKey;
+    previousContextKey.current = contextKey;
     setSnapshotState(null);
     setBindingOutcome({ kind: 'idle' });
-  }, [contextKey, draft.state.semanticRevision]);
+    if (!contextChanged) return;
+    onValidationFeedback((current) =>
+      current === null
+        ? current
+        : { revision: -1, issues: [], changedInFlight: false },
+    );
+  }, [contextKey, draft.state.semanticRevision, onValidationFeedback]);
 
   const validationMutation = useMutation({
     mutationFn: (attempt: ValidationAttempt) =>
@@ -199,7 +209,11 @@ export function ValidatedSubmission({
         return;
       }
       setSnapshotState(null);
-      if (experimentRequest !== null) setBindingOutcome({ kind: 'failed' });
+      if (experimentRequest !== null) {
+        setBindingOutcome(
+          error instanceof ApiError ? { kind: 'failed' } : { kind: 'unconfirmed' },
+        );
+      }
       if (attempt.revision !== draft.state.semanticRevision) {
         onValidationFeedback({ revision: attempt.revision, issues: [], changedInFlight: true });
         return;
@@ -497,6 +511,8 @@ function bindingStatusCopy(outcome: BindingOutcome): string {
       return `Bound to experiment revision ${outcome.experimentRevisionId} for this validation snapshot.`;
     case 'failed':
       return 'No experiment binding was saved.';
+    case 'unconfirmed':
+      return 'The validation result is unconfirmed. Retry to see whether an experiment binding was saved.';
     case 'missing':
       return 'The validation response did not include an experiment binding status.';
     default: {

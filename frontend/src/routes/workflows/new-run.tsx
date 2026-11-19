@@ -14,7 +14,10 @@ import {
 } from '../../api/runTypes';
 import { Button } from '../../components/Button';
 import { Panel } from '../../components/Panel';
-import { readCarriedHandoff } from '../../features/experiment-binding/handoff';
+import {
+  readCarriedHandoff,
+  type ExperimentValidationHandoff,
+} from '../../features/experiment-binding/handoff';
 import { InputWorkbench } from '../../features/input-workbench/InputWorkbench';
 import { readWorkbenchSchema } from '../../features/input-workbench/schemaContract';
 
@@ -90,7 +93,7 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
 
   return (
     <InputWorkbench
-      key={`${workflowId}:${parsed.value.contract.schema_version}:${location.key}`}
+      key={`${workflowId}:${parsed.value.contract.schema_version}:${handoffFingerprint(handoff)}`}
       workflowId={workflowId}
       handoff={handoff}
       workflowName={detailQuery.data?.workflow?.metadata.name}
@@ -107,6 +110,19 @@ export function NewRunWorkbenchPage({ workflowId }: NewRunWorkbenchPageProps) {
       onRefreshReferenceProfiles={() => void referenceQuery.refetch()}
     />
   );
+}
+
+function handoffFingerprint(handoff: ExperimentValidationHandoff | null): string {
+  if (handoff === null) return 'direct';
+  return JSON.stringify([
+    handoff.projectId,
+    handoff.sampleRevisionIds,
+    handoff.referenceProfileRevisionId,
+    handoff.config,
+    handoff.options,
+    handoff.samples,
+    handoff.inputSelections,
+  ]);
 }
 
 function readCompatibleProfiles(

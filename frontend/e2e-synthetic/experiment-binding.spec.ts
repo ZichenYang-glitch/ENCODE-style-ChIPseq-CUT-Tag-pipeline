@@ -289,6 +289,10 @@ test('synthetic draft carries context and binds only an equal sample set', async
   await expect(page.getByTestId('experiment-binding-status')).toHaveText(
     'No experiment binding. Choosing a revision or opening this page does not create one.',
   );
+  // The previous snapshot cannot describe this changed selection.
+  await expect(page.getByTestId('create-validated-run-button')).toBeDisabled();
+  expect.soft(await page.getByTestId('validation-feedback').innerText())
+    .not.toContain('This exact draft can create one run.');
   await page.getByRole('button', { name: 'Validate current inputs' }).click();
   await expect(page.getByTestId('experiment-binding-status')).toHaveText(
     'Not bound. This validation did not select an experiment revision.',
@@ -307,6 +311,30 @@ test('synthetic draft carries context and binds only an equal sample set', async
   expect(frozenBindings).toBe(1);
   expect(forbidden).toEqual([]);
   expect(savedIds).toEqual([REV_A, REV_B]);
+
+  // A lost response leaves the client unable to confirm persistence.
+  await page.getByLabel('Submitted sample revision 1').fill(REV_B);
+  await page.route('**/validate', route => route.abort('connectionreset'));
+  await page.getByRole('button', { name: 'Validate current inputs' }).click();
+  await expect(page.getByText('VALIDATION_UNAVAILABLE')).toBeVisible();
+  expect.soft(await page.getByTestId('experiment-binding-status').innerText())
+    .not.toContain('No experiment binding was saved.');
+
+  // Inspect the persisted draft in Config and then return to Review.
+  await page.getByRole('tab', { name: /Config/ }).click();
+  await page.waitForURL('**/new-run?step=config');
+  await page.getByRole('tab', { name: /Review/ }).click();
+  await page.waitForURL('**/new-run?step=review');
+  expect.soft(await experiment.count(), 'experiment selector after tab navigation').toBe(1);
+  expect.soft(await page.getByTestId('draft-review-json').allTextContents()).toEqual([
+    expect.stringContaining('S1'),
+  ]);
+
+  // Enter ordinary validation directly, with an active project available.
+  await page.goto(`/workflows/${WORKFLOW_ID}/new-run`);
+  await expect(page.getByRole('heading', { name: 'Input workbench' })).toBeVisible();
+  expect.soft(await experiment.count(), 'experiment selector at ordinary entry').toBe(1);
+
 });
 
 function validationEnvelope(binding: { status: 'unresolved' } | {

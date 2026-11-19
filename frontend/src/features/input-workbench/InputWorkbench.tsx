@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { ArrowLeft, FileCode2, ListChecks, Settings2, TableProperties } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Panel } from '../../components/Panel';
 import type { WorkflowAvailability } from '../../api/types';
 import type { ReferenceProfileSummary } from '../../api/runTypes';
@@ -66,17 +66,27 @@ export function InputWorkbench({
   onRefreshReferenceProfiles,
   handoff = null,
 }: InputWorkbenchProps) {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const draft = useInputDraft(
     schema,
     handoff === null ? null : { config: handoff.config, options: handoff.options },
   );
+  const [directProjectId, setDirectProjectId] = useState<string | null>(null);
+  const directProjectIdRef = useRef<string | null>(null);
   const [sampleRevisionIds, setSampleRevisionIds] = useState<string[]>(
     () => (handoff === null ? [] : [...handoff.sampleRevisionIds]),
   );
   const [experimentRevisionId, setExperimentRevisionId] = useState<string | null>(null);
   const clearExperimentRevision = useCallback((revisionId: string | null) => {
     setExperimentRevisionId(revisionId);
+  }, []);
+  const changeDirectProject = useCallback((nextProjectId: string) => {
+    if (directProjectIdRef.current === nextProjectId) return;
+    directProjectIdRef.current = nextProjectId;
+    setDirectProjectId(nextProjectId);
+    setSampleRevisionIds([]);
+    setExperimentRevisionId(null);
   }, []);
   const [validationFeedback, setValidationFeedback] = useState<ValidationFeedback | null>(null);
   const [configFocus, setConfigFocus] = useState<ConfigFocusRequest | null>(null);
@@ -100,8 +110,10 @@ export function InputWorkbench({
     if (mode === 'yaml') draft.syncYaml();
   }, [mode, draft]);
 
+  const seededHandoff = useRef(false);
   useEffect(() => {
-    if (handoff === null) return;
+    if (seededHandoff.current || handoff === null) return;
+    seededHandoff.current = true;
     if (handoff.referenceProfileRevisionId !== null) {
       draft.setReferenceProfileRevisionId(handoff.referenceProfileRevisionId);
     }
@@ -168,7 +180,7 @@ export function InputWorkbench({
     const next = new URLSearchParams(searchParams);
     next.set('step', readStep(nextStep));
     if (nextStep !== 'config') next.delete('mode');
-    setSearchParams(next);
+    setSearchParams(next, { state: location.state });
   }
 
   function setMode(nextMode: ConfigMode) {
@@ -177,8 +189,19 @@ export function InputWorkbench({
     const next = new URLSearchParams(searchParams);
     next.set('step', 'config');
     next.set('mode', nextMode);
-    setSearchParams(next);
+    setSearchParams(next, { state: location.state });
   }
+
+  const selectedProjectId = handoff?.projectId ?? directProjectId;
+  const experimentRequest =
+    selectedProjectId === null || sampleRevisionIds.length === 0
+      ? null
+      : {
+          projectId: selectedProjectId,
+          sampleRevisionIds,
+          inputSelections: handoff?.inputSelections ?? [],
+          experimentRevisionId,
+        };
 
   const stepReady: Record<WorkbenchStep, boolean> = {
     config:
@@ -238,15 +261,15 @@ export function InputWorkbench({
           onRefresh={onRefreshReferenceProfiles}
         />
 
-        {handoff !== null && (
-          <ExperimentRevisionPanel
-            handoff={handoff}
-            sampleRevisionIds={sampleRevisionIds}
-            experimentRevisionId={experimentRevisionId}
-            onSampleRevisionIdsChange={setSampleRevisionIds}
-            onExperimentRevisionIdChange={clearExperimentRevision}
-          />
-        )}
+        <ExperimentRevisionPanel
+          handoff={handoff}
+          projectId={selectedProjectId}
+          sampleRevisionIds={sampleRevisionIds}
+          experimentRevisionId={experimentRevisionId}
+          onDirectProjectChange={handoff === null ? changeDirectProject : undefined}
+          onSampleRevisionIdsChange={setSampleRevisionIds}
+          onExperimentRevisionIdChange={clearExperimentRevision}
+        />
         <ValidationFeedbackPanel
           feedback={validationFeedback}
           revision={draft.state.semanticRevision}
@@ -318,16 +341,7 @@ export function InputWorkbench({
               referenceSelectionAvailable={
                 selectedReference !== null && referenceProfilesError === null
               }
-              experimentRequest={
-                handoff === null
-                  ? null
-                  : {
-                      projectId: handoff.projectId,
-                      sampleRevisionIds,
-                      inputSelections: handoff.inputSelections,
-                      experimentRevisionId,
-                    }
-              }
+              experimentRequest={experimentRequest}
               onValidationFeedback={setValidationFeedback}
             />
           </Tabs.Content>
