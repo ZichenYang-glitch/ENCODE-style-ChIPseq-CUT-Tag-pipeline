@@ -596,4 +596,132 @@ describe('Experiment catalog page', () => {
       expect.objectContaining({ cursor: 'revcur_more' }),
     );
   });
+
+  it('keeps the opened experiment when the list moves to another page', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    expect(
+      await screen.findByRole('heading', { name: 'Treg CUT&Tag v2' }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(
+      await screen.findByRole('button', { name: /CUT&Tag page 20/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Treg CUT&Tag v2' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Experiment revision' })).toBeInTheDocument();
+  });
+
+  it('shows a sample load failure instead of an empty project', async () => {
+    const user = userEvent.setup();
+    vi.mocked(catalogListSamples).mockRejectedValue(
+      new ApiError(503, 'catalog_unavailable', 'Sample revisions could not be loaded.'),
+    );
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+
+    const form = await screen.findByRole('form', { name: 'Record an experiment' });
+    expect(await within(form).findByRole('alert')).toHaveTextContent(
+      'Sample revisions could not be loaded.',
+    );
+    expect(within(form).queryByText(/no sample revisions/i)).not.toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Record experiment' })).toBeDisabled();
+  });
+
+  it('shows an empty project only after the sample list succeeds with no rows', async () => {
+    const user = userEvent.setup();
+    vi.mocked(catalogListSamples).mockResolvedValue({
+      project_id: PROJECT_ID,
+      samples: [],
+      next_cursor: null,
+    });
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+
+    const form = await screen.findByRole('form', { name: 'Record an experiment' });
+    expect(await within(form).findByText(/no sample revisions/i)).toBeInTheDocument();
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(form).getByRole('button', { name: 'Record experiment' })).toBeDisabled();
+  });
+
+  it('follows every sample-run page and shows a shared run once', async () => {
+    const secondSampleId = `smp_${'8'.repeat(32)}`;
+    const secondSampleRevision = `smpr_${'9'.repeat(32)}`;
+    const firstSample = currentRevision.samples[0];
+    if (firstSample === undefined) throw new Error('fixture sample missing');
+    const twoSamples = {
+      ...currentRevision,
+      samples: [
+        firstSample,
+        {
+          ...firstSample,
+          sample_id: secondSampleId,
+          sample_revision_id: secondSampleRevision,
+          ordinal: 1,
+        },
+      ],
+    };
+    const laterRun: CatalogPublishedRunResponse = {
+      ...publishedRun,
+      artifact_id: 'signal',
+      artifact_generation: `artifactgen-${'c'.repeat(64)}`,
+    };
+    const unpublished = {
+      run_id: 'run_shared_unpublished',
+      provenance: 'resolved',
+      publication_evidence: 'absent' as const,
+    };
+    vi.mocked(catalogListExperiments).mockResolvedValue({
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: [twoSamples],
+      next_cursor: null,
+    });
+    vi.mocked(catalogListExperimentRevisions).mockResolvedValue({
+      experiment_revisions: [twoSamples],
+      next_cursor: null,
+    });
+    vi.mocked(catalogListSampleRevisionRunResults).mockImplementation(
+      async (_projectId, _sampleRevisionId, params) => {
+        if (params?.cursor === 'runcur_2') {
+          return {
+            ok: true,
+            project_id: PROJECT_ID,
+            sample_revision_id: _sampleRevisionId,
+            results: [laterRun],
+            next_cursor: null,
+          };
+        }
+        return {
+          ok: true,
+          project_id: PROJECT_ID,
+          sample_revision_id: _sampleRevisionId,
+          results: [publishedRun, unpublished],
+          next_cursor: 'runcur_2',
+        };
+      },
+    );
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+
+    const scope = await screen.findByRole('region', { name: 'Run input scope' });
+    expect(await within(scope).findByText('signal')).toBeInTheDocument();
+    expect(within(scope).getAllByText('peaks')).toHaveLength(1);
+    expect(within(scope).getAllByText(/run_shared_unpublished/)).toHaveLength(1);
+    expect(catalogListSampleRevisionRunResults).toHaveBeenCalledWith(
+      PROJECT_ID,
+      SAMPLE_REVISION,
+      { limit: 20, cursor: 'runcur_2' },
+    );
+    expect(catalogListSampleRevisionRunResults).toHaveBeenCalledWith(
+      PROJECT_ID,
+      secondSampleRevision,
+      { limit: 20, cursor: 'runcur_2' },
+    );
+  });
 });

@@ -243,14 +243,22 @@ export function ExperimentCatalogPage() {
       if (applied === null || selected === null) throw new Error('No revision.');
       const pages = await Promise.all(
         selected.samples.map((sample) =>
-          catalogListSampleRevisionRunResults(
-            applied.projectId,
-            sample.sample_revision_id,
-            { limit: CATALOG_PAGE_SIZE },
-          ),
+          collectPages(async (cursor) => {
+            const page = await catalogListSampleRevisionRunResults(
+              applied.projectId,
+              sample.sample_revision_id,
+              cursor === undefined
+                ? { limit: CATALOG_PAGE_SIZE }
+                : { limit: CATALOG_PAGE_SIZE, cursor },
+            );
+            return { items: page.results, nextCursor: page.next_cursor ?? null };
+          }),
         ),
       );
-      return pages.flatMap((page) => page.results);
+      return {
+        results: uniqueRunResults(pages.flatMap((page) => page.items)),
+        truncated: pages.some((page) => page.truncated),
+      };
     },
   });
 
@@ -299,9 +307,14 @@ export function ExperimentCatalogPage() {
   }
 
   function openExperiment(experimentId: string) {
+    const opened =
+      experiments.find((item) => item.experiment_id === experimentId) ?? null;
     setSelectedExperimentId(experimentId);
     resetHistory();
-    clearRevisionSelection();
+    setSelectedRevisionId(null);
+    setViewedRevision(null);
+    setPinnedHead(opened);
+    setFollowHeadAfter(null);
     setFormError(null);
   }
 
@@ -495,7 +508,8 @@ export function ExperimentCatalogPage() {
           }}
           trace={traceQuery.data ?? null}
           traceError={traceQuery.isError ? errorMessage(traceQuery.error) : null}
-          sampleRuns={sampleRunsQuery.data ?? null}
+          sampleRuns={sampleRunsQuery.data?.results ?? null}
+          sampleRunsTruncated={sampleRunsQuery.data?.truncated ?? false}
           sampleRunsError={
             sampleRunsQuery.isError ? errorMessage(sampleRunsQuery.error) : null
           }
@@ -559,6 +573,7 @@ function RevisionDetail({
   trace,
   traceError,
   sampleRuns,
+  sampleRunsTruncated,
   sampleRunsError,
 }: {
   head: CatalogExperimentResponse | null;
@@ -573,6 +588,7 @@ function RevisionDetail({
   trace: CatalogExperimentRunListResponse | null;
   traceError: string | null;
   sampleRuns: CatalogSampleRunListResponseResultsItem[] | null;
+  sampleRunsTruncated: boolean;
   sampleRunsError: string | null;
 }) {
   const traceText =
@@ -677,6 +693,11 @@ function RevisionDetail({
             这条样本修订没有运行结果。
           </p>
         )}
+        {sampleRunsTruncated && (
+          <p role="status" className="mt-2 text-sm text-[var(--color-text-muted)]">
+            Run results stopped after 20 pages.
+          </p>
+        )}
         {sampleRuns !== null && sampleRuns.length > 0 && (
           <ul aria-label="Run results" className="mt-2 space-y-2 text-sm">
             {sampleRuns.map((row) => (
@@ -710,9 +731,23 @@ function RevisionDetail({
 
 function runResultKey(row: CatalogSampleRunListResponseResultsItem): string {
   if (isPublishedRun(row)) {
-    return `${row.run_id}:${row.artifact_id}:${row.artifact_generation}`;
+    return `published:${row.run_id}:${row.artifact_id}:${row.artifact_generation}`;
   }
-  return `${row.run_id}:unpublished`;
+  return `unpublished:${row.run_id}:${row.provenance}`;
+}
+
+function uniqueRunResults(
+  rows: readonly CatalogSampleRunListResponseResultsItem[],
+): CatalogSampleRunListResponseResultsItem[] {
+  const seen = new Set<string>();
+  const unique: CatalogSampleRunListResponseResultsItem[] = [];
+  for (const row of rows) {
+    const key = runResultKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  return unique;
 }
 
 function isCurrentRevision(
@@ -763,6 +798,11 @@ function AdminMaintenance({
       }),
   });
   const samples = samplesQuery.data?.items ?? [];
+  const samplesStatus = samplesQuery.isError
+    ? 'error'
+    : samplesQuery.isSuccess
+      ? 'ready'
+      : 'loading';
   const assayTerms = termsOf(terms, 'assay');
   const targetTerms = termsOf(terms, 'target');
   const batchTerms = termsOf(terms, 'batch');
@@ -780,6 +820,10 @@ function AdminMaintenance({
       <ExperimentForm
         projectId={projectId}
         samples={samples}
+        samplesStatus={samplesStatus}
+        sampleError={
+          samplesQuery.isError ? errorMessage(samplesQuery.error) : null
+        }
         assayTerms={assayTerms}
         targetTerms={targetTerms}
         batchTerms={batchTerms}
@@ -877,6 +921,8 @@ function TermForm({
 function ExperimentForm({
   projectId,
   samples,
+  samplesStatus,
+  sampleError,
   assayTerms,
   targetTerms,
   batchTerms,
@@ -886,6 +932,8 @@ function ExperimentForm({
 }: {
   projectId: string;
   samples: readonly CatalogSampleListResponseSamplesItem[];
+  samplesStatus: 'loading' | 'ready' | 'error';
+  sampleError: string | null;
   assayTerms: readonly CatalogTermSummaryResponse[];
   targetTerms: readonly CatalogTermSummaryResponse[];
   batchTerms: readonly CatalogTermSummaryResponse[];
@@ -956,7 +1004,17 @@ function ExperimentForm({
       {projectId === '' && (
         <p className="text-xs text-[var(--color-text-muted)]">Select a project first.</p>
       )}
-      {projectId !== '' && samples.length === 0 && (
+      {projectId !== '' && samplesStatus === 'loading' && (
+        <p role="status" className="text-xs text-[var(--color-text-muted)]">
+          Loading sample revisions…
+        </p>
+      )}
+      {projectId !== '' && samplesStatus === 'error' && (
+        <p role="alert" className="text-xs text-[var(--color-error)]">
+          {sampleError}
+        </p>
+      )}
+      {projectId !== '' && samplesStatus === 'ready' && samples.length === 0 && (
         <p className="text-xs text-[var(--color-text-muted)]">
           This project has no sample revisions. The catalog page cannot create samples.
         </p>
@@ -1002,7 +1060,12 @@ function ExperimentForm({
       <Button
         type="submit"
         variant="primary"
-        disabled={mutation.isPending || projectId === '' || samples.length === 0}
+        disabled={
+          mutation.isPending ||
+          projectId === '' ||
+          samplesStatus !== 'ready' ||
+          samples.length === 0
+        }
       >
         Record experiment
       </Button>

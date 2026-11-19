@@ -219,6 +219,8 @@ try {
 
   await page.getByRole('button', { name: 'Next page' }).click();
   await experiments.getByRole('button', { name: manifest.page_two_name }).waitFor();
+  await page.getByRole('heading', { name: manifest.older_name }).waitFor();
+  report.opened_experiment_kept_after_paging = true;
   report.excluded_hidden =
     (await experiments.getByRole('button', { name: manifest.excluded_name }).count()) ===
     0;
