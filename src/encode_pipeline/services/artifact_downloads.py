@@ -24,6 +24,7 @@ from encode_pipeline.platform.result_generations import (
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.runs import RunArtifactRef
 from encode_pipeline.services.artifact_disk_relocation import (
+    MAX_RELOCATION_BYTES,
     PUBLIC_BYTES_MISMATCH,
     PUBLIC_UNAVAILABLE,
     ArtifactDiskRelocation,
@@ -232,6 +233,12 @@ class _PreparedArtifactDownloadSource:
         """
         if not self._nodes:
             raise ArtifactDownloadStreamError()
+        if (
+            isinstance(self._size_bytes, int)
+            and not isinstance(self._size_bytes, bool)
+            and self._size_bytes > BOUNDED_ARTIFACT_CONTENT_REVISION_MAX_BYTES
+        ):
+            raise _ArtifactSourceConflict("ARTIFACT_DOWNLOAD_SIZE_MISMATCH")
         _verify_descriptor_chain(self._nodes)
         info = os.fstat(self._nodes[-1].descriptor)
         if not stat.S_ISREG(info.st_mode):
@@ -521,6 +528,12 @@ class ArtifactDownloadService:
                 filename=filename,
                 content_disposition=disposition,
             )
+            if (
+                isinstance(expected_size, int)
+                and not isinstance(expected_size, bool)
+                and expected_size > MAX_RELOCATION_BYTES
+            ):
+                raise ArtifactDiskRelocationError("relocation_too_large")
             content, mode = prepared.verified_bytes()
         except _ArtifactSourceConflict as exc:
             raise ArtifactDiskRelocationError(

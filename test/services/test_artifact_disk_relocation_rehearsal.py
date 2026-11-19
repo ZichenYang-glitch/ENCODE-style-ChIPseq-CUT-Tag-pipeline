@@ -10,6 +10,7 @@ from hashlib import sha256
 from pathlib import Path
 import stat
 import sys
+import threading
 
 import httpx
 
@@ -27,13 +28,16 @@ from encode_pipeline.platform.result_generations import (
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.runs import RunStatus
 from encode_pipeline.services.artifact_disk_relocation import (
+    MAX_RELOCATION_BYTES,
     PUBLIC_BYTES_MISMATCH,
     PUBLIC_PERMISSION_MISMATCH,
     PUBLIC_UNAVAILABLE,
     ArtifactDiskRelocation,
     ArtifactDiskRelocationError,
+    RelocationJournal,
     lookup_switched_download,
 )
+from encode_pipeline.services import artifact_downloads as artifact_downloads_module
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from test_artifact_extraction import ArtifactAdapter, _project
 
@@ -477,5 +481,207 @@ def test_saved_link_reads_durable_bytes_after_resumable_switch(tmp_path: Path) -
         rejected = client.get(saved_url, params=wrong_revision)
         assert rejected.status_code == 409
         assert _reason(rejected) == "ARTIFACT_DOWNLOAD_REVISION_CHANGED"
+    finally:
+        _close(app)
+
+
+def _capture_small(tmp_path: Path) -> tuple[ArtifactDiskRelocation, RelocationJournal]:
+    source_root = tmp_path / "scratch"
+    durable_root = tmp_path / "durable"
+    target = source_root / "run-1" / RELATIVE_PATH
+    target.parent.mkdir(parents=True)
+    target.write_bytes(SOURCE_CONTENT)
+    os.chmod(target, SOURCE_MODE)
+    revision, path_identity = _current_binding(target)
+    relocation = ArtifactDiskRelocation(
+        source_root=source_root,
+        durable_root=durable_root,
+    )
+    journal = relocation.capture(
+        run_id="run-1",
+        artifact_id="artifact-1",
+        generation="artifactgen-" + "ab" * 32,
+        revision=revision,
+        relative_path=RELATIVE_PATH,
+        output_type=OUTPUT_TYPE,
+        path_identity=path_identity,
+        expected_size=len(SOURCE_CONTENT),
+        content=SOURCE_CONTENT,
+        mode=SOURCE_MODE,
+    )
+    return relocation, journal
+
+
+def test_directory_layers_reject_symlinks_before_writing_outside(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    durable = tmp_path / "durable"
+    durable.mkdir()
+    (durable / "journals").symlink_to(outside, target_is_directory=True)
+    source_root = tmp_path / "scratch"
+    target = source_root / "run-1" / RELATIVE_PATH
+    target.parent.mkdir(parents=True)
+    target.write_bytes(SOURCE_CONTENT)
+    os.chmod(target, SOURCE_MODE)
+    revision, path_identity = _current_binding(target)
+    relocation = ArtifactDiskRelocation(
+        source_root=source_root,
+        durable_root=durable,
+    )
+    try:
+        relocation.capture(
+            run_id="run-1",
+            artifact_id="artifact-1",
+            generation="artifactgen-" + "ab" * 32,
+            revision=revision,
+            relative_path=RELATIVE_PATH,
+            output_type=OUTPUT_TYPE,
+            path_identity=path_identity,
+            expected_size=len(SOURCE_CONTENT),
+            content=SOURCE_CONTENT,
+            mode=SOURCE_MODE,
+        )
+    except ArtifactDiskRelocationError as exc:
+        assert exc.reason_code == "relocation_source_unavailable"
+    else:
+        raise AssertionError("journal write followed a symlinked journals directory")
+    assert list(outside.iterdir()) == []
+
+    (durable / "journals").unlink()
+    relocation, _journal = _capture_small(tmp_path / "payload-case")
+    payload_root = tmp_path / "payload-case" / "durable" / "payload" / "run-1"
+    payload_root.mkdir(parents=True)
+    (payload_root / "results").symlink_to(outside, target_is_directory=True)
+    try:
+        relocation.resume(run_id="run-1", artifact_id="artifact-1")
+    except ArtifactDiskRelocationError as exc:
+        assert exc.reason_code == "relocation_source_unavailable"
+    else:
+        raise AssertionError("copy followed a symlinked results directory")
+    assert list(outside.iterdir()) == []
+    assert (
+        tmp_path / "payload-case" / "scratch" / "run-1" / RELATIVE_PATH
+    ).read_bytes() == (SOURCE_CONTENT)
+
+
+def test_switched_fifo_fails_without_blocking(tmp_path: Path) -> None:
+    relocation, journal = _capture_small(tmp_path)
+    assert relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "copied"
+    assert (
+        relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "verified"
+    )
+    assert (
+        relocation.resume(run_id="run-1", artifact_id="artifact-1").stage == "switched"
+    )
+    payload = relocation.payload_file("run-1", "artifact-1")
+    payload.unlink()
+    os.mkfifo(payload)
+    holder: dict[str, object] = {}
+
+    def read() -> None:
+        try:
+            holder["decision"] = lookup_switched_download(
+                tmp_path / "durable",
+                run_id="run-1",
+                artifact_id="artifact-1",
+                generation=journal.generation,
+                revision=journal.revision,
+                relative_path=RELATIVE_PATH,
+                size_bytes=journal.size_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001 - the thread must not hang the test
+            holder["error"] = exc
+
+    worker = threading.Thread(target=read, daemon=True)
+    worker.start()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert "error" not in holder
+    decision = holder["decision"]
+    assert getattr(decision, "kind") == "reject"
+    assert getattr(decision, "reason_code") == PUBLIC_UNAVAILABLE
+
+
+def test_capture_rejects_oversized_file_before_reading_it(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    reads: list[int] = []
+
+    def refuse_read(nodes, expected_size: int) -> bytes:
+        del nodes
+        reads.append(expected_size)
+        raise AssertionError("relocation read past the size cap")
+
+    monkeypatch.setattr(
+        artifact_downloads_module,
+        "_read_bounded_content",
+        refuse_read,
+    )
+    scratch = tmp_path / "scratch"
+    durable = tmp_path / "durable"
+    project = scratch / "project"
+    _project(project)
+    candidate = ExtractedArtifactCandidate(
+        output_type="macs3_peak",
+        relative_path=RELATIVE_PATH,
+        mime_type="text/tab-separated-values",
+        metadata={"catalog_id": "macs3_peak", "scope": "project"},
+    )
+    adapter = ArtifactAdapter((candidate,))
+    adapter.identity_root = project
+    registry = WorkflowRegistry([adapter])
+    app = create_app(
+        database_url=f"sqlite:///{scratch / 'platform.db'}",
+        workspace_root=scratch / "workspaces",
+        project_root=project,
+        registry=registry,
+        relocation_root=durable,
+    )
+    try:
+        seed_test_authentication(app)
+        run_service = app.state.run_service
+        run_id = run_service.create_run("fake", WorkflowInputs(config={})).run_id
+        run_service.transition_run(run_id, RunStatus.VALIDATING)
+        identity = app.state.build_identity_provider.capture("fake").value
+        run_service.complete_preflight(run_id, identity)
+        for status in (RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.SUCCEEDED):
+            run_service.transition_run(run_id, status)
+        source = app.state.workspace_root / run_id / RELATIVE_PATH
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b"")
+        os.truncate(source, MAX_RELOCATION_BYTES + 1)
+        os.chmod(source, SOURCE_MODE)
+        extraction = ArtifactExtractionService(
+            run_service=run_service,
+            registry=registry,
+            build_identity_provider=app.state.build_identity_provider,
+            workspace_root=app.state.workspace_root,
+        )
+        extracted = extraction.extract(run_id)
+        assert extracted.is_success, extracted.issues
+        artifact = extracted.value[0]
+        generation = run_service.get_result_state(run_id).artifact_generation
+        assert generation is not None
+        try:
+            app.state.artifact_download_service.capture_relocation(
+                ArtifactDiskRelocation(
+                    source_root=app.state.workspace_root,
+                    durable_root=durable,
+                ),
+                run_id=run_id,
+                artifact_id=artifact.artifact_id,
+                expected_generation=generation,
+                expected_revision=artifact.revision,
+            )
+        except ArtifactDiskRelocationError as exc:
+            assert exc.reason_code == "relocation_too_large"
+        else:
+            raise AssertionError("oversized artifact was copied")
+        assert reads == []
+        journal = durable / "journals" / run_id / f"{artifact.artifact_id}.json"
+        assert not journal.exists()
     finally:
         _close(app)

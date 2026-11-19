@@ -262,9 +262,10 @@ class ArtifactDiskRelocation:
             raise ArtifactDiskRelocationError("relocation_permission_mismatch")
 
     def _commit_payload(self, destination: Path, content: bytes, mode: int) -> None:
-        parent = destination.parent
-        parent.mkdir(parents=True, exist_ok=True)
-        directory = os.open(parent, _DIRECTORY_FLAGS)
+        directory = _open_contained_directory(
+            self._durable_root,
+            _directory_parts(self._durable_root, destination),
+        )
         temporary = destination.name + ".tmp"
         file_descriptor: int | None = None
         try:
@@ -310,7 +311,6 @@ class ArtifactDiskRelocation:
 
     def _write_journal(self, journal: RelocationJournal) -> RelocationJournal:
         path = self._journal_path(journal.run_id, journal.artifact_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(
             {
                 "artifact_id": journal.artifact_id,
@@ -328,7 +328,10 @@ class ArtifactDiskRelocation:
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
-        directory = os.open(path.parent, _DIRECTORY_FLAGS)
+        directory = _open_contained_directory(
+            self._durable_root,
+            _directory_parts(self._durable_root, path),
+        )
         temporary = path.name + ".tmp"
         file_descriptor: int | None = None
         try:
@@ -510,6 +513,99 @@ def _validate_relative_path(value: object) -> str:
     ):
         raise ArtifactDiskRelocationError("relocation_identity_invalid")
     return value
+
+
+def _directory_parts(root: Path, destination: Path) -> tuple[str, ...]:
+    """Return the directory components of ``destination`` beneath ``root``."""
+    try:
+        relative = destination.relative_to(root)
+    except ValueError as exc:
+        raise ArtifactDiskRelocationError("relocation_identity_invalid") from exc
+    parts = relative.parts[:-1]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ArtifactDiskRelocationError("relocation_identity_invalid")
+    return parts
+
+
+def _open_contained_directory(root: Path, parts: tuple[str, ...]) -> int:
+    """Create and open each directory from ``root`` without following links.
+
+    The caller closes the returned descriptor. A symlink, FIFO, or other
+    non-directory at any layer fails before a later component is created.
+    """
+    if not parts:
+        raise ArtifactDiskRelocationError("relocation_identity_invalid")
+    parent_descriptors: list[int] = []
+    current: int | None = None
+    try:
+        current = _open_real_directory(root)
+        for component in parts:
+            if component in {"", ".", ".."}:
+                raise ArtifactDiskRelocationError("relocation_identity_invalid")
+            parent_descriptors.append(current)
+            current = None
+            current = _open_or_create_child_directory(parent_descriptors[-1], component)
+            info = os.fstat(current)
+            if not stat.S_ISDIR(info.st_mode):
+                raise ArtifactDiskRelocationError("relocation_source_unavailable")
+        opened = current
+        current = None
+        return opened
+    except ArtifactDiskRelocationError:
+        raise
+    except OSError as exc:
+        raise ArtifactDiskRelocationError("relocation_source_unavailable") from exc
+    finally:
+        if current is not None:
+            os.close(current)
+        for descriptor in reversed(parent_descriptors):
+            os.close(descriptor)
+
+
+def _open_real_directory(path: Path) -> int:
+    try:
+        return os.open(path, _DIRECTORY_FLAGS)
+    except FileNotFoundError:
+        try:
+            os.mkdir(path, 0o700)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise ArtifactDiskRelocationError("relocation_source_unavailable") from exc
+        try:
+            return os.open(path, _DIRECTORY_FLAGS)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
+                raise ArtifactDiskRelocationError(
+                    "relocation_source_unavailable"
+                ) from exc
+            raise
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
+            raise ArtifactDiskRelocationError("relocation_source_unavailable") from exc
+        raise
+
+
+def _open_or_create_child_directory(parent: int, component: str) -> int:
+    try:
+        return os.open(component, _DIRECTORY_FLAGS, dir_fd=parent)
+    except FileNotFoundError:
+        try:
+            os.mkdir(component, 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        try:
+            return os.open(component, _DIRECTORY_FLAGS, dir_fd=parent)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
+                raise ArtifactDiskRelocationError(
+                    "relocation_source_unavailable"
+                ) from exc
+            raise
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.ENOTDIR, errno.ENXIO}:
+            raise ArtifactDiskRelocationError("relocation_source_unavailable") from exc
+        raise
 
 
 def _contained(root: Path, relative: PurePosixPath) -> Path:
@@ -696,11 +792,16 @@ def _read_tree(root: Path, relative: PurePosixPath) -> tuple[bytes, int]:
             try:
                 opened = os.open(
                     component,
-                    _FILE_READ_FLAGS if final else _DIRECTORY_FLAGS,
+                    (_FILE_READ_FLAGS | os.O_NONBLOCK if final else _DIRECTORY_FLAGS),
                     dir_fd=current,
                 )
             except OSError as exc:
-                if exc.errno in {errno.ENOENT, errno.ELOOP, errno.ENOTDIR}:
+                if exc.errno in {
+                    errno.ENOENT,
+                    errno.ELOOP,
+                    errno.ENOTDIR,
+                    errno.ENXIO,
+                }:
                     raise ArtifactDiskRelocationError(
                         "relocation_source_unavailable"
                     ) from exc
