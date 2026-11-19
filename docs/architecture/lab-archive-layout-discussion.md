@@ -1,6 +1,8 @@
 # 实验室长期数据目录：按研究结果归档
 供讨论的设计草案。参照主干 `65d99776` 的[数据基础决策](data-foundation-decision.md)和[产物发布语义](artifact-publication-provenance-decision.md)。示例路径、数据关系与操作是提议，不是当前命令或迁移指令。
 
+试用入口：[实验室数据归档 SOP 与清单模板](../../.agents/skills/helixweave-archive-plan/references/lab-archive-sop.md)；[归档规划 skill](../../.agents/skills/helixweave-archive-plan/SKILL.md)。
+
 ## 先确定归档单位
 运行是一次计算；长期保存的是可以交给同事、引用或用于下一步分析的一份研究结果。一轮运行可能交付零个、一个或多个结果；一份下游结果也可能依赖多轮运行。没有 HelixWeave run 的结果同样可以登记。实验、样本、结果、运行各有自己的身份，不能用一个 run 或一个目录名代替。实验可以先登记，暂时没有结果。
 
