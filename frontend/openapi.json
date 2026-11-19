@@ -3963,6 +3963,2596 @@
           }
         }
       }
+    },
+    "/api/v1/catalog/projects/{project_id}/experiments": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Experiments",
+        "operationId": "catalogListExperiments",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "revision_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision View"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Archived"
+            }
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            }
+          },
+          {
+            "name": "species_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Species Term Id"
+            }
+          },
+          {
+            "name": "tissue_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tissue Term Id"
+            }
+          },
+          {
+            "name": "cell_type_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Cell Type Term Id"
+            }
+          },
+          {
+            "name": "cell_line_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Cell Line Term Id"
+            }
+          },
+          {
+            "name": "treatment_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Treatment Term Id"
+            }
+          },
+          {
+            "name": "tag_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tag Term Id"
+            }
+          },
+          {
+            "name": "assay_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Assay Term Id"
+            }
+          },
+          {
+            "name": "target_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Target Term Id"
+            }
+          },
+          {
+            "name": "batch_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Batch Term Id"
+            }
+          },
+          {
+            "name": "species_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Species Status"
+            }
+          },
+          {
+            "name": "tissue_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tissue Status"
+            }
+          },
+          {
+            "name": "cell_type_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cell Type Status"
+            }
+          },
+          {
+            "name": "cell_line_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cell Line Status"
+            }
+          },
+          {
+            "name": "treatment_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Treatment Status"
+            }
+          },
+          {
+            "name": "tag_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag Status"
+            }
+          },
+          {
+            "name": "assay_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assay Status"
+            }
+          },
+          {
+            "name": "target_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Status"
+            }
+          },
+          {
+            "name": "batch_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Batch Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Create Experiment",
+        "operationId": "catalogCreateExperiment",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogCreateExperimentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/samples": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Samples",
+        "operationId": "catalogListSamples",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            }
+          },
+          {
+            "name": "catalog_state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Catalog State"
+            }
+          },
+          {
+            "name": "species_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Species Term Id"
+            }
+          },
+          {
+            "name": "tissue_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tissue Term Id"
+            }
+          },
+          {
+            "name": "cell_type_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Cell Type Term Id"
+            }
+          },
+          {
+            "name": "cell_line_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Cell Line Term Id"
+            }
+          },
+          {
+            "name": "treatment_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Treatment Term Id"
+            }
+          },
+          {
+            "name": "tag_term_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tag Term Id"
+            }
+          },
+          {
+            "name": "species_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Species Status"
+            }
+          },
+          {
+            "name": "tissue_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tissue Status"
+            }
+          },
+          {
+            "name": "cell_type_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cell Type Status"
+            }
+          },
+          {
+            "name": "cell_line_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cell Line Status"
+            }
+          },
+          {
+            "name": "treatment_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Treatment Status"
+            }
+          },
+          {
+            "name": "tag_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSampleListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/samples/{sample_id}/revisions": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Sample Revisions",
+        "operationId": "catalogListSampleRevisions",
+        "parameters": [
+          {
+            "name": "sample_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sample Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSampleRevisionListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/samples/{sample_id}/revisions/{sample_revision_id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Sample Revision",
+        "operationId": "catalogGetSampleRevision",
+        "parameters": [
+          {
+            "name": "sample_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sample Id"
+            }
+          },
+          {
+            "name": "sample_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sample Revision Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                    }
+                  ],
+                  "title": "Response Cataloggetsamplerevision"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/experiments/{experiment_id}/revisions": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Experiment Revisions",
+        "operationId": "catalogListExperimentRevisions",
+        "parameters": [
+          {
+            "name": "experiment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "revision_view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision View"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentRevisionListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Revise Experiment",
+        "operationId": "catalogReviseExperiment",
+        "parameters": [
+          {
+            "name": "experiment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogReviseExperimentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/experiments/{experiment_id}/revisions/{experiment_revision_id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Experiment Revision",
+        "operationId": "catalogGetExperimentRevision",
+        "parameters": [
+          {
+            "name": "experiment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Id"
+            }
+          },
+          {
+            "name": "experiment_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Revision Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/terms": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Terms",
+        "operationId": "catalogListTerms",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Archived"
+            }
+          },
+          {
+            "name": "term_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Term Type"
+            }
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogTermListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Create Term",
+        "operationId": "catalogCreateTerm",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogCreateTermRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogTermResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/terms/{term_id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Term",
+        "operationId": "catalogGetTerm",
+        "parameters": [
+          {
+            "name": "term_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Term Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogTermResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/terms/{term_id}/revisions": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Revise Term",
+        "operationId": "catalogReviseTerm",
+        "parameters": [
+          {
+            "name": "term_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Term Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogReviseTermRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogTermResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/terms/{term_id}/archive": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Archive Term",
+        "operationId": "catalogArchiveTerm",
+        "parameters": [
+          {
+            "name": "term_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Term Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogArchiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogTermResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/experiments/{experiment_id}/archive": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Archive Experiment",
+        "operationId": "catalogArchiveExperiment",
+        "parameters": [
+          {
+            "name": "experiment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogArchiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogArchiveExperimentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/samples/{sample_id}/catalog-revisions": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Revise Sample Catalog",
+        "operationId": "catalogReviseSampleCatalog",
+        "parameters": [
+          {
+            "name": "sample_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sample Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogReviseSampleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                    }
+                  ],
+                  "title": "Response Catalogrevisesamplecatalog"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/sample-revisions/{sample_revision_id}/run-results": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Sample Run Results",
+        "operationId": "catalogListSampleRevisionRunResults",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "sample_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sample Revision Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSampleRunListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/experiment-revisions/{experiment_revision_id}/run-results": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Experiment Run Results",
+        "operationId": "catalogListExperimentRevisionRunResults",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "experiment_revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Revision Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogExperimentRunListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7080,6 +9670,2880 @@
           "detail"
         ],
         "title": "BrowserUnavailableTrackResponse"
+      },
+      "CatalogAmbiguousMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ambiguous",
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "maxItems": 0,
+            "title": "Values"
+          },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CatalogTermPinResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogAmbiguousMultiSlotResponse"
+      },
+      "CatalogAmbiguousSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ambiguous",
+            "title": "Status"
+          },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CatalogTermPinResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CatalogAmbiguousSingleSlotResponse"
+      },
+      "CatalogArchiveExperimentResponse": {
+        "properties": {
+          "experiment_id": {
+            "type": "string",
+            "title": "Experiment Id"
+          },
+          "archived_at": {
+            "type": "string",
+            "title": "Archived At"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "experiment_id",
+          "archived_at",
+          "revision_number"
+        ],
+        "title": "CatalogArchiveExperimentResponse"
+      },
+      "CatalogArchiveRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision Number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number"
+        ],
+        "title": "CatalogArchiveRequest"
+      },
+      "CatalogAssociatedRunSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "ordinal"
+        ],
+        "title": "CatalogAssociatedRunSampleResponse"
+      },
+      "CatalogClassifiedExperimentSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "replicate_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Group"
+          },
+          "replicate_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Replicate Role"
+          },
+          "linked_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Sample Revision Id"
+          },
+          "current_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Sample Revision Id"
+          },
+          "species": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Species"
+          },
+          "tissue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Tissue"
+          },
+          "cell_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Type"
+          },
+          "cell_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Line"
+          },
+          "treatment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Treatment"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "ordinal",
+          "replicate_role",
+          "species",
+          "tissue",
+          "cell_type",
+          "cell_line",
+          "treatment",
+          "tag"
+        ],
+        "title": "CatalogClassifiedExperimentSampleResponse"
+      },
+      "CatalogClassifiedSampleRevisionResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "present",
+            "title": "Catalog State"
+          },
+          "species": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Species"
+          },
+          "tissue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Tissue"
+          },
+          "cell_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Type"
+          },
+          "cell_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Cell Line"
+          },
+          "treatment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Treatment"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeMultiSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousMultiSlotResponse"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "display_name",
+          "created_at",
+          "catalog_state",
+          "species",
+          "tissue",
+          "cell_type",
+          "cell_line",
+          "treatment",
+          "tag"
+        ],
+        "title": "CatalogClassifiedSampleRevisionResponse"
+      },
+      "CatalogCreateExperimentRequest": {
+        "properties": {
+          "stable_key": {
+            "type": "string",
+            "title": "Stable Key"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "assay": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Assay"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Target"
+          },
+          "batch": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Batch"
+          },
+          "samples": {
+            "items": {
+              "properties": {
+                "sample_revision_id": {
+                  "type": "string"
+                },
+                "replicate_group": {
+                  "type": "string"
+                },
+                "replicate_role": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "not_applicable",
+                            "not_detected"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "ambiguous"
+                        },
+                        "candidates": {
+                          "items": {
+                            "properties": {
+                              "term_id": {
+                                "type": "string"
+                              },
+                              "term_revision_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "type": "object",
+                            "required": [
+                              "term_id",
+                              "term_revision_id"
+                            ]
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "sample_revision_id",
+                "replicate_role"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Samples"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stable_key",
+          "display_name",
+          "assay",
+          "target",
+          "batch",
+          "samples"
+        ],
+        "title": "CatalogCreateExperimentRequest"
+      },
+      "CatalogCreateTermRequest": {
+        "properties": {
+          "term_type": {
+            "type": "string",
+            "title": "Term Type"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_type",
+          "display_name"
+        ],
+        "title": "CatalogCreateTermRequest"
+      },
+      "CatalogErrorResponse": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogIssueResponse"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "issues"
+        ],
+        "title": "CatalogErrorResponse"
+      },
+      "CatalogExperimentListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "revision_view": {
+            "type": "string",
+            "title": "Revision View"
+          },
+          "experiments": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogExperimentResponse"
+            },
+            "type": "array",
+            "title": "Experiments"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "revision_view",
+          "experiments",
+          "next_cursor"
+        ],
+        "title": "CatalogExperimentListResponse"
+      },
+      "CatalogExperimentResponse": {
+        "properties": {
+          "experiment_id": {
+            "type": "string",
+            "title": "Experiment Id"
+          },
+          "experiment_revision_id": {
+            "type": "string",
+            "title": "Experiment Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "assay": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Assay"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Target"
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Batch"
+          },
+          "samples": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedExperimentSampleResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedExperimentSampleResponse"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Samples"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "experiment_id",
+          "experiment_revision_id",
+          "revision_number",
+          "display_name",
+          "assay",
+          "target",
+          "batch",
+          "samples"
+        ],
+        "title": "CatalogExperimentResponse"
+      },
+      "CatalogExperimentRevisionListResponse": {
+        "properties": {
+          "experiment_revisions": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogExperimentResponse"
+            },
+            "type": "array",
+            "title": "Experiment Revisions"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "experiment_revisions"
+        ],
+        "title": "CatalogExperimentRevisionListResponse"
+      },
+      "CatalogExperimentRunListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "experiment_revision_id": {
+            "type": "string",
+            "title": "Experiment Revision Id"
+          },
+          "trace_status": {
+            "type": "string",
+            "const": "unresolved",
+            "title": "Trace Status"
+          },
+          "reason": {
+            "type": "string",
+            "const": "experiment_snapshot_binding_absent",
+            "title": "Reason"
+          },
+          "results": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogPublishedRunResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnpublishedRunResponse"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "experiment_revision_id",
+          "trace_status",
+          "reason",
+          "results",
+          "next_cursor"
+        ],
+        "title": "CatalogExperimentRunListResponse"
+      },
+      "CatalogIssueResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "error"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "CatalogIssueResponse",
+        "description": "Stable catalog failure fields. Codes stay lowercase except auth codes."
+      },
+      "CatalogKnownMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "known",
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogKnownMultiSlotResponse"
+      },
+      "CatalogKnownSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "known",
+            "title": "Status"
+          },
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "term_id",
+          "term_revision_id",
+          "display_name"
+        ],
+        "title": "CatalogKnownSingleSlotResponse"
+      },
+      "CatalogNegativeMultiSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_applicable",
+              "not_detected"
+            ],
+            "title": "Status"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermPinResponse"
+            },
+            "type": "array",
+            "maxItems": 0,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "values"
+        ],
+        "title": "CatalogNegativeMultiSlotResponse"
+      },
+      "CatalogNegativeSingleSlotResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_applicable",
+              "not_detected"
+            ],
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CatalogNegativeSingleSlotResponse"
+      },
+      "CatalogPublishedRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "publication_evidence": {
+            "type": "string",
+            "const": "present",
+            "title": "Publication Evidence"
+          },
+          "artifact_association_kind": {
+            "type": "string",
+            "const": "run_input_scope",
+            "title": "Artifact Association Kind"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id"
+          },
+          "output_type": {
+            "type": "string",
+            "title": "Output Type"
+          },
+          "artifact_generation": {
+            "type": "string",
+            "title": "Artifact Generation"
+          },
+          "artifact_revision": {
+            "type": "string",
+            "title": "Artifact Revision"
+          },
+          "published_at": {
+            "type": "string",
+            "title": "Published At"
+          },
+          "current_artifact_generation": {
+            "type": "string",
+            "title": "Current Artifact Generation"
+          },
+          "generation_status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "superseded"
+            ],
+            "title": "Generation Status"
+          },
+          "run_sample_binding": {
+            "$ref": "#/components/schemas/CatalogRunSampleBindingResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "provenance",
+          "publication_evidence",
+          "artifact_association_kind",
+          "workflow_id",
+          "artifact_id",
+          "output_type",
+          "artifact_generation",
+          "artifact_revision",
+          "published_at",
+          "current_artifact_generation",
+          "generation_status",
+          "run_sample_binding"
+        ],
+        "title": "CatalogPublishedRunResponse"
+      },
+      "CatalogReviseExperimentRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "assay": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Assay"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Target"
+          },
+          "batch": {
+            "oneOf": [
+              {
+                "properties": {
+                  "status": {
+                    "const": "known"
+                  },
+                  "term_id": {
+                    "type": "string"
+                  },
+                  "term_revision_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status",
+                  "term_id",
+                  "term_revision_id"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "unknown",
+                      "not_applicable",
+                      "not_detected"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "properties": {
+                  "status": {
+                    "const": "ambiguous"
+                  },
+                  "candidates": {
+                    "items": {
+                      "properties": {
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "status"
+                ]
+              }
+            ],
+            "title": "Batch"
+          },
+          "samples": {
+            "items": {
+              "properties": {
+                "sample_revision_id": {
+                  "type": "string"
+                },
+                "replicate_group": {
+                  "type": "string"
+                },
+                "replicate_role": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "known"
+                        },
+                        "term_id": {
+                          "type": "string"
+                        },
+                        "term_revision_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "term_id",
+                        "term_revision_id"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unknown",
+                            "not_applicable",
+                            "not_detected"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "ambiguous"
+                        },
+                        "candidates": {
+                          "items": {
+                            "properties": {
+                              "term_id": {
+                                "type": "string"
+                              },
+                              "term_revision_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "type": "object",
+                            "required": [
+                              "term_id",
+                              "term_revision_id"
+                            ]
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "sample_revision_id",
+                "replicate_role"
+              ]
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Samples"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number",
+          "display_name",
+          "assay",
+          "target",
+          "batch",
+          "samples"
+        ],
+        "title": "CatalogReviseExperimentRequest"
+      },
+      "CatalogReviseSampleRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision Number"
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "properties": {
+                  "schema_version": {
+                    "type": "integer",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  "species": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "term_id": {
+                            "type": "string"
+                          },
+                          "term_revision_id": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "term_id",
+                          "term_revision_id"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    ]
+                  },
+                  "tissue": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "term_id": {
+                            "type": "string"
+                          },
+                          "term_revision_id": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "term_id",
+                          "term_revision_id"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status"
+                        ]
+                      }
+                    ]
+                  },
+                  "cell_type": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "cell_line": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "treatment": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  },
+                  "tag": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "known"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "minItems": 1
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "unknown",
+                              "not_applicable",
+                              "not_detected"
+                            ]
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "ambiguous"
+                          },
+                          "values": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array",
+                            "maxItems": 0
+                          },
+                          "candidates": {
+                            "items": {
+                              "properties": {
+                                "term_id": {
+                                  "type": "string"
+                                },
+                                "term_revision_id": {
+                                  "type": "string"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "type": "object",
+                              "required": [
+                                "term_id",
+                                "term_revision_id"
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "values"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "schema_version",
+                  "species",
+                  "tissue",
+                  "cell_type",
+                  "cell_line",
+                  "treatment",
+                  "tag"
+                ]
+              }
+            ],
+            "title": "Catalog"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number",
+          "catalog"
+        ],
+        "title": "CatalogReviseSampleRequest"
+      },
+      "CatalogReviseTermRequest": {
+        "properties": {
+          "expected_revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision Number"
+          },
+          "change_kind": {
+            "type": "string",
+            "title": "Change Kind"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision_number",
+          "change_kind",
+          "display_name"
+        ],
+        "title": "CatalogReviseTermRequest"
+      },
+      "CatalogRunSampleBindingResponse": {
+        "properties": {
+          "binding_mode": {
+            "type": "string",
+            "title": "Binding Mode"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "associated_run_samples": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAssociatedRunSampleResponse"
+            },
+            "type": "array",
+            "title": "Associated Run Samples"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "binding_mode",
+          "provenance",
+          "associated_run_samples"
+        ],
+        "title": "CatalogRunSampleBindingResponse"
+      },
+      "CatalogSampleListResponse": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "samples": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Samples"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id",
+          "samples"
+        ],
+        "title": "CatalogSampleListResponse"
+      },
+      "CatalogSampleRevisionListResponse": {
+        "properties": {
+          "sample_revisions": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogClassifiedSampleRevisionResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnclassifiedSampleRevisionResponse"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Sample Revisions"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_revisions"
+        ],
+        "title": "CatalogSampleRevisionListResponse"
+      },
+      "CatalogSampleRunListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "results": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CatalogPublishedRunResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/CatalogUnpublishedRunResponse"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "sample_revision_id",
+          "results",
+          "next_cursor"
+        ],
+        "title": "CatalogSampleRunListResponse"
+      },
+      "CatalogTermListResponse": {
+        "properties": {
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogTermSummaryResponse"
+            },
+            "type": "array",
+            "title": "Terms"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "terms"
+        ],
+        "title": "CatalogTermListResponse"
+      },
+      "CatalogTermPinResponse": {
+        "properties": {
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_id",
+          "term_revision_id",
+          "display_name"
+        ],
+        "title": "CatalogTermPinResponse"
+      },
+      "CatalogTermResponse": {
+        "properties": {
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_type": {
+            "type": "string",
+            "title": "Term Type"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/CatalogTermRevisionResponse"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_id",
+          "term_type",
+          "revision"
+        ],
+        "title": "CatalogTermResponse"
+      },
+      "CatalogTermRevisionResponse": {
+        "properties": {
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases"
+          },
+          "change_kind": {
+            "type": "string",
+            "title": "Change Kind"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_revision_id",
+          "revision_number",
+          "display_name",
+          "aliases",
+          "change_kind",
+          "created_at"
+        ],
+        "title": "CatalogTermRevisionResponse"
+      },
+      "CatalogTermSummaryResponse": {
+        "properties": {
+          "term_id": {
+            "type": "string",
+            "title": "Term Id"
+          },
+          "term_type": {
+            "type": "string",
+            "title": "Term Type"
+          },
+          "term_revision_id": {
+            "type": "string",
+            "title": "Term Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term_id",
+          "term_type",
+          "term_revision_id",
+          "revision_number",
+          "display_name"
+        ],
+        "title": "CatalogTermSummaryResponse"
+      },
+      "CatalogUnclassifiedExperimentSampleResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "replicate_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Group"
+          },
+          "replicate_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogKnownSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogNegativeSingleSlotResponse"
+              },
+              {
+                "$ref": "#/components/schemas/CatalogAmbiguousSingleSlotResponse"
+              }
+            ],
+            "title": "Replicate Role"
+          },
+          "linked_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Sample Revision Id"
+          },
+          "current_sample_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Sample Revision Id"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "absent",
+            "title": "Catalog State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "ordinal",
+          "replicate_role",
+          "catalog_state"
+        ],
+        "title": "CatalogUnclassifiedExperimentSampleResponse"
+      },
+      "CatalogUnclassifiedSampleRevisionResponse": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "title": "Sample Id"
+          },
+          "sample_revision_id": {
+            "type": "string",
+            "title": "Sample Revision Id"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision Number"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "catalog_state": {
+            "type": "string",
+            "const": "absent",
+            "title": "Catalog State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sample_id",
+          "sample_revision_id",
+          "revision_number",
+          "display_name",
+          "created_at",
+          "catalog_state"
+        ],
+        "title": "CatalogUnclassifiedSampleRevisionResponse"
+      },
+      "CatalogUnpublishedRunResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "publication_evidence": {
+            "type": "string",
+            "const": "absent",
+            "title": "Publication Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "run_id",
+          "provenance",
+          "publication_evidence"
+        ],
+        "title": "CatalogUnpublishedRunResponse"
       },
       "HTTPValidationError": {
         "properties": {

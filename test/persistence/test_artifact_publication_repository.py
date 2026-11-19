@@ -570,8 +570,20 @@ def test_sql_publication_page_uses_bounded_queries_without_n_plus_one(
 def _create_bound_succeeded_run(
     case: _RepositoryCase,
     run_id: str,
+    *,
+    snapshot_id: str = "vsnap_77777777777777777777777777777777",
+    create_samples: bool = True,
+    minute_offset: int = 1,
 ) -> None:
     data_registry = case.data_registry
+    if not create_samples:
+        _consume_bound_snapshot(
+            case,
+            run_id,
+            snapshot_id=snapshot_id,
+            minute_offset=minute_offset,
+        )
+        return
     data_registry.create_project(
         Project(
             project_id=PROJECT_ID,
@@ -607,6 +619,21 @@ def _create_bound_succeeded_run(
             ),
         )
 
+    _consume_bound_snapshot(
+        case,
+        run_id,
+        snapshot_id=snapshot_id,
+        minute_offset=minute_offset,
+    )
+
+
+def _consume_bound_snapshot(
+    case: _RepositoryCase,
+    run_id: str,
+    *,
+    snapshot_id: str,
+    minute_offset: int,
+) -> None:
     workflow_id = "workflow-bound"
     build_identity = WorkflowBuildIdentity(
         workflow_id=workflow_id,
@@ -620,7 +647,7 @@ def _create_bound_succeeded_run(
         WorkflowInputs(config={}, samples=None, options={})
     )
     snapshot = ValidatedInputSnapshot(
-        snapshot_id="vsnap_77777777777777777777777777777777",
+        snapshot_id=snapshot_id,
         workflow_id=workflow_id,
         adapter_version="1.0.0",
         schema_version="1.0.0",
@@ -646,8 +673,8 @@ def _create_bound_succeeded_run(
         workflow_id=workflow_id,
         inputs=snapshot.to_workflow_inputs().to_dict(),
         status=RunStatus.CREATED,
-        created_at=NOW + timedelta(minutes=1),
-        updated_at=NOW + timedelta(minutes=1),
+        created_at=NOW + timedelta(minutes=minute_offset),
+        updated_at=NOW + timedelta(minutes=minute_offset),
         started_at=None,
         ended_at=None,
         current_stage=None,
@@ -660,17 +687,126 @@ def _create_bound_succeeded_run(
         workflow_id=workflow_id,
         expected_build_identity=build_identity,
         record=created_record,
-        consumed_at=NOW + timedelta(minutes=1),
+        consumed_at=NOW + timedelta(minutes=minute_offset),
         event=_event(),
     )
     case.repository.update_run(
         replace(
             created_record,
             status=RunStatus.SUCCEEDED,
-            updated_at=NOW + timedelta(minutes=2),
-            started_at=NOW + timedelta(minutes=1),
-            ended_at=NOW + timedelta(minutes=2),
+            updated_at=NOW + timedelta(minutes=minute_offset + 1),
+            started_at=NOW + timedelta(minutes=minute_offset),
+            ended_at=NOW + timedelta(minutes=minute_offset + 1),
         ),
         expected_status=RunStatus.CREATED,
         event=_event("status_changed", RunStatus.SUCCEEDED),
     )
+
+
+def test_catalog_sample_trace_orders_publications_before_unpublished_runs(
+    tmp_path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'catalog-trace.db'}"
+    upgrade_database(database_url)
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    case = _RepositoryCase(
+        repository=SqlAlchemyRunRepository(session_factory),
+        data_registry=SqlAlchemyDataRegistryRepository(session_factory),
+        engine=engine,
+    )
+    _create_bound_succeeded_run(case, "run-published")
+    _publish(
+        case.repository,
+        "run-published",
+        (_artifact("run-published", "artifact-a", seed="published"),),
+        label="catalog-published",
+    )
+    _create_bound_succeeded_run(
+        case,
+        "run-unpublished",
+        snapshot_id="vsnap_88888888888888888888888888888888",
+        create_samples=False,
+        minute_offset=10,
+    )
+    case.repository.create_run(_record("run-legacy"), _event())
+
+    from encode_pipeline.persistence.experiment_catalog import (
+        SqlAlchemyExperimentCatalogRepository,
+    )
+    from encode_pipeline.platform.experiment_catalog import parse_page_filters
+
+    catalog = SqlAlchemyExperimentCatalogRepository(session_factory)
+    filters = parse_page_filters(
+        kind="sample_runs",
+        project_id=PROJECT_ID,
+        revision_view=None,
+        include_archived=False,
+        term_type=None,
+        created_from=None,
+        created_before=None,
+        catalog_state=None,
+        field_terms={},
+        field_statuses={},
+    )
+    page = catalog.list_sample_run_results(
+        project_id=PROJECT_ID,
+        sample_revision_id=REVISION_A_ID,
+        filters=filters,
+        cursor=None,
+        limit=20,
+    )
+    assert page["ok"] is True
+    from encode_pipeline.api.catalog_models import CatalogSampleRunListResponse
+
+    CatalogSampleRunListResponse.model_validate(page)
+    results = page["results"]
+    assert [item["run_id"] for item in results] == [
+        "run-published",
+        "run-unpublished",
+    ]
+    published = results[0]
+    assert published["publication_evidence"] == "present"
+    assert published["artifact_association_kind"] == "run_input_scope"
+    assert published["generation_status"] == "current"
+    assert published["workflow_id"] == "workflow-bound"
+    assert {
+        item["sample_revision_id"]
+        for item in published["run_sample_binding"]["associated_run_samples"]
+    } == {REVISION_A_ID, REVISION_B_ID}
+    assert results[1] == {
+        "run_id": "run-unpublished",
+        "provenance": "resolved",
+        "publication_evidence": "absent",
+    }
+    first_page = catalog.list_sample_run_results(
+        project_id=PROJECT_ID,
+        sample_revision_id=REVISION_A_ID,
+        filters=filters,
+        cursor=None,
+        limit=1,
+    )
+    assert first_page["results"][0]["run_id"] == "run-published"
+    assert first_page["next_cursor"]
+    second_page = catalog.list_sample_run_results(
+        project_id=PROJECT_ID,
+        sample_revision_id=REVISION_A_ID,
+        filters=filters,
+        cursor=first_page["next_cursor"],
+        limit=1,
+    )
+    assert second_page["results"] == [results[1]]
+    assert second_page["next_cursor"] is None
+    plan = catalog.explain_sample_trace(PROJECT_ID, REVISION_A_ID)
+    # The publication primary key starts with run_id, so SQLite seeks that
+    # covering index after the sample-revision lookup.
+    publication_seek = (
+        "SEARCH artifact_publications USING COVERING INDEX "
+        "sqlite_autoindex_artifact_publications_1 (run_id=?)"
+    )
+    assert plan.startswith(
+        "SEARCH run_samples USING INDEX ix_run_samples_revision (sample_revision_id=?)"
+    )
+    assert publication_seek in plan
+    assert plan.index("ix_run_samples_revision") < plan.index(publication_seek)
+    engine.dispose()
