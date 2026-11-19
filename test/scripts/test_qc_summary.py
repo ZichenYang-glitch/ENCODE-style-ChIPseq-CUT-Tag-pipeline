@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import csv
+from decimal import Decimal
 import json
 from pathlib import Path
 import sys
 
 import pytest
 
+from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.adapters.encode_qc import (
     _QC_V2_HEADER as ADAPTER_QC_V2_HEADER,
 )
+from encode_pipeline.platform.adapters import (
+    QcSourceArtifact,
+    QcSourceDocument,
+    WorkflowInputs,
+)
 from encode_pipeline.qc.contract import (
+    CROSS_CORRELATION_QC_V1_COLUMNS,
     FRAGMENT_QC_V1_COLUMNS,
     MITO_QC_V2_COLUMNS,
     MNASE_QC_V2_COLUMNS,
@@ -273,6 +281,7 @@ def _assemble(
     has_blacklist: str = "yes",
     input_overrides: dict[str, Path] | None = None,
     include_fragment: bool = True,
+    cross_correlation_detail: Path | None = None,
 ) -> Path:
     inputs = {**component_files, **(input_overrides or {})}
     output = tmp_path / "qc_summary.tsv"
@@ -324,6 +333,15 @@ def _assemble(
         "--output",
         str(output),
     ]
+    if cross_correlation_detail is not None:
+        args.extend(
+            [
+                "--cross-correlation-enabled",
+                "true",
+                "--cross-correlation-detail",
+                str(cross_correlation_detail),
+            ]
+        )
     _invoke(monkeypatch, "assemble_qc_summary.py", assemble_qc_summary.main, args)
     return output
 
@@ -365,6 +383,51 @@ def test_complete_inputs_write_locked_v2_contract_with_v1_prefix(
     assert row["cross_correlation_status"] == "not_enabled"
     assert row["scientific_policy_revision"] == "5"
     assert b"\r\n" not in output.read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("nsc", "rsc", "status"),
+    [
+        ("NA", "NA", "missing_values"),
+        ("1.25", "NA", "missing_values"),
+        ("NA", "-0.5", "missing_values"),
+        ("1.25", "-0.5", "reported"),
+    ],
+)
+def test_historical_cross_correlation_summary_is_readable(
+    tmp_path, monkeypatch, component_files, nsc, rsc, status
+):
+    detail = tmp_path / "S1.cross_correlation_qc.tsv"
+    _write_tsv(
+        detail,
+        CROSS_CORRELATION_QC_V1_COLUMNS,
+        [["S1", "S1.cc.qc", "NA", "NA", nsc, rsc, "NA"]],
+    )
+    output = _assemble(
+        tmp_path, monkeypatch, component_files, cross_correlation_detail=detail
+    )
+    _, (row,) = _read_rows(output)
+    source = QcSourceArtifact(
+        artifact_id="summary",
+        output_type="qc_summary",
+        relative_path="results/S1/01_qc/S1.qc_summary.tsv",
+        metadata={"scope": "sample", "sample_id": "S1", "assay": "chipseq"},
+    )
+    result = EncodeStyleWorkflowAdapter().extract_qc_metrics(
+        WorkflowInputs(config={}),
+        (QcSourceDocument(source=source, content=output.read_bytes()),),
+    )
+    assert result.is_success, (row["cross_correlation_status"], result.issues)
+    assert row["cross_correlation_status"] == status
+    assert (row["cross_correlation_nsc"], row["cross_correlation_rsc"]) == (nsc, rsc)
+    metrics = {m.metric_key: m.value for m in result.value}
+    assert metrics["peaks.frip"] == Decimal("0.25")
+    assert metrics["sequencing.total_reads"] == 10000000
+    for key, value in (("cross_correlation.nsc", nsc), ("cross_correlation.rsc", rsc)):
+        if value == "NA":
+            assert key not in metrics
+        else:
+            assert metrics[key] == Decimal(value)
 
 
 def test_missing_fragment_component_uses_policy_general_counts(
@@ -610,17 +673,15 @@ def test_aggregate_preserves_all_v1_inputs_as_v1(tmp_path, monkeypatch):
     assert rows[0]["sample"] == "S1"
 
 
-def test_aggregate_mixed_versions_pads_v1_rows_to_v2(tmp_path, monkeypatch):
+def test_aggregate_mixed_versions_pads_v1_rows_to_v2(
+    tmp_path, monkeypatch, component_files
+):
     v1 = tmp_path / "v1.tsv"
-    v2 = tmp_path / "v2.tsv"
+    v2 = _assemble(tmp_path, monkeypatch, component_files)
     output = tmp_path / "aggregate.tsv"
     v1_values = {column: "NA" for column in SAMPLE_QC_V1_COLUMNS}
-    v1_values["sample"] = "S1"
+    v1_values.update(sample="S2", total_reads="123")
     _write_tsv(v1, SAMPLE_QC_V1_COLUMNS, [[v1_values[c] for c in SAMPLE_QC_V1_COLUMNS]])
-    v2_values = {column: "NA" for column in SAMPLE_QC_V2_COLUMNS}
-    v2_values.update({"schema_version": "2", "sample": "S2"})
-    _write_tsv(v2, SAMPLE_QC_V2_COLUMNS, [[v2_values[c] for c in SAMPLE_QC_V2_COLUMNS]])
-
     _invoke(
         monkeypatch,
         "aggregate_qc_summary.py",
@@ -630,9 +691,12 @@ def test_aggregate_mixed_versions_pads_v1_rows_to_v2(tmp_path, monkeypatch):
 
     header, rows = _read_rows(output)
     assert header == list(SAMPLE_QC_V2_COLUMNS)
-    assert [row["sample"] for row in rows] == ["S1", "S2"]
+    assert [row["sample"] for row in rows] == ["S2", "S1"]
     assert rows[0]["schema_version"] == "NA"
+    assert rows[0]["total_reads"] == "123"
+    assert rows[0]["cross_correlation_status"] == "NA"
     assert rows[1]["schema_version"] == "2"
+    assert rows[1]["frip"] == "0.250000"
 
 
 def test_aggregate_rejects_mismatched_header(tmp_path, monkeypatch, capsys):
