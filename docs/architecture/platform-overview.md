@@ -21,7 +21,10 @@ author inputs
 ```
 
 The supported deployment is a workstation or a small trusted team sharing a
-filesystem and runtime. SQLite and local workspaces are product choices for
+filesystem and runtime. In the trusted-LAN deployment, administrators manage
+member accounts and the team shares projects. The [authentication and roles
+decision](lan-authentication-decision.md) defines the access boundary.
+SQLite and local workspaces are product choices for
 that scope, not placeholders for an implied hosted service.
 
 ## Ownership

@@ -7,8 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 HelixWeave is a local, workflow-neutral omics analysis platform. Its bundled
-registry provides an ENCODE-style epigenomics workflow and a Bulk RNA-seq
-adapter pinned to nf-core/rnaseq 3.26.0.
+registry includes ENCODE-style epigenomics, Bulk RNA-seq (nf-core/rnaseq
+3.26.0), and Hi-TrAC preprocessing.
 
 It is built for a workstation or a small trusted team: author inputs from an
 adapter-owned schema, validate them into an immutable snapshot, execute a
@@ -53,6 +53,7 @@ workflow.
 | **Platform** | Author → validate → run → results | Schema-driven config/sample authoring, structured validation, immutable validated snapshots, durable execution, run history, logs, QC, artifacts, and downloads. |
 | **ENCODE adapter** | FASTQ/config → Snakemake → scientific outputs | ChIP-seq, CUT&Tag, ATAC-seq, and MNase-seq policies, environments, DAGs, artifacts, and QC extraction. |
 | **Bulk RNA-seq adapter** | Samples/config → nf-core/rnaseq → scientific outputs | Schema-driven authoring and validation are always available; execution uses the admitted, offline nf-core/rnaseq 3.26.0 runtime and produces indexed artifacts and QC. |
+| **Hi-TrAC adapter** | Paired FASTQ → BEDPE and QC summary | Local execution requires a verified runtime binding and reference profile. See [Hi-TrAC operations](docs/development/hitrac-preprocess-operations.md). |
 
 | Capability | Available now |
 | :--- | :--- |
@@ -191,7 +192,7 @@ source; see [adapter conformance](docs/development/adapter-conformance.md).
 
 | Topic | Maintained reference |
 | :--- | :--- |
-| Platform design and safety | [Architecture overview](docs/architecture/platform-overview.md) |
+| Platform and frontend design | [Architecture overview](docs/architecture/platform-overview.md), [frontend visual direction](docs/development/frontend-visual-direction.md) |
 | Local trial | [Local trial checklist](docs/local-trial-checklist.md) |
 | Local stack operations | [Local runtime](docs/development/local-platform-runtime.md) |
 | Adapter contract | [Adapter conformance](docs/development/adapter-conformance.md) |
@@ -199,7 +200,7 @@ source; see [adapter conformance](docs/development/adapter-conformance.md).
 | Inputs | [Configuration](docs/configuration.md), [sample sheet](docs/sample-sheet.md), [reference resources](docs/reference-resources.md) |
 | Evidence | [Output contract](docs/output-contract.md), [artifact inventory](docs/architecture/artifact-inventory.yaml), [QC interpretation](docs/qc-interpretation.md) |
 | Quality and testing | [Development harness](docs/development/harness.md), [quality baseline](docs/development/coverage-policy.md) |
-| Planning, specs, review, and acceptance | [Development workflow](docs/development/development-workflow.md) |
+| Planning, specs, review, and documentation maintenance | [Development workflow](docs/development/development-workflow.md) |
 | Current direction and limits | [Product roadmap](docs/development/workflow-platform-agent-roadmap.md), [known issues](KNOWN_ISSUES.md) |
 
 ## Development and testing
@@ -221,13 +222,11 @@ measured test and coverage facts have one authoritative home in the
 
 ## Current limits
 
-- Deployment is local or for a small trusted team. Authentication,
-  multi-tenancy, HPC/cloud backends, Kubernetes, object storage, and remote
-  workspace semantics are not implemented.
-- The default registry contains the ENCODE-style epigenomics adapter and the
-  schema-driven Bulk RNA-seq adapter. Bulk RNA-seq authoring and validation are
-  available without local execution assets; create/start remain fail-closed
-  until the pinned runtime is fully admitted.
+- Deployment supports a workstation or one trusted laboratory LAN with shared
+  projects and administrator-managed accounts. Multi-tenant isolation, HPC/cloud
+  backends, Kubernetes, object storage, and remote workspaces are outside this scope.
+- Bulk RNA-seq authoring and validation are available without local execution
+  assets. Creating or starting a run requires the admitted, pinned runtime.
 - The Agent surface is read-only: it cannot submit, start, cancel, modify, or
   delete runs, and its explanations are not provenance.
 - The deterministic platform demo does not replace real scientific validation,
