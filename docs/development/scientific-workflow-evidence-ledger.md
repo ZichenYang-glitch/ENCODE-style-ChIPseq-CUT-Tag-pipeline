@@ -89,18 +89,18 @@ historical-record-sha256: aa0ca90e70052d8cc336a06f9028963c00f1f516a6379333a94650
 historical-aggregate-sha256: 68a3798931941bd8e99d8eec34a770ad4d453faa30e4f0b7017db93840566fc2
 historical-manifest-file: b3862eeec44cedc890ae11e61297e99452f494a095c1bbc656dd9c1933d20a89
 
-当前软件身份，本检出中的文件字节，与 main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 上的资格文件和实现清单相同：
+当前软件身份，本检出中的文件字节。main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 记录的是当时的资格文件和实现清单；目录页、WashU 打包和长期盘迁入同一棵树后，119 个闭包文件里已有源码换了字节，所以上面的历史四行不变，下面四行按本检出重算。这仍是软件闭包变化，不是 SCI-7 或 Bulk Gate 的重跑：
 
-current-qualification-file: f65e773fea402d7833297a9dbcdcc83bfdd70e535f27c4a3419a5e7308823d5a
-current-record-sha256: cfb2889787ef8cbce5ae0cc8d306fbcb10351dd262c1d733fc6a9a34e47e07fd
-current-aggregate-sha256: 67a04c89739dcb11fe2a4c4e798de09d689e5e6fad736939a545c726f0f8643f
-current-manifest-file: 030b9ca63a15fc5c1feea0baa6aa961d7f059fd80743301bc46b2451cc1b9623
+current-qualification-file: c097baa53b4272c39ed0f3274e0c1f57b763fdf67e5a0c7e2f1cb4546bcb64b1
+current-record-sha256: 67bbe2ac02e488ec049161508b1a5212ac9191793db4ba4df2ebab39bf187ac8
+current-aggregate-sha256: b6ebb8aee48f2df780f21660712ff60c667a6f2c50703a58831261e0440aeea1
+current-manifest-file: 5cd7cae89971dc6e37bf1a6ed0d39e86d6d1db23ab7700eb04d10790300f937f
 
 历史科学证据没有在当前软件身份上重跑。
 
 `candidate_status: source-enabled` 表示这份源码候选已绑定闭包、持久化契约、命令、参考协议和结果契约。`docs/architecture/bulk-rnaseq-adapter-decision.md` 写明：资格字节匹配的是实时核对过的实现；PR #152 的产物发现和 QC 提取、PR #153 的合成 `rapid_quant` 资格以及本地 STAR+Salmon 验收，证明的是固定离线执行和平台机制。`rapid_quant` 是服务器持有的资格模式，不是产品默认分析。该决定同时写明这些夹具不构成生物学有效性。
 
-`docs/development/workflow-platform-agent-roadmap.md` 在 2026-11-16 的入口里记录：Bulk Gate 跑在 `e112223…`，GitHub Actions run `43792685991` attempt 2，job `133061548271` 通过 4 项执行测试和 5 项产品浏览器测试。那是该提交上的软件 Gate。同一入口当时的 main 是 `1b1db421ba3172bc39cf31ce0d03976511379fda`；roadmap 写明不能把这次 Gate 改记成在 merge SHA 上重新跑过。该次合入 push CI `43816767856` 里，`bulk-rnaseq-real-execution` 为 skipped，skipped 不是执行通过。历史证据身份读自 `d85c3b6a50a9de0f108691bd60efc678d851a2be`，Gate 没有在这个 SHA 上重跑。当前软件身份是 main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 的资格文件和实现清单，Gate 也没有在这组摘要上重跑。Gate 成功不改写 `source-enabled`。SCI-7 记录和这份 Bulk 资格都没有把 nf-core 默认冻结成生物学结论。
+`docs/development/workflow-platform-agent-roadmap.md` 在 2026-11-16 的入口里记录：Bulk Gate 跑在 `e112223…`，GitHub Actions run `43792685991` attempt 2，job `133061548271` 通过 4 项执行测试和 5 项产品浏览器测试。那是该提交上的软件 Gate。同一入口当时的 main 是 `1b1db421ba3172bc39cf31ce0d03976511379fda`；roadmap 写明不能把这次 Gate 改记成在 merge SHA 上重新跑过。该次合入 push CI `43816767856` 里，`bulk-rnaseq-real-execution` 为 skipped，skipped 不是执行通过。历史证据身份读自 `d85c3b6a50a9de0f108691bd60efc678d851a2be`，Gate 没有在这个 SHA 上重跑。main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 上的资格文件是更早的当前软件身份；本检出的当前四行摘要已经换过，Gate 也没有在这组摘要上重跑。Gate 成功不改写 `source-enabled`。SCI-7 记录和这份 Bulk 资格都没有把 nf-core 默认冻结成生物学结论。
 
 ### 同事如何定位定量、QC 和参考
 
