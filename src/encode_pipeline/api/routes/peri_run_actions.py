@@ -20,14 +20,20 @@ from encode_pipeline.api.dependencies import (
 )
 from encode_pipeline.api.models import RunCreateRequest, RunResponse
 from encode_pipeline.api.routes.authoring import get_authoring_service
-from encode_pipeline.api.routes.runs import cancel_run, create_run
+from encode_pipeline.api.routes.runs import cancel_run_response, create_run_response
 from encode_pipeline.persistence.authoring import AuthoringSessionRecord
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
-from encode_pipeline.platform.authoring import AuthoringActor
+from encode_pipeline.platform.authoring import (
+    PERI_RUN_CONFIRMATION_INVALID,
+    PERI_RUN_SNAPSHOT_CHANGED,
+    AuthoringActor,
+    AuthoringRejected,
+    PeriRunAuthorization,
+)
 from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.services.peri_run_confirmation import (
-    confirmation_matches,
     issue_confirmation,
+    verified_confirmation_expiry,
 )
 from encode_pipeline.services.reference_profiles import ReferenceProfileService
 from encode_pipeline.services.run_cancellation import RunCancellationService
@@ -102,26 +108,39 @@ def confirm_run_action(
 ) -> JSONResponse:
     connection = authoring.require_run_action_connection(actor, sid)
     target = body.target
-    if not confirmation_matches(connection, target.model_dump(), body.confirmation):
-        raise AuthApiError(
-            409,
-            "PERI_RUN_CONFIRMATION_INVALID",
-            "Request a new confirmation for this run action.",
-        )
+    expiry = verified_confirmation_expiry(
+        connection, target.model_dump(), body.confirmation
+    )
+    if expiry is None:
+        raise AuthoringRejected(PERI_RUN_CONFIRMATION_INVALID)
     _require_target(connection, target, runs)
-    # The existing HTTP adapters share the lifecycle services and audit actor
-    # with the existing member buttons. This path only projects the result.
+    authorization = PeriRunAuthorization(
+        actor=actor,
+        sid=sid,
+        generation=connection.generation,
+        instance_id=connection.instance_id,
+        owner_epoch=connection.bridge_owner_epoch,
+        workflow_id=connection.workflow_id,
+        action=target.action,
+        target_id=target.snapshot_id
+        if isinstance(target, CreateTarget)
+        else target.run_id,
+        expires_at=expiry,
+    )
     if isinstance(target, CreateTarget):
-        result = create_run(
+        result = create_run_response(
             connection.workflow_id,
             target.run_request(),
             principal,
             creation,
             runs,
             references,
+            peri_authorization=authorization,
         )
         return _summarize(result, default_status=201)
-    result = cancel_run(target.run_id, principal, cancellation)
+    result = cancel_run_response(
+        target.run_id, principal, cancellation, peri_authorization=authorization
+    )
     return _summarize(result, default_status=200)
 
 
@@ -133,11 +152,7 @@ def _require_target(
             target.snapshot_id != connection.last_snapshot_id
             or connection.last_validated_revision != connection.revision
         ):
-            raise AuthApiError(
-                409,
-                "PERI_RUN_SNAPSHOT_CHANGED",
-                "Validate this draft and request confirmation for its current snapshot.",
-            )
+            raise AuthoringRejected(PERI_RUN_SNAPSHOT_CHANGED)
         return
     try:
         if runs.get_run(target.run_id).workflow_id == connection.workflow_id:

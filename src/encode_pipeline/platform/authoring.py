@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.snapshots import canonical_workflow_inputs_json
@@ -70,6 +70,8 @@ WORKFLOW_SAMPLE_PLAN_INVALID = "WORKFLOW_SAMPLE_PLAN_INVALID"
 WORKFLOW_SAMPLE_INPUT_UNAVAILABLE = "WORKFLOW_SAMPLE_INPUT_UNAVAILABLE"
 SCOPE_DENIED = "SCOPE_DENIED"
 CAPABILITY_CHANGED = "CAPABILITY_CHANGED"
+PERI_RUN_CONFIRMATION_INVALID = "PERI_RUN_CONFIRMATION_INVALID"
+PERI_RUN_SNAPSHOT_CHANGED = "PERI_RUN_SNAPSHOT_CHANGED"
 
 TOOL_REASON_CODES = frozenset(
     {SCOPE_DENIED, STALE_DRAFT, CAPABILITY_CHANGED, MODEL_OUTPUT_REJECTED}
@@ -93,6 +95,8 @@ _HTTP_STATUS = {
     ADMISSION_FAILED: 503,
     CAPABILITY_UNAVAILABLE: 503,
     CAPABILITY_CHANGED: 409,
+    PERI_RUN_CONFIRMATION_INVALID: 409,
+    PERI_RUN_SNAPSHOT_CHANGED: 409,
     SCOPE_DENIED: 403,
     AUTHENTICATION_REQUIRED: 401,
     NOT_FOUND: 404,
@@ -140,6 +144,10 @@ _MESSAGES = {
     ),
     SCOPE_DENIED: "The assistant tool is outside the authorized scope.",
     CAPABILITY_CHANGED: "The authoring projection changed.",
+    PERI_RUN_CONFIRMATION_INVALID: "Request a new confirmation for this run action.",
+    PERI_RUN_SNAPSHOT_CHANGED: (
+        "Validate this draft and request confirmation for its current snapshot."
+    ),
 }
 
 
@@ -188,6 +196,21 @@ class AuthoringActor:
 
     user_id: str
     session_digest: str
+
+
+@dataclass(frozen=True)
+class PeriRunAuthorization:
+    """A verified browser confirmation that SQLite must recheck before a write."""
+
+    actor: AuthoringActor
+    sid: str
+    generation: int
+    instance_id: str | None
+    owner_epoch: str | None
+    workflow_id: str
+    action: Literal["create", "cancel"]
+    target_id: str
+    expires_at: int
 
 
 @dataclass(frozen=True)

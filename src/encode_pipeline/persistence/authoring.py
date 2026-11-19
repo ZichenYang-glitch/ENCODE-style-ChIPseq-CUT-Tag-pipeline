@@ -39,6 +39,9 @@ from encode_pipeline.platform.authoring import (
     DRAFT_TTL,
     EXPIRED_RECORD_RETENTION,
     NOT_FOUND,
+    PERI_RUN_CONFIRMATION_INVALID,
+    PERI_RUN_SNAPSHOT_CHANGED,
+    PeriRunAuthorization,
     PROPOSAL_EXPIRED,
     PROPOSAL_INVALIDATED,
     PROPOSAL_TTL,
@@ -1207,8 +1210,8 @@ class SqlAlchemyAuthoringRepository:
         )
         return None
 
+    @staticmethod
     def _require_ready(
-        self,
         session: Session,
         row: AgentAuthoringSessionRow,
         actor: AuthoringActor,
@@ -1324,8 +1327,9 @@ class SqlAlchemyAuthoringRepository:
             and row.originating_auth_session_ref == turn.originating_auth_session_ref
         )
 
+    @classmethod
     def _owned(
-        self,
+        cls,
         session: Session,
         actor: AuthoringActor,
         sid: str,
@@ -1333,7 +1337,7 @@ class SqlAlchemyAuthoringRepository:
         *,
         allow_expired: bool,
     ) -> AgentAuthoringSessionRow:
-        self._require_actor(session, actor, now)
+        cls._require_actor(session, actor, now)
         row = session.get(AgentAuthoringSessionRow, sid)
         if row is None or row.owner_user_id != actor.user_id:
             raise AuthoringRejected(NOT_FOUND)
@@ -1345,8 +1349,8 @@ class SqlAlchemyAuthoringRepository:
             raise AuthoringRejected(DRAFT_EXPIRED)
         return row
 
+    @staticmethod
     def _require_actor(
-        self,
         session: Session,
         actor: AuthoringActor,
         now: datetime,
@@ -1379,6 +1383,46 @@ class SqlAlchemyAuthoringRepository:
     def _hook(self) -> None:
         if self._before_commit is not None:
             self._before_commit()
+
+
+def require_peri_run_authorization(
+    session: Session,
+    authorization: PeriRunAuthorization | None,
+    *,
+    action: str,
+    target_id: str,
+    workflow_id: str,
+) -> None:
+    """Check a Peri grant using the run writer's already-open transaction."""
+    if authorization is None:
+        return
+    if (
+        authorization.action != action
+        or authorization.target_id != target_id
+        or authorization.workflow_id != workflow_id
+    ):
+        raise AuthoringRejected(PERI_RUN_CONFIRMATION_INVALID)
+    now = utc_now()
+    actor = authorization.actor
+    row = SqlAlchemyAuthoringRepository._owned(
+        session, actor, authorization.sid, now, allow_expired=False
+    )
+    epoch = authorization.owner_epoch
+    if epoch is None:
+        raise AuthoringRejected(CONNECTION_NOT_READY)
+    SqlAlchemyAuthoringRepository._require_ready(session, row, actor, epoch, now)
+    if (
+        row.generation != authorization.generation
+        or row.instance_id != authorization.instance_id
+        or row.workflow_id != workflow_id
+        or now.timestamp() >= authorization.expires_at
+    ):
+        raise AuthoringRejected(PERI_RUN_CONFIRMATION_INVALID)
+    if action == "create" and (
+        row.last_snapshot_id != target_id
+        or row.last_validated_revision != row.draft_revision
+    ):
+        raise AuthoringRejected(PERI_RUN_SNAPSHOT_CHANGED)
 
 
 def fence_authoring_connections_for_auth_sessions(

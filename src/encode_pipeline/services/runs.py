@@ -46,6 +46,7 @@ from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     validate_user_id,
 )
+from encode_pipeline.platform.authoring import PeriRunAuthorization
 from encode_pipeline.platform.security_audit import AuditAction, SecurityAuditEvent
 from encode_pipeline.platform.runs import (
     RunArtifactRef,
@@ -213,6 +214,7 @@ class RunService:
         tags: Mapping[str, str] | None = None,
         requested_by_user_id: str | None = None,
         security_audit_actor: AuthenticatedPrincipal | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Atomically consume one validated snapshot and create its run."""
         with self._lock:
@@ -263,6 +265,7 @@ class RunService:
                 ),
                 requested_by_user_id=requested_by_user_id,
                 security_audit=security_audit,
+                peri_authorization=peri_authorization,
             )
 
     def add_event(
@@ -969,6 +972,7 @@ class RunService:
         queue_name: str,
         reason: str,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunExecutionCancellationRequest:
         """Atomically persist user intent without claiming process termination."""
         if not isinstance(reason, str) or not reason.strip():
@@ -993,6 +997,7 @@ class RunService:
                     },
                 ),
                 security_audit=security_audit,
+                peri_authorization=peri_authorization,
             )
 
     def acknowledge_execution_stop(
@@ -1060,6 +1065,7 @@ class RunService:
         reason: str | None = None,
         *,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunRecord:
         """Cancel a pre-running run, or return an already-terminal run unchanged.
 
@@ -1109,6 +1115,7 @@ class RunService:
                             issue=None,
                         ),
                         security_audit=security_audit,
+                        peri_authorization=peri_authorization,
                     )
                 except ConcurrentRunUpdateError:
                     # Another API/worker process advanced the monotonic state.

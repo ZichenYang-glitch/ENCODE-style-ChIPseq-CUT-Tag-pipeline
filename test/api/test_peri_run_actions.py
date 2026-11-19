@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
+from threading import Event
 
 import pytest
 from sqlalchemy import func, select
@@ -408,3 +410,82 @@ def test_model_text_other_login_and_revocation_cannot_confirm(peri_case, monkeyp
     assert table_count(client, RunExecutionAssignmentRow) == 0
     assert stop.run_ids == []
     assert not any("/run-actions/" in path for path in app.openapi()["paths"])
+
+
+@pytest.mark.parametrize(
+    ("operation", "fence", "status"),
+    [
+        ("create", "logout", 401),
+        ("cancel-created", "logout", 401),
+        ("cancel-running", "logout", 401),
+        ("cancel-running", "reconnect", 409),
+    ],
+)
+def test_fence_commits_before_run_writer(
+    peri_case, monkeypatch, operation, fence, status
+):
+    client, sid, _, _, stop = peri_case
+    persistence = client.app.state.persistence
+    runs = client.app.state.run_service
+    connect(client, sid)
+    if operation == "create":
+        snapshot_id = validate(client, sid)
+        target = {"action": "create", "snapshot_id": snapshot_id, "tags": {}}
+        writer_name = "consume_validated_input_snapshot"
+    else:
+        running = operation == "cancel-running"
+        run_id, assignment = seed_run(client, running=running)
+        target = {"action": "cancel", "run_id": run_id}
+        writer_name = "request_execution_cancellation" if running else "update_run"
+        events_before = runs.list_events(run_id, limit=100)
+        run_before = runs.get_run(run_id)
+        assignment_before = runs.get_execution_assignment(run_id)
+
+    body = confirmation(client, sid, target)
+    count_before = table_count(client, RunRow)
+    audit_count = (
+        select(func.count())
+        .select_from(SecurityAuditEventRow)
+        .where(SecurityAuditEventRow.action.in_(("run.create", "run.cancel")))
+    )
+    with Session(persistence.engine) as db:
+        audit_before = db.scalar(audit_count)
+
+    arrived = Event()
+    resume = Event()
+    original_write = getattr(persistence.repository, writer_name)
+
+    def pause_before_write(*args, **kwargs):
+        arrived.set()
+        assert resume.wait(10), "Timed out waiting for the authority fence"
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(persistence.repository, writer_name, pause_before_write)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(confirm, client, sid, body)
+        try:
+            assert arrived.wait(10), "Confirmation never reached the repository write"
+            if fence == "logout":
+                assert client.post("/api/v1/auth/logout").status_code == 200
+            else:
+                closed = client.request("DELETE", f"{SESSIONS}/{sid}/connection")
+                assert closed.status_code == 200, closed.text
+                connect(client, sid)
+        finally:
+            resume.set()
+        denied = pending.result(timeout=10)
+
+    assert denied.status_code == status, denied.text
+    assert table_count(client, RunRow) == count_before
+    with Session(persistence.engine) as db:
+        assert db.scalar(audit_count) == audit_before
+    assert stop.run_ids == []
+    if operation == "create":
+        assert runs.get_validated_input_snapshot(snapshot_id).consumed_run_id is None
+        assert table_count(client, RunExecutionAssignmentRow) == 0
+    else:
+        assert runs.get_run(run_id) == run_before
+        assert runs.list_events(run_id, limit=100) == events_before
+        assert runs.get_execution_assignment(run_id) == assignment_before
+        if assignment is not None:
+            assert assignment_before.cancellation_requested_at is None

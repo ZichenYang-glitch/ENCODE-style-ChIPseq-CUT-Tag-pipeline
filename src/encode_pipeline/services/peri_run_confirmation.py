@@ -24,16 +24,18 @@ def issue_confirmation(
     return f"{expires_at}.{_signature(connection, target, expires_at)}"
 
 
-def confirmation_matches(
+def verified_confirmation_expiry(
     connection: AuthoringSessionRecord,
     target: Mapping[str, object],
     confirmation: str,
-) -> bool:
+) -> int | None:
     expires, signature = confirmation.split(".", 1)
     expires_at = int(expires)
-    return time() < expires_at and hmac.compare_digest(
+    if time() < expires_at and hmac.compare_digest(
         signature, _signature(connection, target, expires_at)
-    )
+    ):
+        return expires_at
+    return None
 
 
 def _signature(
