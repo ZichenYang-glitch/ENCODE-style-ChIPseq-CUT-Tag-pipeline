@@ -78,12 +78,16 @@ class CatalogError(Exception):
         message: str,
         *,
         path: str | None = None,
+        hint: str | None = None,
+        conflicts: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.path = path
+        self.hint = hint
+        self.conflicts = None if not conflicts else tuple(conflicts)
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,22 @@ def bind_catalog_target(write: CatalogWrite, target_key: str) -> CatalogWrite:
     ):
         raise ValueError("catalog target must identify one write scope")
     return replace(write, target_key=target_key)
+
+
+def matches_committed_catalog_request(
+    write: CatalogWrite,
+    *,
+    operation: str,
+    target_key: str,
+    request_sha256: str,
+) -> bool:
+    """Return whether this attempt is the request stored for the same key."""
+
+    return (
+        write.operation == operation
+        and write.target_key == target_key
+        and write.request_sha256 == request_sha256
+    )
 
 
 class CatalogBlockRequiresCatalogCommand(ValueError):
@@ -263,11 +283,14 @@ def catalog_cursor_not_found() -> CatalogError:
     )
 
 
-def catalog_revision_conflict() -> CatalogError:
+def catalog_revision_conflict(
+    conflicts: Sequence[Mapping[str, Any]] | None = None,
+) -> CatalogError:
     return CatalogError(
         409,
         "catalog_revision_conflict",
         "The catalog revision changed before this write.",
+        conflicts=conflicts,
     )
 
 

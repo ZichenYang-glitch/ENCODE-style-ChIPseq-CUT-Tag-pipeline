@@ -72,6 +72,8 @@ import {
   type ReceiptHistoryStatus,
 } from '../../features/configuration-drafts/AdoptedReceiptHistory';
 import { ConfigurationDraftWorkbench } from '../../features/configuration-drafts/ConfigurationDraftWorkbench';
+import { ExperimentValidationLink } from '../../features/experiment-binding/ExperimentValidationLink';
+import { readDraftCarry } from '../../features/experiment-binding/handoff';
 import type { EditorDocument } from '../../features/configuration-drafts/ConfigurationDraftEditor';
 import { ManagedDraftInputs } from '../../features/configuration-drafts/ManagedDraftInputs';
 import { WorkflowSamplePlanEditor } from '../../features/configuration-drafts/WorkflowSamplePlanEditor';
@@ -1021,6 +1023,19 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
   });
   const validation =
     boundValidation.status === 'stale' ? boundValidation : validationOverride ?? boundValidation;
+  const workflowSamples = activeDraft?.workflow_samples;
+  const carry = readDraftCarry({
+    workflowId,
+    projectId: session?.project_id,
+    config: activeDraft?.config,
+    options: activeDraft?.options,
+    samples: activeDraft?.samples,
+    sampleRevisionIds: activeDraft?.sample_revision_ids,
+    inputSelections: activeDraft?.input_selections,
+    referenceProfileRevisionId: activeDraft?.reference_profile_revision_id,
+    workflowSamplesPresent: Array.isArray(workflowSamples) && workflowSamples.length > 0,
+  });
+  const carryBlocked = dirty || inputsDirty || session?.project_id !== projectId;
   const listStatus = projectsQuery.isLoading || (projectId !== null && sessionsQuery.isLoading)
     ? 'loading'
     : projectsQuery.isError || sessionsQuery.isError
@@ -1157,6 +1172,20 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
         proposal={proposal}
         explanation={turn ? explanationView(turn, capability) : null}
         validation={draftOpen || storedValidation || validationOverride ? validation : { status: 'idle' }}
+        experimentHandoff={
+          draftOpen ? (
+            <ExperimentValidationLink
+              workflowId={workflowId}
+              result={carry}
+              disabled={carryBlocked}
+              disabledReason={
+                carryBlocked
+                  ? 'Save the draft before opening experiment validation. Unsaved edits stay on this page and are not a binding.'
+                  : null
+              }
+            />
+          ) : null
+        }
         requestStatus={requestStatus}
         writesEnabled={writesEnabled}
         apiConnected

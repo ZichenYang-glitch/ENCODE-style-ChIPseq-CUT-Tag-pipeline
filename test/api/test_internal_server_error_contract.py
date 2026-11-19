@@ -147,6 +147,34 @@ FAULTS = {
     "authoringAdoptProposal": ("authoring_service", "adopt"),
     "authoringRejectProposal": ("authoring_service", "reject"),
     "authoringValidateDraft": ("authoring_service", "validate"),
+    "catalogListRegisteredResults": (
+        "registered_result_service",
+        "list_current",
+    ),
+    "catalogListRegisteredResultRevisions": (
+        "registered_result_service",
+        "list_revisions",
+    ),
+    "catalogGetRegisteredResultRevision": (
+        "registered_result_service",
+        "get_revision",
+    ),
+    "catalogDownloadRegisteredResultRevision": (
+        "registered_result_service",
+        "prepare_download",
+    ),
+    "catalogRegisterRegisteredResult": (
+        "registered_result_service",
+        "register",
+    ),
+    "catalogReviseRegisteredResult": (
+        "registered_result_service",
+        "revise",
+    ),
+    "catalogArchiveRegisteredResult": (
+        "registered_result_service",
+        "archive",
+    ),
     "catalogListExperiments": ("experiment_catalog_service", "list_experiments"),
     "catalogListSamples": ("experiment_catalog_service", "list_samples"),
     "catalogListSampleRevisions": (
@@ -181,6 +209,20 @@ FAULTS = {
     "catalogListExperimentRevisionRunResults": (
         "experiment_catalog_service",
         "list_experiment_run_results",
+    ),
+    "catalogRegisterProposal": (
+        "experiment_catalog_service",
+        "register_proposal",
+    ),
+    "catalogGetProposal": ("experiment_catalog_service", "get_proposal"),
+    "catalogPreviewProposal": (
+        "experiment_catalog_service",
+        "preview_proposal",
+    ),
+    "catalogAdoptProposal": ("experiment_catalog_service", "adopt_proposal"),
+    "catalogListAdoptionReceipts": (
+        "experiment_catalog_service",
+        "list_adoption_receipts",
     ),
 }
 SPECIAL_MODELS = {
@@ -274,6 +316,8 @@ def error_api(tmp_path):
             sid="aas_" + "ab" * 16,
             turn_id="atr_" + "cd" * 16,
             proposal_id="prop_" + "ef" * 16,
+            result_id="rreg_" + "2" * 32,
+            result_revision_id="rrev_" + "3" * 32,
         )
         payloads = {
             "login": {"username": "test-admin", "password": "private-payload-marker"},
@@ -311,6 +355,20 @@ def error_api(tmp_path):
             },
             "authoringRejectProposal": {"proposal_digest": "b" * 64},
             "authoringValidateDraft": {"expected_revision": 0},
+            "catalogRegisterRegisteredResult": {
+                "stable_key": "contract-result",
+                "display_name": "Contract result",
+                "format": "tsv",
+                "origin": {
+                    "kind": "external",
+                    "source": {"status": "unknown"},
+                },
+                "method": {"status": "unknown"},
+                "reference": {"status": "unknown"},
+                "pool_relative_path": "external/contract.tsv",
+            },
+            "catalogReviseRegisteredResult": {"expected_revision_number": 1},
+            "catalogArchiveRegisteredResult": {"expected_revision_number": 1},
             "catalogCreateTerm": {"term_type": "tag", "display_name": "tag"},
             "catalogReviseTerm": {
                 "expected_revision_number": 1,
@@ -338,6 +396,16 @@ def error_api(tmp_path):
             "catalogReviseSampleCatalog": {
                 "expected_revision_number": 1,
                 "catalog": None,
+            },
+            "catalogRegisterProposal": {
+                "source": "offline_suggestion",
+                "items": [{"item_id": "item_1", "target_kind": "experiment"}],
+            },
+            "catalogPreviewProposal": {"selected_item_ids": ["item_1"]},
+            "catalogAdoptProposal": {
+                "preview_digest": "a" * 64,
+                "selected_item_ids": ["item_1"],
+                "expected_revisions": {"exp_" + "1" * 32: 1},
             },
         }
         params = {}
