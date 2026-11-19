@@ -1137,7 +1137,7 @@ def _interpret_single(
     if not isinstance(value, Mapping):
         raise catalog_payload_invalid()
     status = value.get("status")
-    if status not in FIELD_STATUSES:
+    if not isinstance(status, str) or status not in FIELD_STATUSES:
         raise catalog_payload_invalid()
     keys = set(value)
     if status == "known":
@@ -1176,7 +1176,7 @@ def _interpret_multi(
     if not isinstance(value, Mapping):
         raise catalog_payload_invalid()
     status = value.get("status")
-    if status not in FIELD_STATUSES:
+    if not isinstance(status, str) or status not in FIELD_STATUSES:
         raise catalog_payload_invalid()
     keys = set(value)
     if status == "known":
