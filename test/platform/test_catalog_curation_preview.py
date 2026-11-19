@@ -1657,3 +1657,115 @@ def test_m2_sample_pins_stay_distinct_from_terms_and_adoption_is_normalized() ->
     assert cross_exc.value.status_code == 409
     assert cross_exc.value.code == "catalog_proposal_invalidated"
     assert cross_store.get_experiment_head(SYNTHETIC_EXP_2_ID)["revision_number"] == 1
+
+
+@pytest.mark.parametrize(
+    "slot",
+    [
+        "unknown",
+        {"status": []},
+        {"status": "custom"},
+        {"status": "known"},
+        {"status": "unknown", "candidates": []},
+        {"status": "ambiguous", "values": []},
+        {"status": "ambiguous", "candidates": {}},
+    ],
+)
+def test_m2_rejects_malformed_manual_classification_without_consuming_receipt(slot):
+    store = build_synthetic_m2_preview_fixture()
+    original = store.get_experiment_head(SYNTHETIC_EXP_1_ID)
+    kwargs = {
+        "actor_user_id": "usr_admin_a",
+        "experiment_id": SYNTHETIC_EXP_1_ID,
+        "expected_revision_number": 1,
+        "idempotency_key": "correctable-slot",
+        "now": SYNTHETIC_BASE_TIME + timedelta(minutes=1),
+    }
+    with pytest.raises(CatalogPreviewError) as failure:
+        store.manual_revise_experiment(**kwargs, updates={"batch": slot})
+    assert (failure.value.status_code, failure.value.code) == (
+        422,
+        "catalog_payload_invalid",
+    )
+    assert store.get_experiment_head(SYNTHETIC_EXP_1_ID) == original
+
+    result = store.manual_revise_experiment(
+        **kwargs, updates={"batch": {"status": "not_applicable"}}
+    )
+    assert result["revision_number"] == 2
+    assert store.get_experiment_head(SYNTHETIC_EXP_1_ID)["payload"]["batch"] == {
+        "status": "not_applicable"
+    }
+
+
+def test_m2_sample_rename_keeps_material_and_single_candidate_is_redacted():
+    store = build_synthetic_m2_preview_fixture()
+    now = SYNTHETIC_BASE_TIME + timedelta(minutes=1)
+    original = store.get_sample_head(SYNTHETIC_SMP_1_ID)
+    species = original["catalog"]["species"]
+    pin = {key: species[key] for key in ("term_id", "term_revision_id")}
+    renamed = "Renamed sample"
+    item = ProposalItem(
+        item_id="item_rename",
+        target_kind="sample_catalog",
+        target_id=SYNTHETIC_SMP_1_ID,
+        base_revision_id=original["sample_revision_id"],
+        base_revision_number=original["revision_number"],
+        allowed_fields=("display_name", "species"),
+        before={"display_name": original["display_name"], "species": species},
+        after={
+            "display_name": renamed,
+            "species": {"status": "ambiguous", "candidates": [pin]},
+        },
+        citation=ProposalCitation(
+            rule_version=M2_RULE_VERSION,
+            vocabulary_version=M2_VOCABULARY_VERSION,
+            reason_codes=("ALIAS_AMBIGUOUS_CANDIDATES",),
+            source_refs=(
+                SourceReference(
+                    kind="sample_revision",
+                    ref_id=original["sample_revision_id"],
+                    evidence_token="sample-classification",
+                ),
+            ),
+        ),
+    )
+    proposal = CatalogProposal.create(
+        proposal_id="cprop_" + "3" * 32,
+        project_id=SYNTHETIC_PROJECT_ID,
+        created_by_user_id="usr_member_01",
+        source="offline_suggestion",
+        items=(item,),
+        created_at=SYNTHETIC_BASE_TIME,
+    )
+    store._proposals[proposal.proposal_id] = proposal
+    member = store.get_proposal_view(
+        actor_user_id="usr_member_01", proposal_id=proposal.proposal_id, now=now
+    )
+    assert member["items"][0]["after"]["species"] == {"status": "ambiguous"}
+
+    selection = {
+        "actor_user_id": "usr_admin_a",
+        "proposal_id": proposal.proposal_id,
+        "selected_item_ids": [item.item_id],
+        "now": now,
+    }
+    preview = store.preview_proposal_subset(**selection)
+    assert preview["items"][0]["after"]["species"]["candidates"] == [
+        pin | {"display_name": "Mus musculus"}
+    ]
+    assert store.get_sample_head(SYNTHETIC_SMP_1_ID) == original
+
+    store.adopt_proposal_subset(
+        **selection,
+        preview_digest=preview["preview_digest"],
+        expected_revisions=preview["expected_revisions"],
+        idempotency_key="rename-sample",
+    )
+    revised = store.get_sample_head(SYNTHETIC_SMP_1_ID)
+    assert revised["display_name"] == renamed
+    assert revised["revision_number"] == original["revision_number"] + 1
+    assert revised["extra_attributes"] == original["extra_attributes"]
+    assert revised["catalog"] == original["catalog"] | {
+        "species": {"status": "ambiguous", "candidates": [pin]}
+    }
