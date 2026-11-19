@@ -36,6 +36,8 @@ let preflightOk = false;
 let readFailed = false;
 let apiPort = 0;
 let webPort = 0;
+let recordingIdleBytes = false;
+const idleByteRequests = [];
 
 function log(line) {
   writeFileSync(logPath, `${line}\n`, { flag: 'a' });
@@ -140,6 +142,27 @@ function trackOf(url) {
   if (url.includes('artifact-peak')) return 'peak';
   if (url.includes('artifact-signal')) return 'signal';
   return 'other';
+}
+
+async function chooseEnabledTracks(scope) {
+  const boxes = scope.locator('input[type="checkbox"]:not([disabled])');
+  await boxes.first().waitFor({ timeout: 20_000 });
+  await boxes.evaluateAll((nodes) => {
+    for (const node of nodes) {
+      if (node instanceof HTMLInputElement && !node.checked) node.click();
+    }
+  });
+  await scope.waitForFunction(() => {
+    const inputs = [...document.querySelectorAll('input[type="checkbox"]:not([disabled])')];
+    return (
+      inputs.length > 0 &&
+      inputs.every((node) => node instanceof HTMLInputElement && node.checked)
+    );
+  });
+}
+
+function byteActivity() {
+  return reads.length > 0 || apiUrls.some((line) => line.includes('/bytes/'));
 }
 
 function inflateBgzf(buffer) {
@@ -412,6 +435,7 @@ try {
       cspReports.push(request.postData() ?? '');
     }
     if (url.includes('/api/')) apiUrls.push(`${request.method()} ${request.headers().range ?? '-'} ${url}`);
+    if (recordingIdleBytes && url.includes('/bytes/')) idleByteRequests.push(url);
   });
   page.on('response', (response) => {
     const url = response.url();
@@ -475,6 +499,16 @@ try {
       `viewer document policy ${JSON.stringify(viewerPolicy)} frame ${viewerFrameOptions}`,
     );
   }
+  recordingIdleBytes = true;
+  await viewerFrame
+    .locator('input[type="checkbox"]:not([disabled])')
+    .first()
+    .waitFor({ timeout: 20_000 });
+  if (byteActivity() || idleByteRequests.length !== 0) {
+    throw new Error('track bytes were read before a file was chosen');
+  }
+  await chooseEnabledTracks(viewerFrame);
+  recordingIdleBytes = false;
   const viewer = viewerFrame.getByTestId('washu-genome-viewer');
   await viewer.waitFor({ timeout: 30_000 });
   if (negative) {
@@ -606,7 +640,15 @@ try {
   }
   const evidence = assertProof(viewerText, pageText, geometry, sessionState.hits);
   const embeddedReads = reads.length;
+  idleByteRequests.length = 0;
+  recordingIdleBytes = true;
   await page.goto(`http://127.0.0.1:${apiPort}/viewer.html?run=${runId}`);
+  await page.locator('input[type="checkbox"]:not([disabled])').first().waitFor({ timeout: 20_000 });
+  if (idleByteRequests.length !== 0) {
+    throw new Error('full page read track bytes before a file was chosen');
+  }
+  await chooseEnabledTracks(page);
+  recordingIdleBytes = false;
   const fullViewer = page.getByTestId('washu-genome-viewer');
   await fullViewer.waitFor({ timeout: 30_000 });
   await fullViewer.getByText(/bp in \d+px/).waitFor({ timeout: 25_000 });

@@ -560,3 +560,121 @@ def test_truncated_later_gzip_member_is_not_published(client: ApiTestClient) -> 
     )
     assert summary.status_code != 200 or summary.json().get("complete") is not True
     assert summary.json().get("records") != 0 or summary.status_code != 200
+
+
+def _report_artifact(run_id: str, artifact_id: str) -> RunArtifactRef:
+    content = artifact_id.encode("ascii")
+    relative_path = f"results/reports/{artifact_id}.txt"
+    from encode_pipeline.platform.result_generations import (
+        build_artifact_content_revision,
+    )
+
+    return RunArtifactRef(
+        artifact_id=artifact_id,
+        run_id=run_id,
+        artifact_type="file",
+        name=f"{artifact_id}.txt",
+        uri=f"run://runs/{run_id}/artifacts/{artifact_id}",
+        mime_type="text/plain",
+        produced_at=datetime.now(timezone.utc),
+        revision=build_artifact_content_revision(
+            output_type="qc_report",
+            relative_path=relative_path,
+            content=content,
+        ),
+        metadata={
+            "relative_path": relative_path,
+            "output_type": "qc_report",
+            "size_bytes": len(content),
+            "catalog_id": "qc_report",
+            "scope": "project",
+        },
+    )
+
+
+def test_session_can_select_an_interaction_past_the_first_page(
+    client: ApiTestClient,
+) -> None:
+    from encode_pipeline.services.browser_tracks import _ARTIFACT_PAGE_SIZE
+
+    run_id = _create_run(client)
+    _bind_reference(client, run_id, assembly="hg38")
+    reports = tuple(
+        _report_artifact(run_id, f"report-{index:04d}") for index in range(500)
+    )
+    client.app.state.run_service.replace_artifacts(run_id, reports)
+    pet = _record(
+        client,
+        run_id,
+        "zzzz-interaction",
+        b"chr1\t1200\t1400\tchr1\t1600\t1800\tread\t211\t+\t+\n",
+        name="sample_all.bedpe.gz",
+        output_type="hitrac_bedpe_all",
+        revision_kind="content",
+        reference_assembly="hg38",
+    )
+    assert len(client.app.state.run_service.list_artifacts(run_id)) == 501
+    session = client.get(f"/api/v1/runs/{run_id}/browser-session")
+    assert session.status_code == 200, session.text
+    body = session.json()
+    assert body["interaction_status"] == "available"
+    assert [item["artifact_id"] for item in body["tracks"]] == ["zzzz-interaction"]
+    assert _ARTIFACT_PAGE_SIZE < 501
+    generation = body["artifact_generation"]
+    prepared = client.post(
+        f"/api/v1/runs/{run_id}/browser-tracks/{pet.artifact_id}/derivative",
+        json={"generation": generation, "revision": pet.revision},
+    )
+    assert prepared.status_code == 200, prepared.text
+    content = client.get(
+        prepared.json()["track"]["content_path"],
+        headers={"Range": "bytes=0-3"},
+    )
+    assert content.status_code == 206
+    assert content.content
+
+
+def test_session_returns_409_when_generation_changes_between_pages(
+    client: ApiTestClient,
+) -> None:
+    from encode_pipeline.services.browser_tracks import _ARTIFACT_PAGE_SIZE
+
+    run_id = _create_run(client)
+    page_count = _ARTIFACT_PAGE_SIZE + 1
+    reports = tuple(
+        _report_artifact(run_id, f"report-{index:04d}") for index in range(page_count)
+    )
+    service = client.app.state.run_service
+    service.replace_artifacts(run_id, reports)
+    real_page = service.list_artifacts_page
+    calls = {"count": 0}
+
+    def change_between_pages(run_id, *, expected_generation, after=None, limit=None):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            current = service.list_artifacts(run_id)
+            service.replace_artifacts(
+                run_id,
+                (*current, _report_artifact(run_id, "report-extra")),
+            )
+        return real_page(
+            run_id,
+            expected_generation=expected_generation,
+            after=after,
+            limit=limit,
+        )
+
+    service.list_artifacts_page = change_between_pages
+    conflict = client.get(f"/api/v1/runs/{run_id}/browser-session")
+    assert conflict.status_code == 409, conflict.text
+    issue = conflict.json()["issues"][0]
+    assert issue["code"] == "BROWSER_TRACK_READ_CONFLICT"
+    assert issue["context"]["reason_code"] == "generation_changed"
+    assert "tracks" not in conflict.json()
+    assert calls["count"] >= 2
+    service.list_artifacts_page = real_page
+    complete = client.get(f"/api/v1/runs/{run_id}/browser-session")
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["tracks"] == []
+    assert complete.json()["interaction_status"] == "absent"
+    assert complete.json()["annotation_status"] == "absent"

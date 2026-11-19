@@ -10,6 +10,7 @@ import {
   summarizeRunBrowserTrackRegion,
 } from '../../api/generated/artifacts/artifacts';
 import type { BrowserSessionResponse } from '../../api/generated/models';
+import { ApiError } from '../../api/fetcher';
 
 vi.mock('wuepgg', () => ({
   GenomeHub: ({
@@ -163,6 +164,8 @@ describe('GenomeBrowserPanel', () => {
     );
     renderPanel();
     expect(await screen.findByText(/Unsupported format: contacts.mcool/)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /PET records/ })).not.toBeChecked();
+    await userEvent.click(screen.getByRole('checkbox', { name: /PET records/ }));
     expect(await screen.findByText(/not a zero-signal measurement/)).toBeInTheDocument();
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('hg38');
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('chr1:200-2400');
@@ -181,6 +184,7 @@ describe('GenomeBrowserPanel', () => {
     );
     sessionMock.mockResolvedValue(session());
     renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /PET records/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Track failed to load');
     await waitFor(() => {
       expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
@@ -203,6 +207,7 @@ describe('GenomeBrowserPanel', () => {
     );
     sessionMock.mockResolvedValue(value);
     renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /PET records/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Track failed to load (HTTP 409)');
     await waitFor(() => {
       expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
@@ -216,6 +221,7 @@ describe('GenomeBrowserPanel', () => {
     );
     sessionMock.mockResolvedValue(session());
     renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /PET records/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Track failed to load');
     expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
   });
@@ -269,8 +275,10 @@ describe('GenomeBrowserPanel', () => {
     );
     sessionMock.mockResolvedValue(session());
     renderPanel();
+    const checkbox = await screen.findByRole('checkbox');
+    expect(checkbox).not.toBeChecked();
+    await userEvent.click(checkbox);
     await waitFor(() => expect(started).toBe(1));
-    const checkbox = screen.getByRole('checkbox');
     await userEvent.click(checkbox);
     expect(checkbox).not.toBeChecked();
     await userEvent.click(checkbox);
@@ -296,8 +304,9 @@ describe('GenomeBrowserPanel', () => {
     );
     sessionMock.mockResolvedValue(session());
     renderPanel();
+    const checkbox = await screen.findByRole('checkbox');
+    await userEvent.click(checkbox);
     await waitFor(() => expect(started).toBe(1));
-    const checkbox = screen.getByRole('checkbox');
     await userEvent.click(checkbox);
     await userEvent.click(checkbox);
     await waitFor(() => expect(started).toBeGreaterThan(1));
@@ -305,5 +314,247 @@ describe('GenomeBrowserPanel', () => {
     releaseLate(new Response('changed', { status: 409 }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
+  });
+
+  it('shows a retry when the first session request fails, then an empty selection', async () => {
+    sessionMock.mockRejectedValue(
+      new ApiError(
+        503,
+        'BROWSER_TRACK_UNAVAILABLE',
+        'The browser view is temporarily unavailable.',
+      ),
+    );
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'Retry browser view' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('temporarily unavailable');
+    expect(screen.queryByText('Loading genome browser…')).not.toBeInTheDocument();
+    expect(sessionMock).toHaveBeenCalledTimes(4);
+
+    sessionMock.mockResolvedValue(session());
+    await userEvent.click(screen.getByRole('button', { name: 'Retry browser view' }));
+    expect(await screen.findByRole('checkbox', { name: /PET records/ })).not.toBeChecked();
+  });
+});
+
+function namedTrack(
+  artifactId: string,
+  label: string,
+  overrides: Partial<BrowserSessionResponse['tracks'][number]> = {},
+): BrowserSessionResponse['tracks'][number] {
+  const base = session().tracks[0];
+  return {
+    ...base,
+    artifact_id: artifactId,
+    label,
+    name: `${artifactId}.bw`,
+    content_path: `/api/v1/runs/run-1/browser-tracks/${artifactId}/bytes/g/r`,
+    index_path: null,
+    kind: 'signal',
+    role: 'signal',
+    preparation: 'ready',
+    provenance: null,
+    ...overrides,
+  };
+}
+
+function byteUrls(fetchMock: { mock: { calls: unknown[][] } }): string[] {
+  return fetchMock.mock.calls
+    .map((call) => String(call[0]))
+    .filter((url) => url.includes('/bytes/'));
+}
+
+describe('GenomeBrowserPanel track selection', () => {
+  beforeEach(() => {
+    resetTrackReadGuardForTests();
+    sessionMock.mockReset();
+    summaryMock.mockReset();
+    summaryMock.mockResolvedValue({
+      ok: true,
+      kind: 'signal',
+      records: null,
+      truncated: false,
+      complete: true,
+      detail: 'Signal is not counted as records.',
+      issues: [],
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([1]), { status: 206 })),
+    );
+  });
+
+  it('reads only the files chosen after an empty open', async () => {
+    const fetchMock = vi.mocked(fetch);
+    sessionMock.mockResolvedValue(
+      session({
+        interaction_status: 'absent',
+        tracks: [
+          namedTrack('artifact-a', 'Signal: A'),
+          namedTrack('artifact-b', 'Signal: B'),
+          namedTrack('artifact-c', 'Signal: C'),
+        ],
+      }),
+    );
+    renderPanel();
+    expect(await screen.findByRole('checkbox', { name: /Signal: A/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Signal: C/ })).toBeInTheDocument();
+    expect(byteUrls(fetchMock)).toEqual([]);
+    expect(summaryMock).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('checkbox', { name: /Signal: A/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /Signal: B/ }));
+    await waitFor(() => expect(byteUrls(fetchMock).length).toBeGreaterThan(0));
+    const urls = byteUrls(fetchMock);
+    expect(urls.some((url) => url.includes('/artifact-a/'))).toBe(true);
+    expect(urls.some((url) => url.includes('/artifact-b/'))).toBe(true);
+    expect(urls.some((url) => url.includes('/artifact-c/'))).toBe(false);
+  });
+
+  it('keeps the remaining choice across a same-generation refresh and stops after the last removal', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const tracks = [
+      namedTrack('artifact-a', 'Signal: A'),
+      namedTrack('artifact-b', 'Signal: B'),
+    ];
+    sessionMock.mockResolvedValue(session({ interaction_status: 'absent', tracks }));
+    renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Signal: A/ }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /Signal: B/ }));
+    await waitFor(() => expect(byteUrls(fetchMock).length).toBeGreaterThan(0));
+    await userEvent.click(screen.getByRole('checkbox', { name: /Signal: A/ }));
+    const afterRemoval = byteUrls(fetchMock).length;
+    sessionMock.mockResolvedValue(
+      session({
+        interaction_status: 'absent',
+        tracks: tracks.map((track) => ({ ...track, detail: 'Refreshed list.' })),
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }));
+    expect((await screen.findAllByText('Refreshed list.')).length).toBeGreaterThan(0);
+    expect(screen.getByRole('checkbox', { name: /Signal: A/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Signal: B/ })).toBeChecked();
+    expect(byteUrls(fetchMock).some((url) => url.includes('/artifact-a/'))).toBe(true);
+    const refreshedA = byteUrls(fetchMock).filter((url) => url.includes('/artifact-a/')).length;
+    await userEvent.click(screen.getByRole('checkbox', { name: /Signal: B/ }));
+    expect(screen.getByRole('checkbox', { name: /Signal: B/ })).not.toBeChecked();
+    expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
+    await waitFor(() => expect(byteUrls(fetchMock).filter((url) => url.includes('/artifact-a/')).length).toBe(refreshedA));
+    expect(byteUrls(fetchMock).length).toBeGreaterThanOrEqual(afterRemoval);
+    expect(
+      byteUrls(fetchMock)
+        .slice(afterRemoval)
+        .some((url) => url.includes('/artifact-a/')),
+    ).toBe(false);
+  });
+
+  it('does not restore an explicit choice after preparation or carry it to another run', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const chosen = namedTrack('artifact-a', 'Signal: A');
+    const waiting = namedTrack('artifact-b', 'Signal: B', {
+      preparation: 'needed',
+      content_path: null,
+    });
+    sessionMock.mockResolvedValue(
+      session({ interaction_status: 'absent', tracks: [chosen, waiting] }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <GenomeBrowserPanel runId="run-1" artifactIds={['artifact-a']} />
+      </QueryClientProvider>,
+    );
+    const first = await screen.findByRole('checkbox', { name: /Signal: A/ });
+    expect(first).toBeChecked();
+    await userEvent.click(first);
+    expect(first).not.toBeChecked();
+    sessionMock.mockResolvedValue(
+      session({
+        interaction_status: 'absent',
+        tracks: [
+          chosen,
+          {
+            ...waiting,
+            preparation: 'ready',
+            content_path: '/api/v1/runs/run-1/browser-tracks/artifact-b/bytes/g/r',
+          },
+        ],
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/index is not prepared/i)).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('checkbox', { name: /Signal: A/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Signal: B/ })).not.toBeChecked();
+    const beforeSwitch = byteUrls(fetchMock).length;
+    sessionMock.mockResolvedValue(
+      session({
+        run_id: 'run-2',
+        interaction_status: 'absent',
+        tracks: [
+          namedTrack('artifact-a', 'Signal: A', {
+            content_path: '/api/v1/runs/run-2/browser-tracks/artifact-a/bytes/g/r',
+          }),
+        ],
+      }),
+    );
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <GenomeBrowserPanel runId="run-2" />
+      </QueryClientProvider>,
+    );
+    const next = await screen.findByRole('checkbox', { name: /Signal: A/ });
+    expect(next).not.toBeChecked();
+    expect(byteUrls(fetchMock).filter((url) => url.includes('/runs/run-2/'))).toEqual([]);
+    expect(byteUrls(fetchMock).length).toBe(beforeSwitch);
+  });
+
+  it('refreshes after a generation conflict and does not read the new files first', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const original = session({
+      interaction_status: 'absent',
+      tracks: [namedTrack('artifact-a', 'Signal: A')],
+    });
+    sessionMock.mockResolvedValue(original);
+    renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Signal: A/ }));
+    await waitFor(() => expect(byteUrls(fetchMock).length).toBeGreaterThan(0));
+    const beforeConflict = byteUrls(fetchMock).length;
+    sessionMock.mockRejectedValue(
+      new ApiError(
+        409,
+        'BROWSER_TRACK_READ_CONFLICT',
+        'Artifact generation changed. Reload the browser view.',
+        [
+          {
+            code: 'BROWSER_TRACK_READ_CONFLICT',
+            message: 'Artifact generation changed. Reload the browser view.',
+            path: 'generation',
+          },
+        ],
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }));
+    expect(await screen.findByText(/not read until you choose them/i)).toBeInTheDocument();
+    expect(byteUrls(fetchMock).filter((url) => url.includes('/new-gen/'))).toEqual([]);
+    sessionMock.mockResolvedValue(
+      session({
+        interaction_status: 'absent',
+        artifact_generation: `artifactgen-${'b'.repeat(64)}`,
+        tracks: [
+          namedTrack('artifact-a', 'Signal: A', {
+            content_path: '/api/v1/runs/run-1/browser-tracks/artifact-a/bytes/new-gen/r',
+          }),
+        ],
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }));
+    const box = await screen.findByRole('checkbox', { name: /Signal: A/ });
+    expect(box).not.toBeChecked();
+    expect(byteUrls(fetchMock).filter((url) => url.includes('/new-gen/'))).toEqual([]);
+    expect(byteUrls(fetchMock).length).toBe(beforeConflict);
+    await userEvent.click(box);
+    await waitFor(() =>
+      expect(byteUrls(fetchMock).some((url) => url.includes('/new-gen/'))).toBe(true),
+    );
   });
 });
