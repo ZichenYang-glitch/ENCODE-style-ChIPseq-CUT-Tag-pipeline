@@ -46,6 +46,12 @@ const ArtifactPublicationDetailPage = lazy(() =>
   })),
 );
 
+const ExperimentCatalogPage = lazy(() =>
+  import('../routes/catalog').then((module) => ({
+    default: module.ExperimentCatalogPage,
+  })),
+);
+
 function WorkflowDetailRoute() {
   const { workflowId } = useParams<{ workflowId: string }>();
   if (!workflowId) {
@@ -162,6 +168,14 @@ export const appRoutes: RouteObject[] = [
           </Suspense>
         ),
       },
+      {
+        path: 'catalog',
+        element: (
+          <Suspense fallback={<ExperimentCatalogRouteLoading />}>
+            <ExperimentCatalogPage />
+          </Suspense>
+        ),
+      },
           { path: '*', element: <NotFoundPage /> },
         ],
       },
@@ -194,6 +208,19 @@ function RunHistoryRouteLoading() {
     >
       <div className="h-5 w-40 rounded bg-slate-200" />
       <div className="mt-4 h-10 rounded bg-slate-100" />
+      <div className="mt-4 h-64 rounded bg-slate-100" />
+    </section>
+  );
+}
+
+function ExperimentCatalogRouteLoading() {
+  return (
+    <section
+      className="min-h-[30rem] min-w-0 flex-1 animate-pulse rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+      aria-label="Loading experiment catalog"
+    >
+      <div className="h-5 w-48 rounded bg-slate-200" />
+      <div className="mt-4 h-24 rounded bg-slate-100" />
       <div className="mt-4 h-64 rounded bg-slate-100" />
     </section>
   );

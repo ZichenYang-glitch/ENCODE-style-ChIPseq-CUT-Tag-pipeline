@@ -36,6 +36,7 @@ const routes: RouteObject[] = [
         path: 'artifacts/:runId/:artifactId',
         element: <p>Artifact publication detail</p>,
       },
+      { path: 'catalog', element: <p>Experiment catalog</p> },
       { path: '*', element: <p>Unknown route</p> },
     ],
   },
@@ -221,6 +222,27 @@ describe('AppShell navigation', () => {
       initialEntries: ['/artifacts/run-a/artifact-a/unknown'],
     });
     expect(screen.getByRole('link', { name: 'Artifacts' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('marks Catalog current only on the catalog page', () => {
+    const first = renderWithRouter(routes, {
+      initialEntries: ['/catalog'],
+    });
+    expect(screen.getByRole('link', { name: 'Catalog' })).toHaveAttribute(
+      'href',
+      '/catalog',
+    );
+    expect(screen.getByRole('link', { name: 'Catalog' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByText('Experiment catalog')).toBeInTheDocument();
+    first.unmount();
+
+    renderWithRouter(routes, { initialEntries: ['/artifacts'] });
+    expect(screen.getByRole('link', { name: 'Catalog' })).not.toHaveAttribute(
       'aria-current',
     );
   });
