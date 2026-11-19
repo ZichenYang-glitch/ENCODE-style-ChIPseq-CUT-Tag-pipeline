@@ -72,7 +72,7 @@ class TargetHead:
 
 
 class SourceCatalog(Protocol):
-    """Lookups that prove a citation still belongs to the proposal's project."""
+    """Lookups that prove references still belong to the proposal's project."""
 
     def cited_experiment(self, experiment_id: str) -> tuple[str, bool] | None:
         """Return project id and archived flag, or None when the id is absent."""
@@ -350,12 +350,12 @@ def ensure_active_versions(
             )
 
 
-def verify_source_references(
+def verify_item_references(
     item: ProposalItem,
     project_id: str,
     catalog: SourceCatalog,
 ) -> None:
-    """Require every selected citation to exist in this project and stay unarchived."""
+    """Validate cited sources and sample-revision pins for one selected item."""
 
     path = f"{item.item_id}.citations.source_refs"
     for ref in item.citation.source_refs:
@@ -393,6 +393,16 @@ def verify_source_references(
             _verify_projection_ref(ref.ref_id, project_id, catalog, path=path)
         else:
             raise catalog_payload_invalid()
+
+    if "samples" in item.allowed_fields:
+        for side, fields in (("before", item.before), ("after", item.after)):
+            for pin in fields["samples"]:
+                _require_sample_owner(
+                    catalog.cited_sample_revision(pin["sample_revision_id"]),
+                    project_id,
+                    path=f"{item.item_id}.{side}.samples.{pin['ordinal']}.sample_revision_id",
+                    message="Sample-revision pin is missing or outside this project.",
+                )
 
 
 def render_item_fields(
@@ -555,7 +565,7 @@ def build_preview(
         head = _require_head(heads, item, proposal.project_id)
         if head.archived:
             raise catalog_experiment_archived()
-        verify_source_references(item, proposal.project_id, sources)
+        verify_item_references(item, proposal.project_id, sources)
         before, after = render_item_fields(
             item,
             lookup,
@@ -667,7 +677,7 @@ def prepare_adoption(
         head = _require_head(heads, item, proposal.project_id)
         if head.archived:
             raise catalog_experiment_archived()
-        verify_source_references(item, proposal.project_id, sources)
+        verify_item_references(item, proposal.project_id, sources)
         _assert_writable(item, head, lookup)
         conflict = _conflict(item, head)
         if conflict is not None:
