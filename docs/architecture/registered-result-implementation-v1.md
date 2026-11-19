@@ -51,7 +51,7 @@ HELIXWEAVE_REGISTERED_RESULT_CLIENT=1 python -I -S scripts/checkout_bootstrap.py
   --repository-root . pytest test/api/test_registered_results_http.py
 ```
 
-它调用 `frontend/node_modules` 里锁定的 vitest，不通过 `npm exec` 另行解析版本。
+它调用锁文件安装出的 vitest 1.6.1 可执行文件，不通过 `npm exec` 另行解析版本。
 
 因此，核对完成后源文件被原地改写，已经密封的响应体不变，其 SHA-256 仍等于所请求修订。核对完成前源文件变了，则返回 `409`，没有 `200`。
 

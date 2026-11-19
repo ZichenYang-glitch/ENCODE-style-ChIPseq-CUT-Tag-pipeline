@@ -81,7 +81,7 @@ def _failure(exc: RegisteredResultAPIError) -> JSONResponse:
     response_model=RegisteredResultListResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_list_registered_results(
+async def catalog_list_registered_results(
     project_id: str = _PROJECT_ID,
     cursor: str | None = Query(default=None, max_length=4096),
     limit: int = Query(default=20, ge=1, le=50),
@@ -117,7 +117,7 @@ def catalog_list_registered_results(
     response_model=RegisteredResultDetailResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_register_registered_result(
+async def catalog_register_registered_result(
     body: RegisterRegisteredResultRequest,
     project_id: str = _PROJECT_ID,
     idempotency_key: str = _IDEMPOTENCY_KEY,
@@ -149,7 +149,7 @@ def catalog_register_registered_result(
     response_model=RegisteredResultListResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_list_registered_result_revisions(
+async def catalog_list_registered_result_revisions(
     project_id: str = _PROJECT_ID,
     result_id: str = _RESULT_ID,
     cursor: str | None = Query(default=None, max_length=4096),
@@ -185,7 +185,7 @@ def catalog_list_registered_result_revisions(
     response_model=RegisteredResultDetailResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_revise_registered_result(
+async def catalog_revise_registered_result(
     body: ReviseRegisteredResultRequest,
     project_id: str = _PROJECT_ID,
     result_id: str = _RESULT_ID,
@@ -220,7 +220,7 @@ def catalog_revise_registered_result(
     response_model=RegisteredResultArchiveResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_archive_registered_result(
+async def catalog_archive_registered_result(
     body: ArchiveRegisteredResultRequest,
     project_id: str = _PROJECT_ID,
     result_id: str = _RESULT_ID,
@@ -254,7 +254,7 @@ def catalog_archive_registered_result(
     response_model=RegisteredResultDetailResponse,
     responses=_JSON_ERRORS,
 )
-def catalog_get_registered_result_revision(
+async def catalog_get_registered_result_revision(
     project_id: str = _PROJECT_ID,
     result_revision_id: str = _REVISION_ID,
     principal: AuthenticatedPrincipal = Depends(require_principal),
@@ -289,7 +289,7 @@ def catalog_get_registered_result_revision(
         500: {"model": ValidationResponse},
     },
 )
-def catalog_download_registered_result_revision(
+async def catalog_download_registered_result_revision(
     project_id: str = _PROJECT_ID,
     result_revision_id: str = _REVISION_ID,
     principal: AuthenticatedPrincipal = Depends(require_principal),
