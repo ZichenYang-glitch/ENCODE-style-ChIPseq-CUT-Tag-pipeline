@@ -7,6 +7,7 @@ from contextlib import suppress
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from encode_pipeline.api.dependencies import (
     AuthApiError,
@@ -130,7 +131,8 @@ async def catalog_register_registered_result(
     relative_path = payload.pop("pool_relative_path")
     stable_key = payload.pop("stable_key")
     try:
-        revision = service.register(
+        revision = await run_in_threadpool(
+            service.register,
             principal,
             project_id,
             idempotency_key=idempotency_key,
@@ -196,7 +198,8 @@ async def catalog_revise_registered_result(
     """Append one revision. A rename re-reads the same bytes before it commits."""
 
     try:
-        revision = service.revise(
+        revision = await run_in_threadpool(
+            service.revise,
             principal,
             project_id,
             result_id,
@@ -298,7 +301,12 @@ async def catalog_download_registered_result_revision(
     """Send the request's verified copy. The source file is not the body."""
 
     try:
-        plan = service.prepare_download(principal, project_id, result_revision_id)
+        plan = await run_in_threadpool(
+            service.prepare_download,
+            principal,
+            project_id,
+            result_revision_id,
+        )
     except RegisteredResultAPIError as exc:
         return _failure(exc)
     try:
@@ -314,7 +322,7 @@ async def catalog_download_registered_result_revision(
             },
         )
     except BaseException:
-        _release_download(plan)
+        await run_in_threadpool(_release_download, plan)
         raise
 
 
@@ -326,15 +334,15 @@ def _detail(revision: dict) -> RegisteredResultDetailResponse:
     )
 
 
-def _iter_copy(plan: RegisteredResultDownload):
+async def _iter_copy(plan: RegisteredResultDownload):
     try:
         while True:
-            chunk = os.read(plan.descriptor, 1024 * 1024)
+            chunk = await run_in_threadpool(os.read, plan.descriptor, 1024 * 1024)
             if not chunk:
                 break
             yield chunk
     finally:
-        _release_download(plan)
+        await run_in_threadpool(_release_download, plan)
 
 
 def _release_download(plan: RegisteredResultDownload) -> None:

@@ -384,6 +384,10 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(
         ) in names
         assert (
             "encode_pipeline/persistence/alembic/versions/"
+            "20261119_32_catalog_proposal_adoption.py"
+        ) in names
+        assert (
+            "encode_pipeline/persistence/alembic/versions/"
             "20261119_39_registered_results.py"
         ) in names
         assert (
@@ -391,7 +395,7 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 20
+            == 21
         )
         assert not any(name.startswith("test/") for name in names)
 

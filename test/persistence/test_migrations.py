@@ -114,6 +114,9 @@ EXPECTED_TABLES = {
     "catalog_terms",
     "catalog_term_revisions",
     "catalog_write_receipts",
+    "catalog_curation_versions",
+    "catalog_proposals",
+    "catalog_adoption_receipts",
     "experiment_catalog_projection",
     "experiment_revision_heads",
     "experiment_revision_samples",
@@ -2869,6 +2872,60 @@ def test_registered_result_migration_preserves_m1_bindings_and_audit(tmp_path):
         }
     engine.dispose()
 
+    upgrade_database(database_url, "20261119_32")
+    proposal_id = "cprop_" + "a" * 32
+    receipt_id = "cadopt_" + "b" * 32
+    seeded = create_database_engine(database_url)
+    with seeded.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO catalog_proposals (
+                    proposal_id, project_id, created_by_user_id, source,
+                    rule_version, vocabulary_version, projection_version,
+                    proposal_digest, document_json, response_json,
+                    register_actor_user_id, register_idempotency_key,
+                    created_at, expires_at, retention_until
+                ) VALUES (
+                    :proposal_id, :project_id, :actor, 'manual',
+                    'm2-catalog-rules/1', 'terms-snapshot/2026-11-18',
+                    'hw-m2-catalog/1', :digest, '{}', '{}',
+                    :actor, 'm1-proposal',
+                    :now, :later, :later
+                )
+                """
+            ),
+            {
+                "proposal_id": proposal_id,
+                "project_id": project.project_id,
+                "actor": actor,
+                "digest": "ab" * 32,
+                "now": "2026-11-19 00:00:00",
+                "later": "2026-11-20 00:00:00",
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO catalog_adoption_receipts (
+                    receipt_id, proposal_id, project_id, actor_user_id,
+                    idempotency_key, response_json, created_at
+                ) VALUES (
+                    :receipt_id, :proposal_id, :project_id, :actor,
+                    'm1-adopt', '{}', :now
+                )
+                """
+            ),
+            {
+                "receipt_id": receipt_id,
+                "proposal_id": proposal_id,
+                "project_id": project.project_id,
+                "actor": actor,
+                "now": "2026-11-19 00:00:00",
+            },
+        )
+    seeded.dispose()
+
     upgrade_database(database_url)
     upgraded = create_database_engine(database_url)
     with upgraded.connect() as connection:
@@ -2911,13 +2968,72 @@ def test_registered_result_migration_preserves_m1_bindings_and_audit(tmp_path):
             connection.scalar(text("SELECT count(*) FROM experiments"))
             == before["experiments"]
         )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM catalog_adoption_receipts"))
+            == 1
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT proposal_id FROM catalog_adoption_receipts "
+                    "WHERE receipt_id = :receipt_id"
+                ),
+                {"receipt_id": receipt_id},
+            )
+            == proposal_id
+        )
     upgraded.dispose()
+
+    downgrade_database(database_url, "20261119_32")
+    at_proposals = create_database_engine(database_url)
+    names = set(inspect(at_proposals).get_table_names())
+    assert "registered_results" not in names
+    assert "catalog_adoption_receipts" in names
+    assert "snapshot_experiment_bindings" in names
+    with at_proposals.connect() as connection:
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+            "20261119_32"
+        )
+        assert (
+            connection.scalar(text("SELECT count(*) FROM catalog_adoption_receipts"))
+            == 1
+        )
+        assert (
+            before["bindings"]
+            == connection.execute(
+                text(
+                    "SELECT snapshot_id, experiment_revision_id, payload_digest "
+                    "FROM snapshot_experiment_bindings"
+                )
+            ).fetchall()
+        )
+        assert (
+            before["run_bindings"]
+            == connection.execute(
+                text(
+                    "SELECT run_id, experiment_revision_id, payload_digest "
+                    "FROM run_experiment_bindings"
+                )
+            ).fetchall()
+        )
+        assert (
+            before["audit"]
+            == connection.execute(
+                text(
+                    "SELECT event_id, action, outcome, resource_kind, resource_id, "
+                    "reason_code FROM security_audit_events"
+                )
+            ).fetchall()
+        )
+    at_proposals.dispose()
 
     downgrade_database(database_url, "20261119_18")
     restored = create_database_engine(database_url)
     names = set(inspect(restored).get_table_names())
     assert "registered_results" not in names
     assert "registered_result_revisions" not in names
+    assert "catalog_proposals" not in names
+    assert "catalog_adoption_receipts" not in names
     with restored.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
             "20261119_18"

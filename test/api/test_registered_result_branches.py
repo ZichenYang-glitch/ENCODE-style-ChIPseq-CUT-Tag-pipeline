@@ -7,18 +7,23 @@ fast coverage shards otherwise never enter.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import stat
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import httpx
 
 import pytest
 
 from encode_pipeline.api.dependencies import AuthApiError
 from encode_pipeline.api.main import create_app
+from encode_pipeline.api.routes import registered_results as registered_result_routes
 from encode_pipeline.api.routes.registered_results import _failure
 from encode_pipeline.persistence.models import RegisteredResultRevisionRow
 from encode_pipeline.persistence.registered_results import (
@@ -35,7 +40,9 @@ from encode_pipeline.platform.registered_results import (
     parse_metadata,
     request_sha256,
 )
+from encode_pipeline.services import registered_results as registered_result_service
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.input_file_access import InputFileAccess
 from encode_pipeline.services.input_registry import InputRegistryService
 from encode_pipeline.services.registered_results import (
     RegisteredResultAPIError,
@@ -43,7 +50,7 @@ from encode_pipeline.services.registered_results import (
     _encode_cursor,
     _zulu,
 )
-from api_test_client import ApiTestClient
+from api_test_client import ApiTestClient, seeded_auth_async_client
 from conftest import seed_test_authentication
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -330,6 +337,146 @@ def test_registered_result_list_archive_downstream_and_failures(
     finally:
         app.state.run_queue.close()
         app.state.persistence.close()
+
+
+def test_slow_registered_result_file_io_leaves_the_event_loop_free(
+    tmp_path: Path,
+) -> None:
+    fixture = FIXTURE.read_bytes()
+    pool_root = (tmp_path / "pool").resolve()
+    source = pool_root / "external" / "known.tsv"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(fixture)
+    config_path = tmp_path / "storage-pools.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "storage-pool-roots-v1",
+                "storage_pool_roots": {"loop-pool": str(pool_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = create_app(
+        database_url=f"sqlite:///{tmp_path / 'loop.db'}",
+        workspace_root=tmp_path / "workspace",
+        project_root=REPOSITORY_ROOT,
+    )
+    try:
+        seed_test_authentication(app)
+        app.state.registered_result_service._storage_pool_config_path = config_path
+        registry = DataRegistryService(
+            repository=app.state.persistence.data_registry_repository
+        )
+        project = registry.create_project("IRENE-39 loop")
+        pools = InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        )
+        storage = pools.create_storage_pool(
+            display_name="Loop pool",
+            config_key="loop-pool",
+        )
+        pools.bind_project_storage_pool(project.project_id, storage.storage_pool_id)
+        asyncio.run(_prove_file_io_stays_off_the_loop(app, project.project_id, fixture))
+    finally:
+        app.state.run_queue.close()
+        app.state.persistence.close()
+
+
+async def _prove_file_io_stays_off_the_loop(
+    app, project_id: str, fixture: bytes
+) -> None:
+    mode = {"name": ""}
+    entered = threading.Event()
+    release = threading.Event()
+    original_observe = InputFileAccess.observe
+    original_seal = registered_result_service.seal_private_copy
+    real_os = registered_result_routes.os
+
+    def blocking_observe(self, relative_path: str):
+        if mode["name"] == "observe":
+            _wait_until_another_request_finishes(entered, release)
+        return original_observe(self, relative_path)
+
+    def blocking_seal(**kwargs):
+        if mode["name"] == "seal":
+            _wait_until_another_request_finishes(entered, release)
+        return original_seal(**kwargs)
+
+    class _RouteOs:
+        def __getattr__(self, name: str):
+            return getattr(real_os, name)
+
+        def read(self, descriptor: int, length: int) -> bytes:
+            if mode["name"] == "stream":
+                _wait_until_another_request_finishes(entered, release)
+            return real_os.read(descriptor, length)
+
+    list_url = _results(project_id)
+    transport = httpx.ASGITransport(app=app)
+    async with seeded_auth_async_client(
+        app,
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+
+        async def during(name: str, start):
+            entered.clear()
+            release.clear()
+            mode["name"] = name
+            task = asyncio.create_task(start())
+            assert await asyncio.to_thread(entered.wait, 5)
+            listed = await client.get(list_url)
+            assert listed.status_code == 200, listed.text
+            mode["name"] = ""
+            release.set()
+            response = await task
+            assert response.status_code == 200, response.text
+            return response
+
+        with (
+            patch.object(InputFileAccess, "observe", blocking_observe),
+            patch.object(
+                registered_result_service,
+                "seal_private_copy",
+                blocking_seal,
+            ),
+            patch.object(registered_result_routes, "os", _RouteOs()),
+        ):
+            registered = await during(
+                "observe",
+                lambda: client.post(
+                    list_url,
+                    json=_metadata("synthetic-loop-source", "Loop synthetic counts"),
+                    headers={"Idempotency-Key": "loop-register"},
+                ),
+            )
+            revision = registered.json()["revision"]
+            await during(
+                "observe",
+                lambda: client.post(
+                    _revisions(project_id, revision["result_id"]),
+                    json={
+                        "expected_revision_number": 1,
+                        "display_name": "Loop renamed counts",
+                    },
+                    headers={"Idempotency-Key": "loop-rename"},
+                ),
+            )
+            content = _content(project_id, revision["result_revision_id"])
+            sealed = await during("seal", lambda: client.get(content))
+            assert sealed.content == fixture
+            streamed = await during("stream", lambda: client.get(content))
+            assert streamed.content == fixture
+
+
+def _wait_until_another_request_finishes(
+    entered: threading.Event,
+    release: threading.Event,
+) -> None:
+    entered.set()
+    if not release.wait(3):
+        raise TimeoutError("event loop stayed blocked during file read")
 
 
 def _repository_edges(

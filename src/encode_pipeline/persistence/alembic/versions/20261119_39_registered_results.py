@@ -1,12 +1,11 @@
 """Register external results and extend download audit targets.
 
 Revision ID: 20261119_39
-Revises: 20261119_18
+Revises: 20261119_32
 
-The merged chain is 20261118_17 then 20261119_18. Revision 20261119_18
-already creates experiment snapshot bindings, so this change uses a new id.
-IRENE-32 reserves 20261119_32, currently parented on 20261118_17 in its
-own branch. This revision continues the merged head and does not take 32.
+The accepted chain is 20261119_18 (snapshot bindings) then 20261119_32
+(catalog proposal receipts). This revision is the only head after 32.
+Revision 20261119_18 stays unchanged.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import sqlalchemy as sa
 
 
 revision = "20261119_39"
-down_revision = "20261119_18"
+down_revision = "20261119_32"
 branch_labels = None
 depends_on = None
 
@@ -274,6 +273,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    incompatible = connection.execute(
+        sa.text(
+            "SELECT count(*) FROM security_audit_events "
+            "WHERE action = 'registered_result.download' "
+            "OR resource_kind = 'registered_result'"
+        )
+    ).scalar()
+    if incompatible:
+        raise RuntimeError(
+            "20261119_39 cannot downgrade while registered-result audit events exist"
+        )
     with op.batch_alter_table("security_audit_events") as batch_op:
         batch_op.drop_constraint("ck_security_audit_events_action", type_="check")
         batch_op.create_check_constraint(
