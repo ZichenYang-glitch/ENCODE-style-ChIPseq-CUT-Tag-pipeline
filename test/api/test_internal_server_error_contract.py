@@ -210,6 +210,20 @@ FAULTS = {
         "experiment_catalog_service",
         "list_experiment_run_results",
     ),
+    "catalogRegisterProposal": (
+        "experiment_catalog_service",
+        "register_proposal",
+    ),
+    "catalogGetProposal": ("experiment_catalog_service", "get_proposal"),
+    "catalogPreviewProposal": (
+        "experiment_catalog_service",
+        "preview_proposal",
+    ),
+    "catalogAdoptProposal": ("experiment_catalog_service", "adopt_proposal"),
+    "catalogListAdoptionReceipts": (
+        "experiment_catalog_service",
+        "list_adoption_receipts",
+    ),
 }
 SPECIAL_MODELS = {
     "createRun": "RunResponse",
@@ -382,6 +396,16 @@ def error_api(tmp_path):
             "catalogReviseSampleCatalog": {
                 "expected_revision_number": 1,
                 "catalog": None,
+            },
+            "catalogRegisterProposal": {
+                "source": "offline_suggestion",
+                "items": [{"item_id": "item_1", "target_kind": "experiment"}],
+            },
+            "catalogPreviewProposal": {"selected_item_ids": ["item_1"]},
+            "catalogAdoptProposal": {
+                "preview_digest": "a" * 64,
+                "selected_item_ids": ["item_1"],
+                "expected_revisions": {"exp_" + "1" * 32: 1},
             },
         }
         params = {}

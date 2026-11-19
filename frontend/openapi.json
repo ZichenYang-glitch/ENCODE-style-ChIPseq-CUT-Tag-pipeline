@@ -6554,6 +6554,640 @@
         }
       }
     },
+    "/api/v1/catalog/projects/{project_id}/proposals": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Register Proposal",
+        "operationId": "catalogRegisterProposal",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogRegisterProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/proposals/{proposal_id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get Proposal",
+        "operationId": "catalogGetProposal",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogProposalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/proposals/{proposal_id}/preview": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Preview Proposal",
+        "operationId": "catalogPreviewProposal",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogPreviewProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogProposalPreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/proposals/{proposal_id}/adoptions": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Adopt Proposal",
+        "operationId": "catalogAdoptProposal",
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogAdoptProposalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogAdoptionReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
+    "/api/v1/catalog/projects/{project_id}/adoption-receipts": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List Adoption Receipts",
+        "operationId": "catalogListAdoptionReceipts",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogAdoptionReceiptListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
     "/api/v1/catalog/projects/{project_id}/registered-results": {
       "get": {
         "tags": [
@@ -10455,6 +11089,151 @@
         ],
         "title": "BrowserUnavailableTrackResponse"
       },
+      "CatalogAdoptProposalRequest": {
+        "properties": {
+          "preview_digest": {
+            "type": "string",
+            "title": "Preview Digest"
+          },
+          "selected_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Item Ids"
+          },
+          "expected_revisions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Expected Revisions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "preview_digest",
+          "selected_item_ids",
+          "expected_revisions"
+        ],
+        "title": "CatalogAdoptProposalRequest"
+      },
+      "CatalogAdoptionReceiptListResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAdoptionReceiptResponse"
+            },
+            "type": "array",
+            "title": "Receipts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "project_id",
+          "receipts"
+        ],
+        "title": "CatalogAdoptionReceiptListResponse"
+      },
+      "CatalogAdoptionReceiptResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "replayed": {
+            "type": "boolean",
+            "title": "Replayed"
+          },
+          "contract_version": {
+            "type": "string",
+            "title": "Contract Version"
+          },
+          "receipt_id": {
+            "type": "string",
+            "title": "Receipt Id"
+          },
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "proposal_digest": {
+            "type": "string",
+            "title": "Proposal Digest"
+          },
+          "preview_digest": {
+            "type": "string",
+            "title": "Preview Digest"
+          },
+          "actor_user_id": {
+            "type": "string",
+            "title": "Actor User Id"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "title": "Idempotency Key"
+          },
+          "selected_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Item Ids"
+          },
+          "excluded_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded Item Ids"
+          },
+          "applied_targets": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAppliedTargetResponse"
+            },
+            "type": "array",
+            "title": "Applied Targets"
+          },
+          "adopted_at": {
+            "type": "string",
+            "title": "Adopted At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "replayed",
+          "contract_version",
+          "receipt_id",
+          "proposal_id",
+          "project_id",
+          "proposal_digest",
+          "preview_digest",
+          "actor_user_id",
+          "idempotency_key",
+          "selected_item_ids",
+          "excluded_item_ids",
+          "applied_targets",
+          "adopted_at"
+        ],
+        "title": "CatalogAdoptionReceiptResponse"
+      },
       "CatalogAmbiguousMultiSlotResponse": {
         "properties": {
           "status": {
@@ -10521,6 +11300,58 @@
           "status"
         ],
         "title": "CatalogAmbiguousSingleSlotResponse"
+      },
+      "CatalogAppliedTargetResponse": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "target_kind": {
+            "type": "string",
+            "title": "Target Kind"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "base_revision_id": {
+            "type": "string",
+            "title": "Base Revision Id"
+          },
+          "base_revision_number": {
+            "type": "integer",
+            "title": "Base Revision Number"
+          },
+          "result_revision_id": {
+            "type": "string",
+            "title": "Result Revision Id"
+          },
+          "result_revision_number": {
+            "type": "integer",
+            "title": "Result Revision Number"
+          },
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "item_id",
+          "target_kind",
+          "target_id",
+          "base_revision_id",
+          "base_revision_number",
+          "result_revision_id",
+          "result_revision_number",
+          "changed_fields"
+        ],
+        "title": "CatalogAppliedTargetResponse"
       },
       "CatalogArchiveExperimentResponse": {
         "properties": {
@@ -11272,6 +12103,20 @@
             },
             "type": "array",
             "title": "Issues"
+          },
+          "conflicts": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CatalogRevisionConflictDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conflicts"
           }
         },
         "additionalProperties": false,
@@ -11676,6 +12521,358 @@
         ],
         "title": "CatalogNegativeSingleSlotResponse"
       },
+      "CatalogPreviewItemResponse": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "target_kind": {
+            "type": "string",
+            "title": "Target Kind"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "expected_revision_number": {
+            "type": "integer",
+            "title": "Expected Revision Number"
+          },
+          "base_revision_id": {
+            "type": "string",
+            "title": "Base Revision Id"
+          },
+          "current_revision_number": {
+            "type": "integer",
+            "title": "Current Revision Number"
+          },
+          "current_revision_id": {
+            "type": "string",
+            "title": "Current Revision Id"
+          },
+          "conflict_detected": {
+            "type": "boolean",
+            "title": "Conflict Detected"
+          },
+          "allowed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Fields"
+          },
+          "before": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before"
+          },
+          "after": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After"
+          },
+          "citations": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Citations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "item_id",
+          "target_kind",
+          "target_id",
+          "expected_revision_number",
+          "base_revision_id",
+          "current_revision_number",
+          "current_revision_id",
+          "conflict_detected",
+          "allowed_fields",
+          "before",
+          "after",
+          "citations"
+        ],
+        "title": "CatalogPreviewItemResponse"
+      },
+      "CatalogPreviewProposalRequest": {
+        "properties": {
+          "selected_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Item Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "selected_item_ids"
+        ],
+        "title": "CatalogPreviewProposalRequest"
+      },
+      "CatalogProposalItemView": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "title": "Item Id"
+          },
+          "target_kind": {
+            "type": "string",
+            "title": "Target Kind"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "base_revision_id": {
+            "type": "string",
+            "title": "Base Revision Id"
+          },
+          "base_revision_number": {
+            "type": "integer",
+            "title": "Base Revision Number"
+          },
+          "current_revision_id": {
+            "type": "string",
+            "title": "Current Revision Id"
+          },
+          "current_revision_number": {
+            "type": "integer",
+            "title": "Current Revision Number"
+          },
+          "allowed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed Fields"
+          },
+          "before": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before"
+          },
+          "after": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After"
+          },
+          "citations": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Citations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "item_id",
+          "target_kind",
+          "target_id",
+          "base_revision_id",
+          "base_revision_number",
+          "current_revision_id",
+          "current_revision_number",
+          "allowed_fields",
+          "before",
+          "after",
+          "citations"
+        ],
+        "title": "CatalogProposalItemView"
+      },
+      "CatalogProposalPreviewResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "contract_version": {
+            "type": "string",
+            "title": "Contract Version"
+          },
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "proposal_digest": {
+            "type": "string",
+            "title": "Proposal Digest"
+          },
+          "preview_digest": {
+            "type": "string",
+            "title": "Preview Digest"
+          },
+          "selected_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Item Ids"
+          },
+          "excluded_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Excluded Item Ids"
+          },
+          "expected_revisions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Expected Revisions"
+          },
+          "has_conflicts": {
+            "type": "boolean",
+            "title": "Has Conflicts"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogRevisionConflictDetail"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogPreviewItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "contract_version",
+          "proposal_id",
+          "project_id",
+          "proposal_digest",
+          "preview_digest",
+          "selected_item_ids",
+          "excluded_item_ids",
+          "expected_revisions",
+          "has_conflicts",
+          "conflicts",
+          "expires_at",
+          "items"
+        ],
+        "title": "CatalogProposalPreviewResponse"
+      },
+      "CatalogProposalResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "contract_version": {
+            "type": "string",
+            "title": "Contract Version"
+          },
+          "proposal_id": {
+            "type": "string",
+            "title": "Proposal Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "proposal_state": {
+            "type": "string",
+            "title": "Proposal State"
+          },
+          "adoptable_by_caller": {
+            "type": "boolean",
+            "title": "Adoptable By Caller"
+          },
+          "rule_version": {
+            "type": "string",
+            "title": "Rule Version"
+          },
+          "vocabulary_version": {
+            "type": "string",
+            "title": "Vocabulary Version"
+          },
+          "projection_version": {
+            "type": "string",
+            "title": "Projection Version"
+          },
+          "proposal_digest": {
+            "type": "string",
+            "title": "Proposal Digest"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "type": "string",
+            "title": "Expires At"
+          },
+          "retention_until": {
+            "type": "string",
+            "title": "Retention Until"
+          },
+          "adoption_receipt": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adoption Receipt"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogProposalItemView"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "contract_version",
+          "proposal_id",
+          "project_id",
+          "source",
+          "proposal_state",
+          "adoptable_by_caller",
+          "rule_version",
+          "vocabulary_version",
+          "projection_version",
+          "proposal_digest",
+          "created_at",
+          "expires_at",
+          "retention_until",
+          "items"
+        ],
+        "title": "CatalogProposalResponse"
+      },
       "CatalogPublishedRunResponse": {
         "properties": {
           "run_id": {
@@ -11754,6 +12951,68 @@
           "run_sample_binding"
         ],
         "title": "CatalogPublishedRunResponse"
+      },
+      "CatalogRegisterProposalRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "offline_suggestion",
+              "agent",
+              "manual"
+            ],
+            "title": "Source"
+          },
+          "rule_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Version"
+          },
+          "vocabulary_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vocabulary Version"
+          },
+          "projection_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Version"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "title": "CatalogRegisterProposalRequest",
+        "description": "Offline suggestion package. The server assigns the proposal id and digest."
       },
       "CatalogReviseExperimentRequest": {
         "properties": {
@@ -12842,6 +14101,52 @@
           "display_name"
         ],
         "title": "CatalogReviseTermRequest"
+      },
+      "CatalogRevisionConflictDetail": {
+        "properties": {
+          "target_kind": {
+            "type": "string",
+            "title": "Target Kind"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "expected_revision_number": {
+            "type": "integer",
+            "title": "Expected Revision Number"
+          },
+          "current_revision_number": {
+            "type": "integer",
+            "title": "Current Revision Number"
+          },
+          "current_revision_id": {
+            "type": "string",
+            "title": "Current Revision Id"
+          },
+          "expected_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_kind",
+          "target_id",
+          "expected_revision_number",
+          "current_revision_number",
+          "current_revision_id"
+        ],
+        "title": "CatalogRevisionConflictDetail",
+        "description": "One selected target whose head revision differs from the proposal baseline."
       },
       "CatalogRunSampleBindingResponse": {
         "properties": {

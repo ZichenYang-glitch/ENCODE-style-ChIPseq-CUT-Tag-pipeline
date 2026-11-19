@@ -78,12 +78,16 @@ class CatalogError(Exception):
         message: str,
         *,
         path: str | None = None,
+        hint: str | None = None,
+        conflicts: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.path = path
+        self.hint = hint
+        self.conflicts = None if not conflicts else tuple(conflicts)
 
 
 @dataclass(frozen=True)
@@ -263,11 +267,14 @@ def catalog_cursor_not_found() -> CatalogError:
     )
 
 
-def catalog_revision_conflict() -> CatalogError:
+def catalog_revision_conflict(
+    conflicts: Sequence[Mapping[str, Any]] | None = None,
+) -> CatalogError:
     return CatalogError(
         409,
         "catalog_revision_conflict",
         "The catalog revision changed before this write.",
+        conflicts=conflicts,
     )
 
 

@@ -111,12 +111,12 @@ EXPECTED_TABLES = {
     "validated_input_snapshots",
     "agent_authoring_sessions",
     "agent_authoring_turns",
+    "catalog_adoption_receipts",
+    "catalog_curation_versions",
+    "catalog_proposals",
     "catalog_terms",
     "catalog_term_revisions",
     "catalog_write_receipts",
-    "catalog_curation_versions",
-    "catalog_proposals",
-    "catalog_adoption_receipts",
     "experiment_catalog_projection",
     "experiment_revision_heads",
     "experiment_revision_samples",
@@ -2633,7 +2633,7 @@ def test_experiment_snapshot_binding_migration_is_empty_and_reversible(tmp_path)
     } <= set(inspector.get_table_names())
     with upgraded.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-            "20261119_18"
+            "20261119_32"
         )
         assert (
             connection.scalar(text("SELECT count(*) FROM snapshot_experiment_bindings"))

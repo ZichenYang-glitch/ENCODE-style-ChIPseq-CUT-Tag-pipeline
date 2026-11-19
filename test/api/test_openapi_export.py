@@ -235,6 +235,23 @@ EXPECTED_OPERATIONS = {
         "GET",
         "/api/v1/catalog/projects/{project_id}/experiment-revisions/{experiment_revision_id}/run-results",
     ): "catalogListExperimentRevisionRunResults",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/proposals",
+    ): "catalogRegisterProposal",
+    ("GET", "/api/v1/catalog/proposals/{proposal_id}"): "catalogGetProposal",
+    (
+        "POST",
+        "/api/v1/catalog/proposals/{proposal_id}/preview",
+    ): "catalogPreviewProposal",
+    (
+        "POST",
+        "/api/v1/catalog/proposals/{proposal_id}/adoptions",
+    ): "catalogAdoptProposal",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/adoption-receipts",
+    ): "catalogListAdoptionReceipts",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

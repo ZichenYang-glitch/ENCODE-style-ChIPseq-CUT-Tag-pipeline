@@ -637,3 +637,122 @@ def test_receipt_target_rejects_a_different_object() -> None:
     assert again["experiment_id"] == created["experiment_id"]
     assert again["experiment_revision_id"] == created["experiment_revision_id"]
     assert catalog.list_experiments(project_id=left.project_id)["ok"] is True
+
+
+def test_memory_adoption_commits_one_subset_and_replays() -> None:
+    data, catalog = _stack()
+    project = data.create_project("Memory adoption")
+    assay = _term(catalog, "assay", "CUT&Tag")
+    role = _term(catalog, "replicate_role", "biological replicate")
+    curated = data.import_sample(
+        project.project_id,
+        stable_key="curated",
+        display_name="curated",
+        attributes={"legacy_note": "keep-me", "organism": "human"},
+    )
+    catalog_body = {
+        "expected_revision_number": 1,
+        "display_name": "curated",
+        "catalog": _catalog(),
+    }
+    sample = catalog.revise_sample_catalog(
+        **_write("memory-sample", catalog_body),
+        sample_id=curated.sample.sample_id,
+        **catalog_body,
+    )
+    experiment_body = {
+        "project_id": project.project_id,
+        "stable_key": "memory-exp",
+        "display_name": "memory-exp",
+        "assay": _known(assay),
+        "target": _single("unknown"),
+        "batch": _single("unknown"),
+        "samples": [
+            {
+                "sample_revision_id": sample["sample_revision_id"],
+                "replicate_role": _known(role),
+            }
+        ],
+    }
+    experiment = catalog.create_experiment(
+        **_write("memory-experiment", experiment_body),
+        **experiment_body,
+    )
+    from encode_pipeline.platform.catalog_curation_preview import (
+        M2_RULE_VERSION,
+        M2_VOCABULARY_VERSION,
+    )
+
+    item = {
+        "item_id": "item_1",
+        "target_kind": "experiment",
+        "target_id": experiment["experiment_id"],
+        "base_revision_id": experiment["experiment_revision_id"],
+        "base_revision_number": experiment["revision_number"],
+        "allowed_fields": ["display_name"],
+        "before": {"display_name": "memory-exp"},
+        "after": {"display_name": "memory-exp adopted"},
+        "citations": {
+            "rule_version": M2_RULE_VERSION,
+            "vocabulary_version": M2_VOCABULARY_VERSION,
+            "reason_codes": ["MISSING_EVIDENCE_UNKNOWN"],
+            "source_refs": [
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": experiment["experiment_revision_id"],
+                    "evidence_token": "memory-exp",
+                }
+            ],
+        },
+    }
+    register_body = {"source": "offline_suggestion", "items": [item]}
+    registered = catalog.register_proposal(
+        **_write("memory-register", register_body),
+        project_id=project.project_id,
+        source="offline_suggestion",
+        items=[item],
+        rule_version=None,
+        vocabulary_version=None,
+        projection_version=None,
+    )
+    preview = catalog.preview_proposal(
+        actor_user_id="usr_" + "a" * 32,
+        raw_body=b"{}",
+        proposal_id=registered["proposal_id"],
+        selected_item_ids=["item_1"],
+    )
+    adopt_body = {
+        "preview_digest": preview["preview_digest"],
+        "selected_item_ids": ["item_1"],
+        "expected_revisions": preview["expected_revisions"],
+    }
+    adopted = catalog.adopt_proposal(
+        **_write("memory-adopt", adopt_body),
+        proposal_id=registered["proposal_id"],
+        selected_item_ids=["item_1"],
+        expected_revisions=preview["expected_revisions"],
+        preview_digest=preview["preview_digest"],
+    )
+    assert adopted["replayed"] is False
+    replay = catalog.adopt_proposal(
+        **_write("memory-adopt", adopt_body),
+        proposal_id=registered["proposal_id"],
+        selected_item_ids=["item_1"],
+        expected_revisions=preview["expected_revisions"],
+        preview_digest=preview["preview_digest"],
+    )
+    assert replay["replayed"] is True
+    assert replay["receipt_id"] == adopted["receipt_id"]
+    with pytest.raises(CatalogError) as second:
+        catalog.adopt_proposal(
+            **_write("memory-adopt-again", adopt_body),
+            proposal_id=registered["proposal_id"],
+            selected_item_ids=["item_1"],
+            expected_revisions=preview["expected_revisions"],
+            preview_digest=preview["preview_digest"],
+        )
+    assert second.value.code == "catalog_proposal_invalidated"
+    revisions = catalog.list_experiment_revisions(
+        experiment_id=experiment["experiment_id"]
+    )
+    assert len(revisions["experiment_revisions"]) == 2
