@@ -72,12 +72,14 @@ def test_validate_route_passes_selection_outside_adapter_owned_inputs() -> None:
             *,
             project_sample_selection: object,
             reference_profile_revision_id: object,
+            experiment_revision_id: object = None,
         ) -> Result[None]:
             observed.update(
                 workflow_id=workflow_id,
                 inputs=inputs,
                 selection=project_sample_selection,
                 reference_profile_revision_id=reference_profile_revision_id,
+                experiment_revision_id=experiment_revision_id,
             )
             return Result.success(None)
 
@@ -99,6 +101,7 @@ def test_validate_route_passes_selection_outside_adapter_owned_inputs() -> None:
     assert getattr(selection, "sample_revision_ids") == REVISION_IDS
     assert observed["workflow_id"] == "workflow-a"
     assert observed["reference_profile_revision_id"] == REFERENCE_PROFILE_REVISION_ID
+    assert observed["experiment_revision_id"] is None
     assert response.ok is True  # type: ignore[union-attr]
 
 

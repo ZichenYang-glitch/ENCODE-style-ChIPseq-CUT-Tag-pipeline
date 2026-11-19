@@ -626,9 +626,7 @@ class BrowserTrackService:
         except Exception:
             return None
 
-    def _artifacts(
-        self, run_id: str
-    ) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
+    def _artifacts(self, run_id: str) -> tuple[str | None, tuple[RunArtifactRef, ...]]:
         """Read every artifact in one generation, one cursor page at a time.
 
         The first page establishes the generation. Later pages ask for that

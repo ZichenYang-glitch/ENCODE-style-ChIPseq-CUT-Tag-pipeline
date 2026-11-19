@@ -26,11 +26,16 @@ from encode_pipeline.persistence.models import (
     RunQcMetricRow,
     RunResultAttemptRow,
     RunResultStateRow,
+    RunExperimentBindingRow,
     RunProjectBindingRow,
     RunRow,
     RunSampleRow,
     RunWorkflowBuildIdentityRow,
     SampleRevisionRow,
+    ExperimentRevisionRow,
+    ExperimentRevisionSampleRow,
+    ExperimentRow,
+    SnapshotExperimentBindingRow,
     SnapshotProjectBindingRow,
     SnapshotReferenceBindingRow,
     SnapshotInputBindingRow,
@@ -54,6 +59,7 @@ from encode_pipeline.platform.artifact_publications import (
 )
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.data_registry import (
+    LEGACY_PROJECT_ID,
     BindingMode,
     BindingProvenance,
     ProjectKind,
@@ -63,6 +69,17 @@ from encode_pipeline.platform.data_registry import (
     SampleRevisionBindingRef,
     build_legacy_project_sample_binding,
     build_project_sample_binding,
+)
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogError,
+    ExperimentRevisionFreezeSource,
+    ExperimentSnapshotBinding,
+    association_pins_match,
+    build_experiment_revision_payload_digest,
+    experiment_sample_pin_identity,
+    catalog_not_found,
+    freeze_experiment_snapshot_binding,
+    interpret_stored_experiment_payload,
 )
 from encode_pipeline.platform.execution import (
     RunExecutionAssignment,
@@ -208,6 +225,7 @@ class SqlAlchemyRunRepository:
         project_sample_selection: ProjectSampleSelection | None = None,
         input_use_binding_plan: InputUseBindingPlan | None = None,
         reference_binding: ReferenceProfileRevisionBinding | None = None,
+        experiment_revision_id: str | None = None,
     ) -> ValidatedInputSnapshot:
         validated = _validated_input_snapshot_from_row(
             _validated_input_snapshot_row(snapshot)
@@ -234,6 +252,20 @@ class SqlAlchemyRunRepository:
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
+                frozen_experiment = None
+                if experiment_revision_id is not None:
+                    if project_sample_selection is None:
+                        raise catalog_not_found()
+                    frozen_experiment = freeze_experiment_snapshot_binding(
+                        _experiment_revision_freeze_source(
+                            session,
+                            experiment_revision_id,
+                        ),
+                        project_id=project_sample_selection.project_id,
+                        sample_revision_ids=(
+                            project_sample_selection.sample_revision_ids
+                        ),
+                    )
                 session.add(_validated_input_snapshot_row(validated))
                 session.flush()
                 if project_sample_selection is None:
@@ -304,6 +336,17 @@ class SqlAlchemyRunRepository:
                         )
                     )
                     session.flush()
+                if frozen_experiment is not None:
+                    session.add(
+                        SnapshotExperimentBindingRow(
+                            snapshot_id=validated.snapshot_id,
+                            experiment_revision_id=(
+                                frozen_experiment.experiment_revision_id
+                            ),
+                            payload_digest=frozen_experiment.payload_digest,
+                        )
+                    )
+                    session.flush()
         except (InputBindingSelectionError, ReferenceBindingSelectionError):
             raise
         except IntegrityError as exc:
@@ -367,6 +410,16 @@ class SqlAlchemyRunRepository:
             row = session.get(SnapshotReferenceBindingRow, snapshot_id)
             return None if row is None else _reference_binding_from_row(row)
 
+    def get_validated_experiment_binding(
+        self,
+        snapshot_id: str,
+    ) -> ExperimentSnapshotBinding | None:
+        with self._session_factory() as session:
+            if session.get(ValidatedInputSnapshotRow, snapshot_id) is None:
+                raise KeyError(snapshot_id)
+            row = session.get(SnapshotExperimentBindingRow, snapshot_id)
+            return _experiment_binding_from_row(row)
+
     def consume_validated_input_snapshot(
         self,
         snapshot_id: str,
@@ -407,6 +460,9 @@ class SqlAlchemyRunRepository:
                     None
                     if snapshot_reference_row is None
                     else _reference_binding_from_row(snapshot_reference_row)
+                )
+                snapshot_experiment_binding = _experiment_binding_from_row(
+                    session.get(SnapshotExperimentBindingRow, snapshot_id)
                 )
                 if snapshot.workflow_id != workflow_id:
                     raise KeyError(snapshot_id)
@@ -449,6 +505,9 @@ class SqlAlchemyRunRepository:
                             if run_reference_row is None
                             else _reference_binding_from_row(run_reference_row)
                         )
+                        run_experiment_binding = _experiment_binding_from_row(
+                            session.get(RunExperimentBindingRow, current.run_id)
+                        )
                     except (KeyError, ValueError) as exc:
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence is invalid"
@@ -457,6 +516,7 @@ class SqlAlchemyRunRepository:
                         run_binding != snapshot_binding
                         or run_input_binding != snapshot_input_binding
                         or run_reference_binding != snapshot_reference_binding
+                        or run_experiment_binding != snapshot_experiment_binding
                     ):
                         raise ValidatedSnapshotReplayConflictError(
                             "validated snapshot replay binding evidence differs"
@@ -510,6 +570,17 @@ class SqlAlchemyRunRepository:
                         _run_reference_binding_row(
                             record.run_id,
                             snapshot_reference_binding,
+                        )
+                    )
+                    session.flush()
+                if snapshot_experiment_binding is not None:
+                    session.add(
+                        RunExperimentBindingRow(
+                            run_id=record.run_id,
+                            experiment_revision_id=(
+                                snapshot_experiment_binding.experiment_revision_id
+                            ),
+                            payload_digest=snapshot_experiment_binding.payload_digest,
                         )
                     )
                     session.flush()
@@ -2396,6 +2467,86 @@ def _reference_binding_values(
         "binding_digest": binding.binding_digest,
         "bound_at": binding.bound_at,
     }
+
+
+def _experiment_binding_from_row(
+    row: SnapshotExperimentBindingRow | RunExperimentBindingRow | None,
+) -> ExperimentSnapshotBinding | None:
+    if row is None:
+        return None
+    return ExperimentSnapshotBinding(
+        experiment_revision_id=row.experiment_revision_id,
+        payload_digest=row.payload_digest,
+    )
+
+
+def _experiment_revision_freeze_source(
+    session: Session,
+    experiment_revision_id: str,
+) -> ExperimentRevisionFreezeSource | None:
+    revision = session.get(ExperimentRevisionRow, experiment_revision_id)
+    if revision is None:
+        return None
+    experiment = session.get(ExperimentRow, revision.experiment_id)
+    if experiment is None or experiment.project_id != revision.project_id:
+        return None
+    project = session.get(ProjectRow, revision.project_id)
+    project_active = (
+        project is not None
+        and project.archived_at is None
+        and project.project_id != LEGACY_PROJECT_ID
+        and project.kind == "user"
+    )
+    try:
+        payload = interpret_stored_experiment_payload(revision.canonical_payload)
+        digest = build_experiment_revision_payload_digest(revision.canonical_payload)
+    except CatalogError:
+        return None
+    if digest != revision.payload_digest:
+        return None
+    mirror_rows = session.execute(
+        select(
+            ExperimentRevisionSampleRow.ordinal,
+            ExperimentRevisionSampleRow.sample_revision_id,
+            ExperimentRevisionSampleRow.payload_digest,
+            ExperimentRevisionSampleRow.replicate_group,
+            ExperimentRevisionSampleRow.replicate_role_status,
+            ExperimentRevisionSampleRow.replicate_role_term_id,
+            ExperimentRevisionSampleRow.replicate_role_term_revision_id,
+        ).where(
+            ExperimentRevisionSampleRow.experiment_revision_id == experiment_revision_id
+        )
+    ).all()
+    payload_pins = tuple(experiment_sample_pin_identity(pin) for pin in payload.samples)
+    mirror_pins = tuple(
+        (
+            ordinal,
+            sample_revision_id,
+            payload_digest,
+            replicate_group,
+            role_status,
+            role_term_id,
+            role_term_revision_id,
+        )
+        for (
+            ordinal,
+            sample_revision_id,
+            payload_digest,
+            replicate_group,
+            role_status,
+            role_term_id,
+            role_term_revision_id,
+        ) in mirror_rows
+    )
+    return ExperimentRevisionFreezeSource(
+        experiment_revision_id=revision.experiment_revision_id,
+        project_id=revision.project_id,
+        project_active=project_active,
+        experiment_archived=experiment.archived_at is not None,
+        payload_digest=revision.payload_digest,
+        sample_revision_ids=tuple(pin.sample_revision_id for pin in payload.samples),
+        association_matches_payload=association_pins_match(payload_pins, mirror_pins),
+    )
 
 
 def _resolve_project_sample_selection(

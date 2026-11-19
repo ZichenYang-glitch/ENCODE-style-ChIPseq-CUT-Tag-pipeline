@@ -151,6 +151,62 @@ EXPECTED_OPERATIONS = {
         "POST",
         "/api/v1/agent/authoring-sessions/{sid}/validate",
     ): "authoringValidateDraft",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/experiments",
+    ): "catalogListExperiments",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/samples",
+    ): "catalogListSamples",
+    (
+        "GET",
+        "/api/v1/catalog/samples/{sample_id}/revisions",
+    ): "catalogListSampleRevisions",
+    (
+        "GET",
+        "/api/v1/catalog/samples/{sample_id}/revisions/{sample_revision_id}",
+    ): "catalogGetSampleRevision",
+    (
+        "GET",
+        "/api/v1/catalog/experiments/{experiment_id}/revisions",
+    ): "catalogListExperimentRevisions",
+    (
+        "GET",
+        "/api/v1/catalog/experiments/{experiment_id}/revisions/{experiment_revision_id}",
+    ): "catalogGetExperimentRevision",
+    ("GET", "/api/v1/catalog/terms"): "catalogListTerms",
+    ("GET", "/api/v1/catalog/terms/{term_id}"): "catalogGetTerm",
+    ("POST", "/api/v1/catalog/terms"): "catalogCreateTerm",
+    (
+        "POST",
+        "/api/v1/catalog/terms/{term_id}/revisions",
+    ): "catalogReviseTerm",
+    ("POST", "/api/v1/catalog/terms/{term_id}/archive"): "catalogArchiveTerm",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/experiments",
+    ): "catalogCreateExperiment",
+    (
+        "POST",
+        "/api/v1/catalog/experiments/{experiment_id}/revisions",
+    ): "catalogReviseExperiment",
+    (
+        "POST",
+        "/api/v1/catalog/experiments/{experiment_id}/archive",
+    ): "catalogArchiveExperiment",
+    (
+        "POST",
+        "/api/v1/catalog/samples/{sample_id}/catalog-revisions",
+    ): "catalogReviseSampleCatalog",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/sample-revisions/{sample_revision_id}/run-results",
+    ): "catalogListSampleRevisionRunResults",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/experiment-revisions/{experiment_revision_id}/run-results",
+    ): "catalogListExperimentRevisionRunResults",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

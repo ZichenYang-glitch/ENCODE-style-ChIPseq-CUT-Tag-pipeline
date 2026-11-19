@@ -6,9 +6,13 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from dataclasses import replace
+import json
 from threading import RLock
 from typing import Protocol
 
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogBlockRequiresCatalogCommand,
+)
 from encode_pipeline.platform.data_registry import (
     LEGACY_PROJECT_ID,
     BindingMode,
@@ -105,6 +109,8 @@ class InMemoryDataRegistryRepository:
         self._sample_id_by_stable_key: dict[tuple[str, str], str] = {}
         self._revisions: dict[str, SampleRevision] = {}
         self._revision_ids_by_sample: dict[str, list[str]] = {}
+        self._sample_heads: dict[str, tuple[str, int]] = {}
+        self._catalog_trusted: set[str] = set()
         self._lock = RLock()
 
     def create_project(self, project: Project) -> Project:
@@ -214,6 +220,11 @@ class InMemoryDataRegistryRepository:
                     )
                 if initial_revision.created_at < sample.created_at:
                     raise ValueError("initial revision cannot precede Sample creation")
+                attributes = json.loads(initial_revision.canonical_payload)[
+                    "attributes"
+                ]
+                if isinstance(attributes, dict) and "catalog" in attributes:
+                    raise CatalogBlockRequiresCatalogCommand()
                 pending_sample_ids.add(sample.sample_id)
                 pending_revision_ids.add(initial_revision.sample_revision_id)
                 pending_stable_identities.add(stable_identity)
@@ -231,6 +242,7 @@ class InMemoryDataRegistryRepository:
                 self._revision_ids_by_sample[sample.sample_id] = [
                     initial_revision.sample_revision_id
                 ]
+                self._sync_sample_head(initial_revision, allow_catalog=False)
             return entries
 
     def get_sample(self, sample_id: str) -> Sample:
@@ -303,6 +315,7 @@ class InMemoryDataRegistryRepository:
                 raise DataRegistryConflictError("Duplicate sample_revision_id")
             revision_ids = self._revision_ids_by_sample[sample.sample_id]
             previous = self._revisions[revision_ids[-1]]
+            previous_trusted = previous.sample_revision_id in self._catalog_trusted
             if previous.revision_number != expected_previous_revision_number:
                 raise DataRegistryConflictError("Sample revision changed concurrently")
             if revision.revision_number != previous.revision_number + 1:
@@ -312,7 +325,51 @@ class InMemoryDataRegistryRepository:
 
             self._revisions[revision.sample_revision_id] = revision
             revision_ids.append(revision.sample_revision_id)
+            if previous_trusted:
+                self._catalog_trusted.add(revision.sample_revision_id)
+            self._sync_sample_head(revision, allow_catalog=True)
             return revision
+
+    def get_sample_revision_head(self, sample_id: str) -> tuple[str, int]:
+        """Return the current revision id and number maintained with each append."""
+
+        with self._lock:
+            try:
+                return self._sample_heads[sample_id]
+            except KeyError:
+                raise KeyError(f"Unknown sample_id: {sample_id!r}") from None
+
+    def _sync_sample_head(
+        self,
+        revision: SampleRevision,
+        *,
+        allow_catalog: bool,
+    ) -> None:
+        attributes = json.loads(revision.canonical_payload)["attributes"]
+        if (
+            isinstance(attributes, dict)
+            and "catalog" in attributes
+            and not allow_catalog
+        ):
+            raise CatalogBlockRequiresCatalogCommand()
+        self._sample_heads[revision.sample_id] = (
+            revision.sample_revision_id,
+            revision.revision_number,
+        )
+
+    def catalog_revision_trusted(self, sample_revision_id: str) -> bool:
+        """True only after a catalog command or a copy of one."""
+
+        with self._lock:
+            return sample_revision_id in self._catalog_trusted
+
+    def mark_catalog_revision_trusted(self, sample_revision_id: str) -> None:
+        """Record that this revision's catalog key came from the catalog command."""
+
+        with self._lock:
+            if sample_revision_id not in self._revisions:
+                raise KeyError(f"Unknown sample_revision_id: {sample_revision_id!r}")
+            self._catalog_trusted.add(sample_revision_id)
 
     def resolve_project_sample_selection(
         self,

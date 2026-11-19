@@ -270,6 +270,7 @@ def validate_workflow(
                 if request_body.reference_profile_revision_id is None
                 else str(request_body.reference_profile_revision_id)
             ),
+            experiment_revision_id=request_body.experiment_revision_id,
         )
     else:
         result = validation_service.validate(
@@ -281,6 +282,7 @@ def validate_workflow(
                 if request_body.reference_profile_revision_id is None
                 else str(request_body.reference_profile_revision_id)
             ),
+            experiment_revision_id=request_body.experiment_revision_id,
         )
 
     if result.is_failure and result.issues:
@@ -323,6 +325,9 @@ def validate_workflow(
             "REFERENCE_PROFILE_UNAVAILABLE": 503,
             "REFERENCE_PROFILE_CONFIG_INVALID": 503,
             "REFERENCE_PROFILE_BINDING_INVALID": 503,
+            "catalog_not_found": 404,
+            "catalog_experiment_archived": 409,
+            "catalog_sample_set_mismatch": 409,
         }
         status_code = status_by_code.get(first.code)
         if status_code is not None:
@@ -351,6 +356,9 @@ def validate_workflow(
                     result.value.snapshot_id
                 ),
                 validation_service.get_validated_reference_summary(
+                    result.value.snapshot_id
+                ),
+                validation_service.get_validated_experiment_binding(
                     result.value.snapshot_id
                 ),
             )

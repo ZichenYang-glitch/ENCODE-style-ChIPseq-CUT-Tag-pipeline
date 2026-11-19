@@ -101,6 +101,7 @@ function validationResponse() {
         fully_managed: false,
         input_uses: [],
       },
+      experiment_binding: { status: 'unresolved' as const },
       reference_profile: REFERENCE_PROFILE,
     },
     issues: [],

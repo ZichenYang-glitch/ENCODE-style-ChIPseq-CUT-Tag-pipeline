@@ -11,6 +11,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from encode_pipeline.api.catalog_models import (
+    CatalogErrorResponse,
+    CatalogIssueResponse,
+)
 from encode_pipeline.api.dependencies import AuthApiError
 from encode_pipeline.api.models import (
     ArtifactPublicationDetailResponse,
@@ -43,6 +47,10 @@ from encode_pipeline.persistence.authentication import (
 )
 from encode_pipeline.persistence.authoring import SqlAlchemyAuthoringRepository
 from encode_pipeline.platform.authoring import AuthoringRejected
+from encode_pipeline.platform.experiment_catalog import (
+    CatalogBlockRequiresCatalogCommand,
+    CatalogError,
+)
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.adapters import MAX_AUTHORING_REQUEST_BYTES
 from encode_pipeline.platform.registry import WorkflowRegistry
@@ -51,6 +59,7 @@ from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.api.authoring_models import AuthoringValidationResponse
 from encode_pipeline.services.authoring_owner_client import load_authoring_bridge
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -285,6 +294,9 @@ def create_app(
         input_registry=persistence.input_registry_repository,
         storage_pool_config_path=worker_settings.storage_pool_config,
     )
+    app.state.experiment_catalog_service = ExperimentCatalogService(
+        repository=persistence.catalog_repository
+    )
 
     def _drop_authoring_natives(digests: tuple[str, ...]) -> None:
         drop = getattr(app.state.authoring_bridge, "drop_authorizations", None)
@@ -325,9 +337,61 @@ def create_app(
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(AuthApiError, _handle_auth_api_error)
     app.add_exception_handler(AuthoringRejected, _handle_authoring_rejected)
+    app.add_exception_handler(CatalogError, _handle_catalog_error)
+    app.add_exception_handler(
+        CatalogBlockRequiresCatalogCommand,
+        _handle_catalog_block_command,
+    )
     app.add_exception_handler(Exception, _handle_internal_server_error)
 
     return app
+
+
+def _catalog_error_response(status_code: int, code: str, message: str) -> JSONResponse:
+    body = CatalogErrorResponse(
+        issues=[
+            CatalogIssueResponse(
+                code=code,
+                message=message,
+                severity="error",
+                path=None,
+                source="api",
+                hint=None,
+            )
+        ]
+    )
+    return JSONResponse(status_code=status_code, content=body.model_dump(mode="json"))
+
+
+def _handle_catalog_error(_request: Request, exc: CatalogError) -> JSONResponse:
+    """Return a catalog failure without SQL or raw payloads."""
+    body = CatalogErrorResponse(
+        issues=[
+            CatalogIssueResponse(
+                code=exc.code,
+                message=exc.message,
+                severity="error",
+                path=exc.path,
+                source="api",
+                hint=None,
+            )
+        ]
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=body.model_dump(mode="json"),
+    )
+
+
+def _handle_catalog_block_command(
+    _request: Request,
+    _exc: CatalogBlockRequiresCatalogCommand,
+) -> JSONResponse:
+    return _catalog_error_response(
+        422,
+        "catalog_block_requires_catalog_command",
+        "Catalog block requires the catalog command.",
+    )
 
 
 async def _handle_auth_api_error(

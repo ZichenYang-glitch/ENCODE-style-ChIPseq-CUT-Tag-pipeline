@@ -29,6 +29,9 @@ from encode_pipeline.platform.data_registry import (
     SampleRevisionBindingRef,
     build_project_sample_binding,
 )
+from encode_pipeline.persistence.experiment_catalog import (
+    sync_sample_revision_state,
+)
 from encode_pipeline.services.data_registry_repositories import (
     DataRegistryConflictError,
 )
@@ -122,6 +125,12 @@ class SqlAlchemyDataRegistryRepository:
                 for _sample, initial_revision in entries:
                     session.add(_sample_revision_row(initial_revision))
                 session.flush()
+                for _sample, initial_revision in entries:
+                    sync_sample_revision_state(
+                        session,
+                        initial_revision,
+                        allow_catalog=False,
+                    )
         except IntegrityError as exc:
             raise DataRegistryConflictError(
                 "Sample stable_key or registry identity already exists"
@@ -224,6 +233,11 @@ class SqlAlchemyDataRegistryRepository:
                     raise ValueError("new Sample revision cannot precede history")
                 session.add(_sample_revision_row(revision))
                 session.flush()
+                sync_sample_revision_state(
+                    session,
+                    revision,
+                    allow_catalog=True,
+                )
         except IntegrityError as exc:
             raise DataRegistryConflictError(
                 "Sample revision changed concurrently"

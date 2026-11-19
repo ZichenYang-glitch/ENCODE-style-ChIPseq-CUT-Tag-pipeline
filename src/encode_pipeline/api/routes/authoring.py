@@ -509,6 +509,7 @@ def _validation_response(
             validated.get_validated_input_binding(result.value.snapshot_id),
             validated.get_validated_input_use_binding(result.value.snapshot_id),
             validated.get_validated_reference_summary(result.value.snapshot_id),
+            validated.get_validated_experiment_binding(result.value.snapshot_id),
         )
     body = AuthoringValidationResponse(
         draft_revision=prepared.draft_revision,
@@ -539,6 +540,9 @@ def _validation_response(
             "REFERENCE_PROFILE_UNAVAILABLE": 503,
             "REFERENCE_PROFILE_CONFIG_INVALID": 503,
             "REFERENCE_PROFILE_BINDING_INVALID": 503,
+            "catalog_not_found": 404,
+            "catalog_experiment_archived": 409,
+            "catalog_sample_set_mismatch": 409,
         }.get(result.issues[0].code, 200)
         return status, body
     return 200, body
