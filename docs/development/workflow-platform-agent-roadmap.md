@@ -2,14 +2,16 @@
 
 ## 2026-11-19 当前进度
 
-以下按主干 `65d9977` 和复核时的 PR 状态记录。已合入的设计、已合入的实现和正在评审的工作分别标明。
+以下按主干 `8522020` 和复核时的 PR 状态记录。已合入的设计、已合入的实现和正在评审的工作分别标明。
 
 | 方向 | 主干已具备 | 接下来复核什么 |
 | --- | --- | --- |
 | WashU | 独立同源查看器页面已合入。[#222](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/222) | 文件选择仍在评审。验收时从查看器内选取轨道，检查实际读取的文件。[#227](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/227)、[#237](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/237) |
 | Peri | 运行时会话与配置编辑服务的职责已分离。[#223](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/223) | 离线建议传输仍在评审，真实模型接入另行验证。[#232](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/232) |
-| 实验目录 | M0 查询与追溯设计、实验目录 Slice A，以及实验修订与验证快照的绑定均已合入。[#224](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/224)、[#225](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/225)、[#236](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/236) | 目录页面和从发布结果反查实验修订分别验收。[#235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)、[#243](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/243) |
+| 实验目录 | M0 查询与追溯设计、实验目录 Slice A，以及实验修订与验证快照的绑定均已合入。[#224](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/224)、[#225](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/225)、[#236](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/236) | 历史列表已可切换冻结分类与样本当前分类。[#241](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/241) 已合入。目录页面和从发布结果反查实验修订分别验收。[#235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)、[#243](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/243) |
 | 长期存储及外部分析 | 平台可索引和发布运行产物，文件保存在运行存储位置。见[产物发布契约](../architecture/artifact-publication-provenance-decision.md)。 | 分开验证迁盘后旧链接仍可读、外部结果可按确切修订取回。这两项实现或验证仍在评审。[#228](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/228)、[#238](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/238)、[#239](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/239) |
+
+归档 SOP 与实验室通用清单已提交[设计草案 #244](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/244)。Peri 真实供应商、Agent 运行操作、发布准备、11_17 试用和外部 Hi-C／单细胞查看这五项先形成可复审的设计。真实模型调用取决于供应商、允许外发的字段和预算；试用结论由实际试用者确认。
 
 架构解耦的后续范围见下文「P1b 后续维护」。各里程碑以其主干实现和验收证据分别收口。
 
