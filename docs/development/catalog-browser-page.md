@@ -1,8 +1,8 @@
 # 实验目录网页
 
-状态：本分支的页面说明。基线是 Slice A `438a943f158a1dba0943d5c3defa3eb4531d2d5b`
-（PR #225，`agent/hw-catalog/5cd11aff828c`）。A 尚未合入主干，因此本分支堆在该
-提交上，Draft PR 的 base 是 `agent/hw-catalog/5cd11aff828c`，不是 `main`。
+状态：本分支的页面说明。Draft PR 的 base 是当前 `main`
+（`65d99776a96830fd5a20092daf4a5c5b99461aeb`）。安装包把 `/catalog` 当作
+静态应用的导航路由，刷新或直接打开都返回同一份入口页。
 
 本页只调用已经生成的目录客户端和现有的课题列表。不改目录 API、迁移、
 `frontend/src/api/generated/`，也不改 WashU 面板。
@@ -79,4 +79,6 @@ page”顺着 `next_cursor` 继续，超过 20 页也能打开。正在查看的
 成员翻到第 2 个历史页后，修订 1 至 24 都可选，再打开第一页上的旧版；管理员默认看到
 修订 24，提交后产生 25；随后一次真实的并发写入仍返回冲突。`node frontend/scripts/catalog-long-head-browser.mjs` 打开已有 401
 个修订的实验，确认当前是 401，翻到第 21 个历史页，再以 401 为基线保存 402。
+`node frontend/scripts/catalog-packaged-browser.mjs` 改由安装包提供页面：直接打开
+`/catalog`，并在 24 个修订上翻到第 2 个历史页。
 Python 解释器可用 `HELIXWEAVE_PYTHON` 指向能导入本仓库 `src` 的环境。这些脚本都不进入默认 pytest。

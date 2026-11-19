@@ -19,6 +19,8 @@ import urllib.error
 import urllib.request
 
 from encode_pipeline.api.main import create_app
+from encode_pipeline.deployment.frontend import ManifestStaticApplication
+from encode_pipeline.frontend_assets import load_packaged_frontend_assets
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationActor,
@@ -259,6 +261,11 @@ def main() -> None:
         default=0,
         help="Seed one experiment with this many revisions.",
     )
+    parser.add_argument(
+        "--packaged",
+        action="store_true",
+        help="Serve the packaged frontend on this origin.",
+    )
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="catalog-page-"))
     database = root / "catalog.sqlite"
@@ -266,6 +273,12 @@ def main() -> None:
         database_url=f"sqlite:///{database}",
         workspace_root=root / "workspaces",
     )
+    if args.packaged:
+        app.mount(
+            "/",
+            ManifestStaticApplication(load_packaged_frontend_assets()),
+            name="frontend",
+        )
     accounts = AccountAdministrationService(
         repository=app.state.authentication_repository
     )

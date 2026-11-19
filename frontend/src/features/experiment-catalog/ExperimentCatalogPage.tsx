@@ -14,6 +14,7 @@ import {
 } from '../../api/generated/catalog/catalog';
 import type {
   CatalogExperimentResponse,
+  CatalogExperimentRunListResponse,
   CatalogSampleListResponseSamplesItem,
   CatalogSampleRunListResponseResultsItem,
   CatalogTermSummaryResponse,
@@ -569,11 +570,7 @@ function RevisionDetail({
   onOlderRevisions: () => void;
   onNewerRevisions: () => void;
   onSelectRevision: (revisionId: string) => void;
-  trace: {
-    trace_status: string;
-    reason: string;
-    results: unknown[];
-  } | null;
+  trace: CatalogExperimentRunListResponse | null;
   traceError: string | null;
   sampleRuns: CatalogSampleRunListResponseResultsItem[] | null;
   sampleRunsError: string | null;

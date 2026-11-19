@@ -196,7 +196,7 @@ export function revisionChoices<T extends { experiment_revision_id: string }>(
 
 export function experimentTraceText(trace: {
   trace_status: string;
-  reason?: string;
+  reason?: string | null;
 }): { title: string; detail: string } {
   if (trace.trace_status === 'unresolved') {
     const reason =
