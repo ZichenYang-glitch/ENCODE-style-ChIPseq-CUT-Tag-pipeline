@@ -820,6 +820,8 @@ async def list_adoption_receipts(
             proposal_id=proposal_id,
         )
     )
+
+
 @router.get(
     "/projects/{project_id}/artifact-publications/"
     "{run_id}/{artifact_id}/experiment-trace",

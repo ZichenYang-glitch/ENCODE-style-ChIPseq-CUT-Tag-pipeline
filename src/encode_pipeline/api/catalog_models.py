@@ -679,6 +679,8 @@ class CatalogAdoptionReceiptListResponse(BaseModel):
     ok: Literal[True]
     project_id: str
     receipts: list[CatalogAdoptionReceiptResponse]
+
+
 class CatalogPublicationExperimentTraceResponse(BaseModel):
     """One published result traced back to the revision copied onto its run."""
 
