@@ -182,8 +182,17 @@ FAULTS = {
         "experiment_catalog_service",
         "list_experiment_run_results",
     ),
+    "catalogGetArtifactPublicationExperimentTrace": (
+        "experiment_catalog_service",
+        "get_publication_experiment_trace",
+    ),
+    "readPublishedResultContext": (
+        "artifact_publication_service",
+        "get_artifact_publication",
+    ),
 }
 SPECIAL_MODELS = {
+    "readPublishedResultContext": "PublishedResultContextErrorResponse",
     "createRun": "RunResponse",
     "listRuns": "RunHistoryResponse",
     "listRunArtifacts": "RunArtifactsResponse",
@@ -345,6 +354,8 @@ def error_api(tmp_path):
             "getRunArtifact",
             "downloadRunArtifact",
             "getArtifactPublication",
+            "catalogGetArtifactPublicationExperimentTrace",
+            "readPublishedResultContext",
         }:
             params["generation"] = GENERATION
         if operation == "downloadRunArtifact":
@@ -412,21 +423,25 @@ def assert_declared_response(api, operation, response, *, explicit=False):
     assert response.status_code == 500
     body = response.json()
     assert body["ok"] is False
-    assert body["issues"][0]["code"] == (
-        "RUN_REFERENCE_EVIDENCE_INVALID" if explicit else "INTERNAL_SERVER_ERROR"
-    )
     for marker in (*PRIVATE, "private-payload-marker", "Traceback"):
         assert marker not in response.text
-    assert body["issues"][0].get("technical_message") is None
-    # Assert null/omission and exact envelope keys independently of permissive models.
-    if explicit or operation == "createRun":
-        assert set(body) == {"ok", "run", "issues"} and body["run"] is None
-    elif operation not in SPECIAL_MODELS:
-        assert set(body) == {"ok", "workflow_id", "value", "snapshot", "issues"}
-        assert body["value"] is None and body["snapshot"] is None
-        assert body["workflow_id"] == (
-            WORKFLOW if "{workflow_id}" in api.operations[operation][1] else None
+    if operation == "readPublishedResultContext":
+        assert body["code"] == "INTERNAL_SERVER_ERROR"
+        assert set(body) == {"ok", "code", "message"}
+    else:
+        assert body["issues"][0]["code"] == (
+            "RUN_REFERENCE_EVIDENCE_INVALID" if explicit else "INTERNAL_SERVER_ERROR"
         )
+        assert body["issues"][0].get("technical_message") is None
+        # Assert null/omission and exact envelope keys independently of permissive models.
+        if explicit or operation == "createRun":
+            assert set(body) == {"ok", "run", "issues"} and body["run"] is None
+        elif operation not in SPECIAL_MODELS:
+            assert set(body) == {"ok", "workflow_id", "value", "snapshot", "issues"}
+            assert body["value"] is None and body["snapshot"] is None
+            assert body["workflow_id"] == (
+                WORKFLOW if "{workflow_id}" in api.operations[operation][1] else None
+            )
     declared = api.operations[operation][2]["responses"].get("500")
     assert declared is not None, f"{operation}: actual 500 has no declaration"
     schema = declared["content"]["application/json"]["schema"]

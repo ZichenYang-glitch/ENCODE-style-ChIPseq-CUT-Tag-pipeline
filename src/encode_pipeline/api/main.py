@@ -26,6 +26,7 @@ from encode_pipeline.api.models import (
     RunArtifactDownloadErrorResponse,
     RunArtifactsResponse,
     RunHistoryResponse,
+    PublishedResultContextErrorResponse,
     RunQcMetricsResponse,
     RunResponse,
     ValidationResponse,
@@ -799,6 +800,12 @@ async def _handle_internal_server_error(
             value=None,
             snapshot=None,
             issues=[IssueResponse.model_validate(issue.to_dict())],
+        )
+        return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
+    if getattr(route, "operation_id", None) == "readPublishedResultContext":
+        body = PublishedResultContextErrorResponse(
+            code="INTERNAL_SERVER_ERROR",
+            message="Published result context is temporarily unavailable.",
         )
         return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
     workflow_id = request.path_params.get("workflow_id")
