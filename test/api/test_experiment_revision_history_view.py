@@ -36,6 +36,7 @@ from encode_pipeline.api.catalog_models import (  # noqa: E402
     CatalogSampleRevisionResponse,
 )
 from encode_pipeline.api.main import create_app  # noqa: E402
+from encode_pipeline.persistence import experiment_catalog as sql_catalog  # noqa: E402
 from encode_pipeline.platform.authentication import (  # noqa: E402
     UserAccount,
     UserRole,
@@ -745,3 +746,47 @@ def test_experiment_revision_history_http_matches_for_both_repositories(
             memory_case.close()
     finally:
         sqlite_case.close()
+
+
+def test_sqlite_current_history_keeps_one_snapshot_during_a_sample_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _open_sqlite(tmp_path)
+    try:
+        seed = case.seed
+        frozen = _sample(case.client, seed["sample_id"], seed["frozen_revision_id"])
+        cell = _cell(frozen)
+        pin = {key: cell[key] for key in ("term_id", "term_revision_id")}
+        revision = {
+            "expected_revision_number": 3,
+            "display_name": "synthetic",
+            "catalog": _catalog_block({"status": "known", "values": [pin]}),
+        }
+        collect_ids = sql_catalog._experiment_name_ids
+
+        def collect_ids_then_revise(*args):
+            term_ids = collect_ids(*args)
+            # Commit on a second connection after the reader has selected Y.
+            case.app.state.experiment_catalog_service.revise_sample_catalog(
+                actor_user_id=TEST_AUTH_USER_ID,
+                idempotency_key="concurrent-sample-update",
+                raw_body=json.dumps(revision).encode(),
+                sample_id=seed["sample_id"],
+                **revision,
+            )
+            return term_ids
+
+        query = {"revision_view": "current_sample_catalog", "limit": 1}
+        with monkeypatch.context() as patch:
+            patch.setattr(sql_catalog, "_experiment_name_ids", collect_ids_then_revise)
+            before = _history(case.client, seed["experiment_id"], **query)
+        _assert_current_row(before["experiment_revisions"][0], seed)
+
+        after = _history(case.client, seed["experiment_id"], **query)
+        sample = after["experiment_revisions"][0]["samples"][0]
+        assert _cell(sample)["term_id"] == seed["cell_x_id"]
+        assert sample["sample_revision_id"] == sample["current_sample_revision_id"]
+        assert sample["sample_revision_id"] != seed["current_revision_id"]
+        assert sample["linked_sample_revision_id"] == seed["frozen_revision_id"]
+    finally:
+        case.close()
