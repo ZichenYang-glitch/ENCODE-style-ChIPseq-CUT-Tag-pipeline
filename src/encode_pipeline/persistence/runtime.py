@@ -18,6 +18,9 @@ from encode_pipeline.persistence.database import (
 from encode_pipeline.persistence.data_registry import (
     SqlAlchemyDataRegistryRepository,
 )
+from encode_pipeline.persistence.experiment_catalog import (
+    SqlAlchemyExperimentCatalogRepository,
+)
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.persistence.migration_admission import (
     MigrationAdmissionError,
@@ -55,6 +58,7 @@ class RunPersistence:
     engine: Engine
     repository: SqlAlchemyRunRepository
     data_registry_repository: SqlAlchemyDataRegistryRepository
+    catalog_repository: SqlAlchemyExperimentCatalogRepository
     input_registry_repository: SqlAlchemyInputRegistryRepository
     reference_profile_repository: SqlAlchemyReferenceProfileRepository
 
@@ -124,6 +128,7 @@ def _open_persistence(resolved_url: str) -> RunPersistence:
     session_factory = create_session_factory(engine)
     repository = SqlAlchemyRunRepository(session_factory)
     data_registry_repository = SqlAlchemyDataRegistryRepository(session_factory)
+    catalog_repository = SqlAlchemyExperimentCatalogRepository(session_factory)
     input_registry_repository = SqlAlchemyInputRegistryRepository(session_factory)
     reference_profile_repository = SqlAlchemyReferenceProfileRepository(session_factory)
     return RunPersistence(
@@ -131,6 +136,7 @@ def _open_persistence(resolved_url: str) -> RunPersistence:
         engine=engine,
         repository=repository,
         data_registry_repository=data_registry_repository,
+        catalog_repository=catalog_repository,
         input_registry_repository=input_registry_repository,
         reference_profile_repository=reference_profile_repository,
     )

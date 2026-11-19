@@ -39,6 +39,7 @@ from encode_pipeline.platform.data_registry import (
     BindingProvenance,
     ProjectSampleBinding,
 )
+from encode_pipeline.platform.experiment_catalog import ExperimentSnapshotBinding
 from encode_pipeline.platform.input_registry import (
     InputBindingContractMode,
     InputProvenanceMode,
@@ -96,6 +97,10 @@ InputFileRevisionId = Annotated[
 ReferenceProfileRevisionId = Annotated[
     str,
     Field(pattern=r"^refpr_[0-9a-f]{32}$", max_length=38),
+]
+ExperimentRevisionId = Annotated[
+    str,
+    Field(pattern=r"^expr_[0-9a-f]{32}$", max_length=37),
 ]
 
 
@@ -365,6 +370,7 @@ class ValidationRequest(BaseModel):
         max_length=256,
     )
     reference_profile_revision_id: ReferenceProfileRevisionId | None = None
+    experiment_revision_id: ExperimentRevisionId | None = None
 
     _validate_sample_cells = field_validator("samples")(
         _reject_sample_control_characters
@@ -382,6 +388,12 @@ class ValidationRequest(BaseModel):
             raise ValueError("the reserved Legacy Project cannot be selected")
         if len(set(self.sample_revision_ids)) != len(self.sample_revision_ids):
             raise ValueError("sample revision IDs must be unique")
+        if self.experiment_revision_id is not None and (
+            self.project_id is None or not self.sample_revision_ids
+        ):
+            raise ValueError(
+                "an experiment revision requires a project sample selection"
+            )
         if self.input_selections and self.project_id is None:
             raise ValueError("input revision selections require a project")
         coordinates = tuple(
@@ -439,6 +451,30 @@ class InputBindingResponse(BaseModel):
     input_uses: list[InputUseBindingResponse] = Field(max_length=256)
 
 
+class UnresolvedExperimentBindingResponse(BaseModel):
+    """Snapshot has no trusted experiment revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["unresolved"]
+
+
+class FrozenExperimentBindingResponse(BaseModel):
+    """Experiment revision id and payload digest frozen with the snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["experiment_snapshot"]
+    experiment_revision_id: ExperimentRevisionId
+    payload_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+
+
+ExperimentBindingResponse = Annotated[
+    UnresolvedExperimentBindingResponse | FrozenExperimentBindingResponse,
+    Field(discriminator="status"),
+]
+
+
 class ValidatedInputSnapshotResponse(BaseModel):
     """Safe public projection of one server-owned validation snapshot."""
 
@@ -456,6 +492,7 @@ class ValidatedInputSnapshotResponse(BaseModel):
     binding_digest: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
     input_binding: InputBindingResponse
     reference_profile: ReferenceProfileRevisionResponse | None = None
+    experiment_binding: ExperimentBindingResponse
 
     @classmethod
     def from_snapshot(
@@ -464,6 +501,7 @@ class ValidatedInputSnapshotResponse(BaseModel):
         binding: ProjectSampleBinding,
         input_binding: InputUseBindingEnvelope,
         reference_profile: ReferenceProfileRevisionSummary | None = None,
+        experiment_binding: ExperimentSnapshotBinding | None = None,
     ) -> "ValidatedInputSnapshotResponse":
         if binding.workflow_inputs_digest != snapshot.payload_digest:
             raise ValueError("snapshot binding input digest differs")
@@ -513,6 +551,15 @@ class ValidatedInputSnapshotResponse(BaseModel):
                 None
                 if reference_profile is None
                 else ReferenceProfileRevisionResponse.from_summary(reference_profile)
+            ),
+            experiment_binding=(
+                UnresolvedExperimentBindingResponse(status="unresolved")
+                if experiment_binding is None
+                else FrozenExperimentBindingResponse(
+                    status="experiment_snapshot",
+                    experiment_revision_id=experiment_binding.experiment_revision_id,
+                    payload_digest=experiment_binding.payload_digest,
+                )
             ),
         )
 
