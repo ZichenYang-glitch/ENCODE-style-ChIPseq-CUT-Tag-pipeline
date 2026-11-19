@@ -64,7 +64,7 @@ jobs:
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            tier="pr-fast"
+            tier="pr-complete"
           else
             tier="full-main"
           fi
@@ -111,7 +111,6 @@ jobs:
       - name: Run deterministic Python shard
         shell: micromamba-shell {0}
         env:
-          EVENT_NAME: ${{ github.event_name }}
           PYTHONDONTWRITEBYTECODE: "1"
           COVERAGE_FILE: .coverage.shard-${{ matrix.shard }}
         run: |
@@ -123,15 +122,10 @@ jobs:
           }
           trap cleanup_coverage_migration_root EXIT
           export HELIXWEAVE_COVERAGE_MIGRATION_ROOT="$coverage_migration_root"
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            marker='not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          else
-            marker='not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution'
-          fi
           mapfile -t shard_files < shard-files.txt
           python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest \
             "${shard_files[@]}" -ra \
-            -m "$marker" \
+            -m 'not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution' \
             --durations=25 --durations-min=1.0 \
             --junitxml=pytest-report-shard-${{ matrix.shard }}.xml \
             --cov=src/encode_pipeline \
@@ -211,7 +205,7 @@ jobs:
           actual_sha=$(git rev-parse HEAD)
           test "$actual_sha" = "$EXPECTED_SHA"
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            tier="pr-fast"
+            tier="pr-complete"
           else
             tier="full-main"
           fi
@@ -379,6 +373,7 @@ jobs:
           path: .
 
       - name: Setup micromamba
+        id: coverage-environment
         if: needs.fast-checks.result == 'success'
         uses: mamba-org/setup-micromamba@v3
         with:
@@ -387,28 +382,21 @@ jobs:
           cache-environment: true
           cache-environment-key: coverage-${{ runner.os }}-${{ hashFiles('workflow/envs/ci-fast.lock') }}
 
-      - name: Enforce changed-line coverage
-        if: needs.fast-checks.result == 'success' && github.event_name == 'pull_request'
-        shell: micromamba-shell {0}
-        run: >-
-          diff-cover coverage.xml
-          --compare-branch='${{ github.event.pull_request.base.sha }}'
-          --fail-under=80
-
       - name: Enforce complete-suite coverage ratchets
-        if: needs.fast-checks.result == 'success' && github.event_name != 'pull_request'
+        if: needs.fast-checks.result == 'success'
         shell: micromamba-shell {0}
         run: |
           set -euo pipefail
-          python3 -m coverage report --fail-under=83
+          result=0
+          python3 -m coverage report --fail-under=83 || result=1
           python3 -m coverage report \
-            --include='src/encode_pipeline/platform/*' --fail-under=88.45
+            --include='src/encode_pipeline/platform/*' --fail-under=88.45 || result=1
           python3 -m coverage report \
-            --include='src/encode_pipeline/services/*' --fail-under=87.28
+            --include='src/encode_pipeline/services/*' --fail-under=87.28 || result=1
           python3 -m coverage report \
-            --include='src/encode_pipeline/persistence/*' --fail-under=89.06
+            --include='src/encode_pipeline/persistence/*' --fail-under=89.06 || result=1
           python3 -m coverage report \
-            --include='src/encode_pipeline/workers/*' --fail-under=82.37
+            --include='src/encode_pipeline/workers/*' --fail-under=82.37 || result=1
           python3 -m coverage report \
             --include='src/encode_pipeline/adapters/*' --fail-under=0
           python3 -m coverage report \
@@ -417,6 +405,15 @@ jobs:
           python3 -m coverage report --include='scripts/*' --fail-under=0
           python3 -m coverage report --include='workflow/lib/*' --fail-under=0
           python3 -m coverage report --include='containers/*' --fail-under=0
+          exit "$result"
+
+      - name: Enforce changed-line coverage
+        if: ${{ !cancelled() && steps.coverage-environment.outcome == 'success' && github.event_name == 'pull_request' }}
+        shell: micromamba-shell {0}
+        run: >-
+          diff-cover coverage.xml
+          --compare-branch='${{ github.event.pull_request.base.sha }}'
+          --fail-under=80
 
       - name: Report coverage wall time
         if: always()
