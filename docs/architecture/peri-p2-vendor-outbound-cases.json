@@ -2,10 +2,10 @@
   "contract_version": "p2-transport/1",
   "offline_transport_commit": "93a7631d7387438898051949c15db2d90836191a",
   "owner_decisions": {
-    "vendor": null,
+    "model_binding_source": "peri_active_profile",
     "outbound_fields": null,
     "budget": null,
-    "credential_boundary": null
+    "credential_boundary": "peri_runtime_only"
   },
   "cost_cap": {
     "status": "owner_unset",

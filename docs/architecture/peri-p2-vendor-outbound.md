@@ -4,7 +4,7 @@
 本文件不新增传输实现，不打开供应商连接，不读取凭据或实验数据。
 
 离线传输已经由 IRENE-25 交付并经 Tibo 复核，提交
-`93a7631d7387438898051949c15db2d90836191a`，Draft
+`93a7631d7387438898051949c15db2d90836191a`，已合入
 [PR #232](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/232)。
 该提交不在本分支上。专题文档是：
 
@@ -21,26 +21,24 @@
 `budget_exhausted`、`budget_unproven` 和 `timeout_consumes_reservation`
 是发送前判定的合成输入，不交给该 stub 的 `deliver`。
 
-## 1. 留给负责人的决定
+## 1. 模型绑定由 Peri 管理
 
-| 决定 | 本文件的值 | 未填写时的拒绝码 |
+在 Peri 设置一次。供应商、模型、端点和凭据均由受信任的 **Peri 运行实例**管理。HelixWeave 不提供第二个绑定表单，不在浏览器、API、数据库或日志里读写 Peri 的凭据，也不因接入模型而加载个人目录、插件或其他工具。平台只使用指定实例报告的可用状态与不含秘密的绑定版本；缺绑定时提示去 Peri 设置，不回退到另一个模型。个人终端或 Multica 里能聊天，不证明 HelixWeave 的运行实例已可用。
+
+| 发送前的条件 | 谁负责 | 条件未满足时 |
 | --- | --- | --- |
-| 首家供应商、官方 API、模型名、endpoint | 空 | `vendor_unselected` |
-| 允许外发的字段 | 空。夹具 token `syn.*` 只说明形状 | `outbound_fields_unset` |
-| 预算：币种、金额的最小货币单位、请求数、输入/输出 token 上限 | 空 | `budget_unset` |
-| 凭据边界：由谁配置、存放位置、能否进入 Peri 进程 | 空 | `credential_boundary_unset` |
+| 当前运行实例已有可用模型绑定 | Peri；用户仅在 Peri 改模型 | 不发送，提示检查 Peri 设置 |
+| 使用的绑定与获准的绑定一致 | Peri 返回非敏感绑定身份；平台核对本次授权 | 换绑、丢失或不能核实时不沿用旧授权 |
+| 本次可外发的字段 | HelixWeave 授权期的字段清单 | `outbound_fields_unset` |
+| 本次可用预算 | 已有的授权和额度规则 | `budget_unset` 或第 5 节的拒绝码 |
 
-四个值有任一为空，未来的供应商客户端在打开连接之前拒绝，reason 只有上表的代码，
-按表中的顺序命中即停。已实现的 `open_vendor_model_transport` 仍对任何参数抛出
-`vendor_unselected`：它忽略参数，不读环境变量，不打开 socket，不构造客户端。
-后三个拒绝码尚未实现。在它们落地之前，空决定的可观察行为仍是不发送请求。
+验收：在隔离的本地 Peri 测试实例中绑定 A，建议从 A 返回；在 Peri 改为 B，新授权的会话收到 B 的响应，HelixWeave 无需重新填写。缺绑定、会话中途换绑或不可验证时不向新目标发送，不采用旧会话的迟到响应。两套测试绑定均可用本地模拟端点，不接触个人配置。
 
-本地 stub 的成功例不填这些决定。它证明的是投影、授权期和时限，不构成外发许可。
+当前主干的 `open_vendor_model_transport` 仍直接返回 `vendor_unselected`：不读环境变量，不打开 socket。上述决定是实施目标，并未开启真实模型。离线 stub 的成功也不构成外发许可。
 
 ## 2. 供应商无关的请求字段
 
-平台交给传输层的对象沿用离线 `TransportRequest`。它是供应商无关的请求，各家 HTTP
-正文留到负责人选定官方契约后再写。
+平台交给传输层的对象沿用离线 `TransportRequest`。Peri 的模型适配器负责供应商 HTTP 协议；HelixWeave 不按厂商搭建客户端。
 
 | 字段 | 离线契约 | 外发时 |
 | --- | --- | --- |
@@ -49,12 +47,12 @@
 | `projected` | `allowed` 的子集。token 形如 `syn.alpha`，值是 1–64 位 `A-Za-z0-9_.:-` | 唯一允许出现的业务载荷 |
 | 授权期上的外发清单 | 签发该 `grant_...` 时冻住的 token 集合 | 外发许可。请求的 `allowed` 不能替换它 |
 | 授权期 | `authorize()` 返回 `grant_` 加 8–32 位小写字母或数字 | 只记在本地来源记录。不发给供应商 |
-| `timeout_seconds` | 有限且大于 0 的秒数 | 平台自己的截止时间。在官方契约选定前，不把它写成供应商参数 |
+| `timeout_seconds` | 有限且大于 0 的秒数 | 平台自己的截止时间。不把它当作供应商特定参数 |
 | `cancelled()` | 可选 | 平台本地门。不发给供应商 |
 | `contract_version` | `p2-transport/1` | 记在建议和来源记录上。不写进提示词 |
 
 外发体只有 `call_id` 与 `projected`。样本名、路径、序列、供体标识、自由文本、
-未投影字段、工具目录、完整 schema、endpoint 和凭据都留在平台。
+未投影字段、工具目录和完整 schema 不进入模型请求；端点与凭据由 Peri 管理，不进入平台业务载荷。
 
 资格 stub 是本分支 `stub.py` 的 `ModelStub`，与建议传输是两个角色：
 
@@ -74,7 +72,7 @@
 一次交换按这个顺序做决定。撤权看授权期字符串，布尔“当前允许”不能代替某一期。
 
 1. 请求形状不合法则 `malformed_request`。投影里有本次请求 `allowed` 之外的 token 则 `field_not_allowed`。这两步只核对请求自己的形状，不读授权，不调用 responder，也不把 `allowed` 当成负责人的许可。
-2. 四项负责人决定有空项则按第 1 节拒绝，不打开连接。本文件仍把这四项留空，所以供应商客户端仍然不发送。
+2. 先核实第 1 节的 Peri 绑定与业务授权；缺少任一条件均不发送。
 3. 外发字段以冻在当前授权期上的负责人清单为准。清单在签发该 `grant_...` 时固定；换一期就要换一份清单。请求里的 `allowed` 只是调用方声称的候选集，不能代替这份清单，也不能把别的期的清单借来用。`allowed` 和 `projected` 中的每个 token 都必须属于当前期的清单。任一超出则 `outbound_field_not_granted`，供应商调用数为 0，不打开连接。验收例 `owner_grant_exceeded`：期 `grant_aaaaaaaa` 的清单只有 `syn.alpha`，请求的 `allowed` 含有 `syn.alpha` 与 `syn.beta`，并投影 `syn.beta`。这例的清单是合成验收输入，不填写第 1 节的外发字段决定。
 4. 发送前做第 5 节的余额证明。`budget_exhausted` 与 `budget_unproven` 都不打开连接，供应商调用数为 0。
 5. 调用前读取授权期。`None` 为 `authorization_revoked`；回调抛错或期字符串不合文法为 `authorization_failed`；已取消为 `cancelled`。三种情况都不调用 responder。
@@ -153,7 +151,7 @@ stub 上的 `timeout` 例没有打开供应商连接，也不产生余额；它�
 路径或凭据。
 
 用户采用并生成新 snapshot 仍走现有 authoring 与 snapshot 路径。本设计不写入 snapshot，
-所以 `snapshot_id` 保持为空。真实响应、用户采用和新 snapshot 要等第 1 节四项决定填写之后
+所以 `snapshot_id` 保持为空。真实响应、用户采用和新 snapshot 要等第 1 节各条件满足之后
 再验收。
 
 ## 7. 本地 stub 的三项验收
@@ -168,7 +166,7 @@ stub 上的 `timeout` 例没有打开供应商连接，也不产生余额；它�
 | `rejection` | 允许集只有 `syn.alpha`，投影是 `syn.hidden=hidden_value` | reason `field_not_allowed`。responder 调用 0 次。用量 `1/0/0/0`。拒绝文本不含 `hidden_value` 或 `syn.hidden` |
 | `timeout` | 时限 1。时钟 `0.0` 然后 `5.0`。响应值 `late_value` | reason `timeout`。responder 调用 1 次，交付数与采用数均为 0。拒绝文本不含 `late_value` |
 
-发送前四例不进入上面的 stub。第 1 节的四项决定在这些例子里仍然为空；例子自带的清单和余额只用于判定。
+发送前四例不进入上面的 stub。这些例子没有真实 Peri 绑定或外发许可；例子自带的清单和余额只用于判定。
 
 | 例 | 输入要点 | 预期 |
 | --- | --- | --- |
@@ -181,6 +179,6 @@ stub 上的 `timeout` 例没有打开供应商连接，也不产生余额；它�
 `SyntheticSuggestionTransport`。本分支没有这个模块。资格 `ModelStub` 不能用来宣称
 这三例已经联机通过。发送前的四例由本地判定核对，不调用该 stub 的 `deliver`。
 
-本单将来的真实外发只验一次另行获准的调用：第 1 节四项决定已经填写，并且第 5 节的
+本单将来的真实外发只验一次另行获准的调用：第 1 节的 Peri 绑定及业务授权已验证，并且第 5 节的
 余额证明通过。那一次使用成功例的非敏感投影，得到真实响应，用户采用后生成新 snapshot。
 拒绝和超时留在 stub。主动在真实连接上制造超时不在本单范围内，除非另有授权和预算。

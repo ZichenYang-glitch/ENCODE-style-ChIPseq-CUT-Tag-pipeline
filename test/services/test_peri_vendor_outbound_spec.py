@@ -29,16 +29,16 @@ def _cases() -> dict[str, object]:
     return loaded
 
 
-def test_owner_decisions_and_cost_cap_stay_unset() -> None:
+def test_peri_owns_binding_while_outbound_grants_remain_unset() -> None:
     document = _cases()
     assert document["contract_version"] == "p2-transport/1"
     assert document["offline_transport_commit"] == OFFLINE_COMMIT
     decisions = document["owner_decisions"]
     assert decisions == {
-        "vendor": None,
+        "model_binding_source": "peri_active_profile",
         "outbound_fields": None,
         "budget": None,
-        "credential_boundary": None,
+        "credential_boundary": "peri_runtime_only",
     }
     assert document["cost_cap"] == {
         "status": "owner_unset",
@@ -189,7 +189,6 @@ def test_spec_points_at_the_offline_contract_and_the_cases() -> None:
         "budget_unset",
         "budget_exhausted",
         "budget_unproven",
-        "credential_boundary_unset",
         "timeout_consumes_reservation",
         "peri-p2-vendor-outbound-cases.json",
         "open_vendor_model_transport",
