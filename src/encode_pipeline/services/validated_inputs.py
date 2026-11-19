@@ -41,6 +41,7 @@ from encode_pipeline.services.private_storage_pools import (
 )
 from encode_pipeline.platform.registry import WorkflowRegistry
 from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionSummary
+from encode_pipeline.platform.experiment_catalog import CatalogError
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.snapshots import (
     PAYLOAD_DIGEST_SCHEME,
@@ -203,6 +204,7 @@ class ValidatedInputService:
         project_sample_selection: ProjectSampleSelection | None = None,
         input_file_revision_selections: tuple[InputFileRevisionSelection, ...] = (),
         reference_profile_revision_id: str | None = None,
+        experiment_revision_id: str | None = None,
     ) -> Result[ValidatedInputSnapshot | None]:
         """Return a durable snapshot only after stable successful validation."""
         input_file_revision_selections = tuple(input_file_revision_selections)
@@ -473,19 +475,29 @@ class ValidatedInputService:
                     validated_at=now,
                     expires_at=now + self._snapshot_ttl,
                 )
-                if input_use_binding_plan is None:
-                    persisted = self._repository.create_validated_input_snapshot(
-                        snapshot,
-                        project_sample_selection=project_sample_selection,
-                        reference_binding=reference_evidence,
-                    )
-                else:
-                    persisted = self._repository.create_validated_input_snapshot(
-                        snapshot,
-                        project_sample_selection=project_sample_selection,
-                        input_use_binding_plan=input_use_binding_plan,
-                        reference_binding=reference_evidence,
-                    )
+                persist_arguments: dict[str, object] = {
+                    "project_sample_selection": project_sample_selection,
+                    "reference_binding": reference_evidence,
+                }
+                if input_use_binding_plan is not None:
+                    persist_arguments["input_use_binding_plan"] = input_use_binding_plan
+                if experiment_revision_id is not None:
+                    persist_arguments["experiment_revision_id"] = experiment_revision_id
+                persisted = self._repository.create_validated_input_snapshot(
+                    snapshot,
+                    **persist_arguments,
+                )
+            except CatalogError as exc:
+                return Result.failure(
+                    [
+                        Issue(
+                            code=exc.code,
+                            message=exc.message,
+                            path="experiment_revision_id",
+                            source="experiment_catalog",
+                        )
+                    ]
+                )
             except ProjectSampleSelectionError:
                 return Result.failure(
                     [
@@ -631,6 +643,10 @@ class ValidatedInputService:
     def get_validated_reference_binding(self, snapshot_id: str):
         """Return path-free exact Reference Profile evidence for one snapshot."""
         return self._repository.get_validated_reference_binding(snapshot_id)
+
+    def get_validated_experiment_binding(self, snapshot_id: str):
+        """Return the experiment revision frozen with one snapshot, if any."""
+        return self._repository.get_validated_experiment_binding(snapshot_id)
 
     def get_validated_reference_summary(
         self,
