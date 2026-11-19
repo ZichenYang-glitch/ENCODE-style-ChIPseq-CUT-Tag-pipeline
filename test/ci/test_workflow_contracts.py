@@ -190,13 +190,9 @@ def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer(
 
     assert shard_job["strategy"]["matrix"]["shard"] == [1, 2]
     assert shard_job["strategy"]["fail-fast"] is False
-    assert (
-        shard_job["timeout-minutes"]
-        == "${{ github.event_name == 'pull_request' && 25 || 45 }}"
-    )
+    assert shard_job["timeout-minutes"] == 45
     producer = _runs(shard_job)
-    assert "budget=300" in producer
-    assert "budget=1200" in producer
+    assert "Soft budget: 1200s (informational)" in producer
     assert (
         producer.count(
             "python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest"
@@ -206,13 +202,16 @@ def test_deterministic_suite_is_two_disjoint_shards_with_one_canonical_consumer(
     assert "split_deterministic_shards.py" in producer
     assert "--root test --shard ${{ matrix.shard }} --of 2" in producer
     assert (
-        "not full_main and not platform_real_execution and not real_execution "
-        "and not bulk_rnaseq_real_execution" in producer
-    )
-    assert (
         "not platform_real_execution and not real_execution "
         "and not bulk_rnaseq_real_execution" in producer
     )
+    assert "not full_main" not in producer
+    shard_run = next(
+        step["run"]
+        for step in shard_job["steps"]
+        if step.get("name") == "Run deterministic Python shard"
+    )
+    assert "EVENT_NAME" not in shard_run
     assert "--cov-fail-under=0" in producer
     assert "--cov-report=" in producer
     assert "--cov-report=xml" not in producer
@@ -396,9 +395,8 @@ def test_documented_python_timing_budgets_match_the_workflow():
     harness = (REPO_ROOT / "docs" / "development" / "harness.md").read_text(
         encoding="utf-8"
     )
-    assert "| PR `fast-checks` shards | 5 min | 25 min |" in harness
-    assert "| PR `fast-checks` aggregate | 1 min | 10 min |" in harness
-    assert "| Full-main Python | 20 min | 45 min |" in harness
+    assert "| Deterministic Python shards | 20 min | 45 min |" in harness
+    assert "| `fast-checks` aggregate | 1 min | 10 min |" in harness
 
 
 def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
@@ -424,12 +422,21 @@ def test_coverage_artifact_and_ratchets_are_stable_and_nonduplicative():
     ):
         assert artifact in settings["path"]
 
-    coverage_runs = _runs(jobs["coverage"])
-    assert "--fail-under=80" in coverage_runs
-    assert "set -euo pipefail" in coverage_runs
-    assert "coverage report --fail-under=83" in coverage_runs
-    for floor in ("88.45", "87.28", "89.06", "82.37"):
-        assert f"--fail-under={floor}" in coverage_runs
+    steps = {step.get("name"): step for step in jobs["coverage"]["steps"]}
+    ratchets = steps["Enforce complete-suite coverage ratchets"]
+    changed_lines = steps["Enforce changed-line coverage"]
+    assert ratchets["if"] == "needs.fast-checks.result == 'success'"
+    assert "set -euo pipefail" in ratchets["run"]
+    assert 'exit "$result"' in ratchets["run"]
+    for floor in ("83", "88.45", "87.28", "89.06", "82.37"):
+        assert f"--fail-under={floor} || result=1" in ratchets["run"]
+    assert steps["Setup micromamba"]["id"] == "coverage-environment"
+    assert "!cancelled()" in changed_lines["if"]
+    assert "steps.coverage-environment.outcome == 'success'" in changed_lines["if"]
+    assert "github.event_name == 'pull_request'" in changed_lines["if"]
+    assert "diff-cover coverage.xml" in changed_lines["run"]
+    assert "github.event.pull_request.base.sha" in changed_lines["run"]
+    assert "--fail-under=80" in changed_lines["run"]
 
     config = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     coverage_report = re.search(

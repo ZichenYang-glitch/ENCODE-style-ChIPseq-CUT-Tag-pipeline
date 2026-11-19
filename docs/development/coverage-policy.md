@@ -15,33 +15,16 @@ python3 -m pip install --no-index --no-deps --no-build-isolation -e ".[api]"
 python3 -m pip check
 ```
 
-CI has two deterministic selections. Each event executes its selection as one
-logical suite in two mutually exclusive and exhaustive physical shards:
+Every CI event executes the same deterministic selection as one logical suite
+in two mutually exclusive and exhaustive physical shards:
 `scripts/split_deterministic_shards.py` assigns every collected `test_*.py`
 file by `SHA-256(relative POSIX path) % 2`, each shard runs only its own
 files and records an unrendered `.coverage.shard-N`, and the `fast-checks`
 aggregate combines both data files into one canonical measurement. Local runs
-may still execute either selection in a single process.
+can execute the selection in a single process.
 
-Pull requests run the fast unit, contract, validator, and DAG-smoke selection
-(per shard, with the shard's file list in place of `test`):
-
-```bash
-python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
-  -m "not full_main and not platform_real_execution and not real_execution and not bulk_rnaseq_real_execution" \
-  --junitxml=pytest-report.xml \
-  --cov --cov-config=pyproject.toml --cov-context=test \
-  --cov-fail-under=0 \
-  --cov-report=term-missing \
-  --cov-report=xml:coverage.xml \
-  --cov-report=json:coverage.json
-```
-
-The partial PR report is used only for the changed-lines gate. It must not be
-presented as repository or core-module coverage.
-
-Pushes to `main`, manual dispatches, nightly schedules, and published releases
-run the complete deterministic suite, including tests marked `full_main`:
+Pull requests, pushes to `main`, manual dispatches, nightly schedules, and
+published releases include tests marked `full_main`:
 
 ```bash
 python3 -I -S scripts/checkout_bootstrap.py --repository-root . pytest test -ra \
@@ -88,16 +71,14 @@ The locked environment resolves Python 3.12.13, pytest 9.1.1, pytest-cov
 7.1.0, coverage.py 7.15.1, and diff-cover 9.7.2. Percentages combine statements
 and branches unless a column says otherwise. The v0.3.0 release-readiness
 baseline below was measured by the complete deterministic suite. The coverage
-consumer starts in fail-fast shell mode so an earlier area ratchet cannot be
-masked by a later report-only command.
+consumer reports every mandatory floor, then fails the step if any floor failed.
 
-The post-maintenance verification inventory is the authoritative count for the
-current repository state:
+The v0.3.0 verification recorded these counts:
 
 | Gate | Current baseline |
 | --- | ---: |
 | All Python tests collected | 4,454 |
-| PR-fast Python selection | 4,313 |
+| Former PR-fast Python selection | 4,313 |
 | Deterministic full-main Python selection | 4,438 |
 | Platform real-execution tests | 4 |
 | Scientific real-execution tests | 8 |
@@ -130,8 +111,8 @@ producer, CLI, or scientific-script behavior tests. The workflow library and
 container generator are authored runtime seams, so they remain in the global
 denominator even though their small areas do not yet have separate floors.
 
-On a complete-suite event, CI prints the same area reports from the one
-coverage database. They can also be reproduced locally with normal coverage.py
+On every event, CI prints the area reports from the one coverage database.
+They can also be reproduced locally with normal coverage.py
 filters, for example:
 
 ```bash
@@ -157,9 +138,8 @@ diff-cover coverage.xml --compare-branch=<review-base> --fail-under=80
 ```
 
 Pull requests compare against GitHub's exact base SHA. For a stacked local
-branch, use the preceding branch as the review base. The changed-lines floor
-does not replace the complete global and core floors; those are enforced on
-the next full-main, dispatch, nightly, or release run.
+branch, use the preceding branch as the review base. PRs must pass both the
+changed-lines floor and the complete-suite floors.
 
 ## Ratchet rules
 

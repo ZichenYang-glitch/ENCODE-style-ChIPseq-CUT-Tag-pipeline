@@ -840,7 +840,7 @@ def _validate_and_render_slot(
     expected_type = "replicate_role" if field_name == "replicate_role" else field_name
     is_multi = _slot_is_multi(field_name)
     status = slot_value.get("status")
-    if status not in FIELD_STATUSES:
+    if not isinstance(status, str) or status not in FIELD_STATUSES:
         raise catalog_preview_error(
             422, "catalog_payload_invalid", f"Invalid status on {field_name}."
         )
