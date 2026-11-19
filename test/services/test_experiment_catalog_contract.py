@@ -367,3 +367,41 @@ def test_experiment_revision_and_archive_are_scoped_and_replayable(catalog_stack
         catalog.get_experiment_revision(experiment_id, revision_id)["display_name"]
         == body["display_name"]
     )
+
+
+def test_catalog_traces_distinguish_empty_history_from_wrong_project(catalog_stack):
+    data, catalog = catalog_stack
+    project = data.create_project("Pilot")
+    foreign = data.create_project("Other project")
+    sample = data.import_sample(
+        project.project_id, stable_key="pilot", display_name="Pilot", attributes={}
+    )
+    sample_revision_id = sample.revision.sample_revision_id
+    experiment = _write(
+        catalog.create_experiment,
+        "create-pilot",
+        project_id=project.project_id,
+        stable_key="pilot",
+        **_experiment(sample_revision_id),
+    )
+    for trace, revision in (
+        (catalog.list_sample_run_results, {"sample_revision_id": sample_revision_id}),
+        (
+            catalog.list_experiment_run_results,
+            {"experiment_revision_id": experiment["experiment_revision_id"]},
+        ),
+    ):
+        empty = trace(project_id=project.project_id, **revision)
+        assert empty["results"] == []
+        assert empty["next_cursor"] is None
+        with pytest.raises(CatalogError) as failure:
+            trace(project_id=foreign.project_id, **revision)
+        assert (failure.value.status_code, failure.value.code) == (
+            404,
+            "catalog_not_found",
+        )
+
+    data.archive_project(project.project_id)
+    with pytest.raises(CatalogError) as failure:
+        catalog.list_experiment_revisions(experiment_id=experiment["experiment_id"])
+    assert failure.value.code == "catalog_not_found"

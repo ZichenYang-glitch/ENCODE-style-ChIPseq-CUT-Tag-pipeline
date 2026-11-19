@@ -1,7 +1,7 @@
 """Catalog validation and stored experiment revision compatibility."""
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 import pytest
@@ -255,4 +255,41 @@ def test_noncanonical_catalog_cursor_is_rejected(change):
     assert (failure.value.status_code, failure.value.code) == (
         400,
         "catalog_cursor_invalid",
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"term_type": "custom"},
+        {"catalog_state": "pending"},
+        {"field_statuses": {"species": "guessed"}},
+        {"field_terms": {"species": ["Homo sapiens"]}},
+        {
+            "field_terms": {"species": [SPECIES["term_id"]]},
+            "field_statuses": {"species": "unknown"},
+        },
+        {"created_before": datetime(2026, 11, 18)},
+        {"created_before": datetime(2026, 11, 17, tzinfo=timezone.utc)},
+    ],
+)
+def test_catalog_filters_reject_undefined_or_contradictory_queries(change):
+    start = datetime(2026, 11, 18, tzinfo=timezone.utc)
+    query = {
+        "kind": "samples",
+        "project_id": "prj_" + "1" * 32,
+        "revision_view": "linked",
+        "include_archived": False,
+        "term_type": None,
+        "created_from": start,
+        "created_before": start + timedelta(days=1),
+        "catalog_state": None,
+        "field_terms": {},
+        "field_statuses": {},
+    }
+    with pytest.raises(CatalogError) as failure:
+        parse_page_filters(**(query | change))
+    assert (failure.value.status_code, failure.value.code) == (
+        400,
+        "catalog_filter_invalid",
     )
