@@ -4,7 +4,7 @@
 完成下表只说明这位同事从受权入口找到了目标 PET、说清了 QC 分母，并打开了自己勾选的
 WashU 轨道。它不是用户签字，不是整批发布，也不是生物学确认。
 
-设计对照的 main 是 `112574f06380d0acee5466850ba3ac5f4dca91c4`（2026-11-19）。
+设计写于 2026-11-19，跟着它合并进去的 main；复审时以该 PR 的 base SHA 为准。
 当时该人源 Hi-TrAC 预处理批次的正式结果包尚未发布，执行入口是本机资格脚本，
 没有平台 run，也没有外部结果修订。数据主人尚未授权同事打开该批次。因此本文件
 只规定动作；下面没有填写过的通过记录。
@@ -21,7 +21,7 @@ WashU 轨道。它不是用户签字，不是整批发布，也不是生物学�
 | PET 在 WashU 里是什么 | [WashU 只读契约「科学语义」](washu-browser-read-contract.md#科学语义) |
 | 从项目找到实验 | [实验目录 M0](../architecture/experiment-catalog-m0-contract.md) 的实验追溯信封。目录页实现在复审中的 [PR #235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)（`37e04b9582a390712db5f116eaa1498a16c90c87`） |
 | checkout 产物的身份 | [外部结果读取契约](../architecture/registered-result-read-contract.md) 的 `rreg_` / `rrev_`。该文写明表、API 和客户端尚未实现 |
-| 在 WashU 里勾选、移除轨道 | 设计 [PR #227](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/227)（`fada3ed129dfcd014a3c7825c77c315667faf978`）；实现复审 [PR #237](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/237)（`9c162a7bdda3ce182a44baa7617f69d041e87683`）。本分支的 WashU 文没有自选一节 |
+| 在 WashU 里勾选、移除轨道 | [WashU 契约「在 WashU 内选择轨道文件（IRENE-21）」](washu-browser-read-contract.md)。直接打开时选择为空，只读取勾选的文件 |
 | 软件行为与科学结论分开 | [科学工作流证据台账](scientific-workflow-evidence-ledger.md) 的 Hi-TrAC 核对步骤。MAPQ 10 与 threads 2 在台账里仍是软件默认 |
 
 平台 QC 行的 `metric_key` 以 `src/encode_pipeline/adapters/hitrac_preprocess/results.py`
@@ -70,7 +70,7 @@ summary 里有一行数字，本身不是通过结论。原生通过和重放通
 - 平台 run：`run_id`、result generation、所选 artifact id、参考修订 id 与 identity SHA-256
 - 外部登记：PET 的 `rrev_`、summary 的 `rrev_`、各自内容 SHA-256、方法版本、参考状态
 - 上游 tracPre2 提交 `de6cc732fa00b408551b9f4272933640c08447f1`
-- WashU 页面实际加载的构建 SHA。自选行为以打开时的产品为准，并注明它是否包含 #237
+- WashU 页面实际加载的构建 SHA。自选行为对照契约「在 WashU 内选择轨道文件（IRENE-21）」
 
 ### 2. 从项目找到目标 PET
 
@@ -111,11 +111,12 @@ summary 里有一行数字，本身不是通过结论。原生通过和重放通
 上游在无 cis 时可能把分母写成 1；这种比例不当作已发布的计数。空结果也不表示该实验没有科学意义。
 
 这一步的观察结果写成：列名、分子、分母、读到的数是否与契约的单位一致。
-MAPQ 默认 10 与 threads 默认 2 的科学地位沿用证据台账：它们是当时的软件默认，本试用不把它们冻结成实验室阈值。
+当次 MAPQ 读该运行 options 里的 `mapq`，缺省 10，并与 summary 列标题中的 N 一致。
+MAPQ 缺省 10 与 threads 缺省 2 的科学地位沿用证据台账：它们是软件默认，本试用不把它们冻结成实验室阈值。
 
 ### 4. 在 WashU 中只打开所选轨道
 
-这一步要求登录的产品能从第 2 步的那次 run 打开 WashU，并且自选行为与 #227 的用例一致。
+这一步从第 2 步的平台 run 打开 WashU。勾选、移除和代次变化按契约「在 WashU 内选择轨道文件（IRENE-21）」。
 外部登记没有 `run_id`。外部结果契约不提供 WashU 会话。在出现不把登记结果写成 run 的查看入口之前，
 checkout 产物做到第 3 步为止，WashU 一行写「入口未提供」，试用未完成。
 不要把本机文件路径填进查看器。
@@ -155,7 +156,7 @@ checkout 产物做到第 3 步为止，WashU 一行写「入口未提供」，�
 
 - 没有重跑该预处理批次，没有打开、复制、移动或改写原始 FASTQ、参考、BAM 或 BEDPE。
 - 没有把 checkout 目录登记成平台 run，也没有代签用户验收。
-- 没有在浏览器里完成第 4 步。#227 / #237 的自选实现和 #235 的目录页不在本提交里。外部登记契约已在仓库中，读取 API 尚未实现，本提交不登记真实文件。
+- 没有在浏览器里用真实样本完成第 4 步。自选行为已在本基线的 WashU 契约里。目录页仍在 [PR #235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)。外部登记的读取 API 尚未实现，本提交不登记真实文件。
 - 核对命令只读本仓库文件。在仓库根目录执行后应打印 `hitrac-colleague-trial ok`：
 
 ```bash
@@ -176,6 +177,8 @@ ledger = (root / "docs/development/scientific-workflow-evidence-ledger.md").read
 assert "hitrac-colleague-pet-qc-trial.md" in ops
 assert "## 科学语义" in washu
 assert "hitrac_bedpe_all" in washu and "hitrac_bedpe_no_bg" in washu
+assert "## 在 WashU 内选择轨道文件（IRENE-21）" in washu
+assert "在 WashU 内选择轨道文件（IRENE-21）" in prose
 assert "不表示相应表、API 或客户端已经存在" in registered
 assert "registered-result-read-contract.md" in prose
 assert "## Hi-TrAC" in ledger
