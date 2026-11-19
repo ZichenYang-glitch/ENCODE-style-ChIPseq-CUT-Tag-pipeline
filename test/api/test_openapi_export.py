@@ -252,6 +252,14 @@ EXPECTED_OPERATIONS = {
         "GET",
         "/api/v1/catalog/projects/{project_id}/adoption-receipts",
     ): "catalogListAdoptionReceipts",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/experiment-trace",
+    ): "catalogGetArtifactPublicationExperimentTrace",
+    (
+        "GET",
+        "/api/v1/agent/projects/{project_id}/artifact-publications/{run_id}/{artifact_id}/context",
+    ): "readPublishedResultContext",
 }
 
 HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}

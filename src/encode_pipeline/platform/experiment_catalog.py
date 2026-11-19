@@ -348,6 +348,73 @@ class ExperimentSnapshotBinding:
             raise ValueError("payload_digest is invalid")
 
 
+EXPERIMENT_TRACE_ABSENT = "experiment_snapshot_binding_absent"
+EXPERIMENT_TRACE_INCONSISTENT = "experiment_revision_evidence_inconsistent"
+
+
+def publication_experiment_trace(
+    *,
+    project_id: str,
+    run_id: str,
+    artifact_id: str,
+    artifact_generation: str,
+    result: Mapping[str, Any],
+    binding_revision_id: str | None,
+    binding_payload_digest: str | None,
+    revision_project_id: str | None,
+    revision_payload_digest: str | None,
+) -> dict[str, Any]:
+    """Trace one published row back to the revision copied onto its run.
+
+    ``revision_*`` is the stored experiment revision addressed by
+    ``binding_revision_id``. A later experiment revision is irrelevant: only
+    the copied id and digest are compared with that stored revision. The
+    result row stays ``run_input_scope`` and is not rewritten into a
+    per-track sample attribution.
+    """
+
+    row = dict(result)
+    if row.get("artifact_association_kind") != "run_input_scope":
+        raise ValueError("publication trace result must use run_input_scope")
+    if row.get("publication_evidence") != "present":
+        raise ValueError("publication trace result must be a published row")
+    if (
+        row.get("run_id") != run_id
+        or row.get("artifact_id") != artifact_id
+        or row.get("artifact_generation") != artifact_generation
+    ):
+        raise ValueError("publication trace result does not match the request")
+    envelope: dict[str, Any] = {
+        "ok": True,
+        "project_id": project_id,
+        "run_id": run_id,
+        "artifact_id": artifact_id,
+        "artifact_generation": artifact_generation,
+        "result": row,
+    }
+    binding_present = (
+        binding_revision_id is not None or binding_payload_digest is not None
+    )
+    consistent = (
+        binding_revision_id is not None
+        and binding_payload_digest is not None
+        and revision_project_id == project_id
+        and revision_payload_digest == binding_payload_digest
+    )
+    if not binding_present:
+        envelope["trace_status"] = "unresolved"
+        envelope["reason"] = EXPERIMENT_TRACE_ABSENT
+        return envelope
+    if not consistent:
+        envelope["trace_status"] = "unresolved"
+        envelope["reason"] = EXPERIMENT_TRACE_INCONSISTENT
+        return envelope
+    envelope["trace_status"] = "experiment_snapshot"
+    envelope["experiment_revision_id"] = binding_revision_id
+    envelope["payload_digest"] = binding_payload_digest
+    return envelope
+
+
 @dataclass(frozen=True)
 class ExperimentRevisionFreezeSource:
     """Read-only view used to decide whether a snapshot may freeze one revision."""
