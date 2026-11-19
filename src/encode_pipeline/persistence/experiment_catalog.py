@@ -849,7 +849,7 @@ class SqlAlchemyExperimentCatalogRepository:
             render=lambda session, revision_id: self._experiment_summary(
                 session,
                 revision_id,
-                revision_view="linked",
+                revision_view=filters.revision_view,
                 include_candidates=False,
             ),
         )

@@ -771,6 +771,7 @@ class InMemoryExperimentCatalogRepository:
                     self._experiment_detail(
                         item.experiment_revision_id,
                         include_candidates=False,
+                        revision_view=filters.revision_view,
                     )
                     for item in page
                 ],
