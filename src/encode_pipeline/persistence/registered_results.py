@@ -441,6 +441,9 @@ def _insert_revision(session: Session, draft: RevisionDraft) -> None:
             content_sha256=draft.content_sha256,
         )
     )
+    if not draft.parents:
+        return
+    session.flush()
     for ordinal, parent in enumerate(draft.parents):
         session.add(
             RegisteredResultParentRow(

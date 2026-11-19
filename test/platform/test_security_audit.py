@@ -344,3 +344,10 @@ def test_new_audit_event_id_is_random_and_path_safe() -> None:
     assert first != second
     assert first.startswith("aevt_")
     assert len(first) == 37
+
+
+def test_unknown_audit_resource_kind_is_rejected() -> None:
+    from encode_pipeline.platform.security_audit import _stable_resource_identities
+
+    with pytest.raises(ValueError, match="audit resource kind is invalid"):
+        _stable_resource_identities(object(), ())  # type: ignore[arg-type]
