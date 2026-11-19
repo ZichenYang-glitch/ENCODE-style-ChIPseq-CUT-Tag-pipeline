@@ -917,7 +917,8 @@ def _direct_failures(
         service.after_copy_verified = None
     with (
         patch(
-            "encode_pipeline.api.routes.registered_results.StreamingResponse",
+            "encode_pipeline.api.routes.registered_results."
+            "_RegisteredResultStreamingResponse",
             side_effect=RuntimeError("response failed"),
         ),
         pytest.raises(RuntimeError, match="response failed"),
