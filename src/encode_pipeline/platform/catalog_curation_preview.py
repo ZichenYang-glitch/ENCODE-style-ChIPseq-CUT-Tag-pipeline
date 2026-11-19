@@ -45,10 +45,19 @@ SAMPLE_ALLOWED_CURATION_FIELDS = frozenset(
 SAMPLE_SINGLE_FIELDS = frozenset({"species", "tissue"})
 SAMPLE_MULTI_FIELDS = frozenset({"cell_type", "cell_line", "treatment", "tag"})
 EXPERIMENT_SINGLE_FIELDS = frozenset({"assay", "target", "batch"})
+# Term slots only. Experiment `samples` is a sample-revision pin list, not a term.
+TERM_SLOT_FIELDS = (
+    EXPERIMENT_SINGLE_FIELDS
+    | SAMPLE_SINGLE_FIELDS
+    | SAMPLE_MULTI_FIELDS
+    | frozenset({"replicate_role"})
+)
 FIELD_STATUSES = frozenset(
     {"known", "unknown", "not_applicable", "not_detected", "ambiguous"}
 )
 NEGATIVE_STATUSES = frozenset({"unknown", "not_applicable", "not_detected"})
+_SAMPLE_PIN_KEYS = frozenset({"ordinal", "sample_revision_id", "replicate_role"})
+_REPLICATE_GROUP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$")
 
 ALLOWED_REASON_CODES = frozenset(
     {
@@ -56,6 +65,7 @@ ALLOWED_REASON_CODES = frozenset(
         "TARGET_TERM_MATCH",
         "CELL_TYPE_TERM_MATCH",
         "TAG_TERM_MATCH",
+        "REPLICATE_ROLE_TERM_MATCH",
         "ALIAS_AMBIGUOUS_CANDIDATES",
         "MISSING_EVIDENCE_UNKNOWN",
     }
@@ -145,6 +155,26 @@ def _assert_body_size_within_limit(value: Any) -> None:
         )
 
 
+def _iter_term_slots(slot_map: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Yield classification term slots, including replicate_role inside sample pins."""
+
+    slots: list[Mapping[str, Any]] = []
+    for field_name, slot_value in slot_map.items():
+        if field_name == "display_name":
+            continue
+        if field_name == "samples" and isinstance(slot_value, list):
+            for pin in slot_value:
+                if not isinstance(pin, Mapping):
+                    continue
+                role = pin.get("replicate_role")
+                if isinstance(role, Mapping):
+                    slots.append(role)
+            continue
+        if isinstance(slot_value, Mapping):
+            slots.append(slot_value)
+    return slots
+
+
 def _collect_ambiguous_candidate_revision_ids(
     *slot_maps: Mapping[str, Any],
 ) -> frozenset[str]:
@@ -152,13 +182,13 @@ def _collect_ambiguous_candidate_revision_ids(
 
     candidate_ids: set[str] = set()
     for slot_map in slot_maps:
-        for field_name, slot_value in slot_map.items():
-            if field_name == "display_name" or not isinstance(slot_value, Mapping):
-                continue
+        for slot_value in _iter_term_slots(slot_map):
             if slot_value.get("status") != "ambiguous":
                 continue
             raw_candidates = slot_value.get("candidates") or ()
-            if not isinstance(raw_candidates, Sequence):
+            if isinstance(raw_candidates, (str, bytes)) or not isinstance(
+                raw_candidates, Sequence
+            ):
                 continue
             for candidate in raw_candidates:
                 if isinstance(candidate, Mapping):
@@ -479,6 +509,15 @@ class ProposalItem:
                 "catalog_payload_invalid",
                 "Before/after snapshots must match allowed_fields exactly.",
             )
+        if self.target_kind == "experiment" and "samples" in self.allowed_fields:
+            for side in (self.before["samples"], self.after["samples"]):
+                if isinstance(side, Mapping) or not isinstance(side, list):
+                    raise catalog_preview_error(
+                        422,
+                        "catalog_payload_invalid",
+                        "Experiment samples are sample-revision associations, not a classification term.",
+                        path="items.samples",
+                    )
 
     def candidate_term_revision_ids(self) -> frozenset[str]:
         """Return candidate term_revision_ids from any ambiguous slot in this item."""
@@ -636,9 +675,138 @@ def _slot_is_multi(field_name: str) -> bool:
     return field_name in SAMPLE_MULTI_FIELDS
 
 
+def _drop_rendered_display_names(value: Any) -> Any:
+    """Keep verified term identity and drop preview-only display names."""
+
+    if isinstance(value, list):
+        return [_drop_rendered_display_names(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _drop_rendered_display_names(item)
+            for key, item in value.items()
+            if key != "display_name"
+        }
+    return value
+
+
+def _sample_state_for_revision(
+    samples: Mapping[str, Any], revision_id: str
+) -> Any | None:
+    for state in samples.values():
+        for revision in state.revisions:
+            if revision["sample_revision_id"] == revision_id:
+                return state
+    return None
+
+
+def _validate_and_render_sample_pins(
+    pins: object,
+    terms_by_revision: Mapping[str, TermRevisionRecord],
+    samples: Mapping[str, Any],
+    *,
+    project_id: str,
+    include_candidates: bool,
+    for_write: bool,
+) -> list[dict[str, Any]]:
+    """Validate sample-revision pins. A term-shaped object is rejected here."""
+
+    if isinstance(pins, Mapping):
+        raise catalog_preview_error(
+            422,
+            "catalog_payload_invalid",
+            "Experiment samples are sample-revision associations, not a classification term.",
+            path="samples",
+        )
+    if not isinstance(pins, list) or not pins:
+        raise catalog_preview_error(
+            422,
+            "catalog_payload_invalid",
+            "Experiment samples must be a non-empty list of sample-revision pins.",
+            path="samples",
+        )
+    rendered: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, pin in enumerate(pins):
+        if not isinstance(pin, Mapping):
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                "Each sample association must be an object.",
+                path="samples",
+            )
+        keys = set(pin)
+        allowed = set(_SAMPLE_PIN_KEYS)
+        if "replicate_group" in keys:
+            allowed.add("replicate_group")
+        if keys != allowed:
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                "Sample-revision pin contains unknown attributes.",
+                path="samples",
+            )
+        ordinal = pin.get("ordinal")
+        if (
+            isinstance(ordinal, bool)
+            or not isinstance(ordinal, int)
+            or ordinal != index
+        ):
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                "Sample-revision pin ordinal must match its list position.",
+                path="samples",
+            )
+        revision_id = _check_id(
+            "sample_revision", pin.get("sample_revision_id"), path="samples"
+        )
+        if revision_id in seen:
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                "Duplicate sample_revision_id in samples.",
+                path="samples",
+            )
+        seen.add(revision_id)
+        state = _sample_state_for_revision(samples, revision_id)
+        if state is None or state.project_id != project_id:
+            raise catalog_preview_error(
+                409,
+                "catalog_proposal_invalidated",
+                "Sample-revision pin is missing or outside this project.",
+                path="samples",
+            )
+        normalized: dict[str, Any] = {
+            "ordinal": ordinal,
+            "sample_revision_id": revision_id,
+            "replicate_role": _validate_and_render_slot(
+                "replicate_role",
+                pin.get("replicate_role"),
+                terms_by_revision,
+                include_candidates=include_candidates,
+                for_write=for_write,
+            ),
+        }
+        if "replicate_group" in pin:
+            group = pin.get("replicate_group")
+            if (
+                not isinstance(group, str)
+                or _REPLICATE_GROUP_RE.fullmatch(group) is None
+            ):
+                raise catalog_preview_error(
+                    422,
+                    "catalog_payload_invalid",
+                    "replicate_group must be a bounded token.",
+                    path="samples",
+                )
+            normalized["replicate_group"] = group
+        rendered.append(normalized)
+    return rendered
+
+
 def _validate_and_render_slot(
     field_name: str,
-    slot_value: Mapping[str, Any],
+    slot_value: object,
     terms_by_revision: Mapping[str, TermRevisionRecord],
     *,
     include_candidates: bool,
@@ -648,6 +816,27 @@ def _validate_and_render_slot(
 
     if field_name == "display_name":
         raise ValueError("display_name is scalar text, not a term slot")
+    if field_name == "samples":
+        raise catalog_preview_error(
+            422,
+            "catalog_payload_invalid",
+            "Experiment samples are sample-revision associations, not a classification term.",
+            path="samples",
+        )
+    if field_name not in TERM_SLOT_FIELDS:
+        raise catalog_preview_error(
+            422,
+            "catalog_payload_invalid",
+            f"{field_name} is not a classification term field.",
+            path=field_name,
+        )
+    if not isinstance(slot_value, Mapping):
+        raise catalog_preview_error(
+            422,
+            "catalog_payload_invalid",
+            f"{field_name} must be a classification term slot.",
+            path=field_name,
+        )
     expected_type = "replicate_role" if field_name == "replicate_role" else field_name
     is_multi = _slot_is_multi(field_name)
     status = slot_value.get("status")
@@ -689,6 +878,19 @@ def _validate_and_render_slot(
             "display_name": record.display_name,
         }
 
+    def resolve_nested_pin(raw_pin: object) -> dict[str, str]:
+        if not isinstance(raw_pin, Mapping) or set(raw_pin) != {
+            "term_id",
+            "term_revision_id",
+        }:
+            raise catalog_preview_error(
+                422,
+                "catalog_payload_invalid",
+                f"Term pin on {field_name} must contain only term_id and term_revision_id.",
+                path=field_name,
+            )
+        return resolve_pin(raw_pin)
+
     if not is_multi:
         if status == "known":
             if set(slot_value) != {"status", "term_id", "term_revision_id"}:
@@ -719,7 +921,7 @@ def _validate_and_render_slot(
             raise catalog_preview_error(
                 422, "catalog_payload_invalid", "Ambiguous candidates must be a list."
             )
-        resolved_candidates = [resolve_pin(item) for item in raw_candidates]
+        resolved_candidates = [resolve_nested_pin(item) for item in raw_candidates]
         if include_candidates:
             rendered["candidates"] = resolved_candidates
         return rendered
@@ -741,7 +943,7 @@ def _validate_and_render_slot(
             )
         return {
             "status": "known",
-            "values": [resolve_pin(item) for item in raw_values],
+            "values": [resolve_nested_pin(item) for item in raw_values],
         }
     if slot_value.get("values") != []:
         raise catalog_preview_error(
@@ -771,7 +973,7 @@ def _validate_and_render_slot(
         raise catalog_preview_error(
             422, "catalog_payload_invalid", "Ambiguous candidates must be a list."
         )
-    resolved_candidates = [resolve_pin(item) for item in raw_candidates]
+    resolved_candidates = [resolve_nested_pin(item) for item in raw_candidates]
     rendered = {"status": "ambiguous", "values": []}
     if include_candidates:
         rendered["candidates"] = resolved_candidates
@@ -1125,6 +1327,56 @@ class SyntheticCatalogPreviewStore:
         replayed["replayed"] = True
         return replayed
 
+    def _project_id_for_item(self, item: ProposalItem) -> str:
+        if item.target_kind == "experiment":
+            state = self._experiments.get(item.target_id)
+            if state is None:
+                raise catalog_preview_error(
+                    404, "catalog_not_found", "Target experiment was not found."
+                )
+            return state.project_id
+        sample_state = self._samples.get(item.target_id)
+        if sample_state is None:
+            raise catalog_preview_error(
+                404, "catalog_not_found", "Target sample was not found."
+            )
+        return sample_state.project_id
+
+    def _render_field(
+        self,
+        field_name: str,
+        value: object,
+        *,
+        project_id: str,
+        include_candidates: bool,
+        for_write: bool,
+    ) -> Any:
+        if field_name == "display_name":
+            return _assert_bounded_text(value, path="display_name")
+        if field_name == "samples":
+            return _validate_and_render_sample_pins(
+                value,
+                self._terms,
+                self._samples,
+                project_id=project_id,
+                include_candidates=include_candidates,
+                for_write=for_write,
+            )
+        return _validate_and_render_slot(
+            field_name,
+            value,
+            self._terms,
+            include_candidates=include_candidates,
+            for_write=for_write,
+        )
+
+    def _stored_field(self, field_name: str, rendered: Any) -> Any:
+        """Persist the verified value. Preview display names stay out of the revision."""
+
+        if field_name == "display_name":
+            return rendered
+        return _drop_rendered_display_names(rendered)
+
     def _render_item_diff(
         self,
         item: ProposalItem,
@@ -1132,24 +1384,21 @@ class SyntheticCatalogPreviewStore:
         include_candidates: bool,
         for_write: bool,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        project_id = self._project_id_for_item(item)
         before_rendered: dict[str, Any] = {}
         after_rendered: dict[str, Any] = {}
         for field_name in item.allowed_fields:
-            if field_name == "display_name":
-                before_rendered[field_name] = item.before[field_name]
-                after_rendered[field_name] = item.after[field_name]
-                continue
-            before_rendered[field_name] = _validate_and_render_slot(
+            before_rendered[field_name] = self._render_field(
                 field_name,
                 item.before[field_name],
-                self._terms,
+                project_id=project_id,
                 include_candidates=include_candidates,
                 for_write=False,
             )
-            after_rendered[field_name] = _validate_and_render_slot(
+            after_rendered[field_name] = self._render_field(
                 field_name,
                 item.after[field_name],
-                self._terms,
+                project_id=project_id,
                 include_candidates=include_candidates,
                 for_write=for_write,
             )
@@ -1305,13 +1554,21 @@ class SyntheticCatalogPreviewStore:
             raise catalog_preview_error(
                 422, "catalog_payload_invalid", "Unsupported experiment field update."
             )
+        normalized_updates = {
+            key: self._stored_field(
+                key,
+                self._render_field(
+                    key,
+                    value,
+                    project_id=state.project_id,
+                    include_candidates=True,
+                    for_write=True,
+                ),
+            )
+            for key, value in updates.items()
+        }
         new_payload = deepcopy(head["payload"])
-        for key, value in updates.items():
-            if key != "display_name":
-                _validate_and_render_slot(
-                    key, value, self._terms, include_candidates=True, for_write=True
-                )
-            new_payload[key] = deepcopy(value)
+        new_payload.update(normalized_updates)
         new_rev_num = int(head["revision_number"]) + 1
         new_rev_id = self._revision_id_factory("expr_")
         state.revisions.append(
@@ -1673,12 +1930,17 @@ class SyntheticCatalogPreviewStore:
     def _apply_item(
         self, item: ProposalItem, *, actor_user_id: str, now: datetime
     ) -> dict[str, Any]:
+        _, after_rendered = self._render_item_diff(
+            item, include_candidates=True, for_write=True
+        )
         if item.target_kind == "experiment":
             state = self._experiments[item.target_id]
             head = state.head
             new_payload = deepcopy(head["payload"])
             for field_name in item.allowed_fields:
-                new_payload[field_name] = deepcopy(item.after[field_name])
+                new_payload[field_name] = self._stored_field(
+                    field_name, after_rendered[field_name]
+                )
             new_rev_num = int(head["revision_number"]) + 1
             new_rev_id = self._revision_id_factory("expr_")
             state.revisions.append(
@@ -1706,10 +1968,11 @@ class SyntheticCatalogPreviewStore:
         new_catalog = deepcopy(head["catalog"])
         new_display_name = head["display_name"]
         for field_name in item.allowed_fields:
+            stored = self._stored_field(field_name, after_rendered[field_name])
             if field_name == "display_name":
-                new_display_name = item.after["display_name"]
+                new_display_name = stored
             else:
-                new_catalog[field_name] = deepcopy(item.after[field_name])
+                new_catalog[field_name] = stored
         new_rev_num = int(head["revision_number"]) + 1
         new_rev_id = self._revision_id_factory("smpr_")
         sample_state.revisions.append(
