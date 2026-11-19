@@ -59,6 +59,7 @@ from encode_pipeline.platform.experiment_catalog import (
     TermPin,
     administrator_required,
     bind_catalog_target,
+    matches_committed_catalog_request,
     block_from_projection,
     build_experiment_revision_payload_digest,
     canonical_alias_json,
@@ -1230,10 +1231,11 @@ class SqlAlchemyExperimentCatalogRepository:
                 if not write.target_key:
                     raise ValueError("catalog write target is required")
                 if receipt is not None:
-                    if (
-                        receipt.request_sha256 != write.request_sha256
-                        or receipt.operation != write.operation
-                        or receipt.target_key != write.target_key
+                    if not matches_committed_catalog_request(
+                        write,
+                        operation=receipt.operation,
+                        target_key=receipt.target_key,
+                        request_sha256=receipt.request_sha256,
                     ):
                         raise catalog_idempotency_conflict()
                     return _replay(self, session, receipt)

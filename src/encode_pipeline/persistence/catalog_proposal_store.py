@@ -23,6 +23,7 @@ from encode_pipeline.persistence.experiment_catalog import (
 from encode_pipeline.persistence.models import (
     CatalogAdoptionReceiptRow,
     CatalogCurationVersionRow,
+    CatalogWriteReceiptRow,
     CatalogProposalRow,
     CatalogTermRevisionRow,
     CatalogTermRow,
@@ -59,6 +60,7 @@ from encode_pipeline.platform.experiment_catalog import (
     CatalogError,
     CatalogWrite,
     catalog_idempotency_conflict,
+    matches_committed_catalog_request,
     catalog_not_found,
     catalog_payload_invalid,
     catalog_revision_conflict,
@@ -362,18 +364,21 @@ def resolve_adoption_conflict(
     write: CatalogWrite,
     proposal_id: str,
 ) -> dict[str, Any]:
-    """Replay the same attempt, or reject a different adoption of this proposal."""
+    """Judge a rolled-back attempt against the committed catalog write receipt."""
 
-    by_key = session.scalar(
-        select(CatalogAdoptionReceiptRow).where(
-            CatalogAdoptionReceiptRow.actor_user_id == write.actor_user_id,
-            CatalogAdoptionReceiptRow.idempotency_key == write.idempotency_key,
-        )
+    committed = session.get(
+        CatalogWriteReceiptRow,
+        (write.actor_user_id, write.idempotency_key),
     )
-    if by_key is not None:
-        if by_key.proposal_id != proposal_id:
+    if committed is not None:
+        if not matches_committed_catalog_request(
+            write,
+            operation=committed.operation,
+            target_key=committed.target_key,
+            request_sha256=committed.request_sha256,
+        ):
             raise catalog_idempotency_conflict()
-        return replayed_receipt(_load(by_key.response_json))
+        return replay_adopt(session, write.actor_user_id, write.idempotency_key)
     existing = _adoption_body(session, proposal_id)
     if existing is not None:
         raise CatalogError(
@@ -384,17 +389,26 @@ def resolve_adoption_conflict(
     raise catalog_revision_conflict()
 
 
+def _reported_unique_columns(exc: IntegrityError) -> str:
+    """Return the columns named by the database, without SQL or parameters."""
+
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", None)
+    if not args or not isinstance(args[0], str):
+        return ""
+    marker = "UNIQUE constraint failed:"
+    if marker not in args[0]:
+        return ""
+    return args[0].split(marker, 1)[1].splitlines()[0]
+
+
 def _raise_for_adoption_integrity(exc: IntegrityError) -> None:
     """Separate a head collision from the one committed adoption receipt."""
 
-    text = " ".join(
-        part for part in (str(exc), str(getattr(exc, "orig", "") or "")) if part
-    )
-    if any(token in text for token in _REVISION_INTEGRITY_TOKENS):
+    reported = _reported_unique_columns(exc)
+    if any(token in reported for token in _REVISION_INTEGRITY_TOKENS):
         raise catalog_revision_conflict() from exc
-    if "UNIQUE" in text.upper() and any(
-        token in text for token in _RECEIPT_INTEGRITY_TOKENS
-    ):
+    if any(token in reported for token in _RECEIPT_INTEGRITY_TOKENS):
         raise AdoptionConflict() from exc
     raise exc
 

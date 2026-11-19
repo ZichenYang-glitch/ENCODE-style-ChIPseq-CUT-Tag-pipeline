@@ -45,3 +45,33 @@ def test_same_actor_key_is_resolved_as_the_committed_attempt() -> None:
     except AdoptionConflict:
         return
     raise AssertionError("same-request collision was not left for replay")
+
+
+def test_bound_parameters_do_not_choose_the_constraint() -> None:
+    exc = IntegrityError(
+        "INSERT INTO experiment_revisions (note) VALUES (?)",
+        {"note": "catalog_adoption_receipts catalog_write_receipts UNIQUE"},
+        Exception("UNIQUE constraint failed: catalog_adoption_receipts.proposal_id"),
+    )
+    try:
+        _raise_for_adoption_integrity(exc)
+    except AdoptionConflict:
+        return
+    raise AssertionError("receipt constraint was classified from bind text")
+
+
+def test_revision_columns_ignore_receipt_names_in_the_statement() -> None:
+    exc = IntegrityError(
+        "INSERT INTO catalog_adoption_receipts (payload) VALUES (?)",
+        ("catalog_write_receipts experiment_revision_heads",),
+        Exception(
+            "UNIQUE constraint failed: experiment_revisions.experiment_id, "
+            "experiment_revisions.revision_number"
+        ),
+    )
+    try:
+        _raise_for_adoption_integrity(exc)
+    except CatalogError as caught:
+        assert caught.code == "catalog_revision_conflict"
+    else:
+        raise AssertionError("revision constraint followed the statement text")
