@@ -471,8 +471,8 @@ describe('experiment binding entry', () => {
     expect(document.getElementById('experiment-revision-choice')).toBeInTheDocument();
     const project = await screen.findByRole('combobox', { name: 'Project' });
     await waitFor(() => expect(project).toHaveValue(PROJECT));
-    await user.click(screen.getByRole('checkbox', { name: 'Sample A' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Sample B' }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Sample A' }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Sample B' }));
     expect(screen.getByLabelText('Submitted sample revision 1')).toHaveValue(REV_A);
     expect(screen.getByLabelText('Submitted sample revision 2')).toHaveValue(REV_B);
     const choice = screen.getByRole('combobox', { name: 'Experiment revision' });
@@ -484,5 +484,143 @@ describe('experiment binding entry', () => {
     expect(screen.getByTestId('experiment-binding-status')).toHaveTextContent(
       'No experiment binding. Choosing a revision or opening this page does not create one.',
     );
+  });
+
+  async function importOrdinarySheet(user: UserEvent) {
+    await user.click(await screen.findByRole('tab', { name: 'Samples' }));
+    const contents = 'sample\tfastq_1\tlayout\nS1\t/data/S1.fastq.gz\tSE\n';
+    const file = new File([contents], 'samples.tsv', {
+      type: 'text/tab-separated-values',
+    });
+    Object.defineProperty(file, 'text', {
+      value: vi.fn().mockResolvedValue(contents),
+    });
+    await user.upload(screen.getByLabelText('Import samples TSV'), file);
+    await screen.findAllByDisplayValue('S1');
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+  }
+
+  it('keeps a selected experiment on the request when no sample revision is checked', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByRole('heading', { name: 'Input workbench' })).toBeInTheDocument();
+    const project = await screen.findByRole('combobox', { name: 'Project' });
+    await waitFor(() => expect(project).toHaveValue(PROJECT));
+    const choice = screen.getByRole('combobox', { name: 'Experiment revision' });
+    await waitFor(() => expect(choice).toBeEnabled());
+    await user.selectOptions(choice, 'Synthetic experiment');
+    await importOrdinarySheet(user);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Validate current inputs' })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText('No experiment binding was saved.')).toBeInTheDocument();
+    const body = generatedMocks.validateWorkflow.mock.calls.at(-1)?.[1] as ValidateBody;
+    expect(body.project_id).toBe(PROJECT);
+    expect(body.experiment_revision_id).toBe(EXPR);
+    expect(body.sample_revision_ids).toEqual([]);
+    expect(screen.getByTestId('create-validated-run-button')).toBeDisabled();
+    expect(screen.getByTestId('experiment-binding-status')).not.toHaveTextContent(
+      'Not bound. This validation did not select an experiment revision.',
+    );
+
+    await user.selectOptions(choice, '');
+    await waitFor(() => {
+      expect(screen.queryByTestId('experiment-binding-status')).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    await waitFor(() => {
+      expect(generatedMocks.validateWorkflow).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('validation-feedback')).toHaveTextContent(
+        'This exact draft can create one run.',
+      );
+    });
+    const omitted = generatedMocks.validateWorkflow.mock.calls.at(-1)?.[1] as ValidateBody;
+    expect(omitted.project_id).toBeUndefined();
+    expect(omitted.experiment_revision_id).toBeUndefined();
+    expect(omitted.samples?.[0]?.sample).toBe('S1');
+    expect(screen.getByTestId('create-validated-run-button')).toBeEnabled();
+  }, 30_000);
+
+  it('treats a gateway timeout as an unconfirmed binding result', async () => {
+    generatedMocks.validateWorkflow.mockRejectedValue(
+      new ApiError(504, 'API_ERROR', 'Request failed with status 504'),
+    );
+    const user = userEvent.setup();
+    await openCarriedValidation(user);
+    await user.click(screen.getByRole('button', { name: 'Validate current inputs' }));
+    expect(await screen.findByText('VALIDATION_UNAVAILABLE')).toBeInTheDocument();
+    expect(screen.getByTestId('experiment-binding-status')).toHaveTextContent(
+      'The validation result is unconfirmed.',
+    );
+    expect(screen.getByTestId('experiment-binding-status')).not.toHaveTextContent(
+      'No experiment binding was saved.',
+    );
+    expect(screen.getByTestId('create-validated-run-button')).toBeDisabled();
+  });
+
+  it('loads projects and samples past the first page', async () => {
+    const pageProjects = Array.from({ length: 50 }, (_, index) => ({
+      project_id: `prj_${(index + 1).toString(16).padStart(32, '0')}`,
+      display_name: `Project ${index + 1}`,
+    }));
+    const laterProject = {
+      project_id: `prj_${'f'.repeat(32)}`,
+      display_name: 'Project 51',
+    };
+    generatedMocks.listProjects.mockImplementation(async (params?: { cursor?: string | null }) => (
+      params?.cursor === 'projects-2'
+        ? { ok: true, projects: [pageProjects[0], laterProject], next_cursor: null }
+        : { ok: true, projects: pageProjects, next_cursor: 'projects-2' }
+    ));
+    const pageSamples = Array.from({ length: 50 }, (_, index) => ({
+      sample_id: `smp_${(index + 1).toString(16).padStart(32, '0')}`,
+      display_name: `Sample ${index + 1}`,
+      sample_revision_id: `smpr_${(index + 1).toString(16).padStart(32, '0')}`,
+    }));
+    const laterSample = {
+      sample_id: `smp_${'f'.repeat(32)}`,
+      display_name: 'Sample 51',
+      sample_revision_id: `smpr_${'f'.repeat(32)}`,
+    };
+    generatedMocks.listSamples.mockImplementation(async (
+      projectId: string,
+      params?: { cursor?: string | null },
+    ) => (
+      params?.cursor === 'samples-2'
+        ? {
+            ok: true,
+            project_id: projectId,
+            samples: [pageSamples[0], laterSample],
+            next_cursor: null,
+          }
+        : {
+            ok: true,
+            project_id: projectId,
+            samples: pageSamples,
+            next_cursor: 'samples-2',
+          }
+    ));
+    renderWithRouter(appRoutes, {
+      initialEntries: [`/workflows/${WORKFLOW_ID}/new-run`],
+    });
+    expect(await screen.findByRole('option', { name: 'Project 51' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'Project 1' })).toHaveLength(1);
+    expect(await screen.findByRole('checkbox', { name: 'Sample 51' })).toBeInTheDocument();
+    expect(screen.getAllByRole('checkbox', { name: 'Sample 1' })).toHaveLength(1);
+    expect(generatedMocks.listProjects).toHaveBeenCalledWith({ limit: 50 });
+    expect(generatedMocks.listProjects).toHaveBeenCalledWith({
+      limit: 50,
+      cursor: 'projects-2',
+    });
+    expect(generatedMocks.listSamples).toHaveBeenCalledWith(pageProjects[0].project_id, {
+      limit: 50,
+    });
+    expect(generatedMocks.listSamples).toHaveBeenCalledWith(pageProjects[0].project_id, {
+      limit: 50,
+      cursor: 'samples-2',
+    });
   });
 });

@@ -76,6 +76,13 @@ function safeIssues(issues: IssueResponse[] | undefined): SafeIssue[] {
   }));
 }
 
+function gatewayCouldNotConfirm(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 502 || error.status === 503 || error.status === 504)
+  );
+}
+
 function requestIssues(error: unknown, fallback: SafeIssue): SafeIssue[] {
   if (error instanceof ApiError && error.issues.length > 0) {
     return error.issues.map((issue) => ({
@@ -211,7 +218,9 @@ export function ValidatedSubmission({
       setSnapshotState(null);
       if (experimentRequest !== null) {
         setBindingOutcome(
-          error instanceof ApiError ? { kind: 'failed' } : { kind: 'unconfirmed' },
+          error instanceof ApiError && !gatewayCouldNotConfirm(error)
+            ? { kind: 'failed' }
+            : { kind: 'unconfirmed' },
         );
       }
       if (attempt.revision !== draft.state.semanticRevision) {

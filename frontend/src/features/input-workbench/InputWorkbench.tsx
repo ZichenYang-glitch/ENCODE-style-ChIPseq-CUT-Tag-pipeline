@@ -193,8 +193,12 @@ export function InputWorkbench({
   }
 
   const selectedProjectId = handoff?.projectId ?? directProjectId;
+  // An explicit experiment stays on the request even when no catalog sample
+  // revision is checked. Only an active omit with an empty sample list keeps
+  // the legacy validation that leaves project and experiment off the body.
   const experimentRequest =
-    selectedProjectId === null || sampleRevisionIds.length === 0
+    selectedProjectId === null ||
+    (sampleRevisionIds.length === 0 && experimentRevisionId === null)
       ? null
       : {
           projectId: selectedProjectId,

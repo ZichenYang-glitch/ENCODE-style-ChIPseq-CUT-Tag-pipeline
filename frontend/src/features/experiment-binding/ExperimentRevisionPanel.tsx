@@ -274,37 +274,91 @@ function selectionPreview(
   return `${selected.displayName} does not pin this sample revision set. Validation will not freeze a binding.`;
 }
 
-async function loadEntryProjects(): Promise<EntryProject[]> {
-  const response = await authoringListProjects({ limit: 50 });
-  if (!Array.isArray(response.projects)) {
-    throw new Error('The project list could not be verified.');
+function readEntryProject(project: {
+  project_id: string;
+  display_name: string;
+}): EntryProject | null {
+  if (
+    !PROJECT_ID.test(project.project_id) ||
+    project.project_id === `prj_${'0'.repeat(32)}`
+  ) {
+    return null;
   }
-  return response.projects.flatMap((project) => {
-    if (
-      !PROJECT_ID.test(project.project_id) ||
-      project.project_id === `prj_${'0'.repeat(32)}`
-    ) {
-      return [];
+  const displayName = project.display_name.trim();
+  return {
+    projectId: project.project_id,
+    displayName: displayName.length > 0 ? displayName : project.project_id,
+  };
+}
+
+function readEntrySample(sample: {
+  sample_revision_id: string;
+  display_name: string;
+}): EntrySample | null {
+  if (!SAMPLE_REVISION_ID.test(sample.sample_revision_id)) return null;
+  const displayName = sample.display_name.trim();
+  return {
+    sampleRevisionId: sample.sample_revision_id,
+    displayName: displayName.length > 0 ? displayName : sample.sample_revision_id,
+  };
+}
+
+async function loadEntryProjects(): Promise<EntryProject[]> {
+  const seenCursors = new Set<string>();
+  const seenProjects = new Set<string>();
+  const projects: EntryProject[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page += 1) {
+    const response = await authoringListProjects({
+      limit: 50,
+      ...(cursor === null ? {} : { cursor }),
+    });
+    if (!Array.isArray(response.projects)) {
+      throw new Error('The project list could not be verified.');
     }
-    const displayName = project.display_name.trim();
-    return [{
-      projectId: project.project_id,
-      displayName: displayName.length > 0 ? displayName : project.project_id,
-    }];
-  });
+    for (const project of response.projects) {
+      const parsed = readEntryProject(project);
+      if (parsed === null || seenProjects.has(parsed.projectId)) continue;
+      seenProjects.add(parsed.projectId);
+      projects.push(parsed);
+    }
+    const next = response.next_cursor;
+    if (typeof next !== 'string' || next.length === 0) return projects;
+    if (seenCursors.has(next)) {
+      throw new Error('The project list repeated a page.');
+    }
+    seenCursors.add(next);
+    cursor = next;
+  }
+  throw new Error('The project list did not finish.');
 }
 
 async function loadEntrySamples(projectId: string): Promise<EntrySample[]> {
-  const response = await authoringListProjectSamples(projectId, { limit: 50 });
-  if (response.project_id !== projectId || !Array.isArray(response.samples)) {
-    throw new Error('The sample list could not be verified.');
+  const seenCursors = new Set<string>();
+  const seenSamples = new Set<string>();
+  const samples: EntrySample[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page += 1) {
+    const response = await authoringListProjectSamples(projectId, {
+      limit: 50,
+      ...(cursor === null ? {} : { cursor }),
+    });
+    if (response.project_id !== projectId || !Array.isArray(response.samples)) {
+      throw new Error('The sample list could not be verified.');
+    }
+    for (const sample of response.samples) {
+      const parsed = readEntrySample(sample);
+      if (parsed === null || seenSamples.has(parsed.sampleRevisionId)) continue;
+      seenSamples.add(parsed.sampleRevisionId);
+      samples.push(parsed);
+    }
+    const next = response.next_cursor;
+    if (typeof next !== 'string' || next.length === 0) return samples;
+    if (seenCursors.has(next)) {
+      throw new Error('The sample list repeated a page.');
+    }
+    seenCursors.add(next);
+    cursor = next;
   }
-  return response.samples.flatMap((sample) => {
-    if (!SAMPLE_REVISION_ID.test(sample.sample_revision_id)) return [];
-    const displayName = sample.display_name.trim();
-    return [{
-      sampleRevisionId: sample.sample_revision_id,
-      displayName: displayName.length > 0 ? displayName : sample.sample_revision_id,
-    }];
-  });
+  throw new Error('The sample list did not finish.');
 }
