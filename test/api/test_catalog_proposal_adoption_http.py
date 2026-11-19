@@ -52,6 +52,7 @@ from encode_pipeline.platform.catalog_curation_preview import (  # noqa: E402
     M2_PROJECTION_VERSION,
     M2_RULE_VERSION,
     M2_VOCABULARY_VERSION,
+    compute_preview_digest,
 )
 from encode_pipeline.services.authentication import (  # noqa: E402
     SessionSecrets,
@@ -732,10 +733,6 @@ def test_admin_adopts_only_the_selected_subset(seeded_app) -> None:
         )
         before_revisions = _revision_count(seeded_app, second["experiment_id"])
         before_first = _revision_count(seeded_app, first["experiment_id"])
-        from encode_pipeline.platform.catalog_curation_preview import (
-            compute_preview_digest,
-        )
-
         invalid_expected = {
             second["experiment_id"]: head["revision_number"],
             first["experiment_id"]: bumped.json()["revision_number"],
@@ -1547,3 +1544,231 @@ def _legacy_note(app, sample_revision_id: str) -> str:
         row = db.get(SampleRevisionRow, sample_revision_id)
         assert row is not None
         return json.loads(row.canonical_payload)["attributes"]["legacy_note"]
+
+
+def _role_change_item(
+    client: ApiTestClient, registry: DataRegistryService, project_id: str
+) -> dict:
+    prefix = "/api/v1/catalog"
+
+    def term(kind: str, name: str, key: str) -> dict:
+        response = _post(
+            client,
+            f"{prefix}/terms",
+            {"term_type": kind, "display_name": name},
+            key,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    assay = term("assay", "CUT&Tag", "role-assay")
+    original_role = term("replicate_role", "biological replicate", "role-original")
+    new_role = term("replicate_role", "control", "role-new")
+    before = [
+        {
+            "ordinal": ordinal,
+            "sample_revision_id": registry.import_sample(
+                project_id, stable_key=name, display_name=name, attributes={}
+            ).revision.sample_revision_id,
+            "replicate_group": name,
+            "replicate_role": _known(original_role),
+        }
+        for ordinal, name in enumerate(("left", "right"))
+    ]
+    after = [{**before[0], "replicate_role": _known(new_role)}, before[1]]
+    created = _post(
+        client,
+        f"{prefix}/projects/{project_id}/experiments",
+        {
+            "stable_key": "role-pins",
+            "display_name": "Role pins",
+            "assay": _known(assay),
+            "target": {"status": "unknown"},
+            "batch": {"status": "unknown"},
+            "samples": [
+                {key: value for key, value in pin.items() if key != "ordinal"}
+                for pin in before
+            ],
+        },
+        "create-role-pins",
+    )
+    assert created.status_code == 200, created.text
+    experiment = created.json()
+    experiment_id = experiment["experiment_id"]
+    revision_id = experiment["experiment_revision_id"]
+    return {
+        "item_id": "change_role",
+        "target_kind": "experiment",
+        "target_id": experiment_id,
+        "base_revision_id": revision_id,
+        "base_revision_number": 1,
+        "allowed_fields": ["samples"],
+        "before": {"samples": before},
+        "after": {"samples": after},
+        "citations": {
+            "rule_version": M2_RULE_VERSION,
+            "vocabulary_version": M2_VOCABULARY_VERSION,
+            "reason_codes": ["REPLICATE_ROLE_TERM_MATCH"],
+            "source_refs": [
+                {"kind": "experiment_revision", "ref_id": revision_id},
+                {
+                    "kind": "term_revision",
+                    "ref_id": new_role["revision"]["term_revision_id"],
+                },
+            ],
+        },
+    }
+
+
+def test_adopt_sample_role_preserves_ordered_revision_pins(seeded_app) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project_id = registry.create_project("Role proposal").project_id
+    prefix = "/api/v1/catalog"
+    with ApiTestClient(seeded_app) as client:
+        proposal = _role_change_item(client, registry, project_id)
+        experiment_id = proposal["target_id"]
+        after = proposal["after"]["samples"]
+        new_role = after[0]["replicate_role"]
+        proposals = f"{prefix}/projects/{project_id}/proposals"
+        registered = _post(
+            client,
+            proposals,
+            {"source": "offline_suggestion", "items": [proposal]},
+            "register-role",
+        )
+        assert registered.status_code == 200, registered.text
+        proposal_id = registered.json()["proposal_id"]
+
+        preview = client.post(
+            f"{prefix}/proposals/{proposal_id}/preview",
+            json={"selected_item_ids": ["change_role"]},
+        )
+        assert preview.status_code == 200, preview.text
+        preview_item = preview.json()["items"][0]
+        before_view = preview_item["before"]["samples"]
+        after_view = preview_item["after"]["samples"]
+        assert (
+            before_view[0]["replicate_role"]["display_name"] == "biological replicate"
+        )
+        assert after_view == [
+            {
+                **before_view[0],
+                "replicate_role": {**new_role, "display_name": "control"},
+            },
+            before_view[1],
+        ]
+        assert [pin["ordinal"] for pin in after_view] == [0, 1]
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        invalid = _post(
+            client,
+            proposals,
+            {
+                "source": "offline_suggestion",
+                "items": [{**proposal, "after": {"samples": [after[1], after[0]]}}],
+            },
+            "register-misordered-role",
+        )
+        assert invalid.status_code == 422, invalid.text
+        assert invalid.json()["issues"][0]["code"] == "catalog_payload_invalid"
+
+        adoption_path = f"{prefix}/proposals/{proposal_id}/adoptions"
+        adoption = _post(client, adoption_path, _adopt_body(preview), "adopt-role")
+        assert adoption.status_code == 200, adoption.text
+        receipt = adoption.json()
+        replay = _post(client, adoption_path, _adopt_body(preview), "adopt-role")
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == {**receipt, "replayed": True}
+        assert _revision_count(seeded_app, experiment_id) == 2
+        assert _receipt_count(seeded_app, proposal_id) == 1
+
+        history = client.get(f"{prefix}/experiments/{experiment_id}/revisions")
+        assert history.status_code == 200, history.text
+        revisions = history.json()["experiment_revisions"]
+        by_number = {revision["revision_number"]: revision for revision in revisions}
+        assert set(by_number) == {1, 2}
+        assert (
+            by_number[2]["experiment_revision_id"]
+            == (receipt["applied_targets"][0]["result_revision_id"])
+        )
+        old_pins = by_number[1]["samples"]
+        assert old_pins[0]["replicate_role"]["display_name"] == "biological replicate"
+        assert by_number[2]["samples"] == [
+            {
+                **old_pins[0],
+                "replicate_role": {**new_role, "display_name": "control"},
+            },
+            old_pins[1],
+        ]
+
+
+@pytest.mark.parametrize("side", ["before", "after"])
+@pytest.mark.parametrize("revision_owner", ["missing", "foreign"])
+def test_role_proposal_rejects_invalid_sample_revisions(
+    seeded_app, side: str, revision_owner: str
+) -> None:
+    registry = DataRegistryService(
+        repository=seeded_app.state.persistence.data_registry_repository
+    )
+    project_id = registry.create_project("Role proposal").project_id
+    invalid_revision_id = "smpr_" + "7" * 32
+    if revision_owner == "foreign":
+        other_project_id = registry.create_project("Other project").project_id
+        invalid_revision_id = registry.import_sample(
+            other_project_id, stable_key="other", display_name="Other", attributes={}
+        ).revision.sample_revision_id
+
+    prefix = "/api/v1/catalog"
+    with ApiTestClient(seeded_app) as client:
+        proposal = _role_change_item(client, registry, project_id)
+        experiment_id = proposal["target_id"]
+        first, second = proposal[side]["samples"]
+        proposal[side]["samples"] = [
+            first,
+            {**second, "sample_revision_id": invalid_revision_id},
+        ]
+        registered = _post(
+            client,
+            f"{prefix}/projects/{project_id}/proposals",
+            {"source": "offline_suggestion", "items": [proposal]},
+            "register-invalid-role",
+        )
+        assert registered.status_code == 200, registered.text
+        registration = registered.json()
+        proposal_id = registration["proposal_id"]
+        proposal_path = f"{prefix}/proposals/{proposal_id}"
+
+        selected = [proposal["item_id"]]
+        preview = client.post(
+            f"{proposal_path}/preview", json={"selected_item_ids": selected}
+        )
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+
+        # Use the registered digest to exercise the adoption check independently.
+        expected = {experiment_id: proposal["base_revision_number"]}
+        confirmation = _post(
+            client,
+            f"{proposal_path}/adoptions",
+            {
+                "selected_item_ids": selected,
+                "expected_revisions": expected,
+                "preview_digest": compute_preview_digest(
+                    proposal_id=proposal_id,
+                    proposal_digest=registration["proposal_digest"],
+                    selected_item_ids=selected,
+                    expected_revisions=expected,
+                ),
+            },
+            "adopt-invalid-role",
+        )
+        assert _revision_count(seeded_app, experiment_id) == 1
+        assert _receipt_count(seeded_app, proposal_id) == 0
+        for response in (preview, confirmation):
+            assert response.status_code == 409, response.text
+            issue = response.json()["issues"][0]
+            assert issue["code"] == "catalog_proposal_invalidated"
+            assert issue["path"] == f"change_role.{side}.samples.1.sample_revision_id"

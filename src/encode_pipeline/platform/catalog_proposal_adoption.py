@@ -26,6 +26,9 @@ from encode_pipeline.platform.catalog_curation_preview import (
     ProposalItem,
     SourceReference,
     TermRevisionRecord,
+    _REPLICATE_GROUP_RE,
+    _SAMPLE_PIN_KEYS,
+    _check_id,
     _validate_and_render_slot,
     compute_preview_digest,
 )
@@ -69,7 +72,7 @@ class TargetHead:
 
 
 class SourceCatalog(Protocol):
-    """Lookups that prove a citation still belongs to the proposal's project."""
+    """Lookups that prove references still belong to the proposal's project."""
 
     def cited_experiment(self, experiment_id: str) -> tuple[str, bool] | None:
         """Return project id and archived flag, or None when the id is absent."""
@@ -347,12 +350,12 @@ def ensure_active_versions(
             )
 
 
-def verify_source_references(
+def verify_item_references(
     item: ProposalItem,
     project_id: str,
     catalog: SourceCatalog,
 ) -> None:
-    """Require every selected citation to exist in this project and stay unarchived."""
+    """Validate cited sources and sample-revision pins for one selected item."""
 
     path = f"{item.item_id}.citations.source_refs"
     for ref in item.citation.source_refs:
@@ -391,6 +394,16 @@ def verify_source_references(
         else:
             raise catalog_payload_invalid()
 
+    if "samples" in item.allowed_fields:
+        for side, fields in (("before", item.before), ("after", item.after)):
+            for pin in fields["samples"]:
+                _require_sample_owner(
+                    catalog.cited_sample_revision(pin["sample_revision_id"]),
+                    project_id,
+                    path=f"{item.item_id}.{side}.samples.{pin['ordinal']}.sample_revision_id",
+                    message="Sample-revision pin is missing or outside this project.",
+                )
+
 
 def render_item_fields(
     item: ProposalItem,
@@ -405,9 +418,23 @@ def render_item_fields(
     before: dict[str, Any] = {}
     after: dict[str, Any] = {}
     for field_name in item.allowed_fields:
-        if field_name in {"display_name", "samples"}:
+        if field_name == "display_name":
             before[field_name] = item.before[field_name]
             after[field_name] = item.after[field_name]
+            continue
+        if field_name == "samples":
+            before[field_name] = _render_sample_pins(
+                item.before[field_name],
+                records,
+                include_candidates=include_candidates,
+                for_write=False,
+            )
+            after[field_name] = _render_sample_pins(
+                item.after[field_name],
+                records,
+                include_candidates=include_candidates,
+                for_write=for_write,
+            )
             continue
         before[field_name] = _render_slot(
             field_name,
@@ -538,7 +565,7 @@ def build_preview(
         head = _require_head(heads, item, proposal.project_id)
         if head.archived:
             raise catalog_experiment_archived()
-        verify_source_references(item, proposal.project_id, sources)
+        verify_item_references(item, proposal.project_id, sources)
         before, after = render_item_fields(
             item,
             lookup,
@@ -650,7 +677,7 @@ def prepare_adoption(
         head = _require_head(heads, item, proposal.project_id)
         if head.archived:
             raise catalog_experiment_archived()
-        verify_source_references(item, proposal.project_id, sources)
+        verify_item_references(item, proposal.project_id, sources)
         _assert_writable(item, head, lookup)
         conflict = _conflict(item, head)
         if conflict is not None:
@@ -730,7 +757,8 @@ def overlay_experiment_fields(
         elif field_name == "batch":
             batch = item.after[field_name]
         elif field_name == "samples":
-            samples = item.after[field_name]
+            # The write parser assigns ordinals from the validated proposal order.
+            samples = _stored_sample_requests(item.after[field_name])
         else:
             raise catalog_payload_invalid()
     return {
@@ -826,7 +854,7 @@ def _item_from_object(raw: object) -> ProposalItem:
     allowed = raw.get("allowed_fields")
     if not isinstance(allowed, list):
         raise catalog_payload_invalid()
-    return _guard(
+    item = _guard(
         lambda: ProposalItem(
             item_id=raw.get("item_id"),
             target_kind=raw.get("target_kind"),
@@ -844,6 +872,47 @@ def _item_from_object(raw: object) -> ProposalItem:
             ),
         )
     )
+    if "samples" in item.allowed_fields:
+        _validate_proposal_sample_pins(item.before["samples"])
+        _validate_proposal_sample_pins(item.after["samples"])
+    return item
+
+
+def _validate_proposal_sample_pins(pins: list[object]) -> None:
+    if not pins:
+        raise catalog_payload_invalid()
+    revision_ids: set[str] = set()
+    for ordinal, pin in enumerate(pins):
+        if not isinstance(pin, Mapping):
+            raise catalog_payload_invalid()
+        allowed = _SAMPLE_PIN_KEYS
+        if "replicate_group" in pin:
+            group = pin["replicate_group"]
+            if not isinstance(group, str) or not _REPLICATE_GROUP_RE.fullmatch(group):
+                raise catalog_payload_invalid()
+            allowed = allowed | {"replicate_group"}
+        if set(pin) != allowed:
+            raise catalog_payload_invalid()
+        position = pin["ordinal"]
+        if (
+            isinstance(position, bool)
+            or not isinstance(position, int)
+            or position != ordinal
+        ):
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "Sample-revision pin ordinal must match its list position.",
+                path="samples",
+            )
+        revision_id = _guard(
+            lambda: _check_id(
+                "sample_revision", pin["sample_revision_id"], path="samples"
+            )
+        )
+        if revision_id in revision_ids:
+            raise catalog_payload_invalid()
+        revision_ids.add(revision_id)
 
 
 def _source_ref(raw: object) -> SourceReference:
@@ -1022,6 +1091,28 @@ def _render_slot(
         )
     except CatalogPreviewError as exc:
         raise _from_preview(exc) from exc
+
+
+def _render_sample_pins(
+    pins: list[dict[str, Any]],
+    records: Mapping[str, TermRevisionRecord],
+    *,
+    include_candidates: bool,
+    for_write: bool,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            **pin,
+            "replicate_role": _render_slot(
+                "replicate_role",
+                pin["replicate_role"],
+                records,
+                include_candidates=include_candidates,
+                for_write=for_write,
+            ),
+        }
+        for pin in pins
+    ]
 
 
 def _require_experiment_owner(
