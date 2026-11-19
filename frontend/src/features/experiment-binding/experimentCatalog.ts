@@ -16,7 +16,7 @@ export async function loadSelectableExperiments(
   const seenCursors = new Set<string>();
   const experiments: SelectableExperiment[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < 20; page += 1) {
+  for (;;) {
     const response = await catalogListExperiments(projectId, {
       limit: 50,
       include_archived: false,
@@ -37,7 +37,6 @@ export async function loadSelectableExperiments(
     seenCursors.add(next);
     cursor = next;
   }
-  throw new Error('The experiment list did not finish.');
 }
 
 function readSelectableExperiment(
