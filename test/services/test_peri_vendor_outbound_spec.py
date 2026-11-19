@@ -13,6 +13,14 @@ CASES_PATH = ROOT / "docs" / "architecture" / "peri-p2-vendor-outbound-cases.jso
 SPEC_PATH = ROOT / "docs" / "architecture" / "peri-p2-vendor-outbound.md"
 
 OFFLINE_COMMIT = "93a7631d7387438898051949c15db2d90836191a"
+_BUDGET_KEYS = ("requests", "input_tokens", "output_tokens", "amount_minor")
+_STUB_CASE_IDS = ("success", "rejection", "timeout")
+_PREFLIGHT_CASE_IDS = (
+    "owner_grant_exceeded",
+    "budget_exhausted",
+    "budget_unproven",
+    "timeout_consumes_reservation",
+)
 
 
 def _cases() -> dict[str, object]:
@@ -42,10 +50,52 @@ def test_owner_decisions_and_cost_cap_stay_unset() -> None:
     }
 
 
+def _vendor_preflight(case: dict[str, object]) -> dict[str, object]:
+    """Local send gate. It does not open a socket or call a responder."""
+
+    request = case["request"]
+    assert isinstance(request, dict)
+    allowed = tuple(request["allowed"])
+    projected = tuple(item["token"] for item in request["projected"])
+    grant = case.get("owner_grant")
+    if grant is not None:
+        granted = set(grant)
+        if any(token not in granted for token in (*allowed, *projected)):
+            return _refused("outbound_field_not_granted")
+    proof = case.get("budget_proof")
+    if proof is not None:
+        if proof.get("provable") is not True:
+            return _refused("budget_unproven")
+        remaining = proof.get("remaining")
+        reserved = proof.get("reserved")
+        if not isinstance(remaining, dict) or not isinstance(reserved, dict):
+            return _refused("budget_unproven")
+        for key in _BUDGET_KEYS:
+            left = remaining.get(key)
+            need = reserved.get(key)
+            if type(left) is not int or type(need) is not int or left < 0 or need < 0:
+                return _refused("budget_unproven")
+            if left < need:
+                return _refused("budget_exhausted")
+    return _refused("budget_unproven")
+
+
+def _refused(reason: str) -> dict[str, object]:
+    return {
+        "reason": reason,
+        "vendor_calls": 0,
+        "connection_opened": False,
+        "responder_calls": 0,
+    }
+
+
 def test_stub_cases_cover_success_rejection_and_timeout() -> None:
     document = _cases()
     cases = document["cases"]
-    assert [item["id"] for item in cases] == ["success", "rejection", "timeout"]
+    assert [item["id"] for item in cases] == [
+        *_STUB_CASE_IDS,
+        *_PREFLIGHT_CASE_IDS,
+    ]
     by_id = {item["id"]: item for item in cases}
 
     success = by_id["success"]["expect"]
@@ -95,6 +145,27 @@ def test_stub_cases_cover_success_rejection_and_timeout() -> None:
         assert marker not in outbound
 
 
+def test_preflight_cases_refuse_before_a_vendor_call() -> None:
+    document = _cases()
+    by_id = {item["id"]: item for item in document["cases"]}
+    assert document["owner_decisions"]["outbound_fields"] is None
+    assert document["owner_decisions"]["budget"] is None
+    exceeded = by_id["owner_grant_exceeded"]
+    assert exceeded["owner_grant"] == ["syn.alpha"]
+    assert exceeded["request"]["allowed"] == ["syn.alpha", "syn.beta"]
+    assert exceeded["request"]["projected"][0]["token"] == "syn.beta"
+    retry = by_id["timeout_consumes_reservation"]
+    assert retry["prior_send"] == {"outcome": "timeout", "vendor_calls": 1}
+    for case_id in _PREFLIGHT_CASE_IDS:
+        case = by_id[case_id]
+        assert _vendor_preflight(case) == {
+            "reason": case["expect"]["reason"],
+            "vendor_calls": 0,
+            "connection_opened": False,
+            "responder_calls": 0,
+        }
+
+
 def test_redaction_examples_match_the_local_policy() -> None:
     policy = RedactionPolicy()
     for example in _cases()["redaction_examples"]:
@@ -114,8 +185,12 @@ def test_spec_points_at_the_offline_contract_and_the_cases() -> None:
         "p2-transport/1",
         "vendor_unselected",
         "outbound_fields_unset",
+        "outbound_field_not_granted",
         "budget_unset",
+        "budget_exhausted",
+        "budget_unproven",
         "credential_boundary_unset",
+        "timeout_consumes_reservation",
         "peri-p2-vendor-outbound-cases.json",
         "open_vendor_model_transport",
         "SyntheticSuggestionTransport",

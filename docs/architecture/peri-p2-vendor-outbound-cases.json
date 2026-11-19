@@ -223,6 +223,127 @@
         },
         "absent_from_refusal": ["late_value", "from_request"]
       }
+    },
+    {
+      "id": "owner_grant_exceeded",
+      "owner_grant_period": "grant_aaaaaaaa",
+      "owner_grant": ["syn.alpha"],
+      "request": {
+        "call_id": "call_stub0004",
+        "allowed": ["syn.alpha", "syn.beta"],
+        "projected": [
+          {
+            "token": "syn.beta",
+            "value": "from_request"
+          }
+        ]
+      },
+      "expect": {
+        "reason": "outbound_field_not_granted",
+        "vendor_calls": 0,
+        "connection_opened": false,
+        "responder_calls": 0
+      }
+    },
+    {
+      "id": "budget_exhausted",
+      "owner_grant_period": "grant_aaaaaaaa",
+      "owner_grant": ["syn.alpha"],
+      "request": {
+        "call_id": "call_stub0005",
+        "allowed": ["syn.alpha"],
+        "projected": [
+          {
+            "token": "syn.alpha",
+            "value": "from_request"
+          }
+        ]
+      },
+      "budget_proof": {
+        "provable": true,
+        "remaining": {
+          "requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "amount_minor": 0
+        },
+        "reserved": {
+          "requests": 1,
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "amount_minor": 1
+        }
+      },
+      "expect": {
+        "reason": "budget_exhausted",
+        "vendor_calls": 0,
+        "connection_opened": false,
+        "responder_calls": 0
+      }
+    },
+    {
+      "id": "budget_unproven",
+      "owner_grant_period": "grant_aaaaaaaa",
+      "owner_grant": ["syn.alpha"],
+      "request": {
+        "call_id": "call_stub0006",
+        "allowed": ["syn.alpha"],
+        "projected": [
+          {
+            "token": "syn.alpha",
+            "value": "from_request"
+          }
+        ]
+      },
+      "budget_proof": {
+        "provable": false
+      },
+      "expect": {
+        "reason": "budget_unproven",
+        "vendor_calls": 0,
+        "connection_opened": false,
+        "responder_calls": 0
+      }
+    },
+    {
+      "id": "timeout_consumes_reservation",
+      "prior_send": {
+        "outcome": "timeout",
+        "vendor_calls": 1
+      },
+      "owner_grant_period": "grant_aaaaaaaa",
+      "owner_grant": ["syn.alpha"],
+      "request": {
+        "call_id": "call_stub0007",
+        "allowed": ["syn.alpha"],
+        "projected": [
+          {
+            "token": "syn.alpha",
+            "value": "from_request"
+          }
+        ]
+      },
+      "budget_proof": {
+        "provable": true,
+        "remaining": {
+          "requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "amount_minor": 0
+        },
+        "reserved": {
+          "requests": 1,
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "amount_minor": 1
+        }
+      },
+      "expect": {
+        "reason": "budget_exhausted",
+        "vendor_calls": 0,
+        "connection_opened": false,
+        "responder_calls": 0
+      }
     }
   ]
 }
