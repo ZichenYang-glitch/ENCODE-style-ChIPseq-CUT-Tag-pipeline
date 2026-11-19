@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import importlib
+import json
 import os
 from hashlib import sha256
 from pathlib import Path
@@ -14,6 +15,7 @@ import sys
 import threading
 
 import httpx
+import pytest
 
 from conftest import seed_test_authentication
 from encode_pipeline.api.main import create_app
@@ -40,6 +42,7 @@ from encode_pipeline.services.artifact_disk_relocation import (
     lookup_switched_download,
 )
 from encode_pipeline.services import artifact_downloads as artifact_downloads_module
+from encode_pipeline.services import artifact_disk_relocation as relocation_module
 from encode_pipeline.services.artifact_extraction import ArtifactExtractionService
 from test_artifact_extraction import ArtifactAdapter, _project
 
@@ -791,3 +794,170 @@ def test_switched_journal_fifo_fails_without_blocking(tmp_path: Path) -> None:
     decision = holder["decision"]
     assert getattr(decision, "kind") == "reject"
     assert getattr(decision, "reason_code") == PUBLIC_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        b"\xff",
+        b"[1]",
+        {"scheme": "unsupported"},
+        {"stage": "unknown"},
+        {"generation": "unversioned"},
+        {"artifact_id": "another-artifact"},
+        {"relative_path": "results"},
+        {"size_bytes": True},
+        {"size_bytes": -1},
+        {"mode": 0o1000},
+        {"content_sha256": "invalid"},
+    ],
+)
+def test_switched_download_rejects_an_invalid_journal_seal(
+    tmp_path: Path, damage
+) -> None:
+    relocation, journal = _switch_small(tmp_path)
+    journal_path = (
+        tmp_path
+        / "durable"
+        / "journals"
+        / journal.run_id
+        / f"{journal.artifact_id}.json"
+    )
+    valid = journal_path.read_bytes()
+    if isinstance(damage, bytes):
+        journal_path.write_bytes(damage)
+    else:
+        journal_path.write_text(
+            json.dumps(json.loads(valid) | damage), encoding="utf-8"
+        )
+
+    decision = _lookup_small(tmp_path, journal)
+    assert (decision.kind, decision.reason_code, decision.content) == (
+        "reject",
+        PUBLIC_UNAVAILABLE,
+        b"",
+    )
+    with pytest.raises(ArtifactDiskRelocationError) as failure:
+        relocation.resume(run_id=journal.run_id, artifact_id=journal.artifact_id)
+    assert failure.value.reason_code in {
+        "relocation_identity_invalid",
+        "relocation_journal_invalid",
+    }
+    journal_path.write_bytes(valid)
+    assert _lookup_small(tmp_path, journal).content == SOURCE_CONTENT
+
+
+@pytest.mark.parametrize("fault", ["missing-source", "permission", "revision", "path"])
+def test_capture_refuses_mismatched_index_evidence_without_creating_journal(
+    tmp_path: Path, fault
+) -> None:
+    source_root = tmp_path / "scratch"
+    durable_root = tmp_path / "durable"
+    source = source_root / "run-1" / RELATIVE_PATH
+    source.parent.mkdir(parents=True)
+    source.write_bytes(SOURCE_CONTENT)
+    source.chmod(SOURCE_MODE)
+    revision, path_identity = _current_binding(source)
+    args = {
+        "run_id": "run-1",
+        "artifact_id": "artifact-1",
+        "generation": "artifactgen-" + "ab" * 32,
+        "revision": revision,
+        "relative_path": RELATIVE_PATH,
+        "output_type": OUTPUT_TYPE,
+        "path_identity": path_identity,
+        "expected_size": len(SOURCE_CONTENT),
+        "content": SOURCE_CONTENT,
+        "mode": SOURCE_MODE,
+    }
+    capture = ArtifactDiskRelocation(source_root=source_root, durable_root=durable_root)
+    if fault == "missing-source":
+        source.unlink()
+        reason = "relocation_source_unavailable"
+    elif fault == "permission":
+        args["mode"] = SOURCE_MODE ^ 0o020
+        reason = "relocation_source_changed"
+    elif fault == "revision":
+        args["revision"] = "artifactrev-" + "ee" * 32
+        reason = "relocation_indexed_revision_mismatch"
+    else:
+        other = source.with_name("other-file")
+        other.write_bytes(SOURCE_CONTENT)
+        _, args["path_identity"] = _current_binding(other)
+        reason = "relocation_path_identity_mismatch"
+    with pytest.raises(ArtifactDiskRelocationError) as failure:
+        capture.capture(**args)
+    assert failure.value.reason_code == reason
+    assert not (durable_root / "journals" / "run-1" / "artifact-1.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ("short-read", PUBLIC_BYTES_MISMATCH),
+        ("resize", PUBLIC_BYTES_MISMATCH),
+        ("rewrite", PUBLIC_BYTES_MISMATCH),
+        ("chmod", PUBLIC_PERMISSION_MISMATCH),
+    ],
+)
+def test_switched_download_rechecks_the_seal_during_a_read(
+    tmp_path: Path, monkeypatch, change, reason
+) -> None:
+    relocation, journal = _switch_small(tmp_path)
+    payload = relocation.payload_file(journal.run_id, journal.artifact_id)
+    observed = payload.stat()
+    read_exact = relocation_module._read_exact
+    changed = False
+
+    def read_during_change(descriptor, size):
+        nonlocal changed
+        current = os.fstat(descriptor)
+        if changed or (current.st_dev, current.st_ino) != (
+            observed.st_dev,
+            observed.st_ino,
+        ):
+            return read_exact(descriptor, size)
+
+        changed = True
+        if change == "short-read":
+            payload.write_bytes(b"")
+            return read_exact(descriptor, size)
+        content = read_exact(descriptor, size)
+        if change == "resize":
+            payload.write_bytes(b"shorter")
+        elif change == "rewrite":
+            payload.write_bytes(REPLACEMENT_CONTENT)
+        else:
+            payload.chmod(SOURCE_MODE ^ 0o020)
+        return content
+
+    monkeypatch.setattr(relocation_module, "_read_exact", read_during_change)
+    response = _lookup_small(tmp_path, journal)
+    assert changed is True
+    assert (response.kind, response.reason_code, response.content) == (
+        "reject",
+        reason,
+        b"",
+    )
+    assert relocation.load(journal.run_id, journal.artifact_id).stage == "switched"
+
+
+def test_durable_permission_mismatch_blocks_switch_until_restored(
+    tmp_path: Path,
+) -> None:
+    relocation, journal = _capture_small(tmp_path)
+    identity = {"run_id": journal.run_id, "artifact_id": journal.artifact_id}
+    assert relocation.resume(**identity).stage == "copied"
+    payload = relocation.payload_file(**identity)
+    payload.chmod(SOURCE_MODE ^ 0o020)
+    with pytest.raises(ArtifactDiskRelocationError) as failure:
+        relocation.resume(**identity)
+    assert failure.value.reason_code == "relocation_permission_mismatch"
+    assert relocation.load(**identity).stage == "copied"
+    payload.chmod(SOURCE_MODE)
+    assert relocation.resume(**identity).stage == "verified"
+    assert relocation.resume(**identity).stage == "switched"
+    with pytest.raises(ArtifactDiskRelocationError) as failure:
+        relocation.copy(**identity)
+    assert failure.value.reason_code == "relocation_already_switched"
+    assert _lookup_small(tmp_path, journal).content == SOURCE_CONTENT
