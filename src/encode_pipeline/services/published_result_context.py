@@ -238,15 +238,8 @@ class PublishedResultContextReader:
                 "RUN_QC_METRIC_DATA_INVALID",
                 "Persisted QC metric data is unavailable.",
             ) from exc
-        qc_matches_publication = (
-            state.qc_generation is not None
-            and state.qc_artifact_generation == artifact_generation
-            and state.artifact_generation == artifact_generation
-        )
-        if not qc_matches_publication:
-            if state.artifact_generation != artifact_generation:
-                return "unverifiable", None, (), None
-            return "absent", None, (), None
+        if state.artifact_generation != artifact_generation:
+            return "unverifiable", None, (), None
         try:
             generation, metrics = self._runs.list_qc_metrics_page(
                 run_id,
@@ -283,12 +276,17 @@ class PublishedResultContextReader:
                     after_metric_id=page[-1].metric_id,
                 )
             )
-        if generation != state.qc_generation or (generation is None and page):
-            raise PublishedResultEvidenceError(
-                "RUN_QC_METRIC_DATA_INVALID",
-                "Persisted QC metric data is unavailable.",
-            )
-        if generation is None:
+        summary_bound = (
+            generation is not None
+            and generation == state.qc_generation
+            and state.qc_artifact_generation == artifact_generation
+        )
+        if not summary_bound:
+            if page:
+                raise PublishedResultEvidenceError(
+                    "RUN_QC_METRIC_DATA_INVALID",
+                    "Persisted QC metric data is unavailable.",
+                )
             return "absent", None, (), None
         return "present", generation, page, cursor
 

@@ -33,7 +33,7 @@ M0 契约不把 `experiment_binding` 放进运行记录或发布摘要。本读�
 缺值用证据字段表示，不补猜：
 
 - `reference_evidence` 为 `absent` 或 `present`。参考绑定缺失时是 `absent`。身份不一致时返回 `RUN_REFERENCE_EVIDENCE_INVALID`，与 `getRun` 相同。
-- QC 只在结果状态把 `qc_artifact_generation` 绑到这一代产物时才可读。`qc_evidence` 为 `present` 时返回这一代的指标，并沿用 QC 列表的分页。当前代还没有 QC 时为 `absent`。这一代已被新的产物代取代，原指标已不可核实时为 `unverifiable`，不返回其他代的指标或 QC 代。摘要缺失却存在指标时返回 `RUN_QC_METRIC_DATA_INVALID`。
+- QC 只在结果状态把 `qc_artifact_generation` 绑到这一代产物时才可读。请求的不是当前产物代时为 `unverifiable`，不返回其他代的指标或 QC 代。当前代没有指标行、也没有 QC 摘要时为 `absent`。当前代仍有指标行，但 QC 代号、清单摘要或关联产物代缺失时，与 `listRunQcMetrics` 一样返回 `RUN_QC_METRIC_DATA_INVALID`，不把这种不一致说成从未记录。摘要绑到当前代时为 `present`，并沿用 QC 列表的分页。
 - `preflight_failure_evidence` 只反映已经记录、并且挂在这条已发布结果上的失败。事件上下文不外传；带路径的消息改成固定说明。事件页读不完时返回 `RUN_EVENT_READ_INCOMPLETE`，而不是声称没有失败。
 - 预检在任何发布之前失败时，没有产物代可供这个入口读取。Agent 只凭 run ID 读取 `getRun` 和 `listRunEvents`。运行状态说明失败，事件的 `context.reason_code` 和 `issue.context.reason_code` 保留具体原因，例如 `REFERENCE_PROFILE_BINDING_INVALID`。这两次 GET 不改变运行状态，也不增加事件。
 
