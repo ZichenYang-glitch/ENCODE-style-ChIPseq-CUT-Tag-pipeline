@@ -153,6 +153,34 @@ EXPECTED_OPERATIONS = {
     ): "authoringValidateDraft",
     (
         "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogListRegisteredResults",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results",
+    ): "catalogRegisterRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogListRegisteredResultRevisions",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/revisions",
+    ): "catalogReviseRegisteredResult",
+    (
+        "POST",
+        "/api/v1/catalog/projects/{project_id}/registered-results/{result_id}/archive",
+    ): "catalogArchiveRegisteredResult",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}",
+    ): "catalogGetRegisteredResultRevision",
+    (
+        "GET",
+        "/api/v1/catalog/projects/{project_id}/registered-result-revisions/{result_revision_id}/content",
+    ): "catalogDownloadRegisteredResultRevision",
+    (
+        "GET",
         "/api/v1/catalog/projects/{project_id}/experiments",
     ): "catalogListExperiments",
     (
