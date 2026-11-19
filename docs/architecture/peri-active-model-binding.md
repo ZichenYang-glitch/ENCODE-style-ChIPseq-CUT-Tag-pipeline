@@ -57,3 +57,25 @@ Bubblewrap、私有 Unix socket 和 systemd scope 启动。输入只来自临时
   不合格的字段或额度在业务外发前被拒绝。回执仅含合成调用标识、字段名和结果状态。
 - 检查私有端点标记及合成凭据未出现在 HTTP、平台 SQLite 和日志。验收仅生成
   本地非敏感证据。生产接入须由 Tibo 核对新的 Peri 契约与既有隔离界面。
+
+## 本机复现
+
+先按[运行时资格记录](../development/peri-runtime-qualification/README.md)准备锁定的
+`ci-fast` 环境、用户 systemd 会话和固定 Peri 二进制。用本检出运行：
+
+```bash
+HELIXWEAVE_PERI_BINARY="$PINNED_PERI" \
+  ./.local/envs/ci-fast/bin/python -I -S scripts/checkout_bootstrap.py \
+  --repository-root . pytest -m platform_real_execution \
+  test/api/test_peri_binding_local.py test/services/test_peri_authoring_bridge.py
+```
+
+两套模拟端点分别回读 `config.threads=7` 和 `11`，而请求里的偏好是 `4`。
+原生绑定代码与 API 路由参与这条执行路径。测试装配持有合成绑定代次、额度和收据，
+并提供模拟端点。换绑后使用新的原生进程和平台连接。保留同一拟议字段与业务入口，
+晚到响应无建议，已经发送的合成预留仍消耗，下一次请求额度不足时零发送。
+
+回执在本机测试进程内生成。浏览器可见的 HTTP 响应、临时平台 SQLite 和日志均用
+合成端点与凭据标记检查。普通 ACP prompt 的业务消息只含合成投影和关联号，外层
+聊天协议仍带有原生协议字段及合成的资格上下文。该路径的运行装配只存在于测试中。
+真实供应商、生产绑定证明、费用计量、个人设置、研究数据和真实浏览器未在本轮验证。
