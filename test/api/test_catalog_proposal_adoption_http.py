@@ -942,6 +942,208 @@ def test_admin_adopts_only_the_selected_subset(seeded_app) -> None:
         }
         assert revised == {1, 2}
 
+        held = experiment("exp-held", curated["sample_revision_id"], known_target=False)
+
+        def held_item(item_id: str) -> dict:
+            return {
+                "item_id": item_id,
+                "target_kind": "experiment",
+                "target_id": held["experiment_id"],
+                "base_revision_id": held["experiment_revision_id"],
+                "base_revision_number": held["revision_number"],
+                "allowed_fields": ["display_name"],
+                "before": {"display_name": "exp-held"},
+                "after": {"display_name": f"exp-held {item_id}"},
+                "citations": citation(
+                    {
+                        "kind": "experiment_revision",
+                        "ref_id": held["experiment_revision_id"],
+                        "evidence_token": item_id,
+                    }
+                ),
+            }
+
+        def register_held(item_id: str, key: str) -> str:
+            response = _post(
+                client,
+                f"/api/v1/catalog/projects/{project.project_id}/proposals",
+                {"source": "offline_suggestion", "items": [held_item(item_id)]},
+                key,
+            )
+            assert response.status_code == 200, response.text
+            return response.json()["proposal_id"]
+
+        left_proposal = register_held("held_left", "register-held-left")
+        right_proposal = register_held("held_right", "register-held-right")
+        left_preview = client.post(
+            f"/api/v1/catalog/proposals/{left_proposal}/preview",
+            json={"selected_item_ids": ["held_left"]},
+        )
+        right_preview = other_admin(
+            "POST",
+            f"/api/v1/catalog/proposals/{right_proposal}/preview",
+            json={"selected_item_ids": ["held_right"]},
+        )
+        assert left_preview.status_code == 200, left_preview.text
+        assert right_preview.status_code == 200, right_preview.text
+        collision: list[tuple[int, str]] = []
+
+        def collide(request, proposal_id: str, preview, key: str) -> None:
+            barrier = collision_barrier
+            barrier.wait()
+            response = request(
+                "POST",
+                f"/api/v1/catalog/proposals/{proposal_id}/adoptions",
+                json={
+                    "preview_digest": preview["preview_digest"],
+                    "selected_item_ids": preview["selected_item_ids"],
+                    "expected_revisions": preview["expected_revisions"],
+                },
+                headers={"Idempotency-Key": key},
+            )
+            code = ""
+            if response.status_code != 200:
+                code = response.json()["issues"][0]["code"]
+            collision.append((response.status_code, code))
+
+        collision_barrier = Barrier(2)
+        primary = _as(
+            seeded_app,
+            client,
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        threads = [
+            Thread(
+                target=collide,
+                args=(
+                    primary,
+                    left_proposal,
+                    left_preview.json(),
+                    "held-left",
+                ),
+            ),
+            Thread(
+                target=collide,
+                args=(
+                    other_admin,
+                    right_proposal,
+                    right_preview.json(),
+                    "held-right",
+                ),
+            ),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert sorted(collision) == [
+            (200, ""),
+            (409, "catalog_revision_conflict"),
+        ]
+        assert (
+            _receipt_count(seeded_app, left_proposal)
+            + _receipt_count(seeded_app, right_proposal)
+            == 1
+        )
+        assert _revision_count(seeded_app, held["experiment_id"]) == 2
+        original = client.get(
+            "/api/v1/catalog/experiments/"
+            f"{held['experiment_id']}/revisions/{held['experiment_revision_id']}"
+        )
+        assert original.status_code == 200, original.text
+        assert original.json()["revision_number"] == held["revision_number"]
+        receipts = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert receipts.status_code == 200, receipts.text
+        winning = [
+            item
+            for item in receipts.json()["receipts"]
+            if item["proposal_id"] in {left_proposal, right_proposal}
+        ]
+        assert len(winning) == 1
+        assert winning[0]["applied_targets"][0]["target_id"] == held["experiment_id"]
+
+        fresh = experiment(
+            "exp-retry", curated["sample_revision_id"], known_target=False
+        )
+        retry_item = {
+            **held_item("retry_once"),
+            "target_id": fresh["experiment_id"],
+            "base_revision_id": fresh["experiment_revision_id"],
+            "base_revision_number": fresh["revision_number"],
+            "before": {"display_name": "exp-retry"},
+            "after": {"display_name": "exp-retry adopted"},
+            "citations": citation(
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": fresh["experiment_revision_id"],
+                    "evidence_token": "retry-once",
+                }
+            ),
+        }
+        retry_registered = _post(
+            client,
+            f"/api/v1/catalog/projects/{project.project_id}/proposals",
+            {"source": "offline_suggestion", "items": [retry_item]},
+            "register-retry-fresh",
+        )
+        assert retry_registered.status_code == 200, retry_registered.text
+        retry_id = retry_registered.json()["proposal_id"]
+        retry_preview = client.post(
+            f"/api/v1/catalog/proposals/{retry_id}/preview",
+            json={"selected_item_ids": ["retry_once"]},
+        )
+        assert retry_preview.status_code == 200, retry_preview.text
+        retry_body = {
+            "preview_digest": retry_preview.json()["preview_digest"],
+            "selected_item_ids": ["retry_once"],
+            "expected_revisions": retry_preview.json()["expected_revisions"],
+        }
+        retry_barrier = Barrier(2)
+        retried: list[dict] = []
+
+        def retry_once() -> None:
+            retry_barrier.wait()
+            response = primary(
+                "POST",
+                f"/api/v1/catalog/proposals/{retry_id}/adoptions",
+                json=retry_body,
+                headers={"Idempotency-Key": "retry-same-request"},
+            )
+            assert response.status_code == 200, response.text
+            retried.append(response.json())
+
+        threads = [Thread(target=retry_once), Thread(target=retry_once)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        seeded_app.state.test_auth_tokens = (
+            TEST_AUTH_SESSION_TOKEN,
+            TEST_AUTH_CSRF_TOKEN,
+        )
+        assert {item["receipt_id"] for item in retried} == {retried[0]["receipt_id"]}
+        assert {item["replayed"] for item in retried} == {False, True}
+        assert _receipt_count(seeded_app, retry_id) == 1
+        assert _revision_count(seeded_app, fresh["experiment_id"]) == 2
+        readable = client.get(
+            f"/api/v1/catalog/projects/{project.project_id}/adoption-receipts"
+        )
+        assert readable.status_code == 200, readable.text
+        stored = [
+            item
+            for item in readable.json()["receipts"]
+            if item["proposal_id"] == retry_id
+        ]
+        assert stored[0]["receipt_id"] == retried[0]["receipt_id"]
+        assert stored[0]["replayed"] is False
+
 
 def _revision_count(app, experiment_id: str) -> int:
     engine = app.state.persistence.engine

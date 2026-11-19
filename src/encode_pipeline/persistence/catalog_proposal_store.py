@@ -61,9 +61,26 @@ from encode_pipeline.platform.experiment_catalog import (
     catalog_idempotency_conflict,
     catalog_not_found,
     catalog_payload_invalid,
+    catalog_revision_conflict,
     interpret_sample_catalog,
     sample_catalog_object,
     validate_display_name,
+)
+
+
+class AdoptionConflict(Exception):
+    """A committed adoption receipt may already represent this attempt."""
+
+
+_REVISION_INTEGRITY_TOKENS = (
+    "experiment_revisions",
+    "experiment_revision_heads",
+    "experiment_revision_samples",
+    "sample_revisions",
+)
+_RECEIPT_INTEGRITY_TOKENS = (
+    "catalog_adoption_receipts",
+    "catalog_write_receipts",
 )
 
 
@@ -249,54 +266,51 @@ def adopt_proposal(
         sources=_SqlSourceCatalog(session),
         lookup=SessionTermLookup(session),
     )
-    applied = [
-        _apply_item(
-            session,
-            write,
-            item,
-            experiment_revision_id_factory=experiment_revision_id_factory,
-            sample_revision_id_factory=sample_revision_id_factory,
-        )
-        for item in selected
-    ]
     if not isinstance(preview_digest, str):
         raise catalog_payload_invalid()
-    body = adoption_receipt(
-        proposal,
-        selected=selected,
-        preview_digest=preview_digest,
-        actor_user_id=write.actor_user_id,
-        idempotency_key=write.idempotency_key,
-        receipt_id=receipt_id_factory(),
-        applied_targets=applied,
-        now=write.now,
-    )
-    session.add(
-        CatalogAdoptionReceiptRow(
-            receipt_id=body["receipt_id"],
-            proposal_id=proposal.proposal_id,
-            project_id=proposal.project_id,
+    try:
+        applied = [
+            _apply_item(
+                session,
+                write,
+                item,
+                experiment_revision_id_factory=experiment_revision_id_factory,
+                sample_revision_id_factory=sample_revision_id_factory,
+            )
+            for item in selected
+        ]
+        body = adoption_receipt(
+            proposal,
+            selected=selected,
+            preview_digest=preview_digest,
             actor_user_id=write.actor_user_id,
             idempotency_key=write.idempotency_key,
-            response_json=_dump(body),
-            created_at=write.now,
+            receipt_id=receipt_id_factory(),
+            applied_targets=applied,
+            now=write.now,
         )
-    )
-    try:
+        session.add(
+            CatalogAdoptionReceiptRow(
+                receipt_id=body["receipt_id"],
+                proposal_id=proposal.proposal_id,
+                project_id=proposal.project_id,
+                actor_user_id=write.actor_user_id,
+                idempotency_key=write.idempotency_key,
+                response_json=_dump(body),
+                created_at=write.now,
+            )
+        )
         session.flush()
+        _add_receipt(
+            session,
+            write,
+            subject_id=proposal.project_id,
+            result_revision_id=None,
+            result_archived_at=None,
+        )
     except IntegrityError as exc:
-        raise CatalogError(
-            409,
-            "catalog_proposal_invalidated",
-            "This proposal has already been adopted.",
-        ) from exc
-    _add_receipt(
-        session,
-        write,
-        subject_id=proposal.project_id,
-        result_revision_id=None,
-        result_archived_at=None,
-    )
+        _raise_for_adoption_integrity(exc)
+        raise
     return body
 
 
@@ -341,6 +355,48 @@ def replay_register(session: Session, actor_user_id: str, idempotency_key: str):
     if row is None:
         raise catalog_idempotency_conflict()
     return _load(row.response_json)
+
+
+def resolve_adoption_conflict(
+    session: Session,
+    write: CatalogWrite,
+    proposal_id: str,
+) -> dict[str, Any]:
+    """Replay the same attempt, or reject a different adoption of this proposal."""
+
+    by_key = session.scalar(
+        select(CatalogAdoptionReceiptRow).where(
+            CatalogAdoptionReceiptRow.actor_user_id == write.actor_user_id,
+            CatalogAdoptionReceiptRow.idempotency_key == write.idempotency_key,
+        )
+    )
+    if by_key is not None:
+        if by_key.proposal_id != proposal_id:
+            raise catalog_idempotency_conflict()
+        return replayed_receipt(_load(by_key.response_json))
+    existing = _adoption_body(session, proposal_id)
+    if existing is not None:
+        raise CatalogError(
+            409,
+            "catalog_proposal_invalidated",
+            "This proposal has already been adopted.",
+        )
+    raise catalog_revision_conflict()
+
+
+def _raise_for_adoption_integrity(exc: IntegrityError) -> None:
+    """Separate a head collision from the one committed adoption receipt."""
+
+    text = " ".join(
+        part for part in (str(exc), str(getattr(exc, "orig", "") or "")) if part
+    )
+    if any(token in text for token in _REVISION_INTEGRITY_TOKENS):
+        raise catalog_revision_conflict() from exc
+    if "UNIQUE" in text.upper() and any(
+        token in text for token in _RECEIPT_INTEGRITY_TOKENS
+    ):
+        raise AdoptionConflict() from exc
+    raise exc
 
 
 def replay_adopt(session: Session, actor_user_id: str, idempotency_key: str):
