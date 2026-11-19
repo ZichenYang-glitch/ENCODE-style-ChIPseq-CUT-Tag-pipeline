@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import base64
 import json
 import os
 from pathlib import Path
 import stat
+import threading
 from typing import Any
 from uuid import uuid4
 
@@ -81,6 +82,23 @@ class RegisteredResultAPIError(Exception):
         self.message = message
 
 
+class _ReleaseOnce:
+    """Claim the single close of one response copy."""
+
+    __slots__ = ("_done", "_lock")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._done = False
+
+    def claim(self) -> bool:
+        with self._lock:
+            if self._done:
+                return False
+            self._done = True
+            return True
+
+
 @dataclass(frozen=True)
 class RegisteredResultDownload:
     """One verified response copy. The response owns the open descriptor."""
@@ -91,6 +109,21 @@ class RegisteredResultDownload:
     size_bytes: int
     content_sha256: str
     filename: str
+    _release: _ReleaseOnce = field(
+        default_factory=_ReleaseOnce,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def release(self) -> None:
+        """Close the descriptor and remove the private copy once."""
+
+        if not self._release.claim():
+            return
+        with suppress(OSError):
+            os.close(self.descriptor)
+        discard_private_copy(self.copy_path, self.directory)
 
 
 class RegisteredResultService:

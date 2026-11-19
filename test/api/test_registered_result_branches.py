@@ -8,6 +8,7 @@ fast coverage shards otherwise never enter.
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
@@ -24,7 +25,10 @@ import pytest
 from encode_pipeline.api.dependencies import AuthApiError
 from encode_pipeline.api.main import create_app
 from encode_pipeline.api.routes import registered_results as registered_result_routes
-from encode_pipeline.api.routes.registered_results import _failure
+from encode_pipeline.api.routes.registered_results import (
+    _RegisteredResultStreamingResponse,
+    _failure,
+)
 from encode_pipeline.persistence.models import RegisteredResultRevisionRow
 from encode_pipeline.persistence.registered_results import (
     RegisteredResultStoreError,
@@ -477,6 +481,108 @@ def _wait_until_another_request_finishes(
     entered.set()
     if not release.wait(3):
         raise TimeoutError("event loop stayed blocked during file read")
+
+
+def test_registered_result_download_releases_once_when_header_send_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, closes = _open_download_copy(tmp_path, monkeypatch)
+
+    async def unread():
+        yield b"unused"
+
+    response = _RegisteredResultStreamingResponse(
+        unread(),
+        plan=plan,
+        media_type="application/octet-stream",
+    )
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            raise RuntimeError("header send failed")
+
+    with pytest.raises(RuntimeError, match="header send failed"):
+        asyncio.run(
+            response(
+                {"type": "http", "asgi": {"spec_version": "2.4"}},
+                receive,
+                send,
+            )
+        )
+    assert closes == [plan.descriptor]
+    assert not plan.copy_path.exists()
+    assert not plan.directory.exists()
+    plan.release()
+    assert closes == [plan.descriptor]
+
+
+def test_registered_result_download_releases_once_after_the_body(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan, closes = _open_download_copy(tmp_path, monkeypatch)
+    payload = plan.copy_path.read_bytes() if plan.copy_path.exists() else b""
+
+    async def body():
+        yield payload
+
+    response = _RegisteredResultStreamingResponse(
+        body(),
+        plan=plan,
+        media_type="application/octet-stream",
+    )
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(
+        response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}},
+            receive,
+            send,
+        )
+    )
+    delivered = b"".join(
+        message["body"] for message in sent if message["type"] == "http.response.body"
+    )
+    assert delivered == payload
+    assert closes == [plan.descriptor]
+    plan.release()
+    assert closes == [plan.descriptor]
+
+
+def _open_download_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    directory = tmp_path / "response"
+    directory.mkdir()
+    copy_path = directory / "body"
+    payload = b"registered-result"
+    copy_path.write_bytes(payload)
+    descriptor = os.open(copy_path, os.O_RDONLY | os.O_CLOEXEC)
+    plan = registered_result_service.RegisteredResultDownload(
+        descriptor=descriptor,
+        copy_path=copy_path,
+        directory=directory,
+        size_bytes=len(payload),
+        content_sha256="ab" * 32,
+        filename="registered-result.tsv",
+    )
+    closes: list[int] = []
+    real_close = registered_result_service.os.close
+
+    def counting_close(opened: int) -> None:
+        closes.append(opened)
+        real_close(opened)
+
+    monkeypatch.setattr(registered_result_service.os, "close", counting_close)
+    return plan, closes
 
 
 def _repository_edges(

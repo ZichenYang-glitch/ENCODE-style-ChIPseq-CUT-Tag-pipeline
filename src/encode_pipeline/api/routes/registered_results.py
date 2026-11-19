@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
-from contextlib import suppress
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.types import Receive, Scope, Send
 
 from encode_pipeline.api.dependencies import (
     AuthApiError,
@@ -25,7 +27,6 @@ from encode_pipeline.api.registered_result_models import (
     ReviseRegisteredResultRequest,
 )
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
-from encode_pipeline.services.registered_result_bytes import discard_private_copy
 from encode_pipeline.services.registered_results import (
     RegisteredResultAPIError,
     RegisteredResultDownload,
@@ -34,6 +35,31 @@ from encode_pipeline.services.registered_results import (
 
 
 router = APIRouter(tags=["registered-results"])
+
+
+class _RegisteredResultStreamingResponse(StreamingResponse):
+    """Release the private copy when the response call ends.
+
+    Starlette sends the response headers before iterating the body. A failure
+    at that point never enters the body iterator, so the copy is released here.
+    """
+
+    def __init__(
+        self,
+        content: AsyncIterator[bytes],
+        *,
+        plan: RegisteredResultDownload,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(content, **kwargs)
+        self._plan = plan
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await run_in_threadpool(self._plan.release)
+
 
 _PROJECT_ID = Path(pattern=r"^prj_[0-9a-f]{32}$")
 _RESULT_ID = Path(pattern=r"^rreg_[0-9a-f]{32}$")
@@ -310,8 +336,9 @@ async def catalog_download_registered_result_revision(
     except RegisteredResultAPIError as exc:
         return _failure(exc)
     try:
-        return StreamingResponse(
+        return _RegisteredResultStreamingResponse(
             _iter_copy(plan),
+            plan=plan,
             media_type="application/octet-stream",
             headers={
                 "Accept-Ranges": "none",
@@ -322,7 +349,7 @@ async def catalog_download_registered_result_revision(
             },
         )
     except BaseException:
-        await run_in_threadpool(_release_download, plan)
+        await run_in_threadpool(plan.release)
         raise
 
 
@@ -335,17 +362,8 @@ def _detail(revision: dict) -> RegisteredResultDetailResponse:
 
 
 async def _iter_copy(plan: RegisteredResultDownload):
-    try:
-        while True:
-            chunk = await run_in_threadpool(os.read, plan.descriptor, 1024 * 1024)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        await run_in_threadpool(_release_download, plan)
-
-
-def _release_download(plan: RegisteredResultDownload) -> None:
-    with suppress(OSError):
-        os.close(plan.descriptor)
-    discard_private_copy(plan.copy_path, plan.directory)
+    while True:
+        chunk = await run_in_threadpool(os.read, plan.descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        yield chunk
