@@ -1,6 +1,19 @@
 # HelixWeave Product Roadmap
 
-## 当前入口：2026-11-17T08:13:19Z
+## 2026-11-19 当前进度
+
+以下按主干 `65d9977` 和复核时的 PR 状态记录。已合入的设计、已合入的实现和正在评审的工作分别标明。
+
+| 方向 | 主干已具备 | 接下来复核什么 |
+| --- | --- | --- |
+| WashU | 独立同源查看器页面已合入。[#222](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/222) | 文件选择仍在评审。验收时从查看器内选取轨道，检查实际读取的文件。[#227](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/227)、[#237](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/237) |
+| Peri | 运行时会话与配置编辑服务的职责已分离。[#223](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/223) | 离线建议传输仍在评审，真实模型接入另行验证。[#232](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/232) |
+| 实验目录 | M0 查询与追溯设计、实验目录 Slice A，以及实验修订与验证快照的绑定均已合入。[#224](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/224)、[#225](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/225)、[#236](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/236) | 目录页面和从发布结果反查实验修订分别验收。[#235](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/235)、[#243](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/243) |
+| 长期存储及外部分析 | 平台可索引和发布运行产物，文件保存在运行存储位置。见[产物发布契约](../architecture/artifact-publication-provenance-decision.md)。 | 分开验证迁盘后旧链接仍可读、外部结果可按确切修订取回。这两项实现或验证仍在评审。[#228](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/228)、[#238](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/238)、[#239](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/239) |
+
+架构解耦的后续范围见下文「P1b 后续维护」。各里程碑以其主干实现和验收证据分别收口。
+
+## 快照：2026-11-17T08:13:19Z
 
 2026-11-16T08:22:10Z 及更早快照保留在后文，不倒写。
 本次查询 origin/main 为 `ff3f7d981592a844750dba502f980a356becc874`，

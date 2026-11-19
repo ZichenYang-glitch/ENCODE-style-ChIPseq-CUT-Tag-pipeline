@@ -1,6 +1,8 @@
 # 当前 PR 收口与集成清单
 
-## 2026-11-17T08:13:19Z 当前状态
+当前主干交付与在审事项见[产品路线图](workflow-platform-agent-roadmap.md)。下文保留各次集成的提交、测试和交接证据。
+
+## 2026-11-17T08:13:19Z 集成快照
 
 排期见 [roadmap](workflow-platform-agent-roadmap.md)，实施分工见
 [session 计划](next-delivery-session-plan.md)。08:22:10Z 及更早快照不倒写。
