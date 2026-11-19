@@ -120,8 +120,15 @@ def create_app(
     project_root: Path | None = None,
     persistence_opener: Callable[[str | None], RunPersistence] | None = None,
     registry: WorkflowRegistry | None = None,
+    relocation_root: Path | None = None,
 ) -> FastAPI:
     """Return a configured FastAPI app with default platform services."""
+    if relocation_root is not None and (
+        not isinstance(relocation_root, Path)
+        or not relocation_root.is_absolute()
+        or any(part in {"", ".", ".."} for part in relocation_root.parts[1:])
+    ):
+        raise ValueError("relocation_root must be an absolute Path")
     settings_environment = dict(os.environ)
     if database_url is not None:
         settings_environment[DATABASE_URL_ENV] = database_url
@@ -328,6 +335,7 @@ def create_app(
     app.state.artifact_download_service = ArtifactDownloadService(
         run_service=run_service,
         workspace_root=worker_settings.workspace_root,
+        relocation_root=relocation_root,
     )
     app.state.build_identity_provider = build_identity_provider
     app.state.run_submission_service = run_submission_service
