@@ -2,7 +2,7 @@
 
 本文件是 IRENE-35 的证据台账。它对照仓库里已经版本化的运行资格和 SCI-7 记录，分开写下 ENCODE、Bulk RNA-seq、Hi-TrAC 现在能证明的软件行为，以及仍然没有科学结论的默认值。同事可以按文末步骤核对结果和 QC。软件测试通过、资格文件生成、流程退出码 0 和 Gate 成功，都只说明软件按当时的身份跑完；它们本身不是生物学确认，也不冻结生产默认。
 
-来源读自 main `d85c3b6a50a9de0f108691bd60efc678d851a2be`。下面的 SHA256 是文件内容摘要，文档提交之后仍然可以用文末命令复核。本台账不改默认值，不下载数据，不启动流程。WashU 轨道选择由 IRENE-21 另行验收。11_17 的计算与核验跟踪在 IRENE-9，本单不打开、不重跑该批次。试用验收在 IRENE-34：由同事从已核验样本定位 PET 和 QC。
+历史科学证据的阅读基线是 main `d85c3b6a50a9de0f108691bd60efc678d851a2be`。当时的 Bulk 资格文件和实现清单是历史证据身份。当前检出包含集成基线 main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 的这两份文件，那是当前软件身份。两组摘要不同。历史公共数据记录和 Bulk Gate 没有在当前软件身份上重跑；不能把历史身份下的数字换成当前摘要后，声称那些记录用了新版本。下面的 SHA256 仍是文件内容摘要，文档提交之后可以用文末命令复核。本台账不改默认值，不下载数据，不启动流程。WashU 轨道选择由 IRENE-21 另行验收。11_17 的计算与核验跟踪在 IRENE-9，本单不打开、不重跑该批次。试用验收在 IRENE-34：由同事从已核验样本定位 PET 和 QC。
 
 ## 三种说法
 
@@ -80,21 +80,27 @@ Roadmap 对 #218 `0fef7a2…` 的记录是：workflow `43628729299` 成功，真
 
 ### 版本化资格
 
-资格文件 `src/encode_pipeline/contracts/nfcore_rnaseq/default-execution-qualification-1.1.0.json`：
+资格文件是 `src/encode_pipeline/contracts/nfcore_rnaseq/default-execution-qualification-1.1.0.json`，实现清单是 `src/encode_pipeline/contracts/nfcore_rnaseq/execution-implementation-manifest-1.0.0.json`。`candidate_status` 仍是 `source-enabled`，闭包仍是 119 个文件，运行时 `identity_sha256` 仍是 `4c2f9c99bfe07141db39c0974d652bf006a5d596351e11caacf426da62699f9e`。当前软件身份与历史证据身份不同，是因为实现清单里若干已有源码文件换了字节；路径数没有增加，结果契约也没有变。这是软件闭包变化，不是 SCI-7 或 Bulk Gate 的重跑。
 
-| 字段 | 值 |
-| --- | --- |
-| 文件 SHA256 | `5f050c81b28cefe8bacd6b499939f46210d166b4f4fd8630a593017a4637603b` |
-| `candidate_status` | `source-enabled` |
-| `record_sha256` | `aa0ca90e70052d8cc336a06f9028963c00f1f516a6379333a94650117e009202` |
-| 执行闭包 `aggregate_sha256` | `68a3798931941bd8e99d8eec34a770ad4d453faa30e4f0b7017db93840566fc2` |
-| `file_count` | 119 |
-| manifest 文件 SHA256 | `b3862eeec44cedc890ae11e61297e99452f494a095c1bbc656dd9c1933d20a89` |
-| 运行时 `identity_sha256` | `4c2f9c99bfe07141db39c0974d652bf006a5d596351e11caacf426da62699f9e` |
+历史证据身份，阅读基线 `d85c3b6a50a9de0f108691bd60efc678d851a2be`：
+
+historical-qualification-file: 5f050c81b28cefe8bacd6b499939f46210d166b4f4fd8630a593017a4637603b
+historical-record-sha256: aa0ca90e70052d8cc336a06f9028963c00f1f516a6379333a94650117e009202
+historical-aggregate-sha256: 68a3798931941bd8e99d8eec34a770ad4d453faa30e4f0b7017db93840566fc2
+historical-manifest-file: b3862eeec44cedc890ae11e61297e99452f494a095c1bbc656dd9c1933d20a89
+
+当前软件身份，本检出中的文件字节，与 main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 上的资格文件和实现清单相同：
+
+current-qualification-file: f65e773fea402d7833297a9dbcdcc83bfdd70e535f27c4a3419a5e7308823d5a
+current-record-sha256: cfb2889787ef8cbce5ae0cc8d306fbcb10351dd262c1d733fc6a9a34e47e07fd
+current-aggregate-sha256: 67a04c89739dcb11fe2a4c4e798de09d689e5e6fad736939a545c726f0f8643f
+current-manifest-file: 030b9ca63a15fc5c1feea0baa6aa961d7f059fd80743301bc46b2451cc1b9623
+
+历史科学证据没有在当前软件身份上重跑。
 
 `candidate_status: source-enabled` 表示这份源码候选已绑定闭包、持久化契约、命令、参考协议和结果契约。`docs/architecture/bulk-rnaseq-adapter-decision.md` 写明：资格字节匹配的是实时核对过的实现；PR #152 的产物发现和 QC 提取、PR #153 的合成 `rapid_quant` 资格以及本地 STAR+Salmon 验收，证明的是固定离线执行和平台机制。`rapid_quant` 是服务器持有的资格模式，不是产品默认分析。该决定同时写明这些夹具不构成生物学有效性。
 
-`docs/development/workflow-platform-agent-roadmap.md` 在 2026-11-16 的入口里记录：Bulk Gate 跑在 `e112223…`，GitHub Actions run `43792685991` attempt 2，job `133061548271` 通过 4 项执行测试和 5 项产品浏览器测试。那是该提交上的软件 Gate。同一入口当时的 main 是 `1b1db421ba3172bc39cf31ce0d03976511379fda`；roadmap 写明不能把这次 Gate 改记成在 merge SHA 上重新跑过。该次合入 push CI `43816767856` 里，`bulk-rnaseq-real-execution` 为 skipped，skipped 不是执行通过。本台账的检出是更晚的 `d85c3b6a50a9de0f108691bd60efc678d851a2be`，没有在这个 SHA 上重跑 Gate。Gate 成功不改写上表的 `source-enabled`。SCI-7 记录和这份 Bulk 资格文件都没有把 nf-core 默认冻结成生物学结论。
+`docs/development/workflow-platform-agent-roadmap.md` 在 2026-11-16 的入口里记录：Bulk Gate 跑在 `e112223…`，GitHub Actions run `43792685991` attempt 2，job `133061548271` 通过 4 项执行测试和 5 项产品浏览器测试。那是该提交上的软件 Gate。同一入口当时的 main 是 `1b1db421ba3172bc39cf31ce0d03976511379fda`；roadmap 写明不能把这次 Gate 改记成在 merge SHA 上重新跑过。该次合入 push CI `43816767856` 里，`bulk-rnaseq-real-execution` 为 skipped，skipped 不是执行通过。历史证据身份读自 `d85c3b6a50a9de0f108691bd60efc678d851a2be`，Gate 没有在这个 SHA 上重跑。当前软件身份是 main `65d99776a96830fd5a20092daf4a5c5b99461aeb` 的资格文件和实现清单，Gate 也没有在这组摘要上重跑。Gate 成功不改写 `source-enabled`。SCI-7 记录和这份 Bulk 资格都没有把 nf-core 默认冻结成生物学结论。
 
 ### 同事如何定位定量、QC 和参考
 
@@ -176,7 +182,7 @@ QC 在 `/runs/<run_id>?view=qc`。成功完成后列出已索引行，每行有�
 - ENCODE 的重复政策和 `max_insert` 候选仍是软件默认；SCI-7 结论保持 no conclusion。
 - ENCODE `mapq` 30 没有对应的冻结记录。
 - 人 GRCh38 与小鼠 GRCm38 的压缩 FASTA，以及由它们生成的 FAI、染色体长度表和六个 Bowtie2 索引，已有 `minimal-smoke-results.md`、`tf-jund-confirmation.md` 和 `atac-treg-discovery.md` 的实测。两份 GTF 仍未下载。确认文库 ENCSR213YKJ、ENCSR639PPN 和可选 CUT&Tag/MNase 确认集仍未评估。`reference-identity.md` 的状态句和 README 参考段仍把大 FASTA、GTF 和索引写成未构建，那是 2026-10-28 的准备语句。
-- Bulk 的 `source-enabled` 资格和 `e112223…` Gate 是软件身份与软件测试。没有 Bulk 公共数据科学确认记录。
+- Bulk 的 `source-enabled` 资格和 `e112223…` Gate 是软件身份与软件测试。历史证据身份与当前软件身份不同，历史记录没有用当前实现清单重跑。没有 Bulk 公共数据科学确认记录。
 - Hi-TrAC 的 H5 原始日志不在 Git 中；本单没有复测 all=8、noBg=5。
 - `adapter-conformance.md` 关于 “publication is implemented” 的句子落后于 `results.py`。
 - `resource-budget.md` 开头的下载状态句落后于 SCI-7 批次摘要。
@@ -191,4 +197,4 @@ QC 在 `/runs/<run_id>?view=qc`。成功完成后列出已索引行，每行有�
 python3 scripts/check_scientific_workflow_evidence.py
 ```
 
-命令只读本仓库文件，退出码 0 表示本台账引用的内容摘要、资格字段和关键源码句子仍与文件一致。它不连接平台，不证明任何一次真实运行的生物学结论。对真实运行，按上面三节的页面步骤，用已有且已授权的运行 ID 核对；不要为了核对而创建或重跑批次。
+命令只读本仓库文件，退出码 0 表示本台账引用的内容摘要、资格字段和关键源码句子仍与文件一致，并且历史证据身份与当前软件身份分开核对：当前四行摘要必须等于本检出的资格文件和实现清单，历史四行摘要必须仍是阅读基线 `d85c3b6a50a9de0f108691bd60efc678d851a2be` 的那一组。它不连接平台，不证明任何一次真实运行的生物学结论。对真实运行，按上面三节的页面步骤，用已有且已授权的运行 ID 核对；不要为了核对而创建或重跑批次。

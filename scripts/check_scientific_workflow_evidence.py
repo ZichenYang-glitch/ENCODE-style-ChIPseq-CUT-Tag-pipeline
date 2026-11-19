@@ -13,24 +13,24 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LEDGER = ROOT / "docs/development/scientific-workflow-evidence-ledger.md"
-QUALIFICATION = (
-    ROOT
-    / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "default-execution-qualification-1.1.0.json"
-)
-RESULTS = (
-    ROOT
-    / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "results-contract-3.26.0.json"
-)
-MANIFEST = (
-    ROOT
-    / "src/encode_pipeline/contracts/nfcore_rnaseq"
-    / "execution-implementation-manifest-1.0.0.json"
-)
-LOCK = ROOT / "config/hitrac_preprocess/tools.lock.json"
-SUMMARY = ROOT / "docs/development/sci7-public-data/sci7-batch-summary.md"
+HISTORICAL_READ = "d85c3b6a50a9de0f108691bd60efc678d851a2be"
+CURRENT_BASELINE = "65d99776a96830fd5a20092daf4a5c5b99461aeb"
+HISTORICAL_IDENTITY = {
+    "historical-qualification-file": (
+        "5f050c81b28cefe8bacd6b499939f46210d166b4f4fd8630a593017a4637603b"
+    ),
+    "historical-record-sha256": (
+        "aa0ca90e70052d8cc336a06f9028963c00f1f516a6379333a94650117e009202"
+    ),
+    "historical-aggregate-sha256": (
+        "68a3798931941bd8e99d8eec34a770ad4d453faa30e4f0b7017db93840566fc2"
+    ),
+    "historical-manifest-file": (
+        "b3862eeec44cedc890ae11e61297e99452f494a095c1bbc656dd9c1933d20a89"
+    ),
+}
+NOT_RERUN = "历史科学证据没有在当前软件身份上重跑"
+RERUN_CLAIM = "历史科学证据已用当前软件身份重跑"
 
 
 def digest(path: Path) -> str:
@@ -42,19 +42,69 @@ def require(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def main() -> int:
+def labeled_value(ledger: str, label: str) -> str | None:
+    prefix = f"{label}: "
+    for line in ledger.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].strip()
+    return None
+
+
+def require_label(
+    ledger: str,
+    label: str,
+    expected: str,
+    role: str,
+    failures: list[str],
+) -> None:
+    found = labeled_value(ledger, label)
+    if found is None:
+        failures.append(f"ledger is missing {label}")
+    elif found != expected:
+        failures.append(f"ledger {label} does not match the {role}")
+
+
+def evaluate(
+    root: Path, ledger_text: str | None = None
+) -> tuple[list[str], dict[str, str]]:
     failures: list[str] = []
-    ledger = LEDGER.read_text(encoding="utf-8")
-    qualification = json.loads(QUALIFICATION.read_text(encoding="utf-8"))
-    results = json.loads(RESULTS.read_text(encoding="utf-8"))
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    ledger_path = root / "docs/development/scientific-workflow-evidence-ledger.md"
+    if ledger_text is None:
+        ledger = ledger_path.read_text(encoding="utf-8")
+    else:
+        ledger = ledger_text
+    qualification_path = (
+        root
+        / "src/encode_pipeline/contracts/nfcore_rnaseq"
+        / "default-execution-qualification-1.1.0.json"
+    )
+    results_path = (
+        root
+        / "src/encode_pipeline/contracts/nfcore_rnaseq"
+        / "results-contract-3.26.0.json"
+    )
+    manifest_path = (
+        root
+        / "src/encode_pipeline/contracts/nfcore_rnaseq"
+        / "execution-implementation-manifest-1.0.0.json"
+    )
+    lock_path = root / "config/hitrac_preprocess/tools.lock.json"
+    summary_path = root / "docs/development/sci7-public-data/sci7-batch-summary.md"
+    qualification = json.loads(qualification_path.read_text(encoding="utf-8"))
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     implementation = qualification["execution_implementation"]
+    qualification_file = digest(qualification_path)
+    manifest_file = digest(manifest_path)
+    results_file = digest(results_path)
+    lock_file = digest(lock_path)
 
     facts = {
-        "qualification file": digest(QUALIFICATION),
-        "results contract file": digest(RESULTS),
-        "manifest file": digest(MANIFEST),
-        "Hi-TrAC lock file": digest(LOCK),
+        "qualification file": qualification_file,
+        "results contract file": results_file,
+        "manifest file": manifest_file,
+        "Hi-TrAC lock file": lock_file,
         "qualification record": qualification["record_sha256"],
         "execution aggregate": implementation["aggregate_sha256"],
         "manifest record": implementation["manifest_sha256"],
@@ -63,6 +113,22 @@ def main() -> int:
         "upstream commit": results["upstream"]["commit"],
         "tracPre2 script": lock["upstream"]["script_sha256"],
     }
+    current_identity = {
+        "current-qualification-file": qualification_file,
+        "current-record-sha256": qualification["record_sha256"],
+        "current-aggregate-sha256": implementation["aggregate_sha256"],
+        "current-manifest-file": manifest_file,
+    }
+    for label, expected in HISTORICAL_IDENTITY.items():
+        require_label(
+            ledger,
+            label,
+            expected,
+            "historical evidence identity",
+            failures,
+        )
+    for label, expected in current_identity.items():
+        require_label(ledger, label, expected, "current file", failures)
     require(
         qualification["candidate_status"] == "source-enabled",
         "Bulk candidate_status is no longer source-enabled",
@@ -96,23 +162,23 @@ def main() -> int:
         failures,
     )
     require(
-        "No production default is frozen." in SUMMARY.read_text(encoding="utf-8"),
+        "No production default is frozen." in summary_path.read_text(encoding="utf-8"),
         "SCI-7 batch summary no longer states that no production default is frozen",
         failures,
     )
 
-    policy = (ROOT / "src/encode_pipeline/config/scientific_policy.py").read_text(
+    policy = (root / "src/encode_pipeline/config/scientific_policy.py").read_text(
         encoding="utf-8"
     )
-    defaults = (ROOT / "src/encode_pipeline/config/defaults.py").read_text(
+    defaults = (root / "src/encode_pipeline/config/defaults.py").read_text(
         encoding="utf-8"
     )
-    config = (ROOT / "config/config.yaml").read_text(encoding="utf-8")
-    metadata = (ROOT / "workflow/rules/metadata.smk").read_text(encoding="utf-8")
+    config = (root / "config/config.yaml").read_text(encoding="utf-8")
+    metadata = (root / "workflow/rules/metadata.smk").read_text(encoding="utf-8")
     hitrac_results = (
-        ROOT / "src/encode_pipeline/adapters/hitrac_preprocess/results.py"
+        root / "src/encode_pipeline/adapters/hitrac_preprocess/results.py"
     ).read_text(encoding="utf-8")
-    conformance = (ROOT / "docs/development/adapter-conformance.md").read_text(
+    conformance = (root / "docs/development/adapter-conformance.md").read_text(
         encoding="utf-8"
     )
     require(
@@ -143,7 +209,7 @@ def main() -> int:
             failures,
         )
     authoring = (
-        ROOT / "src/encode_pipeline/adapters/hitrac_preprocess/authoring.py"
+        root / "src/encode_pipeline/adapters/hitrac_preprocess/authoring.py"
     ).read_text(encoding="utf-8")
     require(
         "DEFAULT_MAPQ = 10" in authoring,
@@ -190,13 +256,17 @@ def main() -> int:
         ),
     }
     for relative, needles in reference_sources.items():
-        text = (ROOT / relative).read_text(encoding="utf-8")
+        text = (root / relative).read_text(encoding="utf-8")
         for needle in needles:
             require(needle in text, f"{relative} lost {needle}", failures)
 
     citations = [
-        "5f050c81b28cefe8bacd6b499939f46210d166b4f4fd8630a593017a4637603b",
+        *HISTORICAL_IDENTITY.values(),
         *facts.values(),
+        *current_identity.values(),
+        HISTORICAL_READ,
+        CURRENT_BASELINE,
+        NOT_RERUN,
         "source-enabled",
         "No production default is frozen.",
         "encode-style-chipseq-cuttag-atac-mnase",
@@ -244,9 +314,27 @@ def main() -> int:
         "ledger still treats the later FASTA and index records as unverified",
         failures,
     )
+    require(
+        RERUN_CLAIM not in ledger,
+        "ledger claims historical evidence was rerun on the current software identity",
+        failures,
+    )
     for citation in citations:
         require(citation in ledger, f"ledger is missing {citation}", failures)
 
+    summary = {
+        "qualification file": qualification_file,
+        "manifest file": manifest_file,
+        "execution aggregate": implementation["aggregate_sha256"],
+        "file count": str(implementation["file_count"]),
+        "results contract file": results_file,
+        "Hi-TrAC lock file": lock_file,
+    }
+    return failures, summary
+
+
+def main(ledger_text: str | None = None) -> int:
+    failures, summary = evaluate(ROOT, ledger_text)
     if failures:
         print("scientific workflow evidence check failed:", file=sys.stderr)
         for item in failures:
@@ -254,13 +342,19 @@ def main() -> int:
         return 1
 
     print("scientific workflow evidence check passed")
-    print(f"qualification {facts['qualification file']}")
     print(
-        "bulk aggregate "
-        f"{facts['execution aggregate']} files {implementation['file_count']}"
+        f"historical qualification {HISTORICAL_IDENTITY['historical-qualification-file']}"
     )
-    print(f"results contract {facts['results contract file']}")
-    print(f"hitrac lock {facts['Hi-TrAC lock file']}")
+    print(f"current qualification {summary['qualification file']}")
+    print(f"current manifest {summary['manifest file']}")
+    print(
+        f"bulk aggregate {summary['execution aggregate']} files {summary['file count']}"
+    )
+    print(f"results contract {summary['results contract file']}")
+    print(f"hitrac lock {summary['Hi-TrAC lock file']}")
+    print(
+        "historical evidence identity remains separate from the current software identity"
+    )
     print("software qualifications remain separate from scientific conclusions")
     return 0
 
