@@ -100,7 +100,9 @@ def _cross_correlation(path, enabled, detail_path=None):
             print(f"ERROR: {exc}", file=sys.stderr)
             sys.exit(1)
         if version == "1":
-            return detail.get("nsc", NA), detail.get("rsc", NA), "reported"
+            nsc, rsc = detail["nsc"], detail["rsc"]
+            status = "missing_values" if NA in (nsc, rsc) else "reported"
+            return nsc, rsc, status
         if detail is not None:
             execution = detail.get("execution_status", "")
             interpretation = detail.get("interpretation_status", "")

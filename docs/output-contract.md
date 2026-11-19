@@ -311,3 +311,7 @@ is registered for platform download, including the full length distribution
 and first-500 estimate method; its manifest type is cross_correlation_metadata. Sample and
 project summaries consume the detail, not a second interpretation of raw SPP.
 The old seven-column scalar parser CLI remains available for historical files.
+When a sample summary is assembled from a v1 detail row, it uses `reported`
+if both NSC and RSC are present and `missing_values` if either is `NA`.
+Each available measurement is preserved. The numeric QC API omits each
+unavailable metric and still returns other valid metrics for the sample.

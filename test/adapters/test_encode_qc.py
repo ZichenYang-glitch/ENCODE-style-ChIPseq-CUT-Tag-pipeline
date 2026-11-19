@@ -494,6 +494,7 @@ def test_encode_qc_parser_rejects_deprecated_analysis_filtered_qc_summary_type()
         {"organelle_status": "unknown"},
         {"cross_correlation_status": "maybe"},
         {"cross_correlation_status": "reported", "cross_correlation_nsc": "NA"},
+        {"cross_correlation_status": "reported", "cross_correlation_rsc": "invalid"},
         {"cross_correlation_status": "not_enabled", "cross_correlation_nsc": "1.0"},
         {"analysis_valid_fragments": "1.5"},
         {"organelle_fraction": "1.01"},
