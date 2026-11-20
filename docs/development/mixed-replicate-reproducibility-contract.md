@@ -196,27 +196,27 @@ flowchart LR
 | **PI-4** | 按组路由覆盖哪些 IDR 开关？ | **A**：仅生产级窄峰 IDR（`chipseq_idr` / `idr.chipseq_narrow`、`idr.atac_narrow`）。<br>**B（推荐）**：统一覆盖全部 5 个 MACS3 IDR 开关（含 `cuttag_narrow` 与两项 `*_broad_experimental`），同时修复 `targets.smk:925` 与 `make.py:1544-1582`，且保留 PE CUT&Tag 独立 SEACR consensus 最终 BED。 | 代码路径在 5 个开关上高度对称；若仅支持前两个却不修 `targets.smk:925` 和 `make.py`，留存逻辑分裂且易引入隐患。 | **选 B**（5 开关语义一致，实验性宽峰仍保留 opt-in 与警告） |
 | **PI-5** | 当存在 2 重复组且设置 `reproducibility.consensus.min_replicates > 2`（例如 `3`）时，MACS3 与独立 SEACR 分支分别如何准入？ | **A（推荐，全分支 fail-closed）**：准入期检查**每一条将要运行 consensus 的分支**（包括所有 `CONSENSUS_EXPERIMENTS` 的 MACS3 分支，以及 `cuttag.seacr.enabled: true` 时所有 PE CUT&Tag 组的独立 SEACR 分支）；只要任一分支存在 `n_bioreps < min_replicates`，准入即拒绝（**`rc=1`**），彻底消除运行期崩溃。<br>**B（跳过 MACS3 secondary consensus，但独立 SEACR 分支仍 fail-closed）**：对已走 MACS3 IDR 的 2 重复组，允许自动跳过其 **MACS3** secondary consensus（仅对主方法为 consensus 的 3+ 重复组检查 `n_bioreps >= min_replicates` 并运行 MACS3 consensus）；**但若同时开启 `cuttag.seacr.enabled: true` 且任一 PE CUT&Tag 组满足 `n_bioreps < min_replicates`（例如 2 重复 `GRP2` 遇 `min_replicates=3`），因为 SEACR 没有 IDR 主路径、consensus 是 SEACR 唯一可重复性方法，独立 SEACR 分支达不到门槛时准入仍必须拒绝（`rc=1`）**，不得静默跳过或降级 SEACR 最终 BED。<br>**C（不推荐）**：按组自动截断为 `min(min_replicates, n_bioreps)`。 | 方案 C 会静默放宽用户请求的门槛，违背科学可审计性；方案 A 最简单一致（无论是否开启 SEACR，2 重复遇 `min_replicates=3` 均 `rc=1`）；方案 B 支持“纯 MACS3 混合 2/3：2 重复走 IDR、3 重复严格 3/3 consensus”，同时对独立 SEACR 分支守住 fail-closed 底线（不静默丢失所请求的 `cuttag_seacr_consensus_final_peak`）。 | **请 PI 在 A 与 B 间拍板**（默认倾向 **A**；若科研高频需要“无 SEACR 场景下 2-rep IDR + 3/3 consensus”则选 **B**，并保留 SEACR 门槛不足 `rc=1`） |
 | **PI-6** | ChIP-seq IDR（及混合 2/3 中的 ChIP-seq 组）是否继续保持 `use_control: false` 允许无对照，以及是否允许跨组“一组有对照、另一组无对照”？ | **A（维持现状）**：不改变现行 `use_control` 契约，但对混合路由下“同模式内一组有对照、另一组无对照”或“无对照 ChIP-seq IDR”发出明确告警并记录在 `effective_config.json`。<br>**B**：对 `chipseq` 开启 IDR 或混合路由时强制要求 `use_control: true` 且每组均配对 FASTQ `control_sample`。 | 方案 B 会破坏现有无对照 ChIP-seq IDR 合成测试及部分公共数据重分析流程；方案 A 保持向后兼容，但存在无对照假阳性差异风险。 | **选 A**（除非 PI 明确要求收紧 ChIP-seq 对照准入） |
-| **PI-7** | 同项目内混合 IDR 与 consensus 产物的**下游可比性风险**如何显性化？ | 在以下位置同步标注“混合可重复性方法，非统计等价”：<br>1. 验证器 stderr/Adapter `WARNING` 级告警（列出每组解析路由与 `n_bioreps`）；<br>2. `effective_config.json` 增加 `resolved_reproducibility_by_experiment` 结构化记录（不改 `result_manifest.tsv` 10 列结构，也不破坏既有 rev-7 `effective_config.json` 校验）；<br>3. WashU `describe_browser_artifact()` 在 `detail` 与 `score_meaning` 中区分 IDR 分值（`-125*log2(idr)`）与 consensus 分值（`round(1000 * support / n)`，`pValue/qValue=-1`）。 | 防止用户在 WashU 或外部 DiffBind/DESeq2 差异分析中，把宽松 MACS3 + IDR 峰与标准 MACS3 + 互惠重叠并集峰误当作同口径峰集直接比较。 | **建议 3 项全选**，请 PI 确认告警级别（仅 `WARNING` 还是要求配置显式确认） |
+| **PI-7** | 同项目内混合 IDR 与 consensus 产物的**下游可比性风险**如何显性化？ | 在以下位置同步标注“混合可重复性方法，非统计等价”：<br>1. 验证器 stderr/Adapter `WARNING` 级告警（列出每组解析路由与 `n_bioreps`）；<br>2. 在 `effective_config.json` 写入 `resolved_reproducibility_by_experiment` 结构化记录（不改 `result_manifest.tsv` 10 列结构）：**若采 PI-9A 保留 rev 7，仅在 `per_group_fallback` 运行写入该字段（不得在缺键/`strict` 下改动 `effective_config.json` 载荷，以免触发 `analysis_identity_marker` 重写，见 §4.3）；若 PI 要求全部运行无条件写入该字段，则联动 PI-9B 升 rev 8**；<br>3. WashU `describe_browser_artifact()` 在 `detail` 与 `score_meaning` 中区分 IDR 分值（`-125*log2(idr)`）与 consensus 分值（`round(1000 * support / n)`，`pValue/qValue=-1`）。 | 防止用户在 WashU 或外部 DiffBind/DESeq2 差异分析中，把宽松 MACS3 + IDR 峰与标准 MACS3 + 互惠重叠并集峰误当作同口径峰集直接比较，同时避免信息字段静默破坏旧目录 `params.config_json` 不变性。 | **建议 3 项全选**（按 PI-9A/9B 约束控制写入作用域），请 PI 确认告警级别 |
 | **PI-8** | 当同模式中混入 **`n_bioreps == 1`** 或 **`n_bioreps >= 4`** 的实验组时如何处理？ | - **`n_bioreps == 1`**：**A（推荐）** 仍拒绝（`rc=1`，防止单样本误混入重复验证队列，或掩盖 `experiment` 列拼写拆分错误）；**B** 跳过可重复性仅产出单样本峰。<br>- **`n_bioreps >= 4`**：与 3 重复组一致，统一路由至 `consensus`（`min_replicates` 适用）。 | `n_bioreps == 1` 没有生物学重复，无法生成任何 replicate-validated 峰集；若静默跳过容易掩盖样本表错误。 | **`n == 1` 建议选 A（拒绝）**；**`n >= 4` 同 3 重复走 consensus** |
-| **PI-9** | 落地实施时运行身份与旧目录复用如何约定（是否递增 `SCIENTIFIC_POLICY_REVISION` `7 → 8`）？ | **A（推荐，配 PI-1A + PI-2A1/PI-2B）**：保持 `SCIENTIFIC_POLICY_REVISION = 7`，并在 `workflow/Snakefile:_analysis_identity_config_values` 实行**默认 `strict` 省略归一化**（详契约见 §4.3）：缺键与显式 `strict` 产出完全相同的基线哈希 `H_baseline`，**允许复用基线 rev-7 旧目录**；显式 `per_group_fallback` 保留进哈希产出 `H_fallback != H_baseline`，**拒绝复用旧目录**。<br>**B（配 PI-2A2 或 PI-1B）**：若既有未配置新键的旧配置在新版下会改变产出（如 PI-2A2 新增纯 2/纯 3 narrow `final/` 峰），则必须将 `SCIENTIFIC_POLICY_REVISION` 升至 `8`，使所有 rev-7 旧目录在 `_read_analysis_identity_marker()` 与 `_check_effective_config_record()` 统一 fail-closed 拒绝复用（`rc=1`），要求新 `outdir`。 | 实测已证实（见 §4.3）：若仅保留 rev 7 却把默认 `mixed_replicate_policy: "strict"` 直接写入被哈希的 `VALIDATED_CONFIG["reproducibility"]`，所有旧目录哈希会立即失效并被拒绝复用；因此 **PI-9A 必须以 §4.3 的显式哈希归一化规则为实施前提**。 | **若采 PI-1A + PI-2A1/B 则选 A（附 §4.3 归一化）**；**若采 PI-2A2 或 PI-1B 则必选 B（rev 8）** |
+| **PI-9** | 落地实施时运行身份与旧目录复用如何约定（是否递增 `SCIENTIFIC_POLICY_REVISION` `7 → 8`）？ | **A（推荐，配 PI-1A + PI-2A1/PI-2B）**：保持 `SCIENTIFIC_POLICY_REVISION = 7`，且同时满足 **§4.3 双重不变式**——不仅身份哈希省略默认 `strict`，归一化 `VALIDATED_CONFIG["reproducibility"]` 与 `_effective_config_record_payload()` 对缺键与显式 `strict` 也必须与基线 `52973b60` **字节等价**（确保基线 rev-7 旧目录的 `analysis_identity.json` 与 `effective_config.json` 均为 `ok / no update` 且不改写字节）；显式 `per_group_fallback` 进入哈希产出 `H_fallback != H_baseline`，**拒绝复用旧目录**。<br>**B（配 PI-2A2、PI-1B 或全运行写入 `effective_config.json` 新字段）**：将 `SCIENTIFIC_POLICY_REVISION` 升至 `8`，使所有基线 `52973b60` rev-7 旧目录无论缺键、显式 `strict` 还是 `per_group_fallback` 均 fail-closed 拒绝复用（`rc=1`），要求新 `outdir`。 | 实测已证实（见 §4.3）：仅保持哈希一致并不足以阻止重写——`analysis_identity_marker`（`workflow/rules/analysis.smk:42-60`）会把 `params.config_json` 纳入 Snakemake 元数据比对，任何 `effective_config.json` 载荷变化都会触发 `params changed / update pending` 并重写两份记录。 | **若采 PI-1A + PI-2A1/B 则选 A（附 §4.3 双重不变式）**；**若采 PI-2A2 / PI-1B / 全量改写 `effective_config.json` 则必选 B（rev 8）** |
 
-### 4.3 运行身份哈希与旧目录复用契约（可验证规格）
+### 4.3 运行身份哈希、记录不变性与旧目录复用契约（可验证规格）
 
-现行 `workflow/Snakefile:231-262` 中的 `_analysis_identity_config_values(config_values)` 会把 `VALIDATED_CONFIG` 中除 `("outdir", "samples", "threads")` 外的所有键原样纳入 SHA-256 载荷；`_check_analysis_outdir_identity()`（`workflow/Snakefile:440-448`）比对 `.helixweave/analysis_identity.json` 的 `identity`，而 `_check_effective_config_record()`（`workflow/Snakefile:387-438`）再用同一个 `_analysis_identity_payload(recorded["config"], _analysis_samples_identity())` 复算 `.helixweave/effective_config.json` 内的 `config` 是否自洽。
+现行运行目录保护由两道机制共同生效：
+1. **解析期身份校验**：`workflow/Snakefile:231-262` 中的 `_analysis_identity_config_values(config_values)` 哈希 `VALIDATED_CONFIG` 中除 `("outdir", "samples", "threads")` 外的所有键；`_check_analysis_outdir_identity()`（`workflow/Snakefile:440-448`）校验 `.helixweave/analysis_identity.json`，`_check_effective_config_record()`（`workflow/Snakefile:387-438`）再用同一函数复算 `.helixweave/effective_config.json` 的 `config` 自洽性。
+2. **规则期参数与字节不变性**：`workflow/rules/analysis.smk:42-60` 的 `rule analysis_identity_marker` 把 `_analysis_identity_marker_payload()`（`params.marker_json`）与 `_effective_config_record_payload()`（`params.config_json`）声明为 Snakemake `params`。即使身份哈希相同（例如仅把 `threads` 从 `1` 改为 `2`：`threads` 被排除出身份哈希，但仍包含在 `_canonical_record_config()` 中），基线 `52973b60` 实测已证实：`-n --summary` 会把 `analysis_identity.json` 与 `effective_config.json` 双双标为 `status=params changed` / `plan=update pending`，运行 `analysis_identity_marker` 后 `effective_config.json` 的字节确实被重写（且刷新 `analysis_identity.json` 时间戳，导致依赖它的 `prepare_analysis_bam` 被级联重跑）。
 
-基线 `52973b60` 实测已确认：`validate_config()` 产出的 `VALIDATED_CONFIG["reproducibility"]` 仅含 `['consensus', 'enabled', 'idr']` 三个键（子字典哈希前缀 `ece93538a3ba7006`）；若直接向其中写入默认值 `"mixed_replicate_policy": "strict"`，子字典哈希会立即变为 `297045937d5543f3`，导致所有未改动的旧目录在 `snakemake -n` 阶段即被 `_check_analysis_outdir_identity()` 拒绝，或篡改 `effective_config.json` 后被 `_check_effective_config_record()` 报 `"does not match its recorded identity"`。
+同时，基线 `52973b60` 实测还证实：`validate_config()` 产出的 `VALIDATED_CONFIG["reproducibility"]` 仅含 `['consensus', 'enabled', 'idr']` 三个键（子字典哈希前缀 `ece93538a3ba7006`）；若把默认值 `"mixed_replicate_policy": "strict"` 写入归一化 `reproducibility` 字典，子字典哈希会立即变为 `297045937d5543f3`，既破坏身份哈希也会触发 `params changed`。
 
-因此，本规格对三种输入形态进入身份哈希的方式做出如下明确约定：
+因此，本规格对 **PI-9A** 制定**双重不变式（哈希一致 + 记录零重写）**，并与 **PI-9B** 并列约定如下：
 
-| 配置写法 | **PI-9A**（`SCIENTIFIC_POLICY_REVISION = 7`，旧配置产物不变）进入 `_analysis_identity_config_values()` 的表示 | 对基线 rev-7 旧目录（`analysis_identity.json` + `effective_config.json`）行为 | **PI-9B**（`SCIENTIFIC_POLICY_REVISION = 8`，旧配置产物有变化）对基线 rev-7 旧目录行为 |
+| 配置写法 | **PI-9A**（`SCIENTIFIC_POLICY_REVISION = 7`，旧配置产物不变）归一化与载荷表示 | 对固定基线 `52973b60` 生成的 rev-7 旧目录行为 | **PI-9B**（`SCIENTIFIC_POLICY_REVISION = 8`，旧配置产物有变化）对固定基线 `52973b60` rev-7 旧目录行为 |
 | --- | --- | --- | --- |
-| **缺键**（历史 `config.yaml` 未写 `mixed_replicate_policy`） | `reproducibility` 哈希字典**不含** `mixed_replicate_policy` 键 → 哈希 = `H_baseline` | **复用（`rc=0`）**：`recorded_identity == H_baseline` 且 `effective_config.json` 复算自洽 | **拒绝（`rc=1`）**：`scientific_policy_revision`（7 vs 8）不匹配，报 `"created by a different scientific policy revision; use a fresh outdir"` |
-| **显式 `mixed_replicate_policy: strict`** | 校验层可保留或归一化为 `"strict"`，但 `_analysis_identity_config_values()` 在 `key == "reproducibility"` 时**显式剔除值为 `"strict"` 的 `mixed_replicate_policy`** → 哈希 = `H_baseline`（与缺键等价） | **复用（`rc=0`）**：无论旧目录由基线创建（无键）还是由新版显式 `strict` 创建（记录了 `"strict"`），经 `_analysis_identity_config_values()` 均复算为 `H_baseline` | **拒绝（`rc=1`）**：同上，因 rev 7 != 8 拒绝复用旧目录（新创建的 rev-8 目录内部，缺键与显式 `strict` 同样等价互用） |
-| **显式 `mixed_replicate_policy: per_group_fallback`** | `_analysis_identity_config_values()` **保留** `"mixed_replicate_policy": "per_group_fallback"` → 哈希 = `H_fallback != H_baseline` | **拒绝（`rc=1`）**：报 `"Existing analysis outdir has a different analysis identity; use a fresh outdir."`；反之，用缺键/`strict` 重跑已有 `per_group_fallback` 目录亦以相同错误拒绝 | **拒绝（`rc=1`）**：对 rev-7 旧目录先因 rev 不匹配拒绝；对 rev-8 `strict` 目录因 `H_fallback != H_baseline` 拒绝 |
+| **缺键**（历史 `config.yaml` 未写 `mixed_replicate_policy`） | 归一化 `VALIDATED_CONFIG["reproducibility"]` **不含** `mixed_replicate_policy` 键，且 `_effective_config_record_payload()` 不新增字段 → 身份哈希 = `H_baseline`，`params.marker_json` 与 `params.config_json` 均与基线 `52973b60` **字节一致** | **无重写复用（`rc=0`）**：`-n --summary` 对两份记录均报告 `status=ok` / `plan=no update`；仅执行 marker 目标后两份文件字节与基线 `52973b60` 逐字节相等 | **拒绝（`rc=1`）**：`scientific_policy_revision`（7 vs 8）不匹配，报 `"created by a different scientific policy revision; use a fresh outdir"`，基线两份记录字节不被触碰 |
+| **显式 `mixed_replicate_policy: strict`** | 在 `src/encode_pipeline/config/reproducibility.py`（或同时在 `workflow/Snakefile` 的 `_analysis_identity_config_values` 与 `_canonical_record_config`）将默认 `"strict"` **省略归一化**（不序列化进 `reproducibility` 字典，消费方按 `.get("mixed_replicate_policy", "strict")` 读取），且 `_effective_config_record_payload()` 不新增字段 → 哈希 = `H_baseline`，两份 `params.*_json` 与缺键及基线 `52973b60` **字节一致** | **双向无重写复用（`rc=0`）**：候选显式 `strict` 读取基线 `52973b60` 旧目录，以及候选缺键读取候选显式 `strict` 新建目录，均满足 `status=ok` / `plan=no update` 且运行 marker 目标前后两份记录逐字节相等 | **拒绝（`rc=1`）**：对基线 `52973b60` rev-7 旧目录因 rev 7 != 8 拒绝复用且不触碰字节（在候选新建的 rev-8 目录内部，缺键与显式 `strict` 同样双向 `ok / no update` 无重写复用） |
+| **显式 `mixed_replicate_policy: per_group_fallback`** | 归一化 `VALIDATED_CONFIG["reproducibility"]` **保留** `"mixed_replicate_policy": "per_group_fallback"` → 哈希 = `H_fallback != H_baseline`（且仅在此模式下允许在 `_effective_config_record_payload()` 写入 `resolved_reproducibility_by_experiment`） | **双向拒绝（`rc=1`）**：读取基线 `52973b60` 旧目录报 `"Existing analysis outdir has a different analysis identity; use a fresh outdir."` 且不触碰基线字节；反之，缺键与显式 `strict` 读取候选新建的 `per_group_fallback` 目录亦以相同错误拒绝 | **拒绝（`rc=1`）**：对基线 `52973b60` rev-7 旧目录先因 rev 不匹配拒绝；在 rev-8 目录内部与缺键/`strict` 双向因 `H_fallback != H_baseline` 拒绝 |
 
-补充约定：
-- `_effective_config_record_payload()`（`workflow/Snakefile:310-324`）可新增顶层信息字段 `resolved_reproducibility_by_experiment`（记录每实验组及 caller 解析出的路线与 `n_bioreps`）。由于 `_RECORD_FIELD_TYPES`（`workflow/Snakefile:379-384`）仅强制检查 `config_schema_version`、`scientific_policy_revision`、`identity`、`config` 四个顶层字段，**不**把 `resolved_reproducibility_by_experiment` 加入 `_RECORD_FIELD_TYPES` 即可保证基线 rev-7 `effective_config.json` 无需改写即可通过 `_check_effective_config_record()`。
-- **验收独立性**：旧目录复用/拒绝契约由 §6.3 的 **`I-01`–`I-04`** 专项断言（直接核验 `.helixweave/analysis_identity.json` 与 `.helixweave/effective_config.json`），不依赖 `M-06` 的 10 列 manifest 回归替代。
+- **验收独立性与跨版本基线要求**：旧目录复用/拒绝契约由 §6.3 的 **`I-01`–`I-04`** 专项断言，**严禁由候选实施代码自行生成其所读取的“旧目录”**——必须先在固定基线 `52973b60` 生成并冻结 `.helixweave/analysis_identity.json`、`.helixweave/effective_config.json` 与共享工作目录的 `.snakemake/metadata/`（保持同一组输入的绝对路径），再切换至候选实现检出执行复用/拒绝与逐字节不变性校验（详见 §6.4 两阶段脚本）。`M-06` 仅覆盖 10 列 manifest 回归，不替代 `I-01`–`I-04`。
 
 ---
 
@@ -228,8 +228,8 @@ flowchart LR
 
 | 场景类别 | 具体场景 | 现行行为（基线 `52973b60`） | 拟议行为（含明确退出码） | 产物命名 | 来源与统计口径（Provenance） | 潜在歧义 | 兼容性 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **纯 2 重复（既有默认）** | 2 重复 `chipseq/narrow`，`chipseq_idr: true`，`reproducibility.enabled: false` 或 `consensus.enabled: false`，**缺键或显式 `strict`** | **`rc=0` 通过**；产出 `06_idr/final/*`（无 consensus） | **`rc=0` 完全不变**（与缺键等价，复用基线 rev-7 旧目录） | `experiments/<exp>/06_idr/final/{conservative,optimal}.narrowPeak`、`reproducibility_summary.tsv` | 宽松 MACS3（`-p 0.1 --keep-dup all`）+ per-biorep 匹配对照（若有）+ IDR（默认 `threshold=0.05, rank=p.value`）+ 峰级 blacklist；`Nt/Np/N1/N2` 计于 blacklist 前 | 无新增歧义 | **100% 向后兼容**（rev 7 哈希不变） |
-| **纯 2 重复（`per_group_fallback` 但 consensus 关）** | 2 重复 `chipseq/narrow`，`chipseq_idr: true`，`reproducibility.enabled: false` 或 `consensus.enabled: false`，**显式 `mixed_replicate_policy: per_group_fallback`** | 当前未知键报错（`unknown key 'mixed_replicate_policy'`，若 `enabled: false` 当前会静默忽略） | **`rc=1` 准入拒绝**（与 PI-1A、V-03 一致：`per_group_fallback` 前置条件不满足，无论样本是否纯 2 重复均拒绝，且 `enabled: false` 时禁止静默忽略） | 无（准入拒绝） | — | 彻底消除“同一输入在纯 2 下通过却在 V-03 拒绝”的矛盾 | fail-closed，零误配 |
+| **纯 2 重复（既有默认）** | 2 重复 `chipseq/narrow`，`chipseq_idr: true`，`reproducibility.enabled: false` 或 `consensus.enabled: false`，**缺键或显式 `strict`** | - **缺键**（无论 `reproducibility.enabled: false` 或 `enabled: true, consensus.enabled: false`）：**`rc=0`**，产出 `06_idr/final/*`（无 consensus）。<br>- **显式 `strict` 且 `reproducibility.enabled: true, consensus.enabled: false`**：**`rc=1`**（未知键：`reproducibility: unknown key 'mixed_replicate_policy'`，`src/encode_pipeline/config/reproducibility.py:186-191`）。<br>- **显式 `strict` 且 `reproducibility.enabled: false`**：**`rc=0`**（`reproducibility.py:63-64` 早退忽略子键）。 | **`rc=0`（缺键与显式 `strict` 全部统一通过）**；按 §4.3 省略默认 `strict` 归一化，与基线 `52973b60` rev-7 旧目录逐字节兼容、无重写复用 | `experiments/<exp>/06_idr/final/{conservative,optimal}.narrowPeak`、`reproducibility_summary.tsv` | 宽松 MACS3（`-p 0.1 --keep-dup all`）+ per-biorep 匹配对照（若有）+ IDR（默认 `threshold=0.05, rank=p.value`）+ 峰级 blacklist；`Nt/Np/N1/N2` 计于 blacklist 前 | 无新增歧义 | **100% 向后兼容**（PI-9A 下哈希与记录字节不变） |
+| **纯 2 重复（`per_group_fallback` 但 consensus 关）** | 2 重复 `chipseq/narrow`，`chipseq_idr: true`，`reproducibility.enabled: false` 或 `consensus.enabled: false`，**显式 `mixed_replicate_policy: per_group_fallback`** | - `reproducibility.enabled: true, consensus.enabled: false`：**`rc=1`**（未知键 `mixed_replicate_policy`）。<br>- `reproducibility.enabled: false`：**`rc=0`**（`reproducibility.py:63-64` 早退静默忽略）。 | **`rc=1` 准入拒绝**（与 PI-1A、V-03/V-03b 一致：`per_group_fallback` 前置条件不满足，无论样本是否纯 2 重复均拒绝，且 `enabled: false` 时禁止静默忽略） | 无（准入拒绝） | — | 彻底消除“同一输入在纯 2 下通过却在 V-03 拒绝”以及父开关关闭静默忽略的矛盾 | fail-closed，零误配 |
 | **纯 2 重复（IDR + consensus 均开）** | 2 重复 `chipseq/narrow`，`chipseq_idr: true` + `reproducibility.enabled: true` + `consensus.enabled: true`（缺键/`strict` 或 `per_group_fallback`） | 缺键时 **`rc=0`**；产出 `06_idr/final/*` + `06_reproducibility/consensus/*` | 缺键/`strict`：**`rc=0`**（复算为 `H_baseline`，可复用基线 rev-7 目录）；`per_group_fallback`：**`rc=0`**（无 3+ 组触发回退，不发混合告警；但身份哈希为 `H_fallback`，不复用 `strict` 目录） | `06_idr/final/{conservative,optimal}.narrowPeak`、`reproducibility_summary.tsv` + `06_reproducibility/consensus/<exp>.chipseq.macs3.narrow.consensus.{narrowPeak,summary.tsv}` | 同上；`consensus.summary.tsv` 标 `final_method=idr` | 同一实验既有 `06_idr/final/` 又有 secondary `06_reproducibility/consensus/` | 缺键/`strict` 100% 向后兼容 |
 | **纯 2 重复（非 ChIP 窄峰 IDR，含 CUT&Tag + SEACR）** | 2 重复 `atac/narrow`、`cuttag/narrow` 或 broad 实验性 IDR 开（`cuttag` PE 可同开 `seacr`）；缺键/`strict` 或 `per_group_fallback`（后者要求 `consensus.enabled: true`） | 缺键时 **`rc=0`**；若 `cuttag` PE 同开 `seacr` + `consensus`，DAG 与 manifest **同时**产出 MACS3 `...idr.narrowPeak` 与 SEACR `...consensus.bed` | 缺键/`strict`（及 `consensus.enabled: true` 时的 `per_group_fallback`）均 **`rc=0`**；`per_group_fallback` 且 `consensus.enabled: false` 时 **`rc=1`**；修复 `targets.smk:925` 保证 **MACS3** 内无 `consensus_final`，同时保留 **SEACR** `final/...consensus.bed` | MACS3：`06_reproducibility/final/<exp>.<assay>.macs3.<mode>.replicate_validated.idr.<suffix>` + 15 列汇总；若 PE CUT&Tag 开 SEACR：另保留 `06_reproducibility/final/<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` | MACS3 IDR 仅 `true_peaks` 复制为最终峰（无 `optimal`）；SEACR 走独立 BED consensus-only 管线 | 同一 CUT&Tag 实验组的 `06_reproducibility/final/` 下并存 MACS3 IDR 与 SEACR consensus 两个不同 caller 的最终峰，属既有预期行为而非冲突 | **100% 向后兼容** |
 | **纯 2 重复（consensus-only）** | 2 重复走 consensus-only（IDR 关、`consensus` 开，含 `cuttag/seacr` PE） | **`rc=0`**；broad、`cuttag/narrow` 与 `seacr` 提升至 `final/`；`chipseq/narrow` 与 `atac/narrow` 仅在 `consensus/` | 按 **PI-2A1 / PI-2B**：**`rc=0` 且完全不变**（rev 7 旧目录可复用）；按 **PI-2A2**：`chipseq/narrow` 与 `atac/narrow` 同步提升至 `final/...replicate_validated.consensus.narrowPeak`（需 **PI-9B** 升 rev 8） | `<exp>.<assay>.<caller>.<mode>.consensus.<suffix>` 及（若提升）`final/<exp>.<assay>.<caller>.<mode>.replicate_validated.consensus.<suffix>` | 标准 MACS3（`-q 0.01 --keep-dup all`）或 SEACR + 互惠重叠图连通分量（`reciprocal_overlap=0.5`, `support>=2/2`）+ 峰级 blacklist | 2-of-2 合并区间是最小起点到最大终点（非严格交集），`score=1000`，`pValue=qValue=-1` | PI-2A1/B 零变化；PI-2A2 需升 rev 8 |
@@ -242,7 +242,7 @@ flowchart LR
 | **混合 2/3 + 对照** | `use_control: true` 且两组各自匹配 FASTQ `control_sample`；或一组有对照、另一组无对照 | 同模式混合 2/3 因 3 重复被拒；若关 IDR 仅开 consensus，则两种对照情形目前均 `rc=0` | 均匹配对照者在 `per_group_fallback` 下 `rc=0`，per-biorep 使用 `biorep<N>.control.final.bam`、pooled-pr 使用 `pooled.control.final.bam`；跨组“一有一无对照”在 PI-6=A 下 `rc=0` 并发出可比性警告（PI-6=B 则 `rc=1`） | 产物路径不变；来源记录在 `effective_config.json` 与 `consensus.summary.tsv` | 同组内 per-biorep 匹配对照，支持多 biorep 共享同组内同一 `control_sample` | 同项目内一组有对照、另一组无对照会叠加放大背景噪声差异 | 保持 FASTQ-only 对照政策，不恢复 `control_bam` |
 | **参数边界：`min_replicates > 2`（含 SEACR）** | 存在 2 重复组（纯 2 CUT&Tag+SEACR 或混合 2/3）且设置 `consensus.min_replicates: 3` | **缺陷**：`validate` 与 `snakemake -n` 静默返回 `rc=0`（实测 `G`/`D3`），MACS3 与 SEACR 两条 `compute_consensus.py` 均收到 `--min-replicates 3` + `--bioreps 1 2`，运行期崩溃 | - **PI-5A**：无论是否开 IDR/SEACR，只要任一 consensus 分支（MACS3 或 SEACR）存在 `n_bioreps < min_replicates`，准入即 **`rc=1` 拒绝**。<br>- **PI-5B**：无 SEACR 且 2 重复组走 MACS3 IDR 时，`rc=0` 跳过 2 重复组 MACS3 secondary consensus，仅对 3 重复组运行 `min_replicates=3`；**但若开启 `cuttag.seacr.enabled: true` 且存在 2 重复 PE CUT&Tag 组，独立 SEACR 分支达不到门槛 3，准入仍必须 `rc=1` 拒绝**。 | PI-5A 无产物；PI-5B（无 SEACR 冲突时）仅 `GRP3` 有 MACS3 `consensus/` 与 `final/` | 杜绝静默降级 `min_replicates`，也杜绝静默丢弃独立 SEACR 最终 BED | 若选 PI-5B，`GRP2` 将缺少 secondary MACS3 consensus 文件，需在 `effective_config.json` 与汇总中显式记录 | 消除运行期崩溃；纯 3 重复设 `min_replicates: 3` 继续 `rc=0` |
 | **非法组合** | (a) `n_bioreps=1` 与 2/3 重复同模式混用且 IDR 开；(b) `replicate_analysis: false` + IDR 开；(c) 同组部分对照；(d) 跨实验对照（多行组或 strict 模式）；(e) `use_control: true` + `control_bam`；(f) `atac/broad`；(g) 重复 `(bio, tech)`；(h) `per_group_fallback` 但 `reproducibility.enabled: false` 或 `consensus.enabled: false` | (a)-(g) 均在准入校验拒绝（见 §1.3 / §3.3 实测）；(h) 为新增配置 | **全部在准入校验阶段 fail-closed 拒绝（`rc=1`）**，且 (h) 在纯 2 与混合 2/3 下一致报错 | 无 | — | 特别注意修补 `replicates.py:115` 单行组跳过跨实验对照校验的既有一致性缺口（可作为独立或同批小修） | 严格 fail-closed |
-| **历史与既有项目** | (1) 既有 `config.yaml`（`config_schema_version` 1.0.0/2.0.0，不含新键）；(2) 已跑完的基线 rev-7 outdir（`.helixweave/analysis_identity.json` + `effective_config.json`）；(3) 历史 SQLite 产物/发布记录；(4) 旧 10 列 `result_manifest.tsv`；(5) Web Authoring Schema `3.2.0` 与保存草稿 | 按现行契约正常运行、读取、展示 | (1) 缺键等价 `strict`；(2) 旧目录只读可读；重跑行为严格遵循 **§4.3**（PI-9A 下缺键与显式 `strict` 复算为 `H_baseline` 可复用旧目录，`per_group_fallback` 因 `H_fallback != H_baseline` 拒绝复用；PI-9B 下 rev 8 拒绝复用全部 rev-7 旧目录）；(3) SQLite 无需 Alembic 迁移；(4) `result_manifest.tsv` 保持 10 列；(5) Authoring Schema `3.2.0` 旧草稿完全有效 | 既有路径、既有 `output_type` 与既有目录结构均不重命名、不删除 | 新旧产物在 `artifact-inventory.yaml` 中并存，仅增量追加（若 PI-2A1/A2） | 在线内联编辑触发 `ENCODE_SAMPLES_INVALID` 时 `sanitize_errors=True` 仍脱敏为 `"Sample sheet is invalid."`，需保留脱敏边界 | **向后兼容，无 DB 迁移，无 OpenAPI 破坏性变更，身份复用边界可机测验证** |
+| **历史与既有项目** | (1) 既有 `config.yaml`（`config_schema_version` 1.0.0/2.0.0，不含新键）；(2) 已跑完的固定基线 `52973b60` rev-7 outdir（`.helixweave/analysis_identity.json` + `effective_config.json` + `.snakemake/metadata/`）；(3) 历史 SQLite 产物/发布记录；(4) 旧 10 列 `result_manifest.tsv`；(5) Web Authoring Schema `3.2.0` 与保存草稿 | 按现行契约正常运行、读取、展示 | (1) 缺键等价 `strict`；(2) 旧目录只读可读；重跑行为严格遵循 **§4.3**（PI-9A 下缺键与显式 `strict` 均满足 `ok / no update` 且运行 marker 目标前后两份记录逐字节不变，`per_group_fallback` 拒绝复用且不触碰基线字节；PI-9B 下 rev 8 对三种写法均拒绝复用 rev-7 旧目录）；(3) SQLite 无需 Alembic 迁移；(4) `result_manifest.tsv` 保持 10 列；(5) Authoring Schema `3.2.0` 旧草稿完全有效 | 既有路径、既有 `output_type` 与既有目录结构均不重命名、不删除 | 新旧产物在 `artifact-inventory.yaml` 中并存，仅增量追加（若 PI-2A1/A2） | 在线内联编辑触发 `ENCODE_SAMPLES_INVALID` 时 `sanitize_errors=True` 仍脱敏为 `"Sample sheet is invalid."`，需保留脱敏边界 | **向后兼容，无 DB 迁移，无 OpenAPI 破坏性变更，跨版本身份复用与非重写边界可机测验证** |
 
 ---
 
@@ -261,7 +261,7 @@ flowchart LR
 | 用例 ID | 阶段标记 | 输入条件 | 预期退出码 / 返回值 | 精确通过断言 |
 | --- | --- | --- | --- | --- |
 | `V-01` | `[基线当前可通过]` | 混合 2/3 `chipseq/narrow` + `chipseq_idr: true`，缺键（默认 `strict`） | CLI `rc=1`；Adapter `ok=False` | stderr 含 `ChIP-seq IDR: experiment 'GRP3' has 3 biological replicate(s) ([1, 2, 3]). ChIP-seq IDR requires exactly 2.` |
-| `V-01b` | `[基线当前可通过]` | 纯 2 重复 `chipseq/narrow` + `chipseq_idr: true` + `reproducibility.enabled: false`（缺键或实施后显式 `strict`） | CLI `rc=0`；Adapter `ok=True` | 既有成功用例保持不变（与 `V-03` / `V-03b` 并列对照） |
+| `V-01b` | `[基线/实施后]` | 纯 2 重复 `chipseq/narrow` + `chipseq_idr: true` + `consensus` 关：(a) 缺键（`reproducibility.enabled: false` 或 `enabled: true, consensus.enabled: false`）；(b) 显式 `strict` + `reproducibility.enabled: false`；(c) 显式 `strict` + `reproducibility.enabled: true, consensus.enabled: false` | 基线：(a)(b) `rc=0`，(c) `rc=1`（未知键）；实施后：(a)(b)(c) 均 `rc=0` | 锁定 §5.1 首行现行与实施后口径，与 `V-03` / `V-03b` 并列对照 |
 | `V-02` | `[实施后方应通过]` | 同 `V-01`，显式 `mixed_replicate_policy: per_group_fallback` + `reproducibility.enabled: true` + `consensus.enabled: true` | CLI `rc=0`；Adapter `ok=True` | 通过校验；发出结构化 `WARNING` 指明 `GRP2 -> idr`、`GRP3 -> consensus`（`n_bioreps=2` vs `3`）；同样覆测 `idr.chipseq_narrow` 别名、`atac_narrow`、`cuttag_narrow`、`chipseq_broad_experimental`、`cuttag_broad_experimental` |
 | `V-03` | `[实施后方应通过]` | 混合 2/3 + `mixed_replicate_policy: per_group_fallback`，但 `reproducibility.enabled: false` 或 `consensus.enabled: false` | CLI `rc=1`；Adapter `ok=False` | 明确报错指出 `per_group_fallback` 需要同时启用 `reproducibility.enabled` 与 `reproducibility.consensus.enabled` |
 | `V-03b` | `[实施后方应通过]` | **纯 2 重复** `chipseq/narrow` + `chipseq_idr: true` + 显式 `mixed_replicate_policy: per_group_fallback`，但 `reproducibility.enabled: false` 或 `consensus.enabled: false` | CLI `rc=1`；Adapter `ok=False` | 与 `V-03` 统一退出码 `rc=1`（配置前置条件与样本数解耦；`reproducibility.enabled: false` 时不得静默忽略 `mixed_replicate_policy`）；对比 `V-01b`（缺键/`strict` 返回 `rc=0`） |
@@ -297,49 +297,57 @@ flowchart LR
 | `M-04` | `[实施后方应通过]` | 将 `M-01` / `M-02` 生成的占位文件目录送入 `EncodeStyleWorkflowAdapter.extract_artifacts()` 与 `describe_browser_artifact()` | 全部 `present` 行均在 `src/encode_pipeline/artifacts/artifact-inventory.yaml` 中精确命中，零 `ENCODE_ARTIFACT_CATALOG_MISMATCH`；WashU 描述中 `GRP2` IDR 峰与 `GRP3` consensus 峰均正确识别为 interval 轨道且 `detail`/`score_meaning` 明确区分统计口径。 |
 | `M-05` | `[基线/实施后]` | `pytest test/docs/test_output_contract.py test/workflow/test_artifact_catalog_compatibility.py -v` | `src/encode_pipeline/artifacts/artifact-inventory.yaml`、`docs/architecture/artifact-inventory.yaml` 与 `docs/output-contract.md` 保持 100% 同步。 |
 | `M-06` | `[基线/实施后]` | 既有纯 2 重复与历史 10 列 manifest 回归 | 所有既有 manifest 测试与快照全绿，10 列字段无改名或删除（不承担旧目录身份复用断言，该职责由下方 `I-01`–`I-04` 承担）。 |
-| `I-01` | `[基线当前可通过]` | 用基线 `52973b60` 规则 `analysis_identity_marker` 为纯 2 重复配置写入 `.helixweave/analysis_identity.json`（rev 7, marker v3）与 `.helixweave/effective_config.json`（不含 `mixed_replicate_policy`）；再用**缺键**配置执行 `snakemake -n` | 在基线与实施后（PI-9A）均返回 `rc=0`（复算身份与基线 marker 完全一致，复用旧目录；且不改写基线 `effective_config.json`）。 |
-| `I-02` | `[实施后方应通过]` | 针对 `I-01` 生成的同一基线 rev-7 旧目录，改用**显式 `mixed_replicate_policy: strict`** 执行 `snakemake -n`（并反向测试：新版显式 `strict` 创建的目录用缺键配置重跑） | **PI-9A**：双向均返回 `rc=0`（`_analysis_identity_config_values()` 省略默认 `"strict"`，与基线 `H_baseline` 字节一致，且 `_check_effective_config_record()` 复算通过）。 |
-| `I-03` | `[实施后方应通过]` | 针对 `I-01` 生成的同一基线 rev-7 旧目录，改用**显式 `mixed_replicate_policy: per_group_fallback`** 执行 `snakemake -n`（并反向测试：用缺键/`strict` 重跑已有 `per_group_fallback` 目录） | **PI-9A**：双向均返回 `rc=1`，错误含 `"Existing analysis outdir has a different analysis identity; use a fresh outdir."`。 |
-| `I-04` | `[实施后方应通过（仅 PI-9B）]` | 若 PI 采纳 **PI-9B**（`SCIENTIFIC_POLICY_REVISION` 升至 `8`），针对 `I-01` 生成的基线 rev-7 旧目录分别用缺键、`strict`、`per_group_fallback` 执行 `snakemake -n` | 三者均返回 `rc=1`，错误含 `"created by a different scientific policy revision; use a fresh outdir"`（验证 `analysis_identity.json` 与 `effective_config.json` 双重版本隔离）。 |
+| `I-01` | `[基线 + 实施后（PI-9A）]` | **跨版本基线夹具**：先在固定基线 `52973b60` 用 `analysis_identity_marker`（共享 `--directory`）为纯 2 重复配置生成并冻结 rev-7 旧目录（`.helixweave/analysis_identity.json`、`effective_config.json` 与 `.snakemake/metadata/`，保留输入绝对路径）；再用基线或候选实现（PI-9A）以**缺键**配置读取该冻结目录 | `-n --summary <marker> <eff>` 返回 `rc=0` 且两份记录均为 **`status=ok`、`plan=no update`**；仅执行 `--cores 1 <marker> <eff>` 返回 `rc=0` 且执行前后两份记录与基线 `52973b60` **逐字节相等**（不得重写）。 |
+| `I-01b` | `[基线当前可通过（反例对照）]` | 在独立副本目录上将 `threads` 从 `1` 改为 `2`（身份哈希不变但 `params.config_json` 变化） | `-n --summary <marker> <eff>` 返回 `rc=0`，但两份记录均报 **`status=params changed`、`plan=update pending`**；执行 `--cores 1 <marker> <eff>` 后 `effective_config.json` 字节确实变化（证明仅看 `rc=0` 不足以验证“不重写”，必须叠加 `ok / no update` + 逐字节断言）。 |
+| `I-02` | `[实施后方应通过（PI-9A）]` | **正向**：候选实现用**显式 `mixed_replicate_policy: strict`** 读取固定基线 `52973b60` 冻结的 rev-7 旧目录。<br>**反向**：候选实现用显式 `strict` 在新目录生成记录并冻结字节，再用**缺键**配置读取该新目录 | 正反向均满足：`-n --summary <marker> <eff>` 返回 `rc=0` 且两份记录均为 **`status=ok`、`plan=no update`**；仅执行 `--cores 1 <marker> <eff>` 返回 `rc=0` 且两份记录**逐字节不变**。 |
+| `I-03` | `[实施后方应通过（PI-9A）]` | **正向**：候选实现用**显式 `mixed_replicate_policy: per_group_fallback`** 读取固定基线 `52973b60` 冻结的 rev-7 旧目录。<br>**反向**：候选实现用 `per_group_fallback` 在新目录生成记录，再用**缺键**与**显式 `strict`** 分别读取该新目录 | 正反向全部返回 `rc=1`，错误含 `"Existing analysis outdir has a different analysis identity; use a fresh outdir."`，且既有两份记录字节不被触碰。 |
+| `I-04` | `[实施后方应通过（PI-9B）]` | 若 PI 采纳 **PI-9B**（`SCIENTIFIC_POLICY_REVISION` 升至 `8`）：<br>1. 候选实现分别用**缺键**、**显式 `strict`**、**显式 `per_group_fallback`** 读取固定基线 `52973b60` 冻结的 rev-7 旧目录；<br>2. 候选实现在新目录写出 rev-8 记录并检验缺键 ↔ 显式 `strict` 无重写复用与 `per_group_fallback` 双向拒绝 | 1. 三种配置读取 `52973b60` rev-7 旧目录均返回 `rc=1`，错误含 `"created by a different scientific policy revision; use a fresh outdir"`，且 rev-7 字节不被触碰。<br>2. 新建目录写出 `scientific_policy_revision == 8`，目录内缺键 ↔ `strict` 满足 `ok / no update` + 逐字节不变，与 `per_group_fallback` 双向拒绝。 |
 
-### 6.4 可独立复制运行的临时夹具与验收脚本
+### 6.4 可独立复制运行的两阶段夹具与验收脚本
 
-以下命令从仓库根目录运行，自动在临时目录内生成全部合成样本表、占位 FASTQ/Bowtie2 索引/chrom.sizes、配置文件与真实基线 `.helixweave/` 身份标记，并同时检验 validator 退出码、按组 DAG 路径（`snakemake -n --summary`）、Shell 门槛参数（`snakemake -n -p`）、manifest 行与旧目录复用/拒绝语义：
+为避免候选实施版本“自己生成自己要读取的旧目录”，验收脚本显式拆分为**持久化夹具目录（`--fixture-dir`）驱动的两阶段流程**：
 
-- **当前基线（`52973b60`）可直接运行 `--stage baseline`**（已实测退出码 0，输出 `BASELINE CHECKS PASSED`）；
-- **实施 PR 完成后运行 `--stage post-impl`**（核验推荐组合 PI-1A / PI-2A1 / PI-4B / PI-5A / PI-9A 下的全链路行为；若 PI 选 PI-9B 则按 `I-04` 替换最后两行身份断言）。
+1. **阶段 1（`--stage generate-baseline`）**：在固定基线 `52973b6020e1bd6c9b44e08fdf1ae8b526a43666` 检出（或 `workflow/ src/ scripts/ config/` 与 `52973b60` 零差异的纯文档检出）运行。脚本会先用 `git diff --quiet 52973b6020e1bd6c9b44e08fdf1ae8b526a43666 -- workflow/ src/ scripts/ config/` 强制防误用，随后在 `$FIXTURE_DIR` 内以固定绝对路径生成样本表、占位输入、`workdir/config/config.yaml` 以及真实 `52973b60` 产出的 rev-7 `out_id_base/.helixweave/{analysis_identity,effective_config}.json` 与 `workdir/.snakemake/metadata/`，把冻结字节写入 `$FIXTURE_DIR/baseline_snapshot.json`，并同步执行全部 **`[基线当前可通过]`** 断言（含 `V-01`、`V-01b` 现行行为、`D-00`、`D-05`、`M-00`、`I-01` 无重写复用、`I-01b` `threads 1→2` 改写反例、`D3` `min_replicates=3` 基线缺陷与 `effective_config.json` 篡改校验）。
+2. **阶段 2（`--stage post-impl-pi9a` 或 `--stage post-impl-pi9b`）**：切换至**候选实施检出**（配该检出的任务本地 Python 解释器），指向**同一个 `$FIXTURE_DIR`**，直接读取阶段 1 由 `52973b60` 冻结的 rev-7 旧目录与原输入绝对路径（绝不重建基线旧目录），完整执行全部 **`[实施后方应通过]`** 断言（含 `PI-9A` 的 `I-01`/`I-02`/`I-03` 正反向无重写与拒绝断言，或 `PI-9B` 的 `I-04` 三配置拒绝旧目录 + rev-8 新目录断言）。
 
 ```bash
-# 将 PY 指向按 AGENTS.md 建立的任务本地环境解释器（例如 ./.local/envs/ci-fast/bin/python）
+# ============================================================================
+# 阶段 1：在固定基线 52973b60（或代码树与 52973b60 一致的纯文档检出）根目录运行
+# ============================================================================
 PY=./.local/envs/ci-fast/bin/python
+FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/irene51-fixture-XXXXXX")
 
-"$PY" - --stage baseline <<'PY'
-import argparse, json, pathlib, subprocess, sys, tempfile, yaml
+cat <<'PY' > "$FIXTURE_DIR/verify_mixed_replicates.py"
+import argparse, base64, json, pathlib, shutil, subprocess, sys, yaml
 from encode_pipeline.manifest.make import build_manifest_rows
 
+BASELINE_SHA = "52973b6020e1bd6c9b44e08fdf1ae8b526a43666"
+REPO = pathlib.Path(".").resolve()
 PY = sys.executable
 
 def run_validate(cfg_path):
     return subprocess.run(
-        [PY, "-I", "-S", "scripts/checkout_bootstrap.py", "--repository-root", ".",
+        [PY, "-I", "-S", "scripts/checkout_bootstrap.py", "--repository-root", str(REPO),
          "validate", "--config", str(cfg_path)],
         capture_output=True, text=True,
     )
 
-def run_snakemake(cfg_path, *extra_args):
+def run_snakemake(cfg_path, workdir, *extra_args):
     return subprocess.run(
-        [PY, "-m", "snakemake", "-s", "workflow/Snakefile", "--configfile", str(cfg_path),
+        [PY, "-m", "snakemake", "-s", str(REPO / "workflow" / "Snakefile"),
+         "--directory", str(workdir), "--configfile", str(cfg_path),
          "--profile", "none", "--workflow-profile", "none", *extra_args],
         capture_output=True, text=True,
     )
 
-def parse_summary_paths(stdout):
-    paths = {}
+def parse_summary(stdout):
+    rows = {}
     for line in stdout.splitlines():
         cols = line.split("\t")
-        if len(cols) >= 3 and cols[0] != "output_file":
-            paths[cols[0]] = cols[2]
-    return paths
+        if len(cols) >= 6 and cols[0] != "output_file":
+            rows[cols[0]] = {"date": cols[1], "rule": cols[2], "log": cols[3],
+                             "status": cols[4], "plan": cols[5]}
+    return rows
 
 def write_tsv(path, rows):
     cols = ["sample", "layout", "fastq_1", "fastq_2", "assay", "peak_mode", "genome",
@@ -348,206 +356,408 @@ def write_tsv(path, rows):
     lines = ["\t".join(cols)] + ["\t".join(str(r[c]) for c in cols) for r in rows]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--stage", choices=("baseline", "post-impl"), required=True)
-args = parser.parse_args()
+def write_cfg(cfg_dir, name, tsv, bt2, cs, outdir, extra):
+    cfg = {"samples": str(tsv), "outdir": str(outdir), "genome": "hs",
+           "bowtie2_index": str(bt2), "chrom_sizes": str(cs), "use_control": False,
+           "replicate_analysis": True, "threads": 1, "chipseq_idr": False,
+           "blacklist_mode": "off"}
+    cfg.update(extra)
+    p = cfg_dir / f"{name}.yaml"
+    p.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    return p, cfg
 
-with tempfile.TemporaryDirectory(prefix="irene51-accept-") as td:
-    tmp = pathlib.Path(td)
-    r1, r2 = tmp / "r1.fq.gz", tmp / "r2.fq.gz"
+def init_workdir(wd, base_config_yaml):
+    (wd / "config").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_config_yaml, wd / "config" / "config.yaml")
+    return wd
+
+def assert_reuse_without_rewrite(cfg_path, workdir, marker, eff, orig_m_bytes, orig_e_bytes):
+    sm = run_snakemake(cfg_path, workdir, "-n", "--summary", str(marker), str(eff))
+    assert sm.returncode == 0, sm.stdout + sm.stderr
+    summary = parse_summary(sm.stdout)
+    for rec in (marker, eff):
+        info = summary[str(rec)]
+        assert info["status"] == "ok" and info["plan"] == "no update", (rec, info)
+    exec_p = run_snakemake(cfg_path, workdir, "--cores", "1", str(marker), str(eff))
+    assert exec_p.returncode == 0, exec_p.stdout + exec_p.stderr
+    assert marker.read_bytes() == orig_m_bytes, f"marker bytes changed: {marker}"
+    assert eff.read_bytes() == orig_e_bytes, f"effective_config bytes changed: {eff}"
+
+def run_post_impl_functional(fix, wd_func, cfg_dir, inputs):
+    pure2_chip, mixed23_chip = inputs["pure2_chip"], inputs["mixed23_chip"]
+    cuttag2, mixed23_cuttag = inputs["cuttag2"], inputs["mixed23_cuttag"]
+    bt2, cs = inputs["bt2"], inputs["cs"]
+
+    # [实施后] V-01b: 纯 2 + IDR 开 + consensus 关，缺键与显式 strict（父开关关或开）均 rc=0
+    for nm, repro in (
+        ("p2_absent_poff", {"enabled": False}),
+        ("p2_absent_coff", {"enabled": True, "consensus": {"enabled": False}}),
+        ("p2_strict_poff", {"enabled": False, "mixed_replicate_policy": "strict"}),
+        ("p2_strict_coff", {"enabled": True, "consensus": {"enabled": False}, "mixed_replicate_policy": "strict"}),
+    ):
+        cp, _ = write_cfg(cfg_dir, nm, pure2_chip, bt2, cs, fix / f"out_{nm}",
+                          {"chipseq_idr": True, "reproducibility": repro})
+        assert run_validate(cp).returncode == 0, nm
+
+    # [实施后] V-03b: 纯 2 + 显式 per_group_fallback + consensus 关（父开关关或开）均 rc=1
+    for nm, repro in (
+        ("p2_fb_poff", {"enabled": False, "mixed_replicate_policy": "per_group_fallback"}),
+        ("p2_fb_coff", {"enabled": True, "consensus": {"enabled": False}, "mixed_replicate_policy": "per_group_fallback"}),
+    ):
+        cp, _ = write_cfg(cfg_dir, nm, pure2_chip, bt2, cs, fix / f"out_{nm}",
+                          {"chipseq_idr": True, "reproducibility": repro})
+        assert run_validate(cp).returncode == 1, nm
+
+    # [实施后] V-06: CUT&Tag PE 2 重复 + IDR + SEACR + min_replicates=3 -> rc=1（PI-5A 与 PI-5B 均拒绝）
+    c_m3, _ = write_cfg(cfg_dir, "post_ct2_m3", cuttag2, bt2, cs, fix / "out_post_ct2_m3", {
+        "cuttag": {"seacr": {"enabled": True, "mode": "stringent", "threshold": 0.01, "normalization": "non"}},
+        "reproducibility": {"enabled": True, "consensus": {"enabled": True, "min_replicates": 3},
+                            "idr": {"cuttag_narrow": True}},
+    })
+    assert run_validate(c_m3).returncode == 1
+
+    # [实施后] V-02 / D-01 / M-01: 混合 2/3 ChIP 窄峰 + per_group_fallback
+    out_mc = fix / "out_post_mchip_fb"
+    c_mc, cfg_mc = write_cfg(cfg_dir, "post_mchip_fb", mixed23_chip, bt2, cs, out_mc, {
+        "chipseq_idr": True,
+        "reproducibility": {"enabled": True, "mixed_replicate_policy": "per_group_fallback",
+                            "consensus": {"enabled": True, "min_replicates": 2}},
+    })
+    assert run_validate(c_mc).returncode == 0
+    sm_mc = run_snakemake(c_mc, wd_func, "-n", "--summary")
+    assert sm_mc.returncode == 0, sm_mc.stderr
+    p_mc = parse_summary(sm_mc.stdout)
+    assert f"{out_mc}/experiments/GRP2/06_idr/final/conservative.narrowPeak" in p_mc
+    assert f"{out_mc}/experiments/GRP2/06_idr/final/optimal.narrowPeak" in p_mc
+    assert f"{out_mc}/experiments/GRP2/06_reproducibility/final/GRP2.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak" not in p_mc
+    assert not any("/experiments/GRP3/06_idr/" in k for k in p_mc)
+    assert f"{out_mc}/experiments/GRP3/06_reproducibility/final/GRP3.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak" in p_mc
+    m_mc, _, _ = build_manifest_rows(cfg_mc, samples_path=str(mixed23_chip))
+    mt_mc = {(r["experiment_id"], r["output_type"]) for r in m_mc}
+    assert ("GRP2", "idr_conservative") in mt_mc and ("GRP2", "idr_optimal") in mt_mc
+    assert ("GRP2", "chipseq_macs3_narrow_consensus_final_peak") not in mt_mc
+    assert ("GRP3", "chipseq_macs3_narrow_consensus_final_peak") in mt_mc
+    assert ("GRP3", "idr_conservative") not in mt_mc
+
+    # [实施后] D-02 / M-02: 混合 2/3 PE CUT&Tag + narrow IDR + consensus + SEACR + per_group_fallback
+    out_mct = fix / "out_post_mct_fb"
+    c_mct, cfg_mct = write_cfg(cfg_dir, "post_mct_fb", mixed23_cuttag, bt2, cs, out_mct, {
+        "cuttag": {"seacr": {"enabled": True, "mode": "stringent", "threshold": 0.01, "normalization": "non"}},
+        "reproducibility": {"enabled": True, "mixed_replicate_policy": "per_group_fallback",
+                            "consensus": {"enabled": True, "min_replicates": 2},
+                            "idr": {"cuttag_narrow": True}},
+    })
+    assert run_validate(c_mct).returncode == 0
+    sm_mct = run_snakemake(c_mct, wd_func, "-n", "--summary")
+    assert sm_mct.returncode == 0, sm_mct.stderr
+    p_mct = parse_summary(sm_mct.stdout)
+    assert f"{out_mct}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" in p_mct
+    assert f"{out_mct}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" not in p_mct
+    assert f"{out_mct}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" in p_mct
+    assert f"{out_mct}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" not in p_mct
+    assert f"{out_mct}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.seacr.stringent.replicate_validated.consensus.bed" in p_mct
+    assert f"{out_mct}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.seacr.stringent.replicate_validated.consensus.bed" in p_mct
+    m_mct, _, _ = build_manifest_rows(cfg_mct, samples_path=str(mixed23_cuttag))
+    mt_mct = {(r["experiment_id"], r["output_type"]) for r in m_mct}
+    assert ("GRP2", "cuttag_macs3_narrow_idr_final_peak") in mt_mct
+    assert ("GRP2", "cuttag_macs3_narrow_consensus_final_peak") not in mt_mct
+    assert ("GRP2", "cuttag_seacr_consensus_final_peak") in mt_mct
+    assert ("GRP3", "cuttag_macs3_narrow_consensus_final_peak") in mt_mct
+    assert ("GRP3", "cuttag_macs3_narrow_idr_final_peak") not in mt_mct
+    assert ("GRP3", "cuttag_seacr_consensus_final_peak") in mt_mct
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--stage", choices=("generate-baseline", "post-impl-pi9a", "post-impl-pi9b"), required=True)
+parser.add_argument("--fixture-dir", required=True)
+args = parser.parse_args()
+fix = pathlib.Path(args.fixture_dir).resolve()
+snap_path = fix / "baseline_snapshot.json"
+
+if args.stage == "generate-baseline":
+    # 严禁在改动过代码的候选检出上生成“基线旧目录”
+    diff_chk = subprocess.run(
+        ["git", "diff", "--quiet", BASELINE_SHA, "--", "workflow/", "src/", "scripts/", "config/"],
+        cwd=REPO,
+    )
+    assert diff_chk.returncode == 0, f"generate-baseline 必须在代码树等于 {BASELINE_SHA} 的检出中运行"
+
+    inp, cfg_dir = fix / "inputs", fix / "configs_baseline"
+    inp.mkdir(parents=True, exist_ok=True); cfg_dir.mkdir(parents=True, exist_ok=True)
+    r1, r2 = inp / "r1.fq.gz", inp / "r2.fq.gz"
     r1.write_bytes(b""); r2.write_bytes(b"")
-    bt2 = tmp / "hg38"
+    bt2 = inp / "hg38"
     for ext in (".1.bt2", ".2.bt2", ".3.bt2", ".4.bt2", ".rev.1.bt2", ".rev.2.bt2"):
-        (tmp / f"hg38{ext}").write_bytes(b"")
-    cs = tmp / "hg38.chrom.sizes"; cs.write_text("chr1\t248956422\n")
+        (inp / f"hg38{ext}").write_bytes(b"")
+    cs = inp / "hg38.chrom.sizes"; cs.write_text("chr1\t248956422\n")
 
     def mk_row(sid, assay, mode, exp, br):
         return dict(sample=sid, layout="PE", fastq_1=r1, fastq_2=r2, assay=assay, peak_mode=mode,
                     genome="hs", bowtie2_index=bt2, chrom_sizes=cs, target="CTCF",
                     experiment=exp, role="treatment", biological_replicate=br, technical_replicate=1)
 
-    pure2_chip = tmp / "pure2_chip.tsv"
-    write_tsv(pure2_chip, [
-        mk_row("G2_r1", "chipseq", "narrow", "GRP2", 1),
-        mk_row("G2_r2", "chipseq", "narrow", "GRP2", 2),
-    ])
-    mixed23_chip = tmp / "mixed23_chip.tsv"
-    write_tsv(mixed23_chip, [
-        mk_row("G2_r1", "chipseq", "narrow", "GRP2", 1),
-        mk_row("G2_r2", "chipseq", "narrow", "GRP2", 2),
-        mk_row("G3_r1", "chipseq", "narrow", "GRP3", 1),
-        mk_row("G3_r2", "chipseq", "narrow", "GRP3", 2),
-        mk_row("G3_r3", "chipseq", "narrow", "GRP3", 3),
-    ])
-    cuttag2 = tmp / "cuttag2.tsv"
-    write_tsv(cuttag2, [
-        mk_row("C2_r1", "cuttag", "narrow", "CT2", 1),
-        mk_row("C2_r2", "cuttag", "narrow", "CT2", 2),
-    ])
-    mixed23_cuttag = tmp / "mixed23_cuttag.tsv"
-    write_tsv(mixed23_cuttag, [
-        mk_row("C2_r1", "cuttag", "narrow", "GRP2", 1),
-        mk_row("C2_r2", "cuttag", "narrow", "GRP2", 2),
-        mk_row("C3_r1", "cuttag", "narrow", "GRP3", 1),
-        mk_row("C3_r2", "cuttag", "narrow", "GRP3", 2),
-        mk_row("C3_r3", "cuttag", "narrow", "GRP3", 3),
-    ])
+    pure2_chip = inp / "pure2_chip.tsv"
+    write_tsv(pure2_chip, [mk_row("G2_r1", "chipseq", "narrow", "GRP2", 1),
+                           mk_row("G2_r2", "chipseq", "narrow", "GRP2", 2)])
+    mixed23_chip = inp / "mixed23_chip.tsv"
+    write_tsv(mixed23_chip, [mk_row("G2_r1", "chipseq", "narrow", "GRP2", 1),
+                             mk_row("G2_r2", "chipseq", "narrow", "GRP2", 2),
+                             mk_row("G3_r1", "chipseq", "narrow", "GRP3", 1),
+                             mk_row("G3_r2", "chipseq", "narrow", "GRP3", 2),
+                             mk_row("G3_r3", "chipseq", "narrow", "GRP3", 3)])
+    cuttag2 = inp / "cuttag2.tsv"
+    write_tsv(cuttag2, [mk_row("C2_r1", "cuttag", "narrow", "CT2", 1),
+                        mk_row("C2_r2", "cuttag", "narrow", "CT2", 2)])
+    mixed23_cuttag = inp / "mixed23_cuttag.tsv"
+    write_tsv(mixed23_cuttag, [mk_row("C2_r1", "cuttag", "narrow", "GRP2", 1),
+                               mk_row("C2_r2", "cuttag", "narrow", "GRP2", 2),
+                               mk_row("C3_r1", "cuttag", "narrow", "GRP3", 1),
+                               mk_row("C3_r2", "cuttag", "narrow", "GRP3", 2),
+                               mk_row("C3_r3", "cuttag", "narrow", "GRP3", 3)])
 
-    def write_cfg(name, tsv, extra, outdir=None):
-        out = outdir or (tmp / f"out_{name}")
-        cfg = {"samples": str(tsv), "outdir": str(out), "genome": "hs", "bowtie2_index": str(bt2),
-               "chrom_sizes": str(cs), "use_control": False, "replicate_analysis": True,
-               "chipseq_idr": False, "blacklist_mode": "off"}
-        cfg.update(extra)
-        p = tmp / f"{name}.yaml"
-        p.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
-        return p, cfg, out
+    base_cfg_yaml = fix / "baseline_config_template.yaml"
+    shutil.copy2(REPO / "config" / "config.yaml", base_cfg_yaml)
+    wd_base = init_workdir(fix / "workdir_baseline", base_cfg_yaml)
+    wd_misc = init_workdir(fix / "workdir_misc", base_cfg_yaml)
 
-    # [基线 + 实施后] V-01b: 纯 2 ChIP 窄峰 + IDR 开 + consensus 关（缺键默认 strict）-> rc=0
-    c_pure2_off, _, _ = write_cfg("pure2_chip_cons_off", pure2_chip, {
-        "chipseq_idr": True, "reproducibility": {"enabled": False},
-    })
-    assert run_validate(c_pure2_off).returncode == 0
+    # [基线] V-01b 现行行为：缺键=0，显式 strict+父关=0，显式 strict+父开consensus关=1（未知键）
+    for nm, repro, exp_rc in (
+        ("b_p2_absent_poff", {"enabled": False}, 0),
+        ("b_p2_absent_coff", {"enabled": True, "consensus": {"enabled": False}}, 0),
+        ("b_p2_strict_poff", {"enabled": False, "mixed_replicate_policy": "strict"}, 0),
+        ("b_p2_strict_coff", {"enabled": True, "consensus": {"enabled": False}, "mixed_replicate_policy": "strict"}, 1),
+    ):
+        cp, _ = write_cfg(cfg_dir, nm, pure2_chip, bt2, cs, fix / f"out_{nm}",
+                          {"chipseq_idr": True, "reproducibility": repro})
+        assert run_validate(cp).returncode == exp_rc, nm
 
-    # [基线 + 实施后] V-01 / D-05: 混合 2/3 ChIP 窄峰 + IDR 开（缺键默认 strict）-> rc=1
-    c_mix_strict, _, _ = write_cfg("mixed23_chip_strict", mixed23_chip, {
-        "chipseq_idr": True, "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
-    })
-    v = run_validate(c_mix_strict)
+    # [基线] V-01 / D-05: 混合 2/3 ChIP 窄峰 + IDR 开（缺键默认 strict）-> rc=1
+    c_mix, _ = write_cfg(cfg_dir, "b_mix_strict", mixed23_chip, bt2, cs, fix / "out_b_mix_strict",
+                         {"chipseq_idr": True, "reproducibility": {"enabled": True, "consensus": {"enabled": True}}})
+    v = run_validate(c_mix)
     assert v.returncode == 1 and "requires exactly 2" in v.stderr
-    assert run_snakemake(c_mix_strict, "-n", "--summary").returncode == 1
+    assert run_snakemake(c_mix, wd_misc, "-n", "--summary").returncode == 1
 
-    # [基线 + 实施后] D-00 / M-00: 纯 2 PE CUT&Tag + narrow IDR + consensus + SEACR (min=2)
-    c_ct2_m2, cfg_ct2_m2, out_ct2_m2 = write_cfg("cuttag2_seacr_min2", cuttag2, {
+    # [基线] D-00 / M-00: 纯 2 PE CUT&Tag + narrow IDR + consensus + SEACR (min=2)
+    out_ct2 = fix / "out_b_ct2_m2"
+    c_ct2, cfg_ct2 = write_cfg(cfg_dir, "b_ct2_m2", cuttag2, bt2, cs, out_ct2, {
         "cuttag": {"seacr": {"enabled": True, "mode": "stringent", "threshold": 0.01, "normalization": "non"}},
         "reproducibility": {"enabled": True, "consensus": {"enabled": True, "min_replicates": 2},
                             "idr": {"cuttag_narrow": True}},
     })
-    assert run_validate(c_ct2_m2).returncode == 0
-    sm_ct2 = run_snakemake(c_ct2_m2, "-n", "--summary")
+    assert run_validate(c_ct2).returncode == 0
+    sm_ct2 = run_snakemake(c_ct2, wd_misc, "-n", "--summary")
     assert sm_ct2.returncode == 0
-    paths_ct2 = parse_summary_paths(sm_ct2.stdout)
-    assert f"{out_ct2_m2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" in paths_ct2
-    assert f"{out_ct2_m2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.seacr.stringent.replicate_validated.consensus.bed" in paths_ct2
-    assert f"{out_ct2_m2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" not in paths_ct2
-    mrows_ct2, _, _ = build_manifest_rows(cfg_ct2_m2, samples_path=str(cuttag2))
-    mtypes_ct2 = {(r["experiment_id"], r["output_type"]) for r in mrows_ct2}
-    assert ("CT2", "cuttag_macs3_narrow_idr_final_peak") in mtypes_ct2
-    assert ("CT2", "cuttag_seacr_consensus_final_peak") in mtypes_ct2
-    assert ("CT2", "cuttag_macs3_narrow_consensus_final_peak") not in mtypes_ct2
+    p_ct2 = parse_summary(sm_ct2.stdout)
+    assert f"{out_ct2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" in p_ct2
+    assert f"{out_ct2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.seacr.stringent.replicate_validated.consensus.bed" in p_ct2
+    assert f"{out_ct2}/experiments/CT2/06_reproducibility/final/CT2.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" not in p_ct2
+    m_ct2, _, _ = build_manifest_rows(cfg_ct2, samples_path=str(cuttag2))
+    mt_ct2 = {(r["experiment_id"], r["output_type"]) for r in m_ct2}
+    assert ("CT2", "cuttag_macs3_narrow_idr_final_peak") in mt_ct2
+    assert ("CT2", "cuttag_seacr_consensus_final_peak") in mt_ct2
+    assert ("CT2", "cuttag_macs3_narrow_consensus_final_peak") not in mt_ct2
 
-    # [基线 + 实施后] I-01: 写入真实基线 rev-7 marker 与 effective_config，缺键配置可复用旧目录
-    c_id_base, _, out_id_base = write_cfg("id_base", pure2_chip, {
-        "chipseq_idr": True, "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
-    })
-    marker = out_id_base / ".helixweave" / "analysis_identity.json"
-    eff_rec = out_id_base / ".helixweave" / "effective_config.json"
-    assert run_snakemake(c_id_base, "--cores", "1", str(marker)).returncode == 0
-    base_marker = json.loads(marker.read_text(encoding="utf-8"))
-    base_eff = json.loads(eff_rec.read_text(encoding="utf-8"))
-    assert base_marker["scientific_policy_revision"] == 7
-    assert base_eff["identity"] == base_marker["identity"]
-    assert "mixed_replicate_policy" not in base_eff["config"]["reproducibility"]
-    assert run_snakemake(c_id_base, "-n", "--summary").returncode == 0
-
-    # CUT&Tag PE 2 重复 + IDR + SEACR + min_replicates=3 夹具（基线缺陷 vs 实施后拦截）
-    c_ct2_m3, _, _ = write_cfg("cuttag2_seacr_min3", cuttag2, {
+    # [基线] D3 现行缺陷：CUT&Tag PE 2 重复 + SEACR + min_replicates=3 返回 0 且两条分支均收门槛 3
+    c_m3, _ = write_cfg(cfg_dir, "b_ct2_m3", cuttag2, bt2, cs, fix / "out_b_ct2_m3", {
         "cuttag": {"seacr": {"enabled": True, "mode": "stringent", "threshold": 0.01, "normalization": "non"}},
         "reproducibility": {"enabled": True, "consensus": {"enabled": True, "min_replicates": 3},
                             "idr": {"cuttag_narrow": True}},
     })
+    assert run_validate(c_m3).returncode == 0
+    sm_p = run_snakemake(c_m3, wd_misc, "-n", "-p")
+    assert sm_p.returncode == 0
+    txt = sm_p.stdout + sm_p.stderr
+    assert "--caller macs3" in txt and "--caller seacr" in txt and "--min-replicates 3" in txt
 
-    if args.stage == "baseline":
-        # [仅基线] 锁定现行缺陷：validate 与 dry-run 返回 0，且 MACS3/SEACR 均收到 --min-replicates 3
-        assert run_validate(c_ct2_m3).returncode == 0
-        sm_p = run_snakemake(c_ct2_m3, "-n", "-p")
-        assert sm_p.returncode == 0
-        txt = sm_p.stdout + sm_p.stderr
-        assert "--caller macs3" in txt and "--caller seacr" in txt and "--min-replicates 3" in txt
-        # [仅基线] 证明未做 §4.3 省略归一化时，写入默认 strict 会立即破坏 effective_config 身份自检
-        tampered = json.loads(eff_rec.read_text(encoding="utf-8"))
-        tampered["config"]["reproducibility"]["mixed_replicate_policy"] = "strict"
-        eff_rec.write_text(json.dumps(tampered, indent=2, sort_keys=True), encoding="utf-8")
-        sm_t = run_snakemake(c_id_base, "-n", str(marker))
-        assert sm_t.returncode != 0 and "does not match its recorded identity" in (sm_t.stdout + sm_t.stderr)
-        print("BASELINE CHECKS PASSED")
-    else:
-        # [实施后] V-06: min_replicates=3 + 2 重复（含独立 SEACR 分支）准入拒绝 rc=1
-        assert run_validate(c_ct2_m3).returncode == 1
-        # [实施后] V-03b: 纯 2 重复 + 显式 per_group_fallback + consensus 关 -> rc=1
-        for bad_repro in (
-            {"enabled": False, "mixed_replicate_policy": "per_group_fallback"},
-            {"enabled": True, "mixed_replicate_policy": "per_group_fallback", "consensus": {"enabled": False}},
-        ):
-            c_bad, _, _ = write_cfg("pure2_fb_bad", pure2_chip, {"chipseq_idr": True, "reproducibility": bad_repro})
-            assert run_validate(c_bad).returncode == 1
+    # [基线] I-01: 在固定基线 52973b60 生成并冻结不可变 rev-7 旧目录（供阶段 2 跨版本读取）
+    out_id_base = fix / "out_id_base"
+    c_id_base, _ = write_cfg(cfg_dir, "id_base_omitted", pure2_chip, bt2, cs, out_id_base, {
+        "chipseq_idr": True, "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+    })
+    marker = out_id_base / ".helixweave" / "analysis_identity.json"
+    eff = out_id_base / ".helixweave" / "effective_config.json"
+    assert run_snakemake(c_id_base, wd_base, "--cores", "1", str(marker), str(eff)).returncode == 0
+    m_bytes, e_bytes = marker.read_bytes(), eff.read_bytes()
+    base_m, base_e = json.loads(m_bytes), json.loads(e_bytes)
+    assert base_m["scientific_policy_revision"] == 7 and base_e["identity"] == base_m["identity"]
+    assert "mixed_replicate_policy" not in base_e["config"]["reproducibility"]
+    assert_reuse_without_rewrite(c_id_base, wd_base, marker, eff, m_bytes, e_bytes)
 
-        # [实施后] V-02 / D-01 / M-01: 混合 2/3 ChIP 窄峰 + per_group_fallback
-        c_mchip_fb, cfg_mchip_fb, out_mchip_fb = write_cfg("mixed23_chip_fb", mixed23_chip, {
-            "chipseq_idr": True,
-            "reproducibility": {"enabled": True, "mixed_replicate_policy": "per_group_fallback",
-                                "consensus": {"enabled": True, "min_replicates": 2}},
-        })
-        assert run_validate(c_mchip_fb).returncode == 0
-        sm_mc = run_snakemake(c_mchip_fb, "-n", "--summary")
-        assert sm_mc.returncode == 0
-        p_mc = parse_summary_paths(sm_mc.stdout)
-        assert f"{out_mchip_fb}/experiments/GRP2/06_idr/final/conservative.narrowPeak" in p_mc
-        assert f"{out_mchip_fb}/experiments/GRP2/06_idr/final/optimal.narrowPeak" in p_mc
-        assert f"{out_mchip_fb}/experiments/GRP2/06_reproducibility/final/GRP2.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak" not in p_mc
-        assert not any("/experiments/GRP3/06_idr/" in k for k in p_mc)
-        assert f"{out_mchip_fb}/experiments/GRP3/06_reproducibility/final/GRP3.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak" in p_mc
-        m_mc, _, _ = build_manifest_rows(cfg_mchip_fb, samples_path=str(mixed23_chip))
-        mt_mc = {(r["experiment_id"], r["output_type"]) for r in m_mc}
-        assert ("GRP2", "idr_conservative") in mt_mc and ("GRP2", "idr_optimal") in mt_mc
-        assert ("GRP2", "chipseq_macs3_narrow_consensus_final_peak") not in mt_mc
-        assert ("GRP3", "chipseq_macs3_narrow_consensus_final_peak") in mt_mc
-        assert ("GRP3", "idr_conservative") not in mt_mc
+    # [基线] I-01b 反例对照（独立副本，不污染冻结目录）：仅改 threads=2 会触发 params changed 且改写字节
+    wd_t2 = init_workdir(fix / "workdir_threads_demo", base_cfg_yaml)
+    out_t2 = fix / "out_threads_demo"
+    c_t1, _ = write_cfg(cfg_dir, "demo_t1", pure2_chip, bt2, cs, out_t2, {
+        "chipseq_idr": True, "threads": 1,
+        "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+    })
+    c_t2, _ = write_cfg(cfg_dir, "demo_t2", pure2_chip, bt2, cs, out_t2, {
+        "chipseq_idr": True, "threads": 2,
+        "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+    })
+    m_t, e_t = out_t2 / ".helixweave" / "analysis_identity.json", out_t2 / ".helixweave" / "effective_config.json"
+    assert run_snakemake(c_t1, wd_t2, "--cores", "1", str(m_t), str(e_t)).returncode == 0
+    mt1, et1 = m_t.read_bytes(), e_t.read_bytes()
+    s_t2 = run_snakemake(c_t2, wd_t2, "-n", "--summary", str(m_t), str(e_t))
+    assert s_t2.returncode == 0
+    sum_t2 = parse_summary(s_t2.stdout)
+    assert sum_t2[str(m_t)]["status"] == "params changed" and sum_t2[str(m_t)]["plan"] == "update pending"
+    assert sum_t2[str(e_t)]["status"] == "params changed" and sum_t2[str(e_t)]["plan"] == "update pending"
+    assert run_snakemake(c_t2, wd_t2, "--cores", "1", str(m_t), str(e_t)).returncode == 0
+    assert m_t.read_bytes() == mt1 and e_t.read_bytes() != et1
 
-        # [实施后] D-02 / M-02: 混合 2/3 PE CUT&Tag + narrow IDR + consensus + SEACR + per_group_fallback
-        c_mct_fb, cfg_mct_fb, out_mct_fb = write_cfg("mixed23_cuttag_seacr_fb", mixed23_cuttag, {
-            "cuttag": {"seacr": {"enabled": True, "mode": "stringent", "threshold": 0.01, "normalization": "non"}},
-            "reproducibility": {"enabled": True, "mixed_replicate_policy": "per_group_fallback",
-                                "consensus": {"enabled": True, "min_replicates": 2},
-                                "idr": {"cuttag_narrow": True}},
-        })
-        assert run_validate(c_mct_fb).returncode == 0
-        sm_mct = run_snakemake(c_mct_fb, "-n", "--summary")
-        assert sm_mct.returncode == 0
-        p_mct = parse_summary_paths(sm_mct.stdout)
-        # MACS3 caller 互斥
-        assert f"{out_mct_fb}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" in p_mct
-        assert f"{out_mct_fb}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" not in p_mct
-        assert f"{out_mct_fb}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak" in p_mct
-        assert f"{out_mct_fb}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.macs3.narrow.replicate_validated.idr.narrowPeak" not in p_mct
-        # SEACR caller 独立保留（两组均保留）
-        assert f"{out_mct_fb}/experiments/GRP2/06_reproducibility/final/GRP2.cuttag.seacr.stringent.replicate_validated.consensus.bed" in p_mct
-        assert f"{out_mct_fb}/experiments/GRP3/06_reproducibility/final/GRP3.cuttag.seacr.stringent.replicate_validated.consensus.bed" in p_mct
-        m_mct, _, _ = build_manifest_rows(cfg_mct_fb, samples_path=str(mixed23_cuttag))
-        mt_mct = {(r["experiment_id"], r["output_type"]) for r in m_mct}
-        assert ("GRP2", "cuttag_macs3_narrow_idr_final_peak") in mt_mct
-        assert ("GRP2", "cuttag_macs3_narrow_consensus_final_peak") not in mt_mct
-        assert ("GRP2", "cuttag_seacr_consensus_final_peak") in mt_mct
-        assert ("GRP3", "cuttag_macs3_narrow_consensus_final_peak") in mt_mct
-        assert ("GRP3", "cuttag_macs3_narrow_idr_final_peak") not in mt_mct
-        assert ("GRP3", "cuttag_seacr_consensus_final_peak") in mt_mct
+    # [基线] 独立副本篡改验证：未省略默认 strict 时 effective_config 自检失败
+    tampered = json.loads(e_t.read_text(encoding="utf-8"))
+    tampered["config"]["reproducibility"]["mixed_replicate_policy"] = "strict"
+    e_t.write_text(json.dumps(tampered, indent=2, sort_keys=True), encoding="utf-8")
+    sm_t = run_snakemake(c_t2, wd_t2, "-n", str(m_t))
+    assert sm_t.returncode != 0 and "does not match its recorded identity" in (sm_t.stdout + sm_t.stderr)
 
-        # [实施后] I-02 / I-03 (PI-9A): 显式 strict 复用基线 rev-7 旧目录；显式 fallback 拒绝复用
-        c_id_strict, _, _ = write_cfg("id_strict", pure2_chip, {
+    snap_path.write_text(json.dumps({
+        "baseline_code_base": BASELINE_SHA,
+        "scientific_policy_revision": base_m["scientific_policy_revision"],
+        "identity": base_m["identity"],
+        "base_config_yaml": str(base_cfg_yaml),
+        "workdir_baseline": str(wd_base),
+        "out_id_base": str(out_id_base),
+        "cfg_id_base": str(c_id_base),
+        "marker_bytes_b64": base64.b64encode(m_bytes).decode("ascii"),
+        "eff_bytes_b64": base64.b64encode(e_bytes).decode("ascii"),
+        "inputs": {k: str(v) for k, v in dict(
+            pure2_chip=pure2_chip, mixed23_chip=mixed23_chip,
+            cuttag2=cuttag2, mixed23_cuttag=mixed23_cuttag, bt2=bt2, cs=cs,
+        ).items()},
+    }, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"BASELINE CHECKS PASSED; frozen rev-7 fixture saved to {fix}")
+
+else:
+    # 阶段 2：在候选实施检出运行，直接读取阶段 1 由 52973b60 冻结的 rev-7 旧目录（绝不重新生成）
+    assert snap_path.is_file(), f"缺少阶段 1 基线夹具快照: {snap_path}"
+    snap = json.loads(snap_path.read_text(encoding="utf-8"))
+    assert snap["baseline_code_base"] == BASELINE_SHA and snap["scientific_policy_revision"] == 7
+    orig_m = base64.b64decode(snap["marker_bytes_b64"])
+    orig_e = base64.b64decode(snap["eff_bytes_b64"])
+    wd_base = pathlib.Path(snap["workdir_baseline"])
+    out_id_base = pathlib.Path(snap["out_id_base"])
+    marker = out_id_base / ".helixweave" / "analysis_identity.json"
+    eff = out_id_base / ".helixweave" / "effective_config.json"
+    assert marker.read_bytes() == orig_m and eff.read_bytes() == orig_e, "冻结的 52973b60 旧目录已被外部改动"
+
+    inputs = {k: pathlib.Path(v) for k, v in snap["inputs"].items()}
+    base_cfg_yaml = pathlib.Path(snap["base_config_yaml"])
+    cfg_dir = fix / f"configs_{args.stage}"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    wd_func = init_workdir(fix / f"workdir_func_{args.stage}", base_cfg_yaml)
+    run_post_impl_functional(fix, wd_func, cfg_dir, inputs)
+
+    pure2_chip, bt2, cs = inputs["pure2_chip"], inputs["bt2"], inputs["cs"]
+    c_omitted = pathlib.Path(snap["cfg_id_base"])
+    c_strict, _ = write_cfg(cfg_dir, "base_strict", pure2_chip, bt2, cs, out_id_base, {
+        "chipseq_idr": True,
+        "reproducibility": {"enabled": True, "consensus": {"enabled": True},
+                            "mixed_replicate_policy": "strict"},
+    })
+    c_fb, _ = write_cfg(cfg_dir, "base_fb", pure2_chip, bt2, cs, out_id_base, {
+        "chipseq_idr": True,
+        "reproducibility": {"enabled": True, "consensus": {"enabled": True},
+                            "mixed_replicate_policy": "per_group_fallback"},
+    })
+
+    if args.stage == "post-impl-pi9a":
+        # I-01: 缺键读取 52973b60 旧目录 -> ok/no update + 逐字节不变
+        assert_reuse_without_rewrite(c_omitted, wd_base, marker, eff, orig_m, orig_e)
+        # I-02 正向: 显式 strict 读取 52973b60 旧目录 -> ok/no update + 逐字节不变
+        assert_reuse_without_rewrite(c_strict, wd_base, marker, eff, orig_m, orig_e)
+        # I-03 正向: 显式 per_group_fallback 读取 52973b60 旧目录 -> 拒绝且不改字节
+        sm_fb = run_snakemake(c_fb, wd_base, "-n", "--summary", str(marker), str(eff))
+        assert sm_fb.returncode != 0 and "different analysis identity" in (sm_fb.stdout + sm_fb.stderr)
+        assert marker.read_bytes() == orig_m and eff.read_bytes() == orig_e
+
+        # I-02 反向: 候选显式 strict 新建目录 -> 缺键读取 ok/no update + 逐字节不变
+        wd_cs = init_workdir(fix / "workdir_cand_strict", base_cfg_yaml)
+        out_cs = fix / "out_cand_strict"
+        c_cs_s, _ = write_cfg(cfg_dir, "cand_strict", pure2_chip, bt2, cs, out_cs, {
             "chipseq_idr": True,
             "reproducibility": {"enabled": True, "consensus": {"enabled": True},
                                 "mixed_replicate_policy": "strict"},
-        }, outdir=out_id_base)
-        assert run_snakemake(c_id_strict, "-n", str(marker)).returncode == 0
-        c_id_fb, _, _ = write_cfg("id_fb", pure2_chip, {
+        })
+        c_cs_o, _ = write_cfg(cfg_dir, "cand_strict_omitted", pure2_chip, bt2, cs, out_cs, {
+            "chipseq_idr": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+        })
+        m_cs, e_cs = out_cs / ".helixweave" / "analysis_identity.json", out_cs / ".helixweave" / "effective_config.json"
+        assert run_snakemake(c_cs_s, wd_cs, "--cores", "1", str(m_cs), str(e_cs)).returncode == 0
+        mcs_b, ecs_b = m_cs.read_bytes(), e_cs.read_bytes()
+        assert_reuse_without_rewrite(c_cs_o, wd_cs, m_cs, e_cs, mcs_b, ecs_b)
+
+        # I-03 反向: 候选 per_group_fallback 新建目录 -> 缺键与显式 strict 均拒绝
+        wd_cf = init_workdir(fix / "workdir_cand_fb", base_cfg_yaml)
+        out_cf = fix / "out_cand_fb"
+        c_cf_f, _ = write_cfg(cfg_dir, "cand_fb", pure2_chip, bt2, cs, out_cf, {
             "chipseq_idr": True,
             "reproducibility": {"enabled": True, "consensus": {"enabled": True},
                                 "mixed_replicate_policy": "per_group_fallback"},
-        }, outdir=out_id_base)
-        sm_fb = run_snakemake(c_id_fb, "-n", str(marker))
-        assert sm_fb.returncode != 0 and "different analysis identity" in (sm_fb.stdout + sm_fb.stderr)
-        print("POST-IMPL CHECKS PASSED")
+        })
+        c_cf_o, _ = write_cfg(cfg_dir, "cand_fb_omitted", pure2_chip, bt2, cs, out_cf, {
+            "chipseq_idr": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+        })
+        c_cf_s, _ = write_cfg(cfg_dir, "cand_fb_strict", pure2_chip, bt2, cs, out_cf, {
+            "chipseq_idr": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True},
+                                "mixed_replicate_policy": "strict"},
+        })
+        m_cf, e_cf = out_cf / ".helixweave" / "analysis_identity.json", out_cf / ".helixweave" / "effective_config.json"
+        assert run_snakemake(c_cf_f, wd_cf, "--cores", "1", str(m_cf), str(e_cf)).returncode == 0
+        mcf_b, ecf_b = m_cf.read_bytes(), e_cf.read_bytes()
+        for rej_cfg in (c_cf_o, c_cf_s):
+            sm_r = run_snakemake(rej_cfg, wd_cf, "-n", "--summary", str(m_cf), str(e_cf))
+            assert sm_r.returncode != 0 and "different analysis identity" in (sm_r.stdout + sm_r.stderr)
+        assert m_cf.read_bytes() == mcf_b and e_cf.read_bytes() == ecf_b
+        print("POST-IMPL PI-9A CHECKS PASSED")
+
+    else:
+        # I-04 (PI-9B): 缺键、显式 strict、显式 per_group_fallback 读取 52973b60 rev-7 旧目录均拒绝
+        for rej_cfg in (c_omitted, c_strict, c_fb):
+            sm_r = run_snakemake(rej_cfg, wd_base, "-n", "--summary", str(marker), str(eff))
+            assert sm_r.returncode != 0 and "different scientific policy revision" in (sm_r.stdout + sm_r.stderr)
+        assert marker.read_bytes() == orig_m and eff.read_bytes() == orig_e
+
+        # PI-9B 新建 rev-8 目录内：验证 rev==8、缺键 <-> strict 无重写复用、per_group_fallback 双向拒绝
+        wd_r8 = init_workdir(fix / "workdir_cand_rev8", base_cfg_yaml)
+        out_r8 = fix / "out_cand_rev8"
+        c_r8_o, _ = write_cfg(cfg_dir, "rev8_omitted", pure2_chip, bt2, cs, out_r8, {
+            "chipseq_idr": True, "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+        })
+        c_r8_s, _ = write_cfg(cfg_dir, "rev8_strict", pure2_chip, bt2, cs, out_r8, {
+            "chipseq_idr": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True},
+                                "mixed_replicate_policy": "strict"},
+        })
+        c_r8_f, _ = write_cfg(cfg_dir, "rev8_fb", pure2_chip, bt2, cs, out_r8, {
+            "chipseq_idr": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True},
+                                "mixed_replicate_policy": "per_group_fallback"},
+        })
+        m_r8, e_r8 = out_r8 / ".helixweave" / "analysis_identity.json", out_r8 / ".helixweave" / "effective_config.json"
+        assert run_snakemake(c_r8_o, wd_r8, "--cores", "1", str(m_r8), str(e_r8)).returncode == 0
+        mr8_b, er8_b = m_r8.read_bytes(), e_r8.read_bytes()
+        assert json.loads(mr8_b)["scientific_policy_revision"] == 8
+        assert_reuse_without_rewrite(c_r8_s, wd_r8, m_r8, e_r8, mr8_b, er8_b)
+        sm_r8f = run_snakemake(c_r8_f, wd_r8, "-n", "--summary", str(m_r8), str(e_r8))
+        assert sm_r8f.returncode != 0 and "different analysis identity" in (sm_r8f.stdout + sm_r8f.stderr)
+        assert m_r8.read_bytes() == mr8_b and e_r8.read_bytes() == er8_b
+        print("POST-IMPL PI-9B CHECKS PASSED")
 PY
+
+"$PY" "$FIXTURE_DIR/verify_mixed_replicates.py" \
+  --stage generate-baseline --fixture-dir "$FIXTURE_DIR"
+
+# ============================================================================
+# 阶段 2（实施后）：切换到候选实施检出目录，保留同一个 $FIXTURE_DIR，按 PI-9 选择其一运行
+# ============================================================================
+# CAND_PY=./.local/envs/ci-fast/bin/python
+# "$CAND_PY" "$FIXTURE_DIR/verify_mixed_replicates.py" --stage post-impl-pi9a --fixture-dir "$FIXTURE_DIR"
+# "$CAND_PY" "$FIXTURE_DIR/verify_mixed_replicates.py" --stage post-impl-pi9b --fixture-dir "$FIXTURE_DIR"
 ```
 
 ---
@@ -566,10 +776,10 @@ PY
 
 | 实施切片 | 拟改动文件 | 具体变更摘要 |
 | --- | --- | --- |
-| **1. 配置与准入层** | `src/encode_pipeline/config/reproducibility.py`、`src/encode_pipeline/config/validator.py`、`src/encode_pipeline/samples/replicates.py`、`src/encode_pipeline/samples/loader.py`、`src/encode_pipeline/cli/_validator.py`、`src/encode_pipeline/adapters/encode.py` | 引入 `reproducibility.mixed_replicate_policy`（默认 `strict`）；在 `reproducibility.py:63-64` 早退前校验 `per_group_fallback` 前置条件（`enabled=true` 且 `consensus.enabled=true`，否则对纯 2 与混合 2/3 一致返回 `rc=1`）；实现按组路由合法性校验（含 `0` 合格 2 重复组拒绝、MACS3 与 SEACR `min_replicates <= n_bioreps` 交叉校验）；产出结构化混合方法 `WARNING`；统一透传全部 5 个 IDR 开关与新策略参数。 |
-| **2. DAG、运行身份与记录层** | `workflow/Snakefile`、`workflow/rules/metadata.smk`、`workflow/rules/targets.smk`、`workflow/rules/consensus.smk`、`src/encode_pipeline/config/scientific_policy.py`（仅 PI-9B 时） | 修复 `targets.smk:925`（`experiment=final_exps`，保证 MACS3 内互斥且保留 SEACR）；在 `Snakefile:_analysis_identity_config_values()` 实现 §4.3 哈希归一化（或按 PI-9B 升 rev 8）；在 `effective_config.json` 写入非必填信息字段 `resolved_reproducibility_by_experiment`；按 PI-2 结论决定 `chipseq/narrow` 与 `atac/narrow` 的 `consensus_final` 范围；按 PI-5 处理 `min_replicates > 2`。 |
+| **1. 配置与准入层** | `src/encode_pipeline/config/reproducibility.py`、`src/encode_pipeline/config/validator.py`、`src/encode_pipeline/samples/replicates.py`、`src/encode_pipeline/samples/loader.py`、`src/encode_pipeline/cli/_validator.py`、`src/encode_pipeline/adapters/encode.py` | 引入 `reproducibility.mixed_replicate_policy`（默认 `strict`，在 `PI-9A` 下按 §4.3 省略默认 `"strict"` 不写入归一化字典）；在 `reproducibility.py:63-64` 早退前校验 `per_group_fallback` 前置条件（`enabled=true` 且 `consensus.enabled=true`，否则对纯 2 与混合 2/3 一致返回 `rc=1`）；实现按组路由合法性校验（含 `0` 合格 2 重复组拒绝、MACS3 与 SEACR `min_replicates <= n_bioreps` 交叉校验）；产出结构化混合方法 `WARNING`；统一透传全部 5 个 IDR 开关与新策略参数。 |
+| **2. DAG、运行身份与记录层** | `workflow/Snakefile`、`workflow/rules/metadata.smk`、`workflow/rules/targets.smk`、`workflow/rules/consensus.smk`、`src/encode_pipeline/config/scientific_policy.py`（仅 PI-9B 时） | 修复 `targets.smk:925`（`experiment=final_exps`，保证 MACS3 内互斥且保留 SEACR）；在 `workflow/Snakefile` 保持 §4.3 双重不变式（PI-9A 下缺键与显式 `strict` 的哈希与 `params.config_json` 载荷均与基线 `52973b60` 字节一致，仅在 `per_group_fallback` 时写入 `resolved_reproducibility_by_experiment`；若 PI-9B 则升 rev 8）；按 PI-2 结论决定 `chipseq/narrow` 与 `atac/narrow` 的 `consensus_final` 范围；按 PI-5 处理 `min_replicates > 2`。 |
 | **3. Manifest、目录与浏览器层** | `src/encode_pipeline/manifest/make.py`、`src/encode_pipeline/artifacts/artifact-inventory.yaml`、`docs/architecture/artifact-inventory.yaml`、`src/encode_pipeline/adapters/browser/catalog.py` | 修复 `make.py:1753` 校验漂移与 `make.py:1544-1582` 逐组差集过滤（保留 `cuttag_seacr_consensus_final_peak`）；若 PI-2A1/A2，则同步注册 `chipseq_macs3_narrow_consensus_final_peak` 与 `atac_macs3_narrow_consensus_final_peak` 并在 `browser/catalog.py` 补充区间类型与 IDR/consensus 分值说明。 |
-| **4. 测试与文档层** | `test/samples/test_replicates.py`、`test/workflow/test_reproducibility_idr_dag.py`、`test/workflow/test_consensus_dag.py`、`test/manifest/test_make_manifest.py`、`test/adapters/test_encode.py`、`test/test_dag_snapshots.py`、`docs/reproducibility-policy.md`、`docs/idr-contract.md`、`docs/output-contract.md`、`docs/configuration.md` | 落地 §6 全部验收用例（validator、DAG `-n --summary`/`-n -p`、manifest、catalog 契约及 `I-01`–`I-04` 身份复用/拒绝测试），并在实现合入时同步更新用户政策与输出契约文档。 |
+| **4. 测试与文档层** | `test/samples/test_replicates.py`、`test/workflow/test_reproducibility_idr_dag.py`、`test/workflow/test_consensus_dag.py`、`test/manifest/test_make_manifest.py`、`test/adapters/test_encode.py`、`test/test_dag_snapshots.py`、`docs/reproducibility-policy.md`、`docs/idr-contract.md`、`docs/output-contract.md`、`docs/configuration.md` | 落地 §6 全部验收用例（validator、DAG `-n --summary`/`-n -p`、manifest、catalog 契约及基于固定 `52973b60` 冻结夹具的 `I-01`–`I-04` 身份复用/非重写/拒绝测试），并在实现合入时同步更新用户政策与输出契约文档。 |
 
 ### 7.3 明确的非目标（Out of Scope）
 
@@ -583,5 +793,5 @@ PY
 
 ## 8. 交接与后续步骤
 
-1. **当前交付**：本设计草案（docs-only Draft PR，已按 Tibo 复审意见统一准入退出码、明确 CUT&Tag MACS3/SEACR 按 caller 边界、补全可验证的运行身份哈希与旧目录复用契约，并提供可在基线直接运行的 §6.4 临时夹具与验收脚本，交回 Tibo 复审并提请 PI 对 **PI-1 至 PI-9** 逐项拍板）。
+1. **当前交付**：本设计草案（docs-only Draft PR，已按两轮复审意见统一准入退出码、明确 CUT&Tag MACS3/SEACR 按 caller 边界、建立 §4.3 哈希与记录零重写双重不变式、勘正 §5.1 首行现行行为，并提供跨基线 `52973b60` 与候选检出的 §6.4 两阶段夹具及 `PI-9A`/`PI-9B` 验收脚本，交回 Tibo 复核并提请 PI 对 **PI-1 至 PI-9** 逐项拍板）。
 2. **尚未实施与尚未验证**：本轮未修改任何生产代码、测试、配置 schema 或科学默认值；未启动真实科学执行与任何受保护 Gate。§6 中标注 `[实施后方应通过]` 的验收用例将在 PI 拍板冻结本规格后的实现 PR 中逐项执行并记录验证 SHA。
