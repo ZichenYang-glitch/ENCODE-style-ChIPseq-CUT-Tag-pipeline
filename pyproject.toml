@@ -58,6 +58,9 @@ encode-worker = "encode_pipeline.workers.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.cmdclass]
+build_py = "helixweave_frontend_build.build_py"
+
 [tool.setuptools.package-data]
 "encode_pipeline.artifacts" = ["artifact-inventory.yaml"]
 "encode_pipeline.persistence" = [
