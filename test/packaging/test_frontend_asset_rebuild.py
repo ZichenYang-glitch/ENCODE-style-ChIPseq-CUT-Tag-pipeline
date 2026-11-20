@@ -10,8 +10,11 @@ import subprocess
 import sys
 import zipfile
 
+import pytest
+from setuptools.errors import BaseError
+
 from encode_pipeline.frontend_assets import build_frontend_assets
-from helixweave_frontend_build import remove_stale_frontend_static_files
+from helixweave_frontend_build import stage_frontend_assets
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +31,8 @@ _GENERATION_B = {
     "assets/chunk-B.js": b"console.log('B')\n",
     "assets/shared.js": b"console.log('shared')\n",
 }
+_FROZEN_MTIME = 1700000000
+_PACKAGE_JSON = b'{"name":"helixweave-frontend","version":"0.4.1"}\n'
 
 
 def _checkout(tmp_path: Path) -> Path:
@@ -71,7 +76,7 @@ def _write_frontend(checkout: Path, files: dict[str, bytes]) -> str:
     return verified.manifest.identity
 
 
-def _build_wheel(checkout: Path, outdir: Path) -> Path:
+def _build_wheel(checkout: Path, outdir: Path, *, sdist: bool = False) -> Path:
     outdir.mkdir()
     completed = subprocess.run(
         [
@@ -79,7 +84,7 @@ def _build_wheel(checkout: Path, outdir: Path) -> Path:
             "-m",
             "build",
             "--no-isolation",
-            "--wheel",
+            *(("--sdist", "--wheel") if sdist else ("--wheel",)),
             "--outdir",
             str(outdir),
             str(checkout),
@@ -223,52 +228,227 @@ def test_clean_wheel_build_matches_frontend_manifest(tmp_path: Path) -> None:
     assert built_files == source_files
 
 
-def test_stale_frontend_pruner_leaves_other_directories_in_place(
-    tmp_path: Path,
-) -> None:
+def _snapshot(root: Path) -> dict[str, bytes | None]:
+    recorded: dict[str, bytes | None] = {}
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        current = Path(directory)
+        relative_dir = current.relative_to(root).as_posix()
+        if relative_dir != ".":
+            recorded[relative_dir + "/"] = None
+        for name in sorted(dirnames):
+            child = current / name
+            if child.is_symlink():
+                recorded[child.relative_to(root).as_posix() + "/"] = b"symlink"
+        for name in filenames:
+            child = current / name
+            relative = child.relative_to(root).as_posix()
+            if child.is_symlink():
+                recorded[relative] = b"symlink:" + os.readlink(child).encode()
+            else:
+                recorded[relative] = child.read_bytes()
+    return recorded
+
+
+def _external_tree(root: Path) -> Path:
+    files = {
+        "encode_pipeline/frontend_assets/asset-manifest.json": b'{"generation":"external"}\n',
+        "encode_pipeline/frontend_assets/static/index.html": b"<html>external</html>\n",
+        "encode_pipeline/frontend_assets/static/assets/chunk-A.js": b"console.log('external')\n",
+        "notes/readme.txt": b"keep this tree\n",
+        "notes/nested/data.bin": b"\x00\x01external",
+    }
+    for relative, content in files.items():
+        destination = root.joinpath(*relative.split("/"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+    (root / "notes" / "empty").mkdir()
+    return root
+
+
+def _freeze_mtime(package: Path, timestamp: int) -> None:
+    targets = [package / "asset-manifest.json", package / "static"]
+    targets.extend((package / "static").rglob("*"))
+    for path in targets:
+        if path.is_symlink():
+            continue
+        os.utime(path, (timestamp, timestamp))
+
+
+def _package_with_script(checkout: Path, files: dict[str, bytes]) -> str:
+    work = checkout / ".synthetic-inputs"
+    if work.exists():
+        shutil.rmtree(work)
+    dist = work / "dist"
+    for relative, content in files.items():
+        destination = dist.joinpath(*relative.split("/"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+    (work / "package.json").write_bytes(_PACKAGE_JSON)
+    (work / "package-lock.json").write_bytes(_LOCK)
+    (work / "openapi.json").write_bytes(_OPENAPI)
+    script_dir = checkout / "scripts"
+    script_dir.mkdir(exist_ok=True)
+    script = script_dir / "package_frontend_assets.py"
+    shutil.copy2(
+        REPOSITORY_ROOT / "scripts" / "package_frontend_assets.py",
+        script,
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--dist-root",
+            str(dist),
+            "--package-json",
+            str(work / "package.json"),
+            "--package-lock",
+            str(work / "package-lock.json"),
+            "--openapi",
+            str(work / "openapi.json"),
+            "--output-root",
+            str(checkout / "src" / "encode_pipeline" / "frontend_assets"),
+        ],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    manifest = json.loads(
+        (
+            checkout
+            / "src"
+            / "encode_pipeline"
+            / "frontend_assets"
+            / "asset-manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    return str(manifest["identity"])
+
+
+def _write_package(package: Path, files: dict[str, bytes], manifest: bytes) -> None:
+    static = package / "static"
+    static.mkdir(parents=True, exist_ok=True)
+    for relative, content in files.items():
+        destination = static.joinpath(*relative.split("/"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+    (package / "asset-manifest.json").write_bytes(manifest)
+
+
+def test_same_mtime_rebuild_loads_the_replacement_frontend(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path)
+    identity_a = _package_with_script(checkout, _GENERATION_A)
+    _freeze_mtime(
+        checkout / "src" / "encode_pipeline" / "frontend_assets",
+        _FROZEN_MTIME,
+    )
+    _build_wheel(checkout, tmp_path / "dist-a", sdist=True)
+
+    identity_b = _package_with_script(checkout, _GENERATION_B)
+    package = checkout / "src" / "encode_pipeline" / "frontend_assets"
+    cached = checkout / "build" / "lib" / "encode_pipeline" / "frontend_assets"
+    _freeze_mtime(package, _FROZEN_MTIME)
+    _freeze_mtime(cached, _FROZEN_MTIME)
+    assert (package / "static" / "index.html").read_bytes() == _GENERATION_B[
+        "index.html"
+    ]
+    assert (cached / "static" / "index.html").read_bytes() == _GENERATION_A[
+        "index.html"
+    ]
+    assert (package / "static" / "index.html").stat().st_mtime == _FROZEN_MTIME
+    assert (cached / "static" / "index.html").stat().st_mtime == _FROZEN_MTIME
+    assert (cached / "asset-manifest.json").read_bytes() != (
+        package / "asset-manifest.json"
+    ).read_bytes()
+
+    external = _external_tree(tmp_path / "external")
+    before = _snapshot(external)
+    wheel = _build_wheel(checkout, tmp_path / "dist-b", sdist=True)
+
+    assert _static_members(wheel) == _GENERATION_B
+    manifest = json.loads(_manifest_bytes(wheel).decode("utf-8"))
+    assert manifest["identity"] == identity_b
+    assert identity_b != identity_a
+    assert [item["path"] for item in manifest["files"]] == sorted(_GENERATION_B)
+    receipt = _load_packaged(tmp_path, wheel)
+    assert receipt == {"identity": identity_b, "files": sorted(_GENERATION_B)}
+    assert _snapshot(external) == before
+
+
+def test_frontend_staging_refreshes_files_with_equal_mtime(tmp_path: Path) -> None:
     source = tmp_path / "source"
-    build = tmp_path / "build-static"
-    (source / "assets").mkdir(parents=True)
-    (source / "index.html").write_bytes(b"B")
-    (source / "assets" / "chunk-B.js").write_bytes(b"B")
-    (build / "assets").mkdir(parents=True)
-    (build / "index.html").write_bytes(b"B")
-    (build / "assets" / "chunk-B.js").write_bytes(b"B")
-    (build / "assets" / "chunk-A.js").write_bytes(b"A")
-    (build / "vendor").mkdir()
-    (build / "vendor" / "old.js").write_bytes(b"old")
+    _write_package(source, _GENERATION_B, b"manifest-b")
+    _freeze_mtime(source, _FROZEN_MTIME)
+    build_lib = tmp_path / "build" / "lib"
+    package = build_lib / "encode_pipeline" / "frontend_assets"
+    _write_package(package, _GENERATION_A, b"manifest-a")
+    _freeze_mtime(package, _FROZEN_MTIME)
+    marker = build_lib / "encode_pipeline" / "services" / "marker.txt"
+    marker.parent.mkdir(parents=True)
+    marker.write_bytes(b"keep-other-package")
+    external = _external_tree(tmp_path / "external")
+    before = _snapshot(external)
 
-    user = tmp_path / "user-files"
-    user.mkdir()
-    secret = user / "secret.txt"
-    secret.write_bytes(b"keep")
-    linked = build / "linked-user"
-    linked.symlink_to(user, target_is_directory=True)
-    parallel = tmp_path / "parallel-build" / "chunk-A.js"
-    parallel.parent.mkdir()
-    parallel.write_bytes(b"other-build")
+    stage_frontend_assets(source_package=source, build_lib=build_lib)
 
-    remove_stale_frontend_static_files(source_root=source, build_root=build)
+    assert (package / "static" / "index.html").read_bytes() == _GENERATION_B[
+        "index.html"
+    ]
+    assert (package / "static" / "assets" / "chunk-B.js").read_bytes() == (
+        _GENERATION_B["assets/chunk-B.js"]
+    )
+    assert not (package / "static" / "assets" / "chunk-A.js").exists()
+    assert (package / "asset-manifest.json").read_bytes() == b"manifest-b"
+    assert marker.read_bytes() == b"keep-other-package"
+    assert _snapshot(external) == before
 
-    assert (build / "index.html").read_bytes() == b"B"
-    assert (build / "assets" / "chunk-B.js").read_bytes() == b"B"
-    assert not (build / "assets" / "chunk-A.js").exists()
-    assert not (build / "vendor").exists()
-    assert secret.read_bytes() == b"keep"
-    assert user.is_dir()
-    assert not linked.exists()
-    assert parallel.read_bytes() == b"other-build"
 
-    (build / "chunk-A.js").write_bytes(b"same-tree")
-    remove_stale_frontend_static_files(source_root=build, build_root=build)
-    assert (build / "chunk-A.js").read_bytes() == b"same-tree"
+def test_frontend_staging_leaves_symlinked_trees_unchanged(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    _write_package(source, _GENERATION_B, b"manifest-b")
+    external = _external_tree(tmp_path / "external")
+    before = _snapshot(external)
 
-    outside = tmp_path / "outside-static"
-    outside.mkdir()
-    outside_file = outside / "chunk-A.js"
-    outside_file.write_bytes(b"keep-outside")
-    alias = tmp_path / "alias-static"
-    alias.symlink_to(outside, target_is_directory=True)
-    remove_stale_frontend_static_files(source_root=source, build_root=alias)
-    assert outside_file.read_bytes() == b"keep-outside"
-    assert alias.is_symlink()
+    linked_lib = tmp_path / "linked-lib"
+    linked_lib.symlink_to(external, target_is_directory=True)
+    with pytest.raises(BaseError):
+        stage_frontend_assets(source_package=source, build_lib=linked_lib)
+    assert _snapshot(external) == before
+
+    build_lib = tmp_path / "build" / "lib"
+    build_lib.mkdir(parents=True)
+    (build_lib / "encode_pipeline").symlink_to(
+        external / "encode_pipeline",
+        target_is_directory=True,
+    )
+    with pytest.raises(BaseError):
+        stage_frontend_assets(source_package=source, build_lib=build_lib)
+    assert (build_lib / "encode_pipeline").is_symlink()
+    assert _snapshot(external) == before
+
+    build_lib = tmp_path / "real-build" / "lib"
+    package = build_lib / "encode_pipeline" / "frontend_assets"
+    package.mkdir(parents=True)
+    (package / "asset-manifest.json").write_bytes(b"manifest-a")
+    (package / "static").symlink_to(
+        external / "encode_pipeline" / "frontend_assets" / "static",
+        target_is_directory=True,
+    )
+    stage_frontend_assets(source_package=source, build_lib=build_lib)
+    assert _snapshot(external) == before
+    assert (package / "static").is_dir()
+    assert not (package / "static").is_symlink()
+    assert (package / "static" / "index.html").read_bytes() == _GENERATION_B[
+        "index.html"
+    ]
+    assert (package / "asset-manifest.json").read_bytes() == b"manifest-b"
+
+    overlapped = package
+    (overlapped / "static" / "assets" / "chunk-A.js").write_bytes(b"do-not-delete")
+    with pytest.raises(BaseError):
+        stage_frontend_assets(source_package=overlapped, build_lib=build_lib)
+    assert (
+        overlapped / "static" / "assets" / "chunk-A.js"
+    ).read_bytes() == b"do-not-delete"
