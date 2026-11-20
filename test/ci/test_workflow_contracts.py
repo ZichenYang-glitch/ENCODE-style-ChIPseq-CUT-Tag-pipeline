@@ -3,8 +3,10 @@
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
+import tempfile
 
 from coverage import Coverage
 import pytest
@@ -94,6 +96,88 @@ def test_protected_bulk_step_exports_validated_optional_container_identity(
     if not succeeds:
         assert "ENCODE_PIPELINE_BULK_CONTAINER_GID" in result.stderr
         assert "INJECTED" not in result.stderr
+
+
+def _runner_coordinate_step() -> dict:
+    steps = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]["steps"]
+    return next(
+        step
+        for step in steps
+        if step.get("name") == "Require runner-owned runtime coordinates"
+    )
+
+
+def _run_coordinate_step(
+    root: Path, redis_url: str
+) -> subprocess.CompletedProcess[str]:
+    runtime = root / "runtime"
+    runtime.mkdir()
+    fixture = root / "fixture.json"
+    fixture.write_text("{}\n", encoding="utf-8")
+    docker = root / "docker"
+    docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    docker.chmod(0o755)
+    runner_temp = root / "runner-temp"
+    runner_temp.mkdir()
+    socket_dir = Path(tempfile.mkdtemp(prefix="hwc", dir="/tmp"))
+    endpoint = socket.socket(socket.AF_UNIX)
+    endpoint.bind(str(socket_dir / "d.sock"))
+    try:
+        environment = {
+            "PATH": os.defpath,
+            "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT": str(runtime),
+            "HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST": str(fixture),
+            "ENCODE_PIPELINE_TEST_REDIS_URL": redis_url,
+            "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE": str(docker),
+            "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET": str(socket_dir / "d.sock"),
+            "RUNNER_TEMP": str(runner_temp),
+        }
+        return subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", _runner_coordinate_step()["run"]],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        endpoint.close()
+        (socket_dir / "d.sock").unlink(missing_ok=True)
+        socket_dir.rmdir()
+
+
+def test_runner_coordinate_masks_redis_and_files_it_for_precheck(tmp_path: Path):
+    marker = "unix:///helixweave-private-redis-marker/%2e/redis.sock"
+    result = _run_coordinate_step(tmp_path, marker)
+    visible = "\n".join(
+        line
+        for line in f"{result.stdout}\n{result.stderr}".splitlines()
+        if not line.startswith("::")
+    )
+    stored_path = tmp_path / "runner-temp" / "helixweave-gate-redis-url"
+    stored = stored_path.read_text(encoding="utf-8") if stored_path.is_file() else ""
+    mask_ok = result.stdout.splitlines() == [
+        "::add-mask::" + marker.replace("%", "%25")
+    ]
+    assert result.returncode == 0
+    assert not visible.strip()
+    assert "helixweave-private-redis-marker" not in visible
+    assert stored == marker
+    assert mask_ok
+    assert stored_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_runner_coordinate_rejects_multiline_redis_without_echoing_it(tmp_path: Path):
+    result = _run_coordinate_step(
+        tmp_path,
+        "unix:///helixweave-private-redis-marker/redis.sock\ninjected",
+    )
+    blob = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "helixweave-private-redis-marker" not in blob
+    assert "injected" not in blob
+    assert "must be a single line" in blob
+    assert not (tmp_path / "runner-temp" / "helixweave-gate-redis-url").exists()
 
 
 def _checkout_jobs(workflow: dict):
@@ -559,6 +643,54 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert "--phase verify" in bulk_runs
     assert "-m bulk_rnaseq_real_execution test/bulk_rnaseq_real_execution" in bulk_runs
     assert "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION" in str(bulk_job)
+    redis_precheck = next(
+        step
+        for step in bulk_job["steps"]
+        if step.get("name") == "Verify Redis before scientific execution"
+    )
+    scientific = next(
+        step
+        for step in bulk_job["steps"]
+        if step.get("name") == "Run rapid, STAR Salmon, and lifecycle acceptance"
+    )
+    names = [step.get("name") for step in bulk_job["steps"]]
+    assert names.index("Install platform package") < names.index(redis_precheck["name"])
+    assert names.index(
+        "Verify pinned runtime admission without mutation or network"
+    ) < names.index(redis_precheck["name"])
+    assert names.index(redis_precheck["name"]) < names.index(scientific["name"])
+    assert redis_precheck["shell"] == "micromamba-shell {0}"
+    assert "continue-on-error" not in redis_precheck
+    # The runner prints this map in the step log header. The Redis coordinate
+    # is masked and filed by the earlier coordinate step instead.
+    assert set(redis_precheck["env"]) == set(scientific["env"]) - {
+        "ENCODE_PIPELINE_TEST_REDIS_URL"
+    }
+    assert "ENCODE_PIPELINE_TEST_REDIS_URL" not in redis_precheck["env"]
+    assert "${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}" not in str(redis_precheck)
+    precheck_run = redis_precheck["run"]
+    assert "require_gate_settings()" in precheck_run
+    assert "sys.tracebacklimit = 0" in precheck_run
+    assert "raise SystemExit(1) from None" in precheck_run
+    assert "echo" not in precheck_run
+    assert "print(" not in precheck_run
+    assert "ENCODE_PIPELINE_TEST_REDIS_URL" not in precheck_run
+    assert "redis://" not in precheck_run
+    assert "unix:" not in precheck_run
+    coordinate = next(
+        step
+        for step in bulk_job["steps"]
+        if step.get("name") == "Require runner-owned runtime coordinates"
+    )
+    assert names.index(coordinate["name"]) < names.index(redis_precheck["name"])
+    coordinate_run = coordinate["run"]
+    assert "printf '::add-mask::%s\\n' \"$redis_mask\"" in coordinate_run
+    assert '>"$RUNNER_TEMP/helixweave-gate-redis-url"' in coordinate_run.replace(
+        " ",
+        "",
+    )
+    assert "GITHUB_ENV" not in coordinate_run
+    assert "${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}" not in coordinate_run
 
 
 def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():
