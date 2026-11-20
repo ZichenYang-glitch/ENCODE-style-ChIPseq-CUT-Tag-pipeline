@@ -1026,6 +1026,25 @@ jobs:
           --docker-socket "$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
           --phase verify
 
+      - name: Verify Redis before scientific execution
+        shell: micromamba-shell {0}
+        env:
+          HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
+        run: |
+          python3 - <<'PY'
+          import sys
+
+          sys.path.insert(0, "test")
+          from bulk_rnaseq_real_execution.support import require_gate_settings
+
+          require_gate_settings()
+          PY
+
       - name: Run rapid, STAR Salmon, and lifecycle acceptance
         shell: micromamba-shell {0}
         env:

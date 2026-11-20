@@ -559,6 +559,35 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert "--phase verify" in bulk_runs
     assert "-m bulk_rnaseq_real_execution test/bulk_rnaseq_real_execution" in bulk_runs
     assert "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION" in str(bulk_job)
+    redis_precheck = next(
+        step
+        for step in bulk_job["steps"]
+        if step.get("name") == "Verify Redis before scientific execution"
+    )
+    scientific = next(
+        step
+        for step in bulk_job["steps"]
+        if step.get("name") == "Run rapid, STAR Salmon, and lifecycle acceptance"
+    )
+    names = [step.get("name") for step in bulk_job["steps"]]
+    assert names.index("Install platform package") < names.index(redis_precheck["name"])
+    assert names.index(
+        "Verify pinned runtime admission without mutation or network"
+    ) < names.index(redis_precheck["name"])
+    assert names.index(redis_precheck["name"]) < names.index(scientific["name"])
+    assert redis_precheck["shell"] == "micromamba-shell {0}"
+    assert "continue-on-error" not in redis_precheck
+    assert set(redis_precheck["env"]) == set(scientific["env"])
+    assert redis_precheck["env"]["ENCODE_PIPELINE_TEST_REDIS_URL"] == (
+        "${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}"
+    )
+    precheck_run = redis_precheck["run"]
+    assert "require_gate_settings()" in precheck_run
+    assert "echo" not in precheck_run
+    assert "print(" not in precheck_run
+    assert "ENCODE_PIPELINE_TEST_REDIS_URL" not in precheck_run
+    assert "redis://" not in precheck_run
+    assert "unix:" not in precheck_run
 
 
 def test_bulk_product_gate_is_exact_head_path_free_and_coordinate_scoped():

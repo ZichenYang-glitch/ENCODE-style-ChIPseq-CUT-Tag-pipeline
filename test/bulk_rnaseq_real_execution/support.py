@@ -46,6 +46,7 @@ from encode_pipeline.adapters.bulk_rnaseq.resource_closure import (
     verify_sortmerna_index,
 )
 from encode_pipeline.adapters.bulk_rnaseq.runtime_assets import NEXTFLOW_VERSION
+from encode_pipeline.persistence.runtime import DATABASE_URL_ENV
 from encode_pipeline.platform.adapters import WorkflowInputs
 from encode_pipeline.platform.managed_containers import (
     MANAGED_CONTAINER_SCOPE_LABEL,
@@ -71,6 +72,15 @@ from encode_pipeline.services.run_repositories import (
 )
 from encode_pipeline.services.runs import RunService
 from encode_pipeline.services.workflow_builds import WorkflowBuildIdentityProvider
+from encode_pipeline.workers.settings import (
+    QUEUE_NAME_ENV,
+    REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+    REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
+    REDIS_URL_ENV,
+    WORKSPACE_ROOT_ENV,
+    WorkerSettings,
+    load_worker_settings,
+)
 
 
 REQUIRE_REAL_EXECUTION_ENV = "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION"
@@ -108,6 +118,17 @@ _EXPECTED_RAW_FASTQC_VALUES = (
     ("PE1", "fastqc.raw.read1.total_sequences", "768"),
     ("PE1", "fastqc.raw.read2.total_sequences", "768"),
     ("SE1", "fastqc.raw.single.total_sequences", "384"),
+)
+_GATE_REDIS_DATABASE_URL = "sqlite:////helixweave-gate-precheck/unused.db"
+_GATE_REDIS_QUEUE_NAME = "helixweave-gate-precheck"
+_GATE_REDIS_WORKSPACE = "/helixweave-gate-precheck/workspaces"
+_REDIS_URL_INVALID = "redis_url must be a valid Redis URL"
+_REDIS_UNREACHABLE = "Redis is unreachable"
+_REDIS_TIMEOUT_ERRORS = frozenset(
+    {
+        "redis_connect_timeout_seconds must be a positive finite number",
+        "redis_api_read_timeout_seconds must be a positive finite number",
+    }
 )
 _EXPECTED_INDEX_PRODUCER_IMAGES = {
     "star": (
@@ -161,6 +182,8 @@ class GateSettings:
                 raise ValueError(f"{name} must be a canonical absolute Path")
         if self.docker_executable.name != "docker":
             raise ValueError("docker_executable must name the Docker CLI")
+        # Non-empty only. require_gate_settings judges format and PING with
+        # the production WorkerSettings contract before scientific work.
         if not isinstance(self.redis_url, str) or not self.redis_url.strip():
             raise ValueError("redis_url must be non-empty")
         for name in ("container_uid", "container_gid"):
@@ -431,12 +454,107 @@ class AcceptanceEvidence:
             raise AcceptanceEvidenceStaleError("acceptance evidence is stale")
 
 
+def verify_gate_redis(
+    redis_url: str,
+    environ: Mapping[str, str] | None = None,
+    *,
+    _connector: Callable[[WorkerSettings], None] | None = None,
+) -> WorkerSettings:
+    """Judge a Redis coordinate before the protected gate starts science.
+
+    Location: ``require_gate_settings`` calls this after the local runtime
+    coordinates exist and before it returns. The protected workflow calls
+    ``require_gate_settings`` in the step immediately before scientific
+    execution, so a bad address fails once instead of inside later cases.
+
+    Judgment follows production ``WorkerSettings``. ``parse_url`` accepts only
+    ``redis://``, ``rediss://``, and ``unix://``. A single-slash ``unix:/``
+    address is an invalid format and does not open a connection. A parsed
+    address that does not answer ``PING`` is unreachable. Connect and read
+    timeouts are the production ``WorkerSettings`` values, including
+    ``ENCODE_PIPELINE_REDIS_CONNECT_TIMEOUT_SECONDS`` and
+    ``ENCODE_PIPELINE_REDIS_API_READ_TIMEOUT_SECONDS`` when the gate
+    environment sets them. Neither failure includes the original URL,
+    credentials, or a private path. This function fails closed; it does not
+    skip.
+    """
+    source = os.environ if environ is None else environ
+    settings = _gate_redis_worker_settings(redis_url, source)
+    connector = _ping_gate_redis if _connector is None else _connector
+    try:
+        connector(settings)
+    except AssertionError:
+        raise
+    except Exception:
+        raise AssertionError(_REDIS_UNREACHABLE) from None
+    return settings
+
+
+def _gate_redis_worker_settings(
+    redis_url: str,
+    environ: Mapping[str, str],
+) -> WorkerSettings:
+    payload = {
+        DATABASE_URL_ENV: _GATE_REDIS_DATABASE_URL,
+        REDIS_URL_ENV: redis_url,
+        QUEUE_NAME_ENV: _GATE_REDIS_QUEUE_NAME,
+        WORKSPACE_ROOT_ENV: _GATE_REDIS_WORKSPACE,
+    }
+    for name in (
+        REDIS_CONNECT_TIMEOUT_SECONDS_ENV,
+        REDIS_API_READ_TIMEOUT_SECONDS_ENV,
+    ):
+        if name in environ:
+            payload[name] = environ[name]
+    try:
+        return load_worker_settings(payload)
+    except ValueError as error:
+        raise AssertionError(_public_redis_settings_error(error, redis_url)) from None
+
+
+def _public_redis_settings_error(error: ValueError, redis_url: str) -> str:
+    message = str(error)
+    safe = message == _REDIS_URL_INVALID or message in _REDIS_TIMEOUT_ERRORS
+    leaks = len(redis_url) >= 8 and redis_url in message
+    if not safe or leaks:
+        return _REDIS_URL_INVALID
+    return message
+
+
+def _ping_gate_redis(settings: WorkerSettings) -> None:
+    from encode_pipeline.workers.rq_queue import create_api_redis_connection
+
+    connection = None
+    answered = False
+    try:
+        connection = create_api_redis_connection(settings)
+        answered = connection.ping() is True
+    except Exception:
+        answered = False
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+    if not answered:
+        raise AssertionError(_REDIS_UNREACHABLE)
+
+
 def require_gate_settings(
     environ: Mapping[str, str] | None = None,
     *,
     _socket_probe: Callable[[Path], bool] | None = None,
+    _redis_probe: Callable[[WorkerSettings], None] | None = None,
 ) -> GateSettings:
-    """Load an explicitly enabled gate or fail; this function never skips."""
+    """Load an explicitly enabled gate or fail; this function never skips.
+
+    Redis format and reachability are judged by ``verify_gate_redis`` before
+    this function returns. Callers therefore learn that the address is invalid
+    or that Redis is unreachable before they load an acceptance fixture or
+    start scientific execution. A missing coordinate still fails closed, and
+    nothing in this function skips.
+    """
     source = os.environ if environ is None else environ
     required = (
         REQUIRE_REAL_EXECUTION_ENV,
@@ -495,6 +613,11 @@ def require_gate_settings(
         raise AssertionError(
             f"{MANAGED_DOCKER_SOCKET_ENV} must name the local Docker socket"
         )
+    verify_gate_redis(
+        settings.redis_url,
+        source,
+        _connector=_redis_probe,
+    )
     return settings
 
 
