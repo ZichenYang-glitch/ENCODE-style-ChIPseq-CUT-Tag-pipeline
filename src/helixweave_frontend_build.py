@@ -1,15 +1,14 @@
-"""Stage the current frontend closure into each wheel build.
+"""Build each wheel from exclusive directories.
 
-setuptools copies package data into ``build/lib`` and packs that tree.
-``copy_file`` skips a destination whose modification time is not older, so a
-later frontend build can leave the previous ``index.html`` and
-``asset-manifest.json`` bytes in place. Removed chunk names have the same
-problem when they remain beside the new files.
+setuptools reuses ``build/lib`` and ``build/bdist.<platform>/wheel``. A file
+whose modification time is not older is left in place, and a wheel archive
+kept with ``keep_temp`` is packed again even when the new manifest no longer
+lists it. Either leftover fails the install-time frontend integrity check.
 
-Each wheel build therefore copies the current static tree and manifest into
-a new empty directory, then installs that copy into this build. Every
-directory from ``build/lib`` through the frontend package must be a real
-directory; a symlink anywhere on that path keeps the outside tree unchanged.
+Every wheel therefore gets a new empty build directory and a new empty
+archive directory before setuptools writes. Only those two directories are
+removed. A symlink anywhere on the build path stops the command before that
+write.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from pathlib import Path
 import stat
 import tempfile
 
+from setuptools.command.bdist_wheel import bdist_wheel as _BdistWheel
 from setuptools.command.build_py import build_py as _BuildPy
 from setuptools.errors import BaseError
 
@@ -33,18 +33,42 @@ class build_py(_BuildPy):
     """Package-data build that stages the current frontend closure."""
 
     def run(self) -> None:
+        editable = bool(getattr(self, "editable_mode", False))
+        if not editable and self.build_lib:
+            _require_real_directory_chain(Path(self.build_lib))
         super().run()
         packages = set(self.packages or ())
-        if (
-            getattr(self, "editable_mode", False)
-            or not self.build_lib
-            or _PACKAGE not in packages
-        ):
+        if editable or not self.build_lib or _PACKAGE not in packages:
             return
         stage_frontend_assets(
             source_package=Path(self.get_package_dir(_PACKAGE)),
             build_lib=Path(self.build_lib),
         )
+
+
+class bdist_wheel(_BdistWheel):
+    """Wheel command that does not reuse a previous build or archive tree."""
+
+    def run(self) -> None:
+        build_root = Path(tempfile.mkdtemp(prefix="helixweave-wheel-build-"))
+        archive_root = Path(tempfile.mkdtemp(prefix="helixweave-wheel-archive-"))
+        build_identity = _directory_identity(build_root)
+        archive_identity = _directory_identity(archive_root)
+        try:
+            build = self.reinitialize_command("build", reinit_subcommands=True)
+            build.build_base = os.fspath(build_root)
+            build.build_purelib = None
+            build.build_platlib = None
+            build.build_lib = None
+            build.build_temp = None
+            build.build_scripts = None
+            build.finalized = False
+            self.distribution.have_run["build"] = False
+            self.bdist_dir = os.fspath(archive_root)
+            super().run()
+        finally:
+            _remove_owned_directory(build_root, build_identity)
+            _remove_owned_directory(archive_root, archive_identity)
 
 
 def stage_frontend_assets(*, source_package: Path, build_lib: Path) -> None:
@@ -219,6 +243,45 @@ def _regular_file(path: Path) -> bool:
     except OSError:
         return False
     return stat.S_ISREG(mode) and not stat.S_ISLNK(mode)
+
+
+def _require_real_directory_chain(path: Path) -> None:
+    candidates = (*reversed(path.parents), path)
+    for candidate in candidates:
+        if candidate == Path(candidate.anchor):
+            continue
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise BaseError(_STAGING_FAILED) from error
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise BaseError(_STAGING_FAILED)
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise BaseError(_STAGING_FAILED)
+    return (info.st_dev, info.st_ino)
+
+
+def _remove_owned_directory(path: Path, identity: tuple[int, int]) -> None:
+    try:
+        info = path.lstat()
+    except OSError:
+        return
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or (info.st_dev, info.st_ino) != identity
+    ):
+        return
+    try:
+        _remove_owned_tree(path)
+    except OSError:
+        return
 
 
 def _real_directory(path: Path) -> bool:

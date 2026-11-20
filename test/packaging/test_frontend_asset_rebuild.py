@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import sysconfig
 import zipfile
 
 import pytest
@@ -211,21 +212,7 @@ def test_clean_wheel_build_matches_frontend_manifest(tmp_path: Path) -> None:
     assert _static_members(wheel) == _GENERATION_B
     receipt = _load_packaged(tmp_path, wheel)
     assert receipt == {"identity": identity, "files": sorted(_GENERATION_B)}
-    source_static = checkout / "src" / "encode_pipeline" / "frontend_assets" / "static"
-    built_static = (
-        checkout / "build" / "lib" / "encode_pipeline" / "frontend_assets" / "static"
-    )
-    source_files = {
-        path.relative_to(source_static).as_posix()
-        for path in source_static.rglob("*")
-        if path.is_file()
-    }
-    built_files = {
-        path.relative_to(built_static).as_posix()
-        for path in built_static.rglob("*")
-        if path.is_file()
-    }
-    assert built_files == source_files
+    assert not (checkout / "build").exists()
 
 
 def _snapshot(root: Path) -> dict[str, bytes | None]:
@@ -349,8 +336,10 @@ def test_same_mtime_rebuild_loads_the_replacement_frontend(tmp_path: Path) -> No
     identity_b = _package_with_script(checkout, _GENERATION_B)
     package = checkout / "src" / "encode_pipeline" / "frontend_assets"
     cached = checkout / "build" / "lib" / "encode_pipeline" / "frontend_assets"
+    _write_package(cached, _GENERATION_A, b"manifest-a")
     _freeze_mtime(package, _FROZEN_MTIME)
     _freeze_mtime(cached, _FROZEN_MTIME)
+    preserved_build = _snapshot(checkout / "build")
     assert (package / "static" / "index.html").read_bytes() == _GENERATION_B[
         "index.html"
     ]
@@ -375,6 +364,7 @@ def test_same_mtime_rebuild_loads_the_replacement_frontend(tmp_path: Path) -> No
     receipt = _load_packaged(tmp_path, wheel)
     assert receipt == {"identity": identity_b, "files": sorted(_GENERATION_B)}
     assert _snapshot(external) == before
+    assert _snapshot(checkout / "build") == preserved_build
 
 
 def test_frontend_staging_refreshes_files_with_equal_mtime(tmp_path: Path) -> None:
@@ -452,3 +442,88 @@ def test_frontend_staging_leaves_symlinked_trees_unchanged(tmp_path: Path) -> No
     assert (
         overlapped / "static" / "assets" / "chunk-A.js"
     ).read_bytes() == b"do-not-delete"
+
+
+def _keep_temp(checkout: Path, value: str) -> None:
+    (checkout / "setup.cfg").write_text(
+        f"[bdist_wheel]\nkeep_temp = {value}\n",
+        encoding="utf-8",
+    )
+
+
+def _wheel_archive(checkout: Path) -> Path:
+    platform = sysconfig.get_platform()
+    return checkout / "build" / f"bdist.{platform}" / "wheel"
+
+
+def test_preserved_wheel_archive_is_not_packed_again(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path)
+    identity_a = _package_with_script(checkout, _GENERATION_A)
+    _keep_temp(checkout, "1")
+    first = _build_wheel(checkout, tmp_path / "dist-a", sdist=True)
+    assert _static_members(first) == _GENERATION_A
+    first_manifest = json.loads(_manifest_bytes(first).decode("utf-8"))
+    assert first_manifest["identity"] == identity_a
+
+    identity_b = _package_with_script(checkout, _GENERATION_B)
+    _keep_temp(checkout, "0")
+    archive = _wheel_archive(checkout)
+    chunk = (
+        archive
+        / "encode_pipeline"
+        / "frontend_assets"
+        / "static"
+        / "assets"
+        / "chunk-A.js"
+    )
+    if not chunk.is_file():
+        _write_package(
+            archive / "encode_pipeline" / "frontend_assets",
+            _GENERATION_A,
+            b'{"generation":"preserved"}\n',
+        )
+        notes = archive / "notes"
+        (notes / "nested").mkdir(parents=True)
+        (notes / "nested" / "data.bin").write_bytes(b"\x00preserved")
+        (notes / "empty").mkdir()
+    assert chunk.read_bytes() == _GENERATION_A["assets/chunk-A.js"]
+    preserved = _snapshot(archive)
+    external = _external_tree(tmp_path / "external")
+    external_before = _snapshot(external)
+
+    wheel = _build_wheel(checkout, tmp_path / "dist-b", sdist=True)
+
+    assert _static_members(wheel) == _GENERATION_B
+    manifest = json.loads(_manifest_bytes(wheel).decode("utf-8"))
+    assert manifest["identity"] == identity_b
+    assert identity_b != identity_a
+    assert [item["path"] for item in manifest["files"]] == sorted(_GENERATION_B)
+    receipt = _load_packaged(tmp_path, wheel)
+    assert receipt == {"identity": identity_b, "files": sorted(_GENERATION_B)}
+    assert _snapshot(archive) == preserved
+    assert _snapshot(external) == external_before
+
+
+def test_release_build_leaves_symlinked_build_directories_unchanged(
+    tmp_path: Path,
+) -> None:
+    checkout = _checkout(tmp_path)
+    identity = _write_frontend(checkout, _GENERATION_B)
+    external = _external_tree(tmp_path / "external")
+    before = _snapshot(external)
+    build = checkout / "build"
+    build.mkdir()
+    (build / "lib").symlink_to(external, target_is_directory=True)
+    archive_link = build / f"bdist.{sysconfig.get_platform()}"
+    archive_link.symlink_to(external, target_is_directory=True)
+
+    wheel = _build_wheel(checkout, tmp_path / "dist", sdist=True)
+
+    assert _snapshot(external) == before
+    assert (build / "lib").is_symlink()
+    assert archive_link.is_symlink()
+    assert os.readlink(build / "lib") == os.fspath(external)
+    assert os.readlink(archive_link) == os.fspath(external)
+    assert _static_members(wheel) == _GENERATION_B
+    receipt = _load_packaged(tmp_path, wheel)
+    assert receipt == {"identity": identity, "files": sorted(_GENERATION_B)}
