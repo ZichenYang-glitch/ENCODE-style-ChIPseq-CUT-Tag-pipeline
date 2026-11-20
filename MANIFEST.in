@@ -39,3 +39,4 @@ include scripts/cross_correlation_spp_window.py
 include scripts/write_cross_correlation_qc.py
 include scripts/summarize_cross_correlation.py
 include scripts/source_provenance.py
+include src/helixweave_frontend_build.py
