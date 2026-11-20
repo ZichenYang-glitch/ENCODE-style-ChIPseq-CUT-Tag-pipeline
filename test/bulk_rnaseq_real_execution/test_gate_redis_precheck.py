@@ -9,11 +9,15 @@ from __future__ import annotations
 from contextlib import contextmanager
 import os
 from pathlib import Path
+import shutil
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 
 import pytest
+import yaml
 
 from encode_pipeline.workers.rq_queue import create_api_redis_connection
 from encode_pipeline.workers.settings import (
@@ -370,3 +374,135 @@ def test_invalid_timeout_fails_before_connection() -> None:
 
     assert called is False
     _assert_hidden(str(caught.value), _PATH_TOKEN)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _precheck_run() -> str:
+    workflow = yaml.safe_load(
+        (_repo_root() / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["bulk-rnaseq-real-execution"]["steps"]
+    step = next(
+        item
+        for item in steps
+        if item.get("name") == "Verify Redis before scientific execution"
+    )
+    return str(step["run"])
+
+
+@contextmanager
+def _gate_process_fixture(redis_url: str | None):
+    directory = Path(tempfile.mkdtemp(prefix="hwg", dir="/tmp"))
+    endpoint = socket.socket(socket.AF_UNIX)
+    try:
+        runtime = directory / "runtime"
+        runtime.mkdir()
+        fixture = directory / "fixture.json"
+        fixture.write_text("{}\n", encoding="utf-8")
+        docker = directory / "docker"
+        docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        docker.chmod(0o755)
+        endpoint.bind(str(directory / "d.sock"))
+        environment = {
+            "PATH": os.pathsep.join(
+                (str(Path(sys.executable).parent), "/usr/bin", "/bin")
+            ),
+            "HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION": "1",
+            "HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT": str(runtime),
+            "HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST": str(fixture),
+            "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE": str(docker),
+            "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET": str(directory / "d.sock"),
+            "RUNNER_TEMP": str(directory),
+        }
+        if redis_url is not None:
+            environment["ENCODE_PIPELINE_TEST_REDIS_URL"] = redis_url
+        yield directory, environment
+    finally:
+        endpoint.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def _hidden(text: str, secret: str) -> bool:
+    __tracebackhide__ = True
+    return secret not in text
+
+
+def test_precheck_script_hides_coordinate_and_checkout() -> None:
+    checkout = str(_repo_root())
+    cases = (
+        ("unix:", "redis_url must be a valid Redis URL", True),
+        ("unix://", "Redis is unreachable", False),
+    )
+    for prefix, reason, use_environment in cases:
+        with _gate_process_fixture(None) as (root, environment):
+            uri = prefix + str(root / "helixweave-private-redis-marker.sock")
+            if use_environment:
+                environment["ENCODE_PIPELINE_TEST_REDIS_URL"] = uri
+            else:
+                (root / "helixweave-gate-redis-url").write_text(uri, encoding="utf-8")
+                os.chmod(root / "helixweave-gate-redis-url", 0o600)
+            result = subprocess.run(
+                ["/bin/bash", "-e", "-c", _precheck_run()],
+                cwd=checkout,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output = result.stdout + result.stderr
+            assert result.returncode == 1
+            assert reason in output
+            assert _hidden(output, uri)
+            assert _hidden(output, "helixweave-private-redis-marker")
+            assert _hidden(result.stderr, checkout)
+            if not use_environment:
+                assert not (root / "helixweave-gate-redis-url").exists()
+
+
+def test_pytest_and_junit_hide_gate_coordinate() -> None:
+    checkout = _repo_root()
+    with _gate_process_fixture(None) as (root, environment):
+        uri = "unix:" + str(root / "helixweave-private-redis-marker.sock")
+        environment["ENCODE_PIPELINE_TEST_REDIS_URL"] = uri
+        probe = root / "test_review.py"
+        probe.write_text(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "sys.path.insert(0, str(Path.cwd() / 'test'))\n"
+            "from bulk_rnaseq_real_execution.support import require_gate_settings\n"
+            "def test_gate():\n"
+            "    require_gate_settings()\n",
+            encoding="utf-8",
+        )
+        report = root / "junit.xml"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "scripts/checkout_bootstrap.py",
+                "--repository-root",
+                ".",
+                "pytest",
+                str(probe),
+                "-q",
+                "--junitxml",
+                str(report),
+            ],
+            cwd=checkout,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        junit = report.read_text(encoding="utf-8")
+        assert result.returncode == 1
+        assert "redis_url must be a valid Redis URL" in result.stdout
+        assert "redis_url must be a valid Redis URL" in junit
+        assert _hidden(result.stdout, uri)
+        assert _hidden(junit, uri)
+        assert _hidden(result.stdout, "helixweave-private-redis-marker")
+        assert _hidden(junit, "helixweave-private-redis-marker")

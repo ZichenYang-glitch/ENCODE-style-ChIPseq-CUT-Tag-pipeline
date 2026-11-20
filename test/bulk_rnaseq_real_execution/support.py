@@ -124,6 +124,7 @@ _GATE_REDIS_QUEUE_NAME = "helixweave-gate-precheck"
 _GATE_REDIS_WORKSPACE = "/helixweave-gate-precheck/workspaces"
 _REDIS_URL_INVALID = "redis_url must be a valid Redis URL"
 _REDIS_UNREACHABLE = "Redis is unreachable"
+_RUNNER_REDIS_FILE = "helixweave-gate-redis-url"
 _REDIS_TIMEOUT_ERRORS = frozenset(
     {
         "redis_connect_timeout_seconds must be a positive finite number",
@@ -477,7 +478,12 @@ def verify_gate_redis(
     environment sets them. Neither failure includes the original URL,
     credentials, or a private path. This function fails closed; it does not
     skip.
+
+    Pytest renders arguments of frames that remain in a long traceback. Frames
+    that received the URL or the gate environment set ``__tracebackhide__`` so
+    the console and JUnit report keep only the public message.
     """
+    __tracebackhide__ = True
     source = os.environ if environ is None else environ
     settings = _gate_redis_worker_settings(redis_url, source)
     connector = _ping_gate_redis if _connector is None else _connector
@@ -494,6 +500,7 @@ def _gate_redis_worker_settings(
     redis_url: str,
     environ: Mapping[str, str],
 ) -> WorkerSettings:
+    __tracebackhide__ = True
     payload = {
         DATABASE_URL_ENV: _GATE_REDIS_DATABASE_URL,
         REDIS_URL_ENV: redis_url,
@@ -513,6 +520,7 @@ def _gate_redis_worker_settings(
 
 
 def _public_redis_settings_error(error: ValueError, redis_url: str) -> str:
+    __tracebackhide__ = True
     message = str(error)
     safe = message == _REDIS_URL_INVALID or message in _REDIS_TIMEOUT_ERRORS
     leaks = len(redis_url) >= 8 and redis_url in message
@@ -522,6 +530,7 @@ def _public_redis_settings_error(error: ValueError, redis_url: str) -> str:
 
 
 def _ping_gate_redis(settings: WorkerSettings) -> None:
+    __tracebackhide__ = True
     from encode_pipeline.workers.rq_queue import create_api_redis_connection
 
     connection = None
@@ -555,7 +564,10 @@ def require_gate_settings(
     start scientific execution. A missing coordinate still fails closed, and
     nothing in this function skips.
     """
-    source = os.environ if environ is None else environ
+    __tracebackhide__ = True
+    source = _inherit_runner_redis_coordinate(
+        os.environ if environ is None else environ
+    )
     required = (
         REQUIRE_REAL_EXECUTION_ENV,
         RUNTIME_ROOT_ENV,
@@ -619,6 +631,40 @@ def require_gate_settings(
         _connector=_redis_probe,
     )
     return settings
+
+
+def _inherit_runner_redis_coordinate(
+    source: Mapping[str, str],
+) -> Mapping[str, str]:
+    """Load the masked runner file when the process env omitted the URL.
+
+    The protected precheck step does not declare ``ENCODE_PIPELINE_TEST_REDIS_URL``
+    because the runner prints a step's env map in the log header. The coordinate
+    step writes the same value to ``RUNNER_TEMP`` after registering a log mask.
+    Explicit mappings and an already configured process variable are unchanged.
+    """
+    __tracebackhide__ = True
+    if source is not os.environ:
+        return source
+    current = source.get(TEST_REDIS_URL_ENV)
+    if current is not None and current.strip():
+        return source
+    runner_temp = source.get("RUNNER_TEMP", "")
+    if not runner_temp or any(character in runner_temp for character in "\x00\n\r"):
+        return source
+    path = Path(runner_temp) / _RUNNER_REDIS_FILE
+    try:
+        value = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return source
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    if not value.strip() or any(character in value for character in "\x00\n\r"):
+        return source
+    os.environ[TEST_REDIS_URL_ENV] = value
+    return os.environ
 
 
 def _is_unix_socket(path: Path) -> bool:
