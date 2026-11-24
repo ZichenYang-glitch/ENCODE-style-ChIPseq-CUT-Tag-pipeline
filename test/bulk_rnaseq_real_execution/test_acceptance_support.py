@@ -133,6 +133,10 @@ def _gate_environment(tmp_path: Path) -> dict[str, str]:
     return environment
 
 
+def _accept_gate_redis(_settings: object) -> None:
+    """Coordinate tests do not open Redis; reachability has its own cases."""
+
+
 def test_fixture_generator_loader_is_path_fixed_and_state_neutral() -> None:
     before_path = tuple(sys.path)
     previous_module = sys.modules.get(
@@ -685,7 +689,11 @@ def test_gate_environment_is_explicit_and_missing_values_fail_without_skip(
         require_gate_settings({})
 
     environment = _gate_environment(tmp_path)
-    settings = require_gate_settings(environment, _socket_probe=lambda _path: True)
+    settings = require_gate_settings(
+        environment,
+        _socket_probe=lambda _path: True,
+        _redis_probe=_accept_gate_redis,
+    )
 
     assert settings.runtime_root == tmp_path / "runtime"
     assert settings.fixture_manifest == tmp_path / "fixture.json"
@@ -706,7 +714,11 @@ def test_gate_container_identity_coordinates_bind_explicit_values(
     environment[CONTAINER_UID_ENV] = uid
     environment[CONTAINER_GID_ENV] = gid
 
-    settings = require_gate_settings(environment, _socket_probe=lambda _path: True)
+    settings = require_gate_settings(
+        environment,
+        _socket_probe=lambda _path: True,
+        _redis_probe=_accept_gate_redis,
+    )
 
     assert (settings.container_uid, settings.container_gid) == (int(uid), int(gid))
 
@@ -926,7 +938,11 @@ def test_results_registry_is_explicit_and_default_remains_authoring_only_without
     if container_ids is not None:
         environment[CONTAINER_UID_ENV] = str(container_ids[0])
         environment[CONTAINER_GID_ENV] = str(container_ids[1])
-    settings = require_gate_settings(environment, _socket_probe=lambda _path: True)
+    settings = require_gate_settings(
+        environment,
+        _socket_probe=lambda _path: True,
+        _redis_probe=_accept_gate_redis,
+    )
     settings.fixture_manifest.write_text(
         json.dumps(_fixture_document(tmp_path)),
         encoding="utf-8",

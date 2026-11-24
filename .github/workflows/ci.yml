@@ -990,7 +990,7 @@ jobs:
         env:
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: |
@@ -1007,11 +1007,27 @@ jobs:
               exit 1
             }
           done
+          case "$ENCODE_PIPELINE_TEST_REDIS_URL" in
+            *$'\n'*|*$'\r'*)
+              echo "::error::ENCODE_PIPELINE_TEST_REDIS_URL must be a single line"
+              exit 1
+              ;;
+          esac
+          # The environment secret is masked before this step's env header.
+          # Register it again for any later copy, and pass it to the precheck
+          # through a temp file so that step omits the variable from its env.
+          redis_mask=${ENCODE_PIPELINE_TEST_REDIS_URL//%/%25}
+          printf '::add-mask::%s\n' "$redis_mask"
           test -d "$HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT"
           test -f "$HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST"
           test -x /usr/bin/unshare
           test -x "$ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
           test -S "$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
+          (
+            umask 077
+            printf '%s' "$ENCODE_PIPELINE_TEST_REDIS_URL" \
+              > "$RUNNER_TEMP/helixweave-gate-redis-url"
+          )
 
       - name: Verify pinned runtime admission without mutation or network
         shell: micromamba-shell {0}
@@ -1026,13 +1042,39 @@ jobs:
           --docker-socket "$ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
           --phase verify
 
+      - name: Verify Redis before scientific execution
+        shell: micromamba-shell {0}
+        env:
+          HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
+          HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
+          HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
+          ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
+        run: |
+          python3 - <<'PY'
+          import sys
+
+          sys.tracebacklimit = 0
+          sys.path.insert(0, "test")
+          try:
+              from bulk_rnaseq_real_execution.support import require_gate_settings
+
+              require_gate_settings()
+          except AssertionError as error:
+              sys.stderr.write(f"{error}\n")
+              raise SystemExit(1) from None
+          except Exception:
+              sys.stderr.write("Redis precheck failed\n")
+              raise SystemExit(1) from None
+          PY
+
       - name: Run rapid, STAR Salmon, and lifecycle acceptance
         shell: micromamba-shell {0}
         env:
           HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: >-
@@ -1097,10 +1139,10 @@ jobs:
           HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
-          ENCODE_PIPELINE_E2E_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_E2E_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS: "7200"
           ENCODE_PIPELINE_E2E_SCREENSHOT_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence/screenshots
           HELIXWEAVE_BULK_RNASEQ_PRODUCT_EVIDENCE_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence

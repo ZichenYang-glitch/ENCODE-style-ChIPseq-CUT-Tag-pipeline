@@ -115,6 +115,18 @@ isolation, a non-local Docker endpoint, any skip/xfail, or an unclean exact
 checkout fails the job. OCI archives, JDKs, references, indexes, and biological
 data remain outside Git.
 
+The Redis coordinate is the environment secret
+`ENCODE_PIPELINE_TEST_REDIS_URL` on the `bulk-rnaseq-real-execution`
+environment. It is not a configuration variable and it is not injected at job
+scope. The runtime-coordinate step, the scientific acceptance step, and the
+product Gate read `secrets.ENCODE_PIPELINE_TEST_REDIS_URL`; the product Gate
+keeps `ENCODE_PIPELINE_E2E_REDIS_URL` as an alias of that same secret. Create
+the secret before any protected run of the workflow that references it. An
+absent secret expands empty and the coordinate step fails closed before
+scientific execution. Removing the previous variable, and accepting the job on
+the protected runner, stay with an authorized operator. This repository change
+does not create the secret or dispatch the job.
+
 For a rootless daemon whose container UID/GID 0 maps to the deployment owner,
 set the protected environment variables `ENCODE_PIPELINE_BULK_CONTAINER_UID`
 and `ENCODE_PIPELINE_BULK_CONTAINER_GID` to `0`. The workflow validates these
