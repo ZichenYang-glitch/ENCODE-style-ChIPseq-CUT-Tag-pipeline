@@ -1,5 +1,6 @@
 """Durable contracts for the CI tier and coverage-ratchet topology."""
 
+import copy
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,14 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 EVENT_SHA = "${{ github.sha }}"
 PR_HEAD_SHA = "${{ github.event.pull_request.head.sha }}"
 PR_BASE_SHA = "${{ github.event.pull_request.base.sha }}"
+REDIS_SECRET_EXPR = "${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}"
+REDIS_VAR_EXPR = "${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}"
+REDIS_SECRET_STEPS = (
+    "Require runner-owned runtime coordinates",
+    "Run rapid, STAR Salmon, and lifecycle acceptance",
+    "Run public registry-to-results Bulk RNA-seq product Gate",
+)
+HARNESS_DOC = REPO_ROOT / "docs" / "development" / "real-execution-harness.md"
 
 
 def _load(name: str) -> dict:
@@ -146,6 +155,101 @@ def _run_coordinate_step(
         socket_dir.rmdir()
 
 
+def _redis_env_refs(job: dict) -> list[tuple[str, str, str]]:
+    refs = []
+    for step in job["steps"]:
+        for key, value in (step.get("env") or {}).items():
+            if key in {
+                "ENCODE_PIPELINE_TEST_REDIS_URL",
+                "ENCODE_PIPELINE_E2E_REDIS_URL",
+            }:
+                refs.append((step.get("name"), key, str(value)))
+    return refs
+
+
+def assert_bulk_redis_secret_contract(job: dict) -> None:
+    """Redis is one environment secret on three steps, never a variable."""
+
+    assert set(job.get("env", {})) == {"PYTHONDONTWRITEBYTECODE"}
+    assert REDIS_VAR_EXPR not in str(job)
+    assert "secrets.ENCODE_PIPELINE_TEST_REDIS_URL ||" not in str(job)
+    assert str(job).count(REDIS_SECRET_EXPR) == 4
+    assert _redis_env_refs(job) == [
+        (REDIS_SECRET_STEPS[0], "ENCODE_PIPELINE_TEST_REDIS_URL", REDIS_SECRET_EXPR),
+        (REDIS_SECRET_STEPS[1], "ENCODE_PIPELINE_TEST_REDIS_URL", REDIS_SECRET_EXPR),
+        (REDIS_SECRET_STEPS[2], "ENCODE_PIPELINE_TEST_REDIS_URL", REDIS_SECRET_EXPR),
+        (REDIS_SECRET_STEPS[2], "ENCODE_PIPELINE_E2E_REDIS_URL", REDIS_SECRET_EXPR),
+    ]
+    precheck = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Verify Redis before scientific execution"
+    )
+    assert "ENCODE_PIPELINE_TEST_REDIS_URL" not in (precheck.get("env") or {})
+
+
+def _expand_redis(value: str, marker: str) -> str:
+    return str(value).replace(REDIS_SECRET_EXPR, marker).replace(REDIS_VAR_EXPR, marker)
+
+
+def _mask_registered(text: str, secrets: list[str]) -> str:
+    masked = text
+    for secret in secrets:
+        if secret:
+            masked = masked.replace(secret, "***")
+    return masked
+
+
+def runner_env_headers(job: dict, marker: str) -> dict[str, str]:
+    """Model the runner printing step env before the script starts.
+
+    Secret values are registered before the first header. A configuration
+    variable is not, so its first header still contains the value. ``add-mask``
+    inside a script only affects headers printed after that script.
+    """
+
+    document = str(job)
+    registered = (
+        [marker]
+        if marker and REDIS_SECRET_EXPR in document and REDIS_VAR_EXPR not in document
+        else []
+    )
+    base = {
+        key: _expand_redis(value, marker)
+        for key, value in (job.get("env") or {}).items()
+    }
+    headers: dict[str, str] = {}
+    for step in job["steps"]:
+        shown = dict(base)
+        for key, value in (step.get("env") or {}).items():
+            shown[key] = _expand_redis(value, marker)
+        script = _expand_redis(str(step.get("run") or ""), marker)
+        lines = [_mask_registered(line, registered) for line in script.splitlines()]
+        if shown:
+            lines.append("env:")
+            lines.extend(
+                f"  {key}: {_mask_registered(value, registered)}"
+                for key, value in shown.items()
+            )
+        name = step.get("name")
+        if name:
+            headers[name] = "\n".join(lines)
+        if "::add-mask::" in str(step.get("run") or "") and marker not in registered:
+            registered.append(marker)
+    return headers
+
+
+def _f9217e9_vars_shape(job: dict) -> dict:
+    """The Redis wiring at f9217e9: four variable references, no secret."""
+
+    rewritten = copy.deepcopy(job)
+    for step in rewritten["steps"]:
+        for key, value in (step.get("env") or {}).items():
+            if value == REDIS_SECRET_EXPR:
+                step["env"][key] = REDIS_VAR_EXPR
+    return rewritten
+
+
 def test_runner_coordinate_masks_redis_and_files_it_for_precheck(tmp_path: Path):
     marker = "unix:///helixweave-private-redis-marker/%2e/redis.sock"
     result = _run_coordinate_step(tmp_path, marker)
@@ -178,6 +282,50 @@ def test_runner_coordinate_rejects_multiline_redis_without_echoing_it(tmp_path: 
     assert "injected" not in blob
     assert "must be a single line" in blob
     assert not (tmp_path / "runner-temp" / "helixweave-gate-redis-url").exists()
+
+
+def test_runner_coordinate_missing_secret_fails_closed(tmp_path: Path):
+    result = _run_coordinate_step(tmp_path, "")
+    blob = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert (
+        "ENCODE_PIPELINE_TEST_REDIS_URL must be configured by the protected environment"
+    ) in blob
+    assert "redis://" not in blob
+    assert "unix:" not in blob
+    assert not (tmp_path / "runner-temp" / "helixweave-gate-redis-url").exists()
+
+
+def test_secret_redis_is_masked_before_the_first_env_header():
+    job = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]
+    assert_bulk_redis_secret_contract(job)
+    marker = "unix:///helixweave-private-redis-marker/redis.sock"
+    headers = runner_env_headers(job, marker)
+    for name in REDIS_SECRET_STEPS:
+        header = headers[name]
+        assert marker not in header
+        assert "ENCODE_PIPELINE_TEST_REDIS_URL: ***" in header
+    assert "ENCODE_PIPELINE_E2E_REDIS_URL: ***" in headers[REDIS_SECRET_STEPS[2]]
+    precheck = headers["Verify Redis before scientific execution"]
+    assert "ENCODE_PIPELINE_TEST_REDIS_URL" not in precheck
+    document = HARNESS_DOC.read_text(encoding="utf-8")
+    assert "environment secret\n`ENCODE_PIPELINE_TEST_REDIS_URL`" in document
+    assert "Create\nthe secret before any protected run" in document
+    assert "authorized operator" in document
+
+
+def test_f9217e9_vars_shape_fails_the_secret_contract_and_leaks():
+    marker = "unix:///helixweave-private-redis-marker/redis.sock"
+    current = _load("ci.yml")["jobs"]["bulk-rnaseq-real-execution"]
+    old = _f9217e9_vars_shape(current)
+    with pytest.raises(AssertionError):
+        assert_bulk_redis_secret_contract(old)
+    headers = runner_env_headers(old, marker)
+    assert marker in headers[REDIS_SECRET_STEPS[0]]
+    assert marker not in headers[REDIS_SECRET_STEPS[1]]
+    assert marker not in headers[REDIS_SECRET_STEPS[2]]
+    assert str(old).count(REDIS_VAR_EXPR) == 4
+    assert REDIS_SECRET_EXPR not in str(old)
 
 
 def _checkout_jobs(workflow: dict):
@@ -661,8 +809,8 @@ def test_real_execution_jobs_are_non_pr_conditional_and_fail_closed():
     assert names.index(redis_precheck["name"]) < names.index(scientific["name"])
     assert redis_precheck["shell"] == "micromamba-shell {0}"
     assert "continue-on-error" not in redis_precheck
-    # The runner prints this map in the step log header. The Redis coordinate
-    # is masked and filed by the earlier coordinate step instead.
+    # The runner prints this map in the step log header. Redis stays off it;
+    # the coordinate step files the secret for this precheck.
     assert set(redis_precheck["env"]) == set(scientific["env"]) - {
         "ENCODE_PIPELINE_TEST_REDIS_URL"
     }

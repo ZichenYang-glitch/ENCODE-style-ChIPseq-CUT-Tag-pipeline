@@ -990,7 +990,7 @@ jobs:
         env:
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: |
@@ -1013,9 +1013,9 @@ jobs:
               exit 1
               ;;
           esac
-          # Later step env headers are printed by the runner. Mask the value
-          # first, and pass it to the precheck through a temp file so that
-          # step does not repeat the variable in its own env map.
+          # The environment secret is masked before this step's env header.
+          # Register it again for any later copy, and pass it to the precheck
+          # through a temp file so that step omits the variable from its env.
           redis_mask=${ENCODE_PIPELINE_TEST_REDIS_URL//%/%25}
           printf '::add-mask::%s\n' "$redis_mask"
           test -d "$HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT"
@@ -1074,7 +1074,7 @@ jobs:
           HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
         run: >-
@@ -1139,10 +1139,10 @@ jobs:
           HELIXWEAVE_REQUIRE_BULK_RNASEQ_REAL_EXECUTION: "1"
           HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT: ${{ vars.HELIXWEAVE_BULK_RNASEQ_RUNTIME_ROOT }}
           HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST: ${{ vars.HELIXWEAVE_BULK_RNASEQ_FIXTURE_MANIFEST }}
-          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_TEST_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE }}
           ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET: ${{ vars.ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET }}
-          ENCODE_PIPELINE_E2E_REDIS_URL: ${{ vars.ENCODE_PIPELINE_TEST_REDIS_URL }}
+          ENCODE_PIPELINE_E2E_REDIS_URL: ${{ secrets.ENCODE_PIPELINE_TEST_REDIS_URL }}
           ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS: "7200"
           ENCODE_PIPELINE_E2E_SCREENSHOT_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence/screenshots
           HELIXWEAVE_BULK_RNASEQ_PRODUCT_EVIDENCE_DIR: ${{ runner.temp }}/helixweave-bulk-rnaseq-real-${{ github.run_id }}/product/evidence
