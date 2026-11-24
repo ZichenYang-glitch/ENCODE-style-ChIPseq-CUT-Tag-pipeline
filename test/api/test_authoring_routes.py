@@ -7,7 +7,12 @@ import json
 import pytest
 
 from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
-from encode_pipeline.services.authoring_bridge import BridgeAdmission, BridgeStatus
+from encode_pipeline.services.authoring_bridge import (
+    BridgeAdmission,
+    BridgeStatus,
+    BridgeTurnRefused,
+)
+from encode_pipeline.services.authoring_owner_client import load_authoring_bridge
 from encode_pipeline.services.data_registry import DataRegistryService, SampleImportSpec
 from api_test_client import ApiTestClient
 
@@ -192,13 +197,18 @@ def test_validate_uses_the_real_service_for_failure_null_and_managed_rejection(
         )
 
 
-def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
+def test_public_turn_digest_adopts_rejects_and_replays(
+    reference_ready_app, monkeypatch
+):
     class Bridge:
         def status(self):
             return BridgeStatus(available=True)
 
         def owner_epoch(self):
             return "api-owner"
+
+        def check_adoption(self, sid, epoch, instance, generation, turn):
+            assert epoch == self.owner_epoch() and instance == "instance01"
 
         def admit(self, request):
             del request
@@ -257,19 +267,60 @@ def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
         proposal_id = body["proposal_id"]
         assert body["adoptable"] is True
         assert digest and "proposal_digest" not in body["proposal"]
-        adopted = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
-            json={"expected_revision": 0, "proposal_digest": digest},
+
+        def refuse_turn(_request):
+            raise BridgeTurnRefused
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                app.state.authoring_service._bridge, "execute_turn", refuse_turn
+            )
+            refused = client.post(
+                f"/api/v1/agent/authoring-sessions/{sid}/turns",
+                json={
+                    "client_turn_id": "over-budget",
+                    "expected_revision": 0,
+                    "question": {
+                        "intent": "suggest",
+                        "field_tokens": ["config.threads"],
+                    },
+                },
+            )
+        assert refused.status_code == 200, refused.text
+        assert refused.json()["failure_reason"] == "SCOPE_DENIED"
+        assert refused.json()["status"] == "failed"
+        assert refused.json()["adoptable"] is False
+        previous = client.get(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns/{body['turn_id']}"
         )
+        assert previous.json()["proposal_state"] == "pending"
+        assert previous.json()["adoptable"] is True
+        session_url = f"/api/v1/agent/authoring-sessions/{sid}"
+        adopt_url = f"{session_url}/proposals/{proposal_id}/adopt"
+        payload = {"expected_revision": 0, "proposal_digest": digest}
+        disabled = load_authoring_bridge({})
+        with monkeypatch.context() as patch:
+            patch.setattr(app.state.authoring_service, "_bridge", disabled)
+            denied = client.post(adopt_url, json=payload)
+        assert denied.status_code == 409, denied.text
+        assert denied.json()["reason_code"] == "PROPOSAL_INVALIDATED"
+        unchanged = client.get(session_url).json()
+        assert unchanged["draft_revision"] == 0
+        assert unchanged["draft"] == created.json()["draft"]
+        assert client.get(f"{session_url}/receipts").json()["receipts"] == []
+        adopted = client.post(adopt_url, json=payload)
         assert adopted.status_code == 200, adopted.text
         assert adopted.json()["replayed"] is False
-        replayed = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
-            json={"expected_revision": 0, "proposal_digest": digest},
-        )
+        with monkeypatch.context() as patch:
+            patch.setattr(app.state.authoring_service, "_bridge", disabled)
+            replayed = client.post(adopt_url, json=payload)
         assert replayed.status_code == 200, replayed.text
         assert replayed.json()["replayed"] is True
         assert replayed.json()["adoption_receipt"] == adopted.json()["adoption_receipt"]
+        assert (
+            replayed.json()["draft_revision"] == adopted.json()["draft_revision"] == 1
+        )
+        assert len(client.get(f"{session_url}/receipts").json()["receipts"]) == 1
         again = client.post(
             f"/api/v1/agent/authoring-sessions/{sid}/turns",
             json={
@@ -322,6 +373,9 @@ def test_owner_rediscovers_adopted_receipts_after_a_new_login(reference_ready_ap
 
         def owner_epoch(self) -> str:
             return "owner-epoch-0001"
+
+        def check_adoption(self, sid, epoch, instance, generation, turn):
+            assert epoch == self.owner_epoch() and instance == "instance01"
 
         def admit(self, request):
             del request

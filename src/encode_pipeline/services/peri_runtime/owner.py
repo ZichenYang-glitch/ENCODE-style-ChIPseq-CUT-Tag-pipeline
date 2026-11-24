@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import sqlite3
 import shutil
 from secrets import token_hex
 import sys
@@ -20,6 +21,7 @@ from encode_pipeline.services.authoring_bridge import (
     BridgeStatus,
     BridgeTurnRequest,
 )
+from encode_pipeline.services.peri_runtime.bound_model import BoundModel
 from encode_pipeline.services.peri_runtime.identity import binary_matches
 from encode_pipeline.services.peri_runtime.isolation import (
     isolation_paths_exist,
@@ -72,8 +74,10 @@ class NativeAuthoringBridge:
         state_root: Path | None = None,
         repository: object | None = None,
         runtime: AuthoringRuntime | None = None,
+        bound_model: BoundModel | None = None,
     ) -> None:
         self._binary = binary
+        self._bound_model = bound_model
         self._repository = repository
         self._runtime = runtime if runtime is not None else PeriAuthoringRuntime()
         self._epoch = token_hex(16)
@@ -142,7 +146,6 @@ class NativeAuthoringBridge:
         session = self._live(request)
         if not self._accepts_forwarding(request):
             raise BridgeDisconnected
-        answer = _proposal_text(request)
         with self._lock:
             grant = self._grants.get(request.sid)
             if grant is None:
@@ -150,8 +153,13 @@ class NativeAuthoringBridge:
             grant.turn = request
         session.authorization_check = lambda: self._egress_allowed(request)
         try:
-            text = session.run_authoring_turn(answer)
-        except (NativeRejected, OSError):
+            if self._bound_model is None:
+                text = session.run_authoring_turn(_proposal_text(request))
+            else:
+                text = self._bound_model.suggest(
+                    request, lambda: self._egress_allowed(request)
+                )
+        except (NativeRejected, OSError, sqlite3.Error, BridgeDisconnected):
             self._clear_turn(request)
             self.close(
                 BridgeSessionRequest(
@@ -170,6 +178,15 @@ class NativeAuthoringBridge:
         if not self._accepts_forwarding(request) or not text:
             raise BridgeDisconnected
         return text
+
+    def check_adoption(
+        self, sid: str, epoch: str, instance: str, generation: int, turn: str
+    ) -> None:
+        if self._bound_model is not None:
+            try:
+                self._bound_model.check(sid, epoch, instance, generation, turn)
+            except (OSError, sqlite3.Error):
+                raise BridgeDisconnected from None
 
     def suppress_forwarding(self, request: BridgeSessionRequest) -> None:
         """Stop model and tool egress for one live generation before it is fenced."""

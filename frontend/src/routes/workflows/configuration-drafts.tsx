@@ -489,8 +489,13 @@ export function ConfigurationDraftsPage({ workflowId }: ConfigurationDraftsPageP
       setRequestStatus('idle');
       return;
     }
-    setTurn(result);
-    setDecision(null);
+    const keepPendingProposal =
+      result.status === 'failed' && result.failure_reason === 'SCOPE_DENIED' &&
+      turn?.proposal_state === 'pending' && turn.adoptable;
+    if (!keepPendingProposal) {
+      setTurn(result);
+      setDecision(null);
+    }
     if (result.status === 'generating') setRequestStatus('unconfirmed');
     else {
       setRequestStatus(result.status === 'failed' ? 'failed' : 'idle');

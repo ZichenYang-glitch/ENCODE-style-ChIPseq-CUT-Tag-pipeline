@@ -90,6 +90,7 @@ from encode_pipeline.platform.snapshots import ValidatedInputSnapshot
 from encode_pipeline.services.authoring_bridge import (
     AuthoringBridge,
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeSessionRequest,
     BridgeTurnRequest,
     UnavailableAuthoringBridge,
@@ -676,16 +677,18 @@ class AuthoringService:
             )
             record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
             return self._turn_view(actor, record, failed)
-        except AuthoringRejected as exc:
-            if exc.reason_code == MODEL_OUTPUT_REJECTED:
-                self._repository.fail_turn(
-                    turn.turn_id,
-                    generation=turn.generation,
-                    reason_code=MODEL_OUTPUT_REJECTED,
-                )
-                record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
-                return self._turn_view(actor, record, failed)
-            raise
+        except (BridgeTurnRefused, AuthoringRejected) as exc:
+            if isinstance(exc, BridgeTurnRefused):
+                reason = SCOPE_DENIED
+            elif exc.reason_code == MODEL_OUTPUT_REJECTED:
+                reason = MODEL_OUTPUT_REJECTED
+            else:
+                raise
+            self._repository.fail_turn(
+                turn.turn_id, generation=turn.generation, reason_code=reason
+            )
+            record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
+            return self._turn_view(actor, record, failed)
         live_schema, live_projection, _live_fields = self._identity(current.workflow_id)
         completed = self._repository.complete_turn(
             actor,
@@ -727,6 +730,20 @@ class AuthoringService:
                 live_projection_digest=turn.projection_digest,
             )
             return self._adoption_view(result.record, result.turn, result.replayed)
+        if turn.decision == "pending":
+            check = getattr(self._bridge, "check_adoption", None)
+            if not callable(check):
+                raise AuthoringRejected(PROPOSAL_INVALIDATED)
+            try:
+                check(
+                    sid,
+                    turn.bridge_owner_epoch,
+                    turn.instance_id,
+                    turn.generation,
+                    turn.turn_id,
+                )
+            except BridgeDisconnected:
+                raise AuthoringRejected(PROPOSAL_INVALIDATED) from None
         content = None
         content_changed = None
         digest = None

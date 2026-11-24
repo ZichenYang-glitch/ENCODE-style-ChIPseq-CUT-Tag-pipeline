@@ -23,6 +23,7 @@ from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE, CONNECTION_LO
 from encode_pipeline.services.authoring_bridge import (
     BridgeAdmission,
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeSessionRequest,
     BridgeStatus,
     BridgeTurnRequest,
@@ -85,6 +86,18 @@ class RemoteAuthoringBridge:
             raise BridgeDisconnected
         return answer
 
+    def check_adoption(
+        self, sid: str, epoch: str, instance: str, generation: int, turn: str
+    ) -> None:
+        self._call(
+            "check_adoption",
+            sid=sid,
+            owner_epoch=epoch,
+            instance=instance,
+            generation=generation,
+            turn=turn,
+        )
+
     def close(self, request: BridgeSessionRequest) -> None:
         try:
             self._call("close", **_session_payload(request))
@@ -118,6 +131,13 @@ class RemoteAuthoringBridge:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as error:
             raise BridgeDisconnected from error
+        if (
+            method == "turn"
+            and isinstance(payload, dict)
+            and payload.get("ok") is False
+            and payload.get("error") == "turn_refused"
+        ):
+            raise BridgeTurnRefused
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             raise BridgeDisconnected
         return payload
@@ -356,7 +376,7 @@ class OwnerServer:
             current = self._bridge.owner_epoch()
         except BridgeDisconnected:
             return {"ok": False, "error": "unavailable"}
-        if method in {"open", "turn", "close"} and epoch != current:
+        if method in {"open", "turn", "close", "check_adoption"} and epoch != current:
             return {"ok": False, "error": "epoch_rejected"}
         try:
             if method == "open":
@@ -367,8 +387,20 @@ class OwnerServer:
                     "state": admission.state,
                 }
             if method == "turn":
-                answer = self._bridge.execute_turn(_turn_request(payload))
+                try:
+                    answer = self._bridge.execute_turn(_turn_request(payload))
+                except BridgeTurnRefused:
+                    return {"ok": False, "error": "turn_refused"}
                 return {"ok": True, "answer": answer}
+            if method == "check_adoption":
+                self._bridge.check_adoption(
+                    payload["sid"],
+                    epoch,
+                    payload["instance"],
+                    payload["generation"],
+                    payload["turn"],
+                )
+                return {"ok": True}
             if method == "close":
                 self._bridge.close(_session_request(payload))
                 return {"ok": True, "closed": True}
@@ -549,6 +581,7 @@ def main() -> None:
         create_default_validation_service,
         create_default_workflow_registry,
     )
+    from encode_pipeline.services.peri_runtime.bound_model import configured_model
     from encode_pipeline.services.peri_runtime.owner import NativeAuthoringBridge
     from encode_pipeline.services.validated_inputs import ValidatedInputService
 
@@ -567,6 +600,7 @@ def main() -> None:
     registry = create_default_workflow_registry()
     bridge = NativeAuthoringBridge(
         binary=Path(binary),
+        bound_model=configured_model(_os.environ),
         repository=repository,
     )
     if not bridge.status().available:

@@ -58,6 +58,7 @@ workflow.
 | Capability | Available now |
 | :--- | :--- |
 | Input authoring | Adapter-owned JSON Schema drives supported config fields, samples, options, and review. Advanced YAML and TSV import remain available. |
+| Peri draft suggestions | A local owner can [enable a bound Peri model](integrations/peri-bound/README.md) for one explicitly authorized integer field, with per-grant request, token and spending limits. |
 | Validation | Server validation returns structured issues and an immutable, expiring validated snapshot for run creation. |
 | Lifecycle | File-backed SQLite persists runs, events, logs, assignments, cancellation intent, and result metadata across API restarts. |
 | Local execution | Redis/RQ hands a durable run identity to an independent worker that executes the adapter-selected Snakemake or Nextflow process. |
