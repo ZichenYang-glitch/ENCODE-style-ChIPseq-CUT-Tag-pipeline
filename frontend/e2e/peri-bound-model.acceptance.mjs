@@ -25,17 +25,25 @@ try {
   expect(b.result_kind).toBe('proposal');
   expect(b.adoptable).toBe(true);
   await expect(page.getByRole('table',{name:'Suggested changes'})).toContainText('7');
-  const receipt=page.waitForResponse(r=>r.url().endsWith('/adopt'));
-  await page.getByRole('button',{name:'Adopt suggestion'}).click();
+  const next = page.waitForResponse(response =>
+    response.request().method() === 'POST' && response.url() === r.url());
+  await page.getByRole('button', {name: 'Request suggestion'}).click();
+  const denied = await next;
+  const second = await denied.json();
+  expect(denied.status()).toBe(200);
+  expect(second.status).toBe('failed');
+  expect(second.failure_reason).toBe('SCOPE_DENIED');
+  expect(second.adoptable).toBe(false);
+  const previous = await ctx.request.get(r.url() + '/' + b.turn_id);
+  expect(previous.status()).toBe(200);
+  const pending = await previous.json();
+  console.log(JSON.stringify({second: second.failure_reason, first: pending.proposal_state, adoptable: pending.adoptable}));
+  expect(pending.proposal_state).toBe('pending');
+  expect(pending.adoptable).toBe(true);
+  await expect(page.getByRole('alert').filter({hasText: 'The suggestion request did not succeed'})).toBeVisible();
+  await expect(page.getByRole('table', {name: 'Suggested changes'})).toContainText('7');
+  const receipt = page.waitForResponse(response => response.url().endsWith('/adopt'));
+  await page.getByRole('button', {name: 'Adopt suggestion'}).click();
   expect((await receipt).status()).toBe(200);
-  const first = r.request().postDataJSON();
-  const headers = Object.fromEntries(Object.entries(r.request().headers()).filter(([k]) => k.toLowerCase().includes('csrf')));
-  const exhausted = await page.evaluate(async ({url, body, headers}) => {
-    const res = await fetch(url, {method: 'POST', headers: {'Content-Type':'application/json', ...headers}, body: JSON.stringify(body)});
-    return {code: res.status, result: await res.json()};
-  }, {url: r.url(), headers, body: {...first, expected_revision:first.expected_revision+1, client_turn_id:'second-budget-check'}});
-  expect(exhausted.code).toBe(200);
-  expect(exhausted.result.status).toBe('failed');
-  expect(exhausted.result.adoptable).toBe(false);
-  console.log(JSON.stringify({api:new URL(r.url()).pathname,http:r.status(),requested:3,suggested:7,adopted:true,second:exhausted.result.status}));
+  console.log(JSON.stringify({api:new URL(r.url()).pathname,http:r.status(),requested:3,suggested:7,adopted:true,second:second.status}));
 } finally { await browser.close(); }

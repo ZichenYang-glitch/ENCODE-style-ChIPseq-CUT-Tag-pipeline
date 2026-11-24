@@ -7,7 +7,11 @@ import json
 import pytest
 
 from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
-from encode_pipeline.services.authoring_bridge import BridgeAdmission, BridgeStatus
+from encode_pipeline.services.authoring_bridge import (
+    BridgeAdmission,
+    BridgeStatus,
+    BridgeTurnRefused,
+)
 from encode_pipeline.services.data_registry import DataRegistryService, SampleImportSpec
 from api_test_client import ApiTestClient
 
@@ -192,7 +196,9 @@ def test_validate_uses_the_real_service_for_failure_null_and_managed_rejection(
         )
 
 
-def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
+def test_public_turn_digest_adopts_rejects_and_replays(
+    reference_ready_app, monkeypatch
+):
     class Bridge:
         def status(self):
             return BridgeStatus(available=True)
@@ -257,6 +263,34 @@ def test_public_turn_digest_adopts_rejects_and_replays(reference_ready_app):
         proposal_id = body["proposal_id"]
         assert body["adoptable"] is True
         assert digest and "proposal_digest" not in body["proposal"]
+
+        def refuse_turn(_request):
+            raise BridgeTurnRefused
+
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                app.state.authoring_service._bridge, "execute_turn", refuse_turn
+            )
+            refused = client.post(
+                f"/api/v1/agent/authoring-sessions/{sid}/turns",
+                json={
+                    "client_turn_id": "over-budget",
+                    "expected_revision": 0,
+                    "question": {
+                        "intent": "suggest",
+                        "field_tokens": ["config.threads"],
+                    },
+                },
+            )
+        assert refused.status_code == 200, refused.text
+        assert refused.json()["failure_reason"] == "SCOPE_DENIED"
+        assert refused.json()["status"] == "failed"
+        assert refused.json()["adoptable"] is False
+        previous = client.get(
+            f"/api/v1/agent/authoring-sessions/{sid}/turns/{body['turn_id']}"
+        )
+        assert previous.json()["proposal_state"] == "pending"
+        assert previous.json()["adoptable"] is True
         adopted = client.post(
             f"/api/v1/agent/authoring-sessions/{sid}/proposals/{proposal_id}/adopt",
             json={"expected_revision": 0, "proposal_digest": digest},

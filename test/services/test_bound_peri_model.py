@@ -8,6 +8,7 @@ import pytest
 
 from encode_pipeline.services.authoring_bridge import (
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeTurnRequest,
 )
 from encode_pipeline.services.peri_runtime.bound_model import (
@@ -107,8 +108,13 @@ def test_refuses_before_send(case, change):
         r.question["preferences"][0]["field_token"] = "private"
     if change == "binding":
         w.binding = {"model": "bound-b"}
+    expected_error = (
+        BridgeTurnRefused
+        if change in {"field", "extra", "input", "output", "cost"}
+        else BridgeDisconnected
+    )
     for turn_id in ("first-denial", "second-denial"):
-        with pytest.raises(BridgeDisconnected):
+        with pytest.raises(expected_error):
             m.suggest(replace(r, turn_id=turn_id), lambda: change != "authorization")
         assert w.sends == []
         with closing(m.db()) as db:
@@ -140,7 +146,7 @@ def test_concurrent_reservation_and_adoption(case):
     def attempt(i):
         try:
             return json.loads(m.suggest(replace(r, turn_id=str(i)), lambda: True))
-        except BridgeDisconnected:
+        except BridgeTurnRefused:
             return None
 
     with ThreadPoolExecutor(max_workers=2) as pool:

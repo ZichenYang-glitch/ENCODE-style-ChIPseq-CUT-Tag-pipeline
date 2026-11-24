@@ -30,6 +30,7 @@ from encode_pipeline.services.authoring import AuthoringService
 from encode_pipeline.services.authoring_bridge import (
     BridgeDisconnected,
     BridgeStatus,
+    BridgeTurnRefused,
     BridgeTurnRequest,
 )
 from encode_pipeline.services.peri_runtime.bound_model import (
@@ -514,7 +515,7 @@ def test_first_exhausted_budget_stops_the_next_request(
     )
     assert _grant_balance(operator.ledger) == remaining
     assert _delivered(operator.ledger) == 1
-    with pytest.raises(BridgeDisconnected):
+    with pytest.raises(BridgeTurnRefused):
         model.suggest(replace(_turn("epoch"), turn_id="next-turn"), lambda: True)
     assert _suggests(operator.log) == [
         {
@@ -557,7 +558,7 @@ def test_authorization_drop_after_reserve_does_not_call_the_provider(
     assert _grant_balance(operator.ledger) == (0, 0, 0, 0, 0)
     assert _delivered(operator.ledger) == 0
 
-    with pytest.raises(BridgeDisconnected):
+    with pytest.raises(BridgeTurnRefused):
         model.suggest(replace(_turn("epoch"), turn_id="retry"), lambda: True)
     assert _suggests(operator.log) == []
 
@@ -587,7 +588,7 @@ def test_failed_mock_delivery_keeps_the_charge(
     assert len(_suggests(operator.log)) == 1
     assert _grant_balance(operator.ledger) == (0, 0, 0, 0, 0)
     assert _delivered(operator.ledger) == 0
-    with pytest.raises(BridgeDisconnected):
+    with pytest.raises(BridgeTurnRefused):
         model.suggest(replace(_turn("epoch"), turn_id="retry"), lambda: True)
     assert len(_suggests(operator.log)) == 1
 
@@ -657,16 +658,27 @@ def test_owner_returns_the_mock_suggestion_and_rechecks_adoption(
     assert _grant_balance(operator.ledger) == (0, 0, 0, 0, 0)
 
 
-def test_owner_field_refusal_keeps_the_request_and_closes_the_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("refusal", ["field", "unsupported-intent"])
+def test_owner_refuses_one_turn_without_losing_the_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    refusal: str,
 ) -> None:
     operator, bridge, session = _ready_owner(tmp_path, monkeypatch, capsys)
-    with pytest.raises(BridgeDisconnected):
-        bridge.execute_turn(_turn(bridge._epoch, "private"))
-    assert session.closed is True
-    assert "sid" not in bridge._sessions
+    turn = _turn(bridge._epoch, "private")
+    if refusal == "unsupported-intent":
+        turn = replace(turn, question={"intent": "explain_issues"})
+    with pytest.raises(BridgeTurnRefused):
+        bridge.execute_turn(turn)
+    assert session.closed is False
     assert _suggests(operator.log) == []
     assert _grant_balance(operator.ledger) == (1, 4096, 128, 1, 0)
+    answer = bridge.execute_turn(replace(_turn(bridge._epoch), turn_id="authorized"))
+    assert json.loads(answer)["changes"] == [
+        {"field_token": "config.threads", "value": 7}
+    ]
+    assert len(_suggests(operator.log)) == 1
 
 
 def test_unbound_owner_skips_adoption_recheck(tmp_path: Path) -> None:
@@ -756,6 +768,8 @@ def test_socket_rechecks_adoption_after_a_grant_is_revoked(
         assert json.loads(remote.execute_turn(turn))["changes"] == [
             {"field_token": "config.threads", "value": 7}
         ]
+        with pytest.raises(BridgeTurnRefused):
+            remote.execute_turn(replace(turn, turn_id="over-budget"))
         remote.check_adoption("sid", epoch, "instance", 2, turn.turn_id)
         with pytest.raises(BridgeDisconnected):
             remote.check_adoption("sid", "stale", "instance", 2, turn.turn_id)

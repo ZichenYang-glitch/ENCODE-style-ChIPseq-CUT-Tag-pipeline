@@ -4,6 +4,8 @@ This is an optional local owner deployment. The API and browser do not get a pro
 
 The first supported case is **Suggest values → one integer field → one integer preference**. The model receives a fixed instruction, the approved field token and that integer only. An unsupported request, binding protocol, missing grant, malformed response, expiry or inadequate budget fails closed. There is no vendor fallback. Manual draft editing remains available. Run creation and cancellation are unchanged.
 
+If a live draft requests an unsupported suggestion, a different field, or more than its remaining budget allows, only that turn fails. A previously delivered suggestion can still be reviewed and adopted while its grant, draft revision and delivery window remain valid. Adoption checks the current authorization again.
+
 ## Install and enable on the owner
 
 Use the pinned Peri checkout, its Rust toolchain and populated offline cargo cache. Build in an empty directory outside the source tree. Cargo uses its offline cache; on a fresh build the pinned upstream wrapper also downloads and hash-checks three crate archives before patching them:
@@ -60,4 +62,4 @@ For the full local test use a built wheel frontend, the repo’s Node/Playwright
 python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/api/peri_bound_model_browser.py
 ```
 
-The loopback provider receives one real protocol request via Peri’s adapter, returns 7 for a preference of 3, and Chromium checks suggestion and adoption. A second request with the depleted grant fails without reaching the provider. A separate wire test verifies that redirects, rate limits and a changed binding cannot trigger a second transmission. This verifies the page path, not a commercial provider’s service. A paid smoke test requires a separate explicit field grant and spending ceiling; use a synthetic draft.
+The loopback provider receives one protocol request via Peri’s adapter and returns 7 for a preference of 3. Chromium requests another suggestion before adopting the first. The second turn fails without reaching the provider, and the user can still adopt 7. A separate wire test verifies that redirects, rate limits and a changed binding cannot trigger a second transmission. A paid smoke test requires a separate explicit field grant and spending ceiling and uses a synthetic draft.

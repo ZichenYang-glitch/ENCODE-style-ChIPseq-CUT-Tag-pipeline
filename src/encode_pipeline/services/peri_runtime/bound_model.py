@@ -16,6 +16,7 @@ import time
 
 from encode_pipeline.services.authoring_bridge import (
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeTurnRequest,
 )
 
@@ -174,6 +175,8 @@ class BoundModel:
         q = req.question
         tokens = q.get("field_tokens")
         prefs = q.get("preferences")
+        if not authorized():
+            raise BridgeDisconnected
         if (
             q.get("intent") != "suggest"
             or not isinstance(tokens, list)
@@ -186,9 +189,8 @@ class BoundModel:
             or prefs[0].get("field_token") != tokens[0]
             or type(prefs[0].get("value")) is not int
             or not -(2**31) <= prefs[0]["value"] < 2**31
-            or not authorized()
         ):
-            raise BridgeDisconnected
+            raise BridgeTurnRefused
         field = tokens[0]
         binding = self.worker({"op": "binding"})
         identity = binding_id(binding)
@@ -200,8 +202,10 @@ class BoundModel:
             amount = (
                 row["input_rate"] * INPUT_RESERVE + row["output_rate"] * cap + 999999
             ) // 1000000
-            if field != row["field"] or not authorized():
+            if not authorized():
                 raise BridgeDisconnected
+            if field != row["field"]:
+                raise BridgeTurnRefused
             updated = db.execute(
                 """UPDATE grants SET requests=requests-1,input_left=input_left-?,
                 output_left=output_left-?,minor_left=minor_left-? WHERE instance=? AND requests>=1
@@ -217,7 +221,7 @@ class BoundModel:
                 ),
             )
             if updated.rowcount != 1:
-                raise BridgeDisconnected
+                raise BridgeTurnRefused
             db.execute(
                 "INSERT INTO reservations(instance,turn,model,input_reserved,output_reserved,minor_reserved) VALUES(?,?,?,?,?,?)",
                 (

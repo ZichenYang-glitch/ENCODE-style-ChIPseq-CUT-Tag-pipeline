@@ -23,6 +23,7 @@ from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE, CONNECTION_LO
 from encode_pipeline.services.authoring_bridge import (
     BridgeAdmission,
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeSessionRequest,
     BridgeStatus,
     BridgeTurnRequest,
@@ -130,6 +131,13 @@ class RemoteAuthoringBridge:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as error:
             raise BridgeDisconnected from error
+        if (
+            method == "turn"
+            and isinstance(payload, dict)
+            and payload.get("ok") is False
+            and payload.get("error") == "turn_refused"
+        ):
+            raise BridgeTurnRefused
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             raise BridgeDisconnected
         return payload
@@ -379,7 +387,10 @@ class OwnerServer:
                     "state": admission.state,
                 }
             if method == "turn":
-                answer = self._bridge.execute_turn(_turn_request(payload))
+                try:
+                    answer = self._bridge.execute_turn(_turn_request(payload))
+                except BridgeTurnRefused:
+                    return {"ok": False, "error": "turn_refused"}
                 return {"ok": True, "answer": answer}
             if method == "check_adoption":
                 self._bridge.check_adoption(

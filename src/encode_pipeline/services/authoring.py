@@ -90,6 +90,7 @@ from encode_pipeline.platform.snapshots import ValidatedInputSnapshot
 from encode_pipeline.services.authoring_bridge import (
     AuthoringBridge,
     BridgeDisconnected,
+    BridgeTurnRefused,
     BridgeSessionRequest,
     BridgeTurnRequest,
     UnavailableAuthoringBridge,
@@ -676,16 +677,18 @@ class AuthoringService:
             )
             record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
             return self._turn_view(actor, record, failed)
-        except AuthoringRejected as exc:
-            if exc.reason_code == MODEL_OUTPUT_REJECTED:
-                self._repository.fail_turn(
-                    turn.turn_id,
-                    generation=turn.generation,
-                    reason_code=MODEL_OUTPUT_REJECTED,
-                )
-                record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
-                return self._turn_view(actor, record, failed)
-            raise
+        except (BridgeTurnRefused, AuthoringRejected) as exc:
+            if isinstance(exc, BridgeTurnRefused):
+                reason = SCOPE_DENIED
+            elif exc.reason_code == MODEL_OUTPUT_REJECTED:
+                reason = MODEL_OUTPUT_REJECTED
+            else:
+                raise
+            self._repository.fail_turn(
+                turn.turn_id, generation=turn.generation, reason_code=reason
+            )
+            record, failed = self._repository.get_turn(actor, sid, turn.turn_id)
+            return self._turn_view(actor, record, failed)
         live_schema, live_projection, _live_fields = self._identity(current.workflow_id)
         completed = self._repository.complete_turn(
             actor,

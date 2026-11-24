@@ -56,6 +56,10 @@ class BridgeDisconnected(Exception):
     """The native session closed before producing a final answer."""
 
 
+class BridgeTurnRefused(Exception):
+    """A live owner declined this turn within its field or budget policy."""
+
+
 class AuthoringBridge(Protocol):
     """One bridge owner. Each active authoring session has one native."""
 
@@ -69,7 +73,7 @@ class AuthoringBridge(Protocol):
         """Start one native for a session that is already fenced to this epoch."""
 
     def execute_turn(self, request: BridgeTurnRequest) -> str:
-        """Return one strict JSON object, or raise ``BridgeDisconnected``."""
+        """Return one JSON answer, refuse this turn, or report a disconnection."""
 
     def close(self, request: BridgeSessionRequest) -> None:
         """Stop the native for this generation. A missing process is success."""

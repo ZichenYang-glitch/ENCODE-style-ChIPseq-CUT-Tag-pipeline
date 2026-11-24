@@ -224,6 +224,9 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
         assert tuple(
             db.execute("SELECT requests,minor_left FROM grants").fetchone()
         ) == (0, 0)
+        assert [
+            row["delivered"] for row in db.execute("SELECT delivered FROM reservations")
+        ] == [1]
 
 
 def test_worker_does_not_redirect_retry_or_reuse_old_binding(tmp_path):
