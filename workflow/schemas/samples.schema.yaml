@@ -94,8 +94,8 @@ columns:
 
   control_bam:
     description: >
-      Path to an external control BAM file.
-      Used only when use_control is true in config.
+      Historical external BAM field. With use_control enabled, treatment rows
+      with a nonempty value are rejected. Use a FASTQ control_sample.
     required: false
     constraints:
       mutually_exclusive_with: control_sample
@@ -169,7 +169,7 @@ cross_validation:
     checks:
       - "control_sample references must exist in the sample sheet"
       - "referenced control_sample rows must have role=control"
-      - "control_bam paths must exist on disk"
+      - "treatment rows must leave control_bam empty"
       - "control_sample and control_bam are mutually exclusive per row"
 
 # ---- Stage 4a/4b Notes ----
@@ -188,7 +188,7 @@ stage4:
 
 # ---- Backward Compatibility ----
 compatibility:
-  - "When use_control is false, control_bam and control_sample are silently ignored."
+  - "When use_control is false, unused control references trigger a warning and are ignored."
   - "The minimal sample sheet (required columns only) is valid."
   - "Empty optional fields are allowed."
   - "Missing Stage 4a columns produce no errors; defaults are applied automatically."

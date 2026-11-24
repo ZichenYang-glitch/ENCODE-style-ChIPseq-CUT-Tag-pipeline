@@ -169,9 +169,8 @@ def validate_reproducibility(raw, validated_config, error_cls=ValueError):
         if val:
             warnings.warn(
                 f"Experimental IDR flag enabled: reproducibility.idr.{flag}=true. "
-                f"Consensus remains the primary final reproducibility method for "
-                f"broad-peak modes. Experimental IDR outputs appear under idr/ only "
-                f"and do not replace consensus in final/."
+                "For eligible broad-peak experiments, IDR supplies the primary "
+                "result in final/. Consensus remains available when enabled."
             )
         idr_result[flag] = val
 

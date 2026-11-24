@@ -145,8 +145,9 @@ use_control:
   default: false
   allowed: [true, false, "true", "false"]
   description:
-    Enable optional control/input support.
-    When false, control_bam and control_sample are silently ignored.
+    Enable FASTQ controls referenced by control_sample. Treatment rows with
+    external control_bam are rejected when controls are enabled. Disabled
+    controls emit a warning for unused control references.
 
 multiqc:
   type: boolean | string

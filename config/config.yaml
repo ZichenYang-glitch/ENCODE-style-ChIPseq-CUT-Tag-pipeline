@@ -1,7 +1,7 @@
 # ChIP-seq / CUT&Tag / ATAC-seq Snakemake Pipeline Configuration
 # ==============================================================
 # This pipeline defaults to no-input / no-control mode.
-# Set use_control: true to optionally pass control_bam from the sample sheet.
+# Set use_control: true to use a FASTQ control row referenced by control_sample.
 
 # Path to sample sheet (TSV format)
 samples: "config/samples.tsv"
@@ -31,8 +31,8 @@ trim: true
 # auto → extend SE reads; PE reads inferred from pairs
 extend_reads: "auto"
 
-# Enable optional control/input BAM support
-# When false, control_bam in the sample sheet is ignored
+# Enable FASTQ control samples. A treatment with external control_bam is rejected
+# when controls are enabled. When disabled, leftover control references are ignored.
 use_control: false
 
 # Run MultiQC aggregation after all samples complete
