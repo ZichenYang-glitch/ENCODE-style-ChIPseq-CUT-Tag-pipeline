@@ -4,7 +4,7 @@ This is an optional local owner deployment. The API and browser do not get a pro
 
 The first supported case is **Suggest values → one integer field → one integer preference**. The model receives a fixed instruction, the approved field token and that integer only. An unsupported request, binding protocol, missing grant, malformed response, expiry or inadequate budget fails closed. There is no vendor fallback. Manual draft editing remains available. Run creation and cancellation are unchanged.
 
-If a live draft requests an unsupported suggestion, a different field, or more than its remaining budget allows, only that turn fails. A previously delivered suggestion can still be reviewed and adopted while its grant, draft revision and delivery window remain valid. Adoption checks the current authorization again.
+If a live draft requests an unsupported suggestion, a different field, or more than its remaining budget allows, only that turn fails. A previously delivered suggestion can still be reviewed and adopted while its grant, draft revision and delivery window remain valid. First adoption requires the owner to confirm authorization. If the owner is unavailable, adoption returns `PROPOSAL_INVALIDATED` and leaves the draft intact. A completed adoption can still replay its stored receipt.
 
 ## Install and enable on the owner
 

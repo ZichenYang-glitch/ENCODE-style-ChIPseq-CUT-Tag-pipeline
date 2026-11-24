@@ -701,7 +701,8 @@ def test_owner_ledger_error_is_a_disconnect(tmp_path: Path) -> None:
         bridge.check_adoption("sid", "epoch", "instance", 2, "turn")
 
 
-def test_failed_adoption_recheck_is_a_public_rejection() -> None:
+@pytest.mark.parametrize("has_check", [True, False], ids=["disconnected", "missing"])
+def test_failed_adoption_recheck_is_a_public_rejection(has_check: bool) -> None:
     turn = type(
         "Turn",
         (),
@@ -736,7 +737,7 @@ def test_failed_adoption_recheck_is_a_public_rejection() -> None:
         data_registry=object(),
         validated_inputs=object(),
         snapshots=object(),
-        bridge=Bridge(),
+        bridge=Bridge() if has_check else object(),
     )
     with pytest.raises(AuthoringRejected) as rejected:
         service.adopt(
@@ -749,7 +750,8 @@ def test_failed_adoption_recheck_is_a_public_rejection() -> None:
     assert rejected.value.reason_code == PROPOSAL_INVALIDATED
     assert rejected.value.message == "The proposal can no longer be adopted."
     assert rejected.value.detail == {}
-    assert seen == [("stored-sid", "stored-epoch", "stored-instance", 4, "stored-turn")]
+    expected = ("stored-sid", "stored-epoch", "stored-instance", 4, "stored-turn")
+    assert seen == ([expected] if has_check else [])
 
 
 def test_socket_rechecks_adoption_after_a_grant_is_revoked(

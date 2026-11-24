@@ -114,6 +114,9 @@ class ControlledBridge:
     def owner_epoch(self) -> str:
         return self.epoch
 
+    def check_adoption(self, sid, epoch, instance, generation, turn) -> None:
+        assert epoch == self.epoch and instance == "instance01"
+
     def admit(self, request) -> BridgeAdmission:
         del request
         return BridgeAdmission(instance_id="instance01", state="ready")

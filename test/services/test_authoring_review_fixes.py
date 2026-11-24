@@ -90,6 +90,9 @@ class ScriptedBridge:
     def owner_epoch(self) -> str:
         return self.epoch
 
+    def check_adoption(self, sid, epoch, instance, generation, turn) -> None:
+        assert epoch == self.epoch and (sid, generation) in self.tokens
+
     def admit(self, request) -> BridgeAdmission:
         self.tokens[(request.sid, request.generation)] = request.capability_token
         self._admissions += 1

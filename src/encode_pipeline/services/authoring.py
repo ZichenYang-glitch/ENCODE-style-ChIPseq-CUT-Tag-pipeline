@@ -730,8 +730,10 @@ class AuthoringService:
                 live_projection_digest=turn.projection_digest,
             )
             return self._adoption_view(result.record, result.turn, result.replayed)
-        check = getattr(self._bridge, "check_adoption", None)
-        if check is not None and turn.decision == "pending":
+        if turn.decision == "pending":
+            check = getattr(self._bridge, "check_adoption", None)
+            if not callable(check):
+                raise AuthoringRejected(PROPOSAL_INVALIDATED)
             try:
                 check(
                     sid,
