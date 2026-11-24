@@ -18,6 +18,7 @@ from encode_pipeline.platform.adapters import (
     WorkflowInputs,
 )
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.authoring import PeriRunAuthorization
 from encode_pipeline.platform.data_registry import (
     ProjectSampleBinding,
     ProjectSampleSelection,
@@ -704,6 +705,7 @@ class ValidatedRunCreationService:
         tags: Mapping[str, str] | None = None,
         requested_by_user_id: str | None = None,
         security_audit_actor: AuthenticatedPrincipal | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> ValidatedSnapshotRunCreation:
         """Consume a snapshot once; identical retries return its canonical run."""
         try:
@@ -792,6 +794,7 @@ class ValidatedRunCreationService:
                 tags=tags,
                 requested_by_user_id=requested_by_user_id,
                 security_audit_actor=security_audit_actor,
+                peri_authorization=peri_authorization,
             )
         except KeyError:
             raise ValidatedSnapshotNotFoundError from None

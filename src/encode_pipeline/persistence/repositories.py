@@ -11,6 +11,13 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from encode_pipeline.persistence.authoring import require_peri_run_authorization
+from encode_pipeline.platform.authoring import (
+    PERI_RUN_CONFIRMATION_INVALID,
+    AuthoringRejected,
+    PeriRunAuthorization,
+)
+
 from encode_pipeline.persistence.models import (
     ArtifactPublicationRow,
     ProjectRow,
@@ -431,11 +438,19 @@ class SqlAlchemyRunRepository:
         event: RunEventDraft,
         requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> ValidatedSnapshotRunCreation:
         _validate_security_audit(security_audit)
         try:
             with self._lock, self._session_factory.begin() as session:
                 _begin_write(session)
+                require_peri_run_authorization(
+                    session,
+                    peri_authorization,
+                    action="create",
+                    target_id=snapshot_id,
+                    workflow_id=workflow_id,
+                )
                 row = session.get(ValidatedInputSnapshotRow, snapshot_id)
                 if row is None:
                     raise KeyError(snapshot_id)
@@ -781,10 +796,23 @@ class SqlAlchemyRunRepository:
         expected_status: RunStatus,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunEvent:
         _validate_security_audit(security_audit)
         with self._lock, self._session_factory.begin() as session:
             _begin_write(session)
+            if (
+                peri_authorization is not None
+                and record.status is not RunStatus.CANCELLED
+            ):
+                raise AuthoringRejected(PERI_RUN_CONFIRMATION_INVALID)
+            require_peri_run_authorization(
+                session,
+                peri_authorization,
+                action="cancel",
+                target_id=record.run_id,
+                workflow_id=record.workflow_id,
+            )
             result = session.execute(
                 update(RunRow)
                 .where(
@@ -2024,11 +2052,19 @@ class SqlAlchemyRunRepository:
         reason: str,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunExecutionCancellationRequest:
         _validate_security_audit(security_audit)
         with self._session_factory.begin() as session:
             _begin_write(session)
             current = self._require_run(session, run_id)
+            require_peri_run_authorization(
+                session,
+                peri_authorization,
+                action="cancel",
+                target_id=run_id,
+                workflow_id=current.workflow_id,
+            )
             row = session.get(RunExecutionAssignmentRow, run_id)
             if row is None:
                 raise KeyError(run_id)

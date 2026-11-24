@@ -40,6 +40,11 @@ from encode_pipeline.platform.input_registry import (
     build_compatibility_input_binding,
 )
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.authoring import (
+    CONNECTION_NOT_READY,
+    AuthoringRejected,
+    PeriRunAuthorization,
+)
 from encode_pipeline.platform.builds import WorkflowBuildIdentity
 from encode_pipeline.platform.results import Issue
 from encode_pipeline.platform.reference_profiles import ReferenceProfileRevisionBinding
@@ -226,6 +231,7 @@ class RunRepository(Protocol):
         event: RunEventDraft,
         requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> ValidatedSnapshotRunCreation: ...
 
     def get_run(self, run_id: str) -> RunRecord: ...
@@ -275,6 +281,7 @@ class RunRepository(Protocol):
         expected_status: RunStatus,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunEvent: ...
 
     def complete_preflight(
@@ -518,6 +525,7 @@ class RunRepository(Protocol):
         reason: str,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunExecutionCancellationRequest: ...
 
     def acknowledge_execution_stop(
@@ -1014,7 +1022,10 @@ class InMemoryRunRepository:
         event: RunEventDraft,
         requested_by_user_id: str | None = None,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> ValidatedSnapshotRunCreation:
+        if peri_authorization is not None:
+            raise AuthoringRejected(CONNECTION_NOT_READY)
         with self._lock:
             snapshot = _validated_snapshot_copy(
                 self._validated_input_snapshots[snapshot_id]
@@ -1312,7 +1323,10 @@ class InMemoryRunRepository:
         expected_status: RunStatus,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunEvent:
+        if peri_authorization is not None:
+            raise AuthoringRejected(CONNECTION_NOT_READY)
         with self._lock:
             current = self._runs[record.run_id]
             if current.status is not expected_status:
@@ -2320,7 +2334,10 @@ class InMemoryRunRepository:
         reason: str,
         event: RunEventDraft,
         security_audit: SecurityAuditEvent | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunExecutionCancellationRequest:
+        if peri_authorization is not None:
+            raise AuthoringRejected(CONNECTION_NOT_READY)
         with self._lock:
             current = self._runs[run_id]
             assignment = self._execution_assignments[run_id]
