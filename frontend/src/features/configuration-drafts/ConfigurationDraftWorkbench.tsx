@@ -11,6 +11,7 @@ import {
 import { ConfigurationDraftList } from './ConfigurationDraftList';
 import { DraftValidationNotice } from './DraftValidationNotice';
 import { ExplanationNotice } from './ExplanationNotice';
+import { PeriRunActions } from './PeriRunActions';
 import { ProposalReview } from './ProposalReview';
 import { StructuredRequestPanel } from './StructuredRequestPanel';
 import { UnsavedEditsDialog } from './UnsavedEditsDialog';
@@ -379,6 +380,16 @@ export function ConfigurationDraftWorkbench({
             onValidate={onValidate}
           />
           {experimentHandoff}
+          {apiConnected && selectedSid && (
+            <PeriRunActions
+              key={selectedSid}
+              sid={selectedSid}
+              connected={!draftExpired && connection.state === 'available'}
+              snapshotId={!dirty && !remoteConflict && validation.status === 'snapshot'
+                ? validation.snapshotId ?? null : null}
+              disabled={!writesEnabled || operationPending}
+            />
+          )}
           {adoptedReceipts}
         </div>
       </div>

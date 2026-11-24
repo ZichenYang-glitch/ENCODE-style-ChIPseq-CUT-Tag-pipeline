@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
+from encode_pipeline.platform.authoring import PeriRunAuthorization
 from encode_pipeline.platform.security_audit import AuditAction
 from encode_pipeline.services.run_security_audit import (
     build_run_action_event,
@@ -67,6 +68,7 @@ class RunCancellationService:
         *,
         reason: str,
         security_audit_actor: AuthenticatedPrincipal | None = None,
+        peri_authorization: PeriRunAuthorization | None = None,
     ) -> RunCancellationResult:
         """Cancel before execution, or request a truthful RQ stop while running."""
         if not isinstance(reason, str) or not reason.strip():
@@ -80,6 +82,7 @@ class RunCancellationService:
                 cancelled = self._run_service.cancel_run(
                     run_id,
                     reason=reason.strip(),
+                    peri_authorization=peri_authorization,
                     security_audit=(
                         None
                         if security_audit_actor is None
@@ -116,6 +119,7 @@ class RunCancellationService:
                 backend=assignment.backend,
                 queue_name=assignment.queue_name,
                 reason=reason.strip(),
+                peri_authorization=peri_authorization,
                 security_audit=(
                     None
                     if security_audit_actor is None
