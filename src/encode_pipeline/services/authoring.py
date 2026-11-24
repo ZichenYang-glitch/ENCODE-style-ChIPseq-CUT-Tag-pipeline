@@ -727,6 +727,18 @@ class AuthoringService:
                 live_projection_digest=turn.projection_digest,
             )
             return self._adoption_view(result.record, result.turn, result.replayed)
+        check = getattr(self._bridge, "check_adoption", None)
+        if check is not None and turn.decision == "pending":
+            try:
+                check(
+                    sid,
+                    turn.bridge_owner_epoch,
+                    turn.instance_id,
+                    turn.generation,
+                    turn.turn_id,
+                )
+            except BridgeDisconnected:
+                raise AuthoringRejected(PROPOSAL_INVALIDATED) from None
         content = None
         content_changed = None
         digest = None
