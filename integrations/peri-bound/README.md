@@ -48,7 +48,13 @@ A new connection/owner epoch needs a new explicit grant. For rollback revoke the
 
 ## Verify without a paid request
 
-Run `test/services/test_bound_peri_model.py` via canonical bootstrap. For the full local test use a built wheel frontend, the repo’s Node/Playwright/Chromium setup, and set `HW_TEST_PERI_MODEL_WORKER` and `HW_TEST_PERI_NATIVE` to the absolute worker and admitted ACP binary. Run:
+The fast regressions cover grant creation and revocation, field and budget refusals, request counts and proposal adoption:
+
+```sh
+python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -q test/services/test_bound_peri_model.py test/services/test_model_grant.py
+```
+
+For the full local test use a built wheel frontend, the repo’s Node/Playwright/Chromium setup, and set `HW_TEST_PERI_MODEL_WORKER` and `HW_TEST_PERI_NATIVE` to the absolute worker and admitted ACP binary. Run:
 
 ```sh
 python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/api/peri_bound_model_browser.py

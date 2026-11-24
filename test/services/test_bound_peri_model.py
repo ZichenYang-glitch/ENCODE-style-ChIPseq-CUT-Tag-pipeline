@@ -107,9 +107,28 @@ def test_refuses_before_send(case, change):
         r.question["preferences"][0]["field_token"] = "private"
     if change == "binding":
         w.binding = {"model": "bound-b"}
-    with pytest.raises(BridgeDisconnected):
-        m.suggest(r, lambda: change != "authorization")
-    assert not w.sends
+    for turn_id in ("first-denial", "second-denial"):
+        with pytest.raises(BridgeDisconnected):
+            m.suggest(replace(r, turn_id=turn_id), lambda: change != "authorization")
+        assert w.sends == []
+        with closing(m.db()) as db:
+            balances = db.execute(
+                "SELECT requests,input_left,output_left,minor_left FROM grants"
+            ).fetchall()
+            expected = (
+                []
+                if change == "no_grant"
+                else [
+                    (
+                        budget.requests,
+                        budget.input_tokens,
+                        budget.output_tokens,
+                        budget.minor_units,
+                    )
+                ]
+            )
+            assert [tuple(row) for row in balances] == expected
+            assert db.execute("SELECT COUNT(*) FROM reservations").fetchone()[0] == 0
 
 
 def test_concurrent_reservation_and_adoption(case):
