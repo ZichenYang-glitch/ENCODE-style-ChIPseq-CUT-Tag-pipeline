@@ -444,7 +444,16 @@ def test_pep517_build_produces_bounded_wheel_and_sdist(tmp_path: Path) -> None:
     assert (
         "helixweave-0.4.1/src/encode_pipeline/frontend_assets/asset-manifest.json"
     ) in names
+    assert "helixweave-0.4.1/src/helixweave_frontend_build.py" in names
     assert ("helixweave-0.4.1/scripts/bootstrap_helixweave_operator.py") in names
+    with zipfile.ZipFile(
+        distribution_root / "helixweave-0.4.1-py3-none-any.whl"
+    ) as wheel_archive:
+        wheel_names = wheel_archive.namelist()
+    assert "helixweave_frontend_build.py" not in wheel_names
+    assert not any(
+        name.endswith("/helixweave_frontend_build.py") for name in wheel_names
+    )
     assert not any(name.startswith("helixweave-0.4.1/test/") for name in names)
 
 
