@@ -454,8 +454,24 @@ def test_cli_rejects_binding_draft_field_and_budget(
     assert _suggests(operator.log) == []
 
 
-def test_one_granted_request_is_served_then_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("requests", "input_tokens", "output_tokens", "minor_units"),
+    [
+        (1, 8192, 256, 2),
+        (2, 4096, 256, 2),
+        (2, 8192, 128, 2),
+        (2, 8192, 256, 1),
+    ],
+    ids=["request-count", "input-tokens", "output-tokens", "cost"],
+)
+def test_first_exhausted_budget_stops_the_next_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    requests: int,
+    input_tokens: int,
+    output_tokens: int,
+    minor_units: int,
 ) -> None:
     operator = Operator(tmp_path)
     operator.apply(monkeypatch)
@@ -464,12 +480,24 @@ def test_one_granted_request_is_served_then_refused(
     capsys.readouterr()
     _invoke(monkeypatch, "binding")
     binding = json.loads(capsys.readouterr().out)["binding"]
-    _invoke(monkeypatch, *_grant_args(operator, binding))
+    limits = {
+        "--requests": str(requests),
+        "--input-tokens": str(input_tokens),
+        "--output-tokens": str(output_tokens),
+        "--minor-units": str(minor_units),
+    }
+    _invoke(monkeypatch, *_grant_args(operator, binding, **limits))
     assert json.loads(capsys.readouterr().out) == {
         "instance": "instance",
         "field": "config.threads",
     }
-    assert _grant_balance(operator.ledger) == (1, 4096, 128, 1, 0)
+    assert _grant_balance(operator.ledger) == (
+        requests,
+        input_tokens,
+        output_tokens,
+        minor_units,
+        0,
+    )
     model = configured_model(os.environ)
     assert model is not None
     text = model.suggest(_turn("epoch"), lambda: True)
@@ -477,7 +505,14 @@ def test_one_granted_request_is_served_then_refused(
     assert body["changes"] == [{"field_token": "config.threads", "value": 7}]
     assert body["kind"] == "proposal"
     assert "sid" not in text
-    assert _grant_balance(operator.ledger) == (0, 0, 0, 0, 0)
+    remaining = (
+        requests - 1,
+        input_tokens - 4096,
+        output_tokens - 128,
+        minor_units - 1,
+        0,
+    )
+    assert _grant_balance(operator.ledger) == remaining
     assert _delivered(operator.ledger) == 1
     with pytest.raises(BridgeDisconnected):
         model.suggest(replace(_turn("epoch"), turn_id="next-turn"), lambda: True)
@@ -490,7 +525,9 @@ def test_one_granted_request_is_served_then_refused(
             "output_tokens": 128,
         }
     ]
-    assert _grant_balance(operator.ledger) == (0, 0, 0, 0, 0)
+    assert _grant_balance(operator.ledger) == remaining
+    with closing(sqlite3.connect(operator.ledger)) as db:
+        assert db.execute("SELECT COUNT(*) FROM reservations").fetchone()[0] == 1
 
 
 def test_authorization_drop_after_reserve_does_not_call_the_provider(
