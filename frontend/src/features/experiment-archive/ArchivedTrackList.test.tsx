@@ -45,7 +45,8 @@ describe('ArchivedTrackList', () => {
     const list = await screen.findByRole('region', { name: '已封存轨道' });
     const older = await within(list).findByRole('link', { name: '在 WashU 查看 signal.bw 第 1 版' });
     const newer = within(list).getByRole('link', { name: '在 WashU 查看 signal.bw 第 2 版' });
-    expect(older).toHaveTextContent('在 WashU 查看');
+    expect(older).toHaveTextContent('在 WashU 查看第 1 版');
+    expect(newer).toHaveTextContent('在 WashU 查看第 2 版');
     expect(older).toHaveAttribute('href', archivedViewerHref(sealedTrack(1)));
     expect(newer).toHaveAttribute('href', archivedViewerHref(sealedTrack(2)));
     expect(older.getAttribute('href')).not.toContain(ARCHIVE_V2);

@@ -28,7 +28,7 @@ helixweave archive seal registered \
   --result-id "$result_id" --result-revision-id "$result_revision_id"
 ```
 
-The terminal receipt identifies the exact version. A researcher signs in, opens **Experiments**, selects the experiment, then chooses **在 WashU 查看** on the row for **第 1 版**. The viewer opens in the assembly's default window. Use the gene or coordinate field to move to the locus of interest. Sealed bigWig and indexed longrange use byte ranges. Plain BED supports nonempty UTF-8 intervals up to 8 MiB. The archived copy can outlive the scratch file. Changes to inode, link count or permissions require operator verification of the full restored bytes before the old address can serve them again.
+The terminal receipt identifies the exact version. A researcher signs in, opens **Experiments**, selects the experiment, then chooses **在 WashU 查看第 1 版** on the desired track. The viewer opens in the assembly's default window. Use the gene or coordinate field to move to the locus of interest. Sealed bigWig and indexed longrange use byte ranges. Plain BED supports nonempty UTF-8 intervals up to 8 MiB. The archived copy can outlive the scratch file. Changes to inode, link count or permissions require operator verification of the full restored bytes before the old address can serve them again.
 
 ## Acceptance
 

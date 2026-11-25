@@ -7,6 +7,7 @@ import {
   ARCHIVE_PAGE_LIMIT,
   archivedTrackDataProps,
   archivedTrackOpenName,
+  archivedVersionText,
   archivedViewerHref,
   archiveErrorFromUnknown,
 } from './archiveView';
@@ -56,7 +57,7 @@ export function ArchivedTrackList({
       <div>
         <h3 className="text-lg font-semibold">已封存轨道</h3>
         <p className="text-sm text-[var(--color-text-muted)]">
-          选择一个已封存的结果版本。页面不会改打开较新的同名轨道。
+          选择要在 WashU 中查看的结果版本。
         </p>
       </div>
       {query.isPending ? <p role="status">正在读取已封存版本…</p> : null}
@@ -84,7 +85,7 @@ export function ArchivedTrackList({
                 href={archivedViewerHref(track)}
                 aria-label={archivedTrackOpenName(track)}
               >
-                在 WashU 查看
+                在 WashU 查看{archivedVersionText(track.version_number)}
               </a>
             </li>
           ))}
