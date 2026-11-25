@@ -4,8 +4,8 @@
  * A TBI has no checksum of the data file. Magic bytes, including a complete
  * index built for a different track, are not enough. The index is parsed in
  * full because it is the small file. The data file is only touched at the
- * header and at most two indexed virtual offsets, each limited to two BGZF
- * blocks. A complete final record is valid with or without a trailing LF;
+ * header and sampled virtual offsets, within bounded BGZF reads.
+ * A complete final record is valid with or without a trailing LF;
  * htslib still points the chunk end at the following BGZF block.
  */
 
@@ -316,17 +316,17 @@ async function endsAtRecordBoundary(read: SliceReader, fileSize: number, end: Vi
   return next === fileSize || (await readBgzfBlock(read, fileSize, next))?.raw.length === 0
 }
 
-const HEADER_SCAN_BYTES = 64 * 1024
-
 export type IndexedHeaderAssembly =
   | { status: 'none' }
+  | { status: 'incomplete' }
   | { status: 'declared'; name: string }
   | { status: 'conflict'; left: string; right: string }
 
 // Only the leading track/browser/comment lines can name an assembly.
 // Stop at the first data row so a large BGZF file stays a windowed read.
 export async function indexedHeaderAssembly(data: File): Promise<IndexedHeaderAssembly> {
-  const read: SliceReader = (start, length) => readFileSlice(data, start, length)
+  const read: SliceReader = (start, length) => readFileSlice(data, start,
+    Math.min(length, DATA_READ_CAP - start))
   let offset = 0
   let seen = 0
   let pending: Uint8Array = new Uint8Array()
@@ -348,12 +348,13 @@ export async function indexedHeaderAssembly(data: File): Promise<IndexedHeaderAs
     if (value) declared = value
     return 'continue'
   }
-  while (offset < data.size && seen < HEADER_SCAN_BYTES) {
+  while (offset < data.size) {
+    if (offset >= DATA_READ_CAP || seen >= DATA_READ_CAP) return { status: 'incomplete' }
     const block = await readBgzfBlock(read, data.size, offset)
-    if (!block) return finish()
+    if (!block) return { status: 'incomplete' }
     offset += block.size
     if (block.raw.length === 0) break
-    const room = HEADER_SCAN_BYTES - seen
+    const room = DATA_READ_CAP - seen
     const chunk = room < block.raw.length ? block.raw.subarray(0, room) : block.raw
     seen += chunk.byteLength
     pending = concatBytes([pending, chunk])
@@ -366,8 +367,9 @@ export async function indexedHeaderAssembly(data: File): Promise<IndexedHeaderAs
       start = index + 1
     }
     pending = pending.subarray(start)
-    if (pending.length > MAX_LINE_BYTES) return finish()
-    if (chunk.byteLength < block.raw.length) break
+    if (pending.length > MAX_LINE_BYTES || chunk.byteLength < block.raw.length) {
+      return { status: 'incomplete' }
+    }
   }
   if (pending.length > 0 && pending.length <= MAX_LINE_BYTES) {
     const verdict = note(pending)
