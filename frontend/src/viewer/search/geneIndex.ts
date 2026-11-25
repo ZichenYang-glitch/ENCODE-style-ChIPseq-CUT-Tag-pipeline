@@ -8,6 +8,7 @@ import bundledIndexUrl from './hg38-gene-index.json?url';
  */
 
 const LEGAL_COORDINATE = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
+const CHROMOSOME_PREFIX = /^(?:chr[\w.-]*|\d+|X|Y|MT?):/i;
 const GENE_ID = /^ENSG\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -89,6 +90,7 @@ export interface ParsedGeneIndex {
   release: string;
   assemblyMatch: readonly string[];
   chromosomes: readonly string[];
+  viewerChromosomes: ReadonlySet<string>;
   provenance: GeneProvenance;
   rows: readonly GeneRow[];
   bySymbol: ReadonlyMap<string, readonly number[]>;
@@ -115,7 +117,7 @@ export function classifyQuery(value: string): QueryPlan {
   if (!trimmed) return { kind: 'empty' };
   const region = legalCoordinate(trimmed);
   if (region) return { kind: 'coordinate', region };
-  if (trimmed.includes(':')) return { kind: 'coordinate-draft' };
+  if (CHROMOSOME_PREFIX.test(trimmed)) return { kind: 'coordinate-draft' };
   return { kind: 'gene', query: trimmed };
 }
 
@@ -290,6 +292,16 @@ export function parseGeneIndex(value: unknown): ParsedGeneIndex {
     }
     return item;
   });
+  // The first v1 index listed every annotation sequence without distinguishing
+  // the reference chromosomes that the pinned WashU hg38 scaffold can display.
+  const viewerNames = value.viewer_chromosomes === undefined
+    ? chromosomes.filter((chrom) => /^chr(?:[1-9]|1\d|2[0-2]|X|Y|M)$/.test(chrom))
+    : value.viewer_chromosomes;
+  if (!Array.isArray(viewerNames) ||
+      !viewerNames.every((chrom) => typeof chrom === 'string' && chrom.length > 0)) {
+    throw new Error('gene index viewer chromosomes are missing');
+  }
+  const viewerChromosomes = new Set<string>(viewerNames);
   if (!Array.isArray(value.rows)) throw new Error('gene index rows are missing');
   const rows = value.rows.map((row) => parseRow(row, chromosomes));
   if (!Array.isArray(value.aliases)) throw new Error('gene index aliases are missing');
@@ -340,6 +352,7 @@ export function parseGeneIndex(value: unknown): ParsedGeneIndex {
     release,
     assemblyMatch,
     chromosomes,
+    viewerChromosomes,
     provenance,
     rows,
     bySymbol,
@@ -466,7 +479,7 @@ export function resetGeneIndexCacheForTests(): void {
 
 async function requestGeneIndex(fetcher: typeof fetch): Promise<ParsedGeneIndex> {
   const url = geneIndexRequestUrl(bundledIndexUrl, window.location.origin);
-  const response = await fetcher(url, { credentials: 'same-origin' });
+  const response = await fetcher(url, { mode: 'same-origin', credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`gene index request failed (${response.status})`);
   }

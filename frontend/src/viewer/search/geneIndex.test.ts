@@ -40,6 +40,7 @@ function fixtureIndex() {
     coordinate_system: '1-based-closed',
     release: 'GENCODE human 49',
     chromosomes,
+    viewer_chromosomes: chromosomes,
     rows,
     aliases,
     provenance: {
@@ -121,7 +122,7 @@ describe('bundled index request', () => {
     const requested = String(url);
     expect(requested.toLowerCase()).not.toContain('egfr');
     expect(new URL(requested).origin).toBe(window.location.origin);
-    expect(init).toEqual({ credentials: 'same-origin' });
+    expect(init).toEqual({ mode: 'same-origin', credentials: 'same-origin' });
     expect(searchGenes(loaded, 'ERBB1').matches.map((match) => match.locus.symbol)).toEqual([
       'EGFR',
     ]);
@@ -135,6 +136,15 @@ describe('bundled index request', () => {
 
 describe('fixture search', () => {
   const index = parseGeneIndex(fixtureIndex());
+
+  it('derives displayable reference chromosomes for an earlier v1 index', () => {
+    const fixture = fixtureIndex();
+    fixture.chromosomes.push('chrUn_KI270442v1');
+    fixture.provenance.counts.chromosomes++;
+    const legacy = parseGeneIndex({ ...fixture, viewer_chromosomes: undefined });
+    expect(legacy.viewerChromosomes.has('chr7')).toBe(true);
+    expect(legacy.viewerChromosomes.has('chrUn_KI270442v1')).toBe(false);
+  });
 
   it('resolves one symbol, an alias, a versionless id, and two same-name loci', () => {
     expect(formatRegion(searchGenes(index, 'egfr').matches[0]?.locus ?? fail())).toBe('chr7:10-40');
@@ -170,27 +180,44 @@ describe('shipped GRCh38 index', () => {
     expect(index.release).toBe('GENCODE human 49');
     expect(index.assemblyMatch).toEqual([...DEFAULT_HG38_ASSEMBLIES]);
     expect(index.provenance.annotation.sha256).toBe(
-      '9578f079f35e9e550245db9ed7ad3181ccd60414df4e87e60c1e8617c0529d2d',
+      '5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023',
     );
-    expect(index.provenance.annotation.bytes).toBe(3327017727);
+    expect(index.provenance.annotation.bytes).toBe(93496634);
     expect(index.provenance.annotation.source_url).toContain(
       'gencode.v49.primary_assembly.annotation.gtf',
     );
-    expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.15');
+    expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.29');
     expect(index.provenance.assembly_report.sha256).toBe(
-      'f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12',
+      'aa733ce92719f6339b3a4540137d4322894434363314c4b7704ba6691e9eab66',
     );
     expect(index.provenance.aliases.sha256).toBe(
-      '69bb5722d5a42bb355580deb2c9f197ce3d7f7d13807173b9674a7db65e52191',
+      '30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5',
     );
     expect(index.provenance.counts.genes).toBe(index.rows.length);
     expect(index.provenance.counts.genes).toBeGreaterThan(70000);
     expect(index.provenance.counts.dropped_unknown_sequence).toBe(0);
+    expect([...index.viewerChromosomes]).toEqual([
+      ...Array.from({ length: 22 }, (_, i) => `chr${i + 1}`),
+      'chrX', 'chrY', 'chrM',
+    ]);
     for (const name of ['LocusSearch.tsx', 'geneIndex.ts', 'build_grch38_gene_index.py']) {
       const source = readFileSync(join(directory, name), 'utf8');
       expect(source).not.toContain('55018820');
       expect(source).not.toContain('55019017');
     }
+  });
+
+  it('keeps both pseudoautosomal loci for an HGNC synonym and resolves punctuation in aliases', () => {
+    for (const term of ['SHOX', 'PHOG', 'SHOXY']) {
+      const hits = searchGenes(index, term);
+      expect(hits.relation).toBe('exact');
+      expect(hits.matches.map((hit) => formatRegion(hit.locus))).toEqual([
+        'chrX:624344-659411', 'chrY:624344-659411',
+      ]);
+    }
+    expect(searchGenes(index, 'IMAGE:4942737').matches.map((hit) => hit.locus.symbol)).toEqual([
+      'FAM20C',
+    ]);
   });
 
   it('resolves EGFR, TP53, same-name IL9R, and alias DEC1 from the annotation', () => {

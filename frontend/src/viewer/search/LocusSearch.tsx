@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import {
   DEFAULT_HG38_ASSEMBLIES,
@@ -9,7 +9,7 @@ import {
   matchLabel,
   searchGenes,
 } from './geneIndex';
-import type { GeneMatch, GeneSearch, ParsedGeneIndex, QueryPlan } from './geneIndex';
+import type { GeneSearch, ParsedGeneIndex, QueryPlan } from './geneIndex';
 
 export interface LocusSearchProps {
   assembly: string;
@@ -25,6 +25,8 @@ function statusMessage(
   plan: QueryPlan,
   result: GeneSearch | null,
   release: string,
+  selectable: number,
+  unavailable: string[],
 ): string | null {
   if (phase === 'failed') {
     return 'Gene annotation did not load. Coordinates still work.';
@@ -39,27 +41,32 @@ function statusMessage(
   if (!result || result.relation === 'none') {
     return `No genes match "${plan.query}" in ${release}. Coordinates still work.`;
   }
+  const reason = unavailable.length ? `WashU hg38 cannot display ${unavailable.join(', ')}.` : '';
+  if (!selectable && reason) return `${plan.query} has no displayable location. ${reason}`;
   if (result.relation === 'prefix') {
-    return `No exact gene, alias, or gene id for "${plan.query}". Showing ${result.matches.length} of ${result.total} names that start with it.`;
+    return `No exact gene, alias, or gene id for "${plan.query}". Showing ${selectable} of ${result.total} matching locations. ${reason}`.trimEnd();
   }
   const noun = result.total === 1 ? 'location' : 'locations';
-  return `${plan.query} matches ${result.total} ${noun}. Choose one.`;
+  return `${plan.query} matches ${result.total} ${noun}. Choose one. ${reason}`.trimEnd();
 }
 
 export default function LocusSearch({ assembly, region, onNavigate }: LocusSearchProps) {
   const listId = useId();
+  const helpId = useId();
+  const pendingEnter = useRef<{ assembly: string; query: string } | null>(null);
   const [draft, setDraft] = useState(() => region.trim());
   const seenRegion = useRef(region);
   if (seenRegion.current !== region) {
     seenRegion.current = region;
+    pendingEnter.current = null;
     setDraft(region.trim());
   }
   const [pinnedDraft, setPinnedDraft] = useState(draft);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [dismissedQuery, setDismissedQuery] = useState<string | null>(null);
   if (pinnedDraft !== draft) {
     setPinnedDraft(draft);
-    setActiveIndex(0);
+    setActiveIndex(-1);
     setDismissedQuery(null);
   }
   const [phase, setPhase] = useState<Phase>(() =>
@@ -98,19 +105,46 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
 
   const plan = classifyQuery(draft);
   const result =
-    phase === 'ready' && index && plan.kind === 'gene' ? searchGenes(index, plan.query) : null;
-  const matches = result?.matches ?? [];
+    phase === 'ready' &&
+    index &&
+    assemblyUsesHg38(assembly, index.assemblyMatch) &&
+    plan.kind === 'gene'
+      ? searchGenes(index, plan.query)
+      : null;
+  const candidates = result?.matches ?? [];
+  const matches = candidates.filter(({ locus }) => index?.viewerChromosomes.has(locus.chrom));
+  const excludedChromosomes = candidates
+    .map(({ locus }) => locus.chrom)
+    .filter((chrom) => !index?.viewerChromosomes.has(chrom));
   const open = matches.length > 0 && dismissedQuery !== draft;
-  const active = matches.length > 0 ? Math.min(activeIndex, matches.length - 1) : 0;
-  const status = statusMessage(phase, assembly, plan, result, index?.release ?? 'this hg38 annotation');
+  const active = activeIndex < matches.length ? activeIndex : -1;
+  const status = statusMessage(
+    phase, assembly, plan, result, index?.release ?? 'this hg38 annotation',
+    matches.length, [...new Set(excludedChromosomes)],
+  );
+  const soleMatch = result?.relation === 'exact' && result.total === 1 ? matches[0] : undefined;
+  const soleRegion = soleMatch && formatRegion(soleMatch.locus);
 
-  function choose(match: GeneMatch) {
-    const next = formatRegion(match.locus);
+  const navigate = useCallback((next: string) => {
+    pendingEnter.current = null;
     setDraft(next);
     onNavigate(next);
-  }
+  }, [onNavigate]);
+
+  useEffect(() => {
+    const pending = pendingEnter.current;
+    if (!pending) return;
+    if (pending.assembly !== assembly || pending.query !== draft) {
+      pendingEnter.current = null;
+      return;
+    }
+    if (phase === 'loading') return;
+    pendingEnter.current = null;
+    if (phase === 'ready' && soleRegion) navigate(soleRegion);
+  }, [assembly, draft, phase, soleRegion, navigate]);
 
   function onChange(event: ChangeEvent<HTMLInputElement>) {
+    pendingEnter.current = null;
     const next = event.target.value.trim();
     setDraft(next);
     const nextPlan = classifyQuery(next);
@@ -119,12 +153,15 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
+      pendingEnter.current = null;
       setDismissedQuery(draft);
+      setActiveIndex(-1);
       return;
     }
     if (event.key !== 'Enter' && event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    if (classifyQuery(draft).kind !== 'gene') return;
+    if (plan.kind !== 'gene') return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      pendingEnter.current = null;
       event.preventDefault();
       if (matches.length === 0) return;
       setDismissedQuery(null);
@@ -141,8 +178,12 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
       setDismissedQuery(null);
       return;
     }
-    const match = matches[active];
-    if (match) choose(match);
+    if (phase === 'loading') {
+      pendingEnter.current = { assembly, query: draft };
+      return;
+    }
+    const match = matches[active] ?? soleMatch;
+    if (match) navigate(formatRegion(match.locus));
   }
 
   return (
@@ -155,16 +196,21 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
           onChange={onChange}
           onKeyDown={onKeyDown}
           aria-label="Genomic region"
+          aria-describedby={helpId}
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
-          aria-activedescendant={open ? `${listId}-option-${active}` : undefined}
+          aria-activedescendant={open && active >= 0 ? `${listId}-option-${active}` : undefined}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           autoComplete="off"
         />
       </label>
+      <p id={helpId} className="mt-1 max-w-md text-[var(--color-text-muted)]">
+        Enter a gene name (for example EGFR) or chrom:start-end. For one exact match, press Enter.
+        To choose a location, tap or click it, or use the arrow keys and press Enter.
+      </p>
       {status ? (
         <p role="status" className="mt-1 max-w-md text-[var(--color-text-muted)]">
           {status}
@@ -192,13 +238,10 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
                 className={
                   selected
                     ? 'cursor-pointer bg-[var(--color-border)] px-2 py-1'
-                    : 'cursor-pointer px-2 py-1'
+                    : 'cursor-pointer px-2 py-1 hover:bg-[var(--color-border)]'
                 }
-                onMouseEnter={() => setActiveIndex(option)}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  choose(match);
-                }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => navigate(formatRegion(match.locus))}
               >
                 {label}
               </li>

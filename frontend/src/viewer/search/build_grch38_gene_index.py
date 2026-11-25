@@ -1,41 +1,56 @@
 #!/usr/bin/env python3
-"""Build the bundled hg38 gene index from a local GENCODE GTF.
+"""Rebuild the hg38 search index from the three pinned public downloads.
 
-The browser ships the JSON this script writes. It does not ship the GTF.
-Rebuilding reads the annotation, the assembly report, the genomepy README,
-and an HGNC complete set, then records their checksums in the provenance.
-
-Example:
+Download each source_url in hg38-gene-index.provenance.json, then run
 
     python3 frontend/src/viewer/search/build_grch38_gene_index.py \\
-        --gtf /path/to/GRCh38.annotation.gtf \\
-        --assembly-report /path/to/assembly_report.txt \\
-        --readme /path/to/README.txt \\
-        --hgnc /path/to/hgnc_complete_set.txt \\
-        --output frontend/src/viewer/search/hg38-gene-index.json \\
-        --provenance frontend/src/viewer/search/hg38-gene-index.provenance.json
+        --gtf gencode.v49.primary_assembly.annotation.gtf.gz \\
+        --assembly-report GCA_000001405.15_GRCh38_assembly_report.txt \\
+        --hgnc hgnc_complete_set_2025-10-07.tsv
+
+To inspect a genomepy mirror instead, pass its GTF, assembly report and
+--readme README.txt. The provenance then identifies those local input bytes.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 RELEASE = "GENCODE human 49"
 FORMAT = "helixweave.gene-index.v1"
 GENCODE_V49_GTF = "gencode.v49.primary_assembly.annotation.gtf"
+GTF_URL = (
+    "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/"
+    + GENCODE_V49_GTF
+    + ".gz"
+)
+REPORT_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/"
+    "GCA_000001405.15_GRCh38_assembly_report.txt"
+)
+HGNC_URL = (
+    "https://storage.googleapis.com/public-download-files/hgnc/archive/archive/quarterly/tsv/"
+    "hgnc_complete_set_2025-10-07.tsv"
+)
+GTF_SHA256 = "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
+REPORT_SHA256 = "aa733ce92719f6339b3a4540137d4322894434363314c4b7704ba6691e9eab66"
+HGNC_SHA256 = "30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5"
+# The chromosome list in wuepgg 62.0.2's hg38 navigation context.
+VIEWER_CHROMOSOMES = {f"chr{i}" for i in range(1, 23)} | {"chrX", "chrY", "chrM"}
 ASSEMBLY_MATCH = ["hg38", "GRCh38", "GRCh38.p14", "GCA_000001405.15"]
 SCRIPT = "frontend/src/viewer/search/build_grch38_gene_index.py"
 
 _ATTRIBUTE = re.compile(r'([A-Za-z0-9_]+)\s+"([^"]*)"')
 _GENE_ID = re.compile(r"^ENSG\d+\.\d+$")
-_ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{1,63}$")
 
 GENCODE_LICENSE = (
     "GENCODE project data is open access "
@@ -75,20 +90,7 @@ class GeneRow:
     end: int
     strand: str
     gene_type: str
-
-
-class _HashedLines:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.digest = hashlib.sha256()
-        self.size = 0
-
-    def __iter__(self):
-        with self.path.open("rb") as handle:
-            for raw in handle:
-                self.size += len(raw)
-                self.digest.update(raw)
-                yield raw
+    hgnc_id: str
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -114,8 +116,7 @@ def read_readme(path: Path) -> dict[str, str]:
     url = found.get("annotation url", "")
     if GENCODE_V49_GTF not in url:
         raise IndexBuildError(
-            "README annotation url is not GENCODE human release 49 "
-            "primary assembly"
+            "README annotation url is not GENCODE human release 49 primary assembly"
         )
     if found.get("original name") != "hg38":
         raise IndexBuildError("README original name is not hg38")
@@ -124,16 +125,21 @@ def read_readme(path: Path) -> dict[str, str]:
     return found
 
 
-def ucsc_names(path: Path) -> set[str]:
+def ucsc_names(path: Path) -> dict[str, str]:
     with path.open(encoding="utf-8", newline="") as handle:
-        header = handle.readline().rstrip("\r\n").split("\t")
-        try:
-            column = header.index("UCSC-style-name")
-        except ValueError as error:
-            raise IndexBuildError(
-                "assembly report has no UCSC-style-name column"
-            ) from error
-        names: set[str] = set()
+        for line in handle:
+            header = line.removeprefix("# ").rstrip("\r\n").split("\t")
+            if "UCSC-style-name" in header:
+                column = header.index("UCSC-style-name")
+                break
+        else:
+            raise IndexBuildError("assembly report has no UCSC-style-name column")
+        alias_columns = [
+            header.index(name)
+            for name in ("Sequence-Name", "GenBank-Accn", "RefSeq-Accn")
+            if name in header
+        ]
+        names: dict[str, str] = {}
         for line in handle:
             if not line or line.startswith("#"):
                 continue
@@ -142,7 +148,11 @@ def ucsc_names(path: Path) -> set[str]:
                 continue
             name = parts[column].strip()
             if name and name != "na":
-                names.add(name)
+                names[name] = name
+                for index in alias_columns:
+                    alias = parts[index].strip()
+                    if alias and alias != "na":
+                        names[alias] = name
     if not names:
         raise IndexBuildError("assembly report lists no UCSC sequence names")
     return names
@@ -171,12 +181,12 @@ def _acceptable_symbol(value: str) -> bool:
 
 
 def read_genes(
-    path: Path, admitted: set[str]
-) -> tuple[list[GeneRow], dict[str, int], str, int]:
-    lines = _HashedLines(path)
+    lines: Iterable[bytes], admitted: dict[str, str]
+) -> tuple[list[GeneRow], dict[str, int]]:
     rows: list[GeneRow] = []
     dropped_incomplete = 0
     dropped_sequence = 0
+    outside_viewer = 0
     for raw in lines:
         if b"\tgene\t" not in raw:
             continue
@@ -200,10 +210,12 @@ def read_genes(
         ):
             dropped_incomplete += 1
             continue
-        chrom = fields[0]
-        if chrom not in admitted:
+        chrom = admitted.get(fields[0])
+        if chrom is None:
             dropped_sequence += 1
             continue
+        if chrom not in VIEWER_CHROMOSOMES:
+            outside_viewer += 1
         strand = fields[6] if fields[6] in {"+", "-", "."} else "."
         rows.append(
             GeneRow(
@@ -214,17 +226,17 @@ def read_genes(
                 end=end,
                 strand=strand,
                 gene_type=attrs.get("gene_type") or "unknown",
+                hgnc_id=attrs.get("hgnc_id", ""),
             )
         )
     if not rows:
         raise IndexBuildError("no gene features were admitted")
-    if lines.size != path.stat().st_size:
-        raise IndexBuildError("GTF changed while it was read")
     counts = {
         "dropped_incomplete": dropped_incomplete,
         "dropped_unknown_sequence": dropped_sequence,
+        "outside_viewer_scaffold": outside_viewer,
     }
-    return rows, counts, lines.digest.hexdigest(), lines.size
+    return rows, counts
 
 
 def _chrom_key(name: str) -> tuple[int, int, str]:
@@ -249,45 +261,42 @@ def read_hgnc_aliases(path: Path) -> dict[str, set[str]]:
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         fieldnames = set(reader.fieldnames or [])
-        required = {"ensembl_gene_id", "symbol", "alias_symbol", "prev_symbol"}
+        required = {
+            "hgnc_id",
+            "ensembl_gene_id",
+            "symbol",
+            "alias_symbol",
+            "prev_symbol",
+        }
         missing = required - fieldnames
         if missing:
             raise IndexBuildError(
                 "HGNC file is missing columns: " + ", ".join(sorted(missing))
             )
         for record in reader:
-            ensembl = (record.get("ensembl_gene_id") or "").strip()
-            base = ensembl.split(".", 1)[0]
-            if not base.startswith("ENSG"):
+            hgnc_id = (record.get("hgnc_id") or "").strip()
+            if not hgnc_id:
                 continue
-            found = aliases.setdefault(base, set())
-            symbol = (record.get("symbol") or "").strip()
-            if symbol:
-                found.add(symbol)
+            spellings = {(record.get("symbol") or "").strip()}
             for column in ("alias_symbol", "prev_symbol"):
-                found.update(_split_hgnc_list(record.get(column) or ""))
+                spellings.update(_split_hgnc_list(record.get(column) or ""))
+            aliases.setdefault(hgnc_id, set()).update(spellings)
+            ensembl = (record.get("ensembl_gene_id") or "").strip().split(".", 1)[0]
+            if ensembl:
+                aliases.setdefault(ensembl, set()).update(spellings)
     return aliases
 
 
-def _alias_links(
-    rows: list[GeneRow], hgnc: dict[str, set[str]]
-) -> list[list[object]]:
-    by_ensembl: dict[str, list[int]] = {}
-    for index, row in enumerate(rows):
-        by_ensembl.setdefault(row.gene_id.split(".", 1)[0], []).append(index)
+def _alias_links(rows: list[GeneRow], hgnc: dict[str, set[str]]) -> list[list[object]]:
     links: dict[tuple[str, int], str] = {}
-    for base, spellings in hgnc.items():
-        row_indexes = by_ensembl.get(base)
-        if not row_indexes:
-            continue
-        for row_index in row_indexes:
-            symbol = rows[row_index].symbol
-            for alias in spellings:
-                if _ALIAS.fullmatch(alias) is None:
-                    continue
-                if alias.upper() == symbol.upper():
-                    continue
-                links.setdefault((alias.upper(), row_index), alias)
+    for index, row in enumerate(rows):
+        # A pseudoautosomal gene can have one HGNC ID and distinct X/Y Ensembl IDs.
+        join_id = row.hgnc_id or row.gene_id.split(".", 1)[0]
+        for alias in sorted(hgnc.get(join_id, ())):
+            if not alias or len(alias) > 80 or not alias.isprintable():
+                continue
+            if alias.upper() != row.symbol.upper():
+                links.setdefault((alias.upper(), index), alias)
     return [
         [links[key], key[1]]
         for key in sorted(links, key=lambda item: (item[0], item[1]))
@@ -298,12 +307,32 @@ def build_index(
     *,
     gtf: Path,
     assembly_report: Path,
-    readme: Path,
+    readme: Path | None,
     hgnc: Path,
 ) -> dict[str, object]:
-    meta = read_readme(readme)
+    meta = read_readme(readme) if readme else None
+    gtf_sha256, gtf_size = sha256_file(gtf)
+    report_sha, _ = sha256_file(assembly_report)
+    hgnc_sha, hgnc_size = sha256_file(hgnc)
+    if meta is None:
+        for path, digest, expected in (
+            (gtf, gtf_sha256, GTF_SHA256),
+            (assembly_report, report_sha, REPORT_SHA256),
+            (hgnc, hgnc_sha, HGNC_SHA256),
+        ):
+            if digest != expected:
+                raise IndexBuildError(
+                    f"{path.name}: SHA-256 differs from pinned source"
+                )
     admitted = ucsc_names(assembly_report)
-    rows, drop_counts, gtf_sha256, gtf_size = read_genes(gtf, admitted)
+    with gtf.open("rb") as raw:
+        compressed = raw.read(2) == b"\x1f\x8b"
+        raw.seek(0)
+        if compressed:
+            with gzip.GzipFile(fileobj=raw) as lines:
+                rows, drop_counts = read_genes(lines, admitted)
+        else:
+            rows, drop_counts = read_genes(raw, admitted)
     rows.sort(
         key=lambda row: (
             row.symbol.upper(),
@@ -316,38 +345,48 @@ def build_index(
     chromosomes = sorted({row.chrom for row in rows}, key=_chrom_key)
     chrom_index = {name: index for index, name in enumerate(chromosomes)}
     alias_links = _alias_links(rows, read_hgnc_aliases(hgnc))
-    readme_sha, _readme_size = sha256_file(readme)
-    report_sha, _report_size = sha256_file(assembly_report)
-    hgnc_sha, hgnc_size = sha256_file(hgnc)
+    annotation = {
+        "release": RELEASE,
+        "source_url": GTF_URL,
+        "filename": GTF_URL.rsplit("/", 1)[-1],
+        "bytes": gtf_size,
+        "sha256": gtf_sha256,
+        "feature": "gene",
+        "assembly_accession": "GCA_000001405.29",
+        "license": GENCODE_LICENSE,
+    }
+    if readme and meta:
+        annotation.update(
+            {
+                "source_url": meta["annotation url"],
+                "filename": gtf.name,
+                "genome_url": meta.get("genome url", ""),
+                "genomepy_version": meta.get("genomepy version", ""),
+                "readme_date": meta.get("date", ""),
+                "readme_filename": readme.name,
+                "readme_sha256": sha256_file(readme)[0],
+                "attestation": ATTESTATION,
+            }
+        )
     provenance = {
-        "annotation": {
-            "release": RELEASE,
-            "source_url": meta["annotation url"],
-            "filename": gtf.name,
-            "bytes": gtf_size,
-            "sha256": gtf_sha256,
-            "feature": "gene",
-            "assembly_accession": meta["assembly_accession"],
-            "genome_url": meta.get("genome url", ""),
-            "genomepy_version": meta.get("genomepy version", ""),
-            "readme_date": meta.get("date", ""),
-            "readme_filename": readme.name,
-            "readme_sha256": readme_sha,
-            "attestation": ATTESTATION,
-            "license": GENCODE_LICENSE,
-        },
+        "annotation": annotation,
         "assembly_report": {
-            "filename": assembly_report.name,
+            **({"source_url": REPORT_URL} if report_sha == REPORT_SHA256 else {}),
+            "filename": REPORT_URL.rsplit("/", 1)[-1]
+            if not readme
+            else assembly_report.name,
+            "assembly_accession": "GCA_000001405.15",
             "sha256": report_sha,
-            "admitted_sequence_names": len(admitted),
+            "admitted_sequence_names": len(set(admitted.values())),
         },
         "aliases": {
             "source": "HGNC complete set",
-            "filename": hgnc.name,
+            **({"source_url": HGNC_URL} if hgnc_sha == HGNC_SHA256 else {}),
+            "filename": HGNC_URL.rsplit("/", 1)[-1] if not readme else hgnc.name,
             "bytes": hgnc_size,
             "sha256": hgnc_sha,
             "fields": ["symbol", "alias_symbol", "prev_symbol"],
-            "join": "Ensembl gene id without version",
+            "join": "GENCODE hgnc_id, with versionless Ensembl ID for rows without an HGNC ID",
             "license": HGNC_LICENSE,
         },
         "generator": SCRIPT,
@@ -355,19 +394,16 @@ def build_index(
         "region_format": "chrom:start-end",
         "coordinate_note": COORDINATE_NOTE,
         "assembly_note": (
-            "assembly_match lists browser scaffolds that use these primary "
-            "chromosome coordinates. GENCODE 49 annotates GRCh38.p14. The "
-            "local README identifies UCSC hg38 and its assembly accession. "
-            "This primary-assembly GTF has no patch or alt loci. Sequences "
-            "are kept only when the assembly report gives them a UCSC-style "
-            "name."
+            "GENCODE 49 annotates GRCh38.p14. The hg38 navigation context in "
+            "wuepgg 62.0.2 has 25 chromosomes: chr1–chr22, chrX, chrY and chrM. "
+            "Only gene features on these UCSC names from the GRCh38 assembly "
+            "report are selectable."
         ),
         "counts": {
             "genes": len(rows),
             "aliases": len(alias_links),
             "chromosomes": len(chromosomes),
-            "dropped_incomplete": drop_counts["dropped_incomplete"],
-            "dropped_unknown_sequence": drop_counts["dropped_unknown_sequence"],
+            **drop_counts,
         },
     }
     return {
@@ -377,6 +413,7 @@ def build_index(
         "coordinate_system": "1-based-closed",
         "release": RELEASE,
         "chromosomes": chromosomes,
+        "viewer_chromosomes": sorted(VIEWER_CHROMOSOMES, key=_chrom_key),
         "rows": [
             [
                 row.symbol,
@@ -416,10 +453,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gtf", type=Path, required=True)
     parser.add_argument("--assembly-report", type=Path, required=True)
-    parser.add_argument("--readme", type=Path, required=True)
+    parser.add_argument(
+        "--readme", type=Path, help="genomepy README for a local mirror"
+    )
     parser.add_argument("--hgnc", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--provenance", type=Path, required=True)
+    parser.add_argument(
+        "--output", type=Path, default=Path(__file__).with_name("hg38-gene-index.json")
+    )
+    parser.add_argument(
+        "--provenance",
+        type=Path,
+        default=Path(__file__).with_name("hg38-gene-index.provenance.json"),
+    )
     args = parser.parse_args(argv)
     try:
         payload = build_index(

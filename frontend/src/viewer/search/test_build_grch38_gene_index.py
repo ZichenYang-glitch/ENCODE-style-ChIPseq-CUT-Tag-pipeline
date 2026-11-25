@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 import json
 import subprocess
 import sys
@@ -27,6 +28,7 @@ Y\tchrY
 9\tchr9
 17\tchr17
 MT\tchrM
+KI270442.1\tchrUn_KI270442v1
 """
 HGNC = """\
 hgnc_id\tsymbol\tensembl_gene_id\talias_symbol\tprev_symbol
@@ -36,6 +38,7 @@ HGNC:3\tDELEC1\tENSG00000000006\tDEC1\t
 HGNC:4\tGHOST\tENSG00000000999\tNOPE\t
 HGNC:5\tEGFR\tENSG00000000001\tEGFR\t
 HGNC:6\tTP53\tENSG00000000002\tp53\t
+HGNC:7\tIL9R\tENSG00000000003\tCD129\t
 """
 
 
@@ -48,12 +51,13 @@ def _gene(
     *,
     feature: str = "gene",
     include_name: bool = True,
+    hgnc_id: str = "",
 ) -> str:
     name_attr = f' gene_name "{name}";' if include_name else ""
     attrs = f'gene_id "{gene_id}"; gene_type "protein_coding";{name_attr}'
-    return (
-        f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
-    )
+    if hgnc_id:
+        attrs += f' hgnc_id "{hgnc_id}";'
+    return f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
 
 
 def _fixture_gtf() -> str:
@@ -63,11 +67,12 @@ def _fixture_gtf() -> str:
             "\n",
             _gene("chr7", 10, 40, "ENSG00000000001.1", "EGFR"),
             _gene("chr7", 10, 20, "ENSG00000000011.1", "EXONONLY", feature="exon"),
-            _gene("chrX", 5, 8, "ENSG00000000003.1", "IL9R"),
-            _gene("chrY", 9, 12, "ENSG00000000004.1", "IL9R"),
+            _gene("chrX", 5, 8, "ENSG00000000003.1", "IL9R", hgnc_id="HGNC:7"),
+            _gene("chrY", 9, 12, "ENSG00000000004.1", "IL9R", hgnc_id="HGNC:7"),
             _gene("chr3", 1, 3, "ENSG00000000005.1", "BHLHE40"),
             _gene("chr9", 4, 7, "ENSG00000000006.1", "DELEC1"),
             _gene("chr17", 100, 110, "ENSG00000000002.1", "TP53"),
+            _gene("KI270442.1", 1, 2, "ENSG00000000010.1", "OFFNAV"),
             _gene("chr9_KI270000v1_alt", 1, 2, "ENSG00000000007.1", "DROPME"),
             _gene("chr7", 1, 2, "ENSG00000000008.1", "NONAME", include_name=False),
             _gene("chr7", 10, 4, "ENSG00000000009.1", "BADEND"),
@@ -75,7 +80,9 @@ def _fixture_gtf() -> str:
     )
 
 
-def _write_inputs(root: Path, *, readme: str = README, hgnc: str = HGNC) -> dict[str, Path]:
+def _write_inputs(
+    root: Path, *, readme: str = README, hgnc: str = HGNC
+) -> dict[str, Path]:
     gtf = root / "annotation.gtf"
     gtf.write_text(_fixture_gtf(), encoding="utf-8")
     report = root / "assembly_report.txt"
@@ -94,7 +101,9 @@ def _write_inputs(root: Path, *, readme: str = README, hgnc: str = HGNC) -> dict
     }
 
 
-def _run(paths: dict[str, Path]) -> subprocess.CompletedProcess[str]:
+def _run(
+    paths: dict[str, Path], *, mirror: bool = True
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -103,8 +112,7 @@ def _run(paths: dict[str, Path]) -> subprocess.CompletedProcess[str]:
             str(paths["gtf"]),
             "--assembly-report",
             str(paths["report"]),
-            "--readme",
-            str(paths["readme"]),
+            *(["--readme", str(paths["readme"])] if mirror else []),
             "--hgnc",
             str(paths["hgnc"]),
             "--output",
@@ -135,9 +143,10 @@ def test_index_uses_gtf_spans_and_hgnc_aliases(tmp_path: Path) -> None:
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     assert index["provenance"] == provenance
     assert index["coordinate_system"] == "1-based-closed"
-    assert index["provenance"]["annotation"]["sha256"] == hashlib.sha256(
-        paths["gtf"].read_bytes()
-    ).hexdigest()
+    assert (
+        index["provenance"]["annotation"]["sha256"]
+        == hashlib.sha256(paths["gtf"].read_bytes()).hexdigest()
+    )
     assert _loci(index, "EGFR") == [("chr7", 10, 40, "ENSG00000000001.1")]
     assert _loci(index, "IL9R") == [
         ("chrX", 5, 8, "ENSG00000000003.1"),
@@ -146,7 +155,9 @@ def test_index_uses_gtf_spans_and_hgnc_aliases(tmp_path: Path) -> None:
     assert _loci(index, "DROPME") == []
     assert _loci(index, "EXONONLY") == []
     symbols = {row[0] for row in index["rows"]}
-    assert symbols == {"BHLHE40", "DELEC1", "EGFR", "IL9R", "TP53"}
+    assert symbols == {"BHLHE40", "DELEC1", "EGFR", "IL9R", "TP53", "OFFNAV"}
+    assert _loci(index, "OFFNAV") == [("chrUn_KI270442v1", 1, 2, "ENSG00000000010.1")]
+    assert "chrUn_KI270442v1" not in index["viewer_chromosomes"]
     alias_targets = {
         alias.upper(): [
             index["rows"][row_index][0]
@@ -160,10 +171,16 @@ def test_index_uses_gtf_spans_and_hgnc_aliases(tmp_path: Path) -> None:
     assert alias_targets["P53"] == ["TP53"]
     assert alias_targets["NOPE"] == []
     assert alias_targets["EGFR"] == []
+    assert [
+        index["chromosomes"][index["rows"][i][2]]
+        for a, i in index["aliases"]
+        if a == "CD129"
+    ] == ["chrX", "chrY"]
     for alias, row_index in index["aliases"]:
         assert alias.upper() != index["rows"][row_index][0].upper()
     assert "chrM" not in index["chromosomes"]
-    assert index["provenance"]["counts"]["genes"] == 6
+    assert index["provenance"]["counts"]["genes"] == 7
+    assert index["provenance"]["counts"]["outside_viewer_scaffold"] == 1
     assert index["provenance"]["counts"]["dropped_unknown_sequence"] == 1
     assert index["provenance"]["counts"]["dropped_incomplete"] == 2
 
@@ -187,3 +204,28 @@ def test_hgnc_without_alias_columns_is_rejected(tmp_path: Path) -> None:
     result = _run(paths)
     assert result.returncode == 1
     assert "missing columns" in result.stderr
+
+
+def test_reads_a_compressed_gtf_and_ncbi_report_preamble(tmp_path: Path) -> None:
+    paths = _write_inputs(tmp_path)
+    paths["gtf"].write_bytes(gzip.compress(paths["gtf"].read_bytes()))
+    paths["report"].write_text("# Assembly name: GRCh38\n# " + REPORT)
+    result = _run(paths)
+    assert result.returncode == 0, result.stderr
+    index = json.loads(paths["output"].read_text())
+    assert _loci(index, "IL9R") == [
+        ("chrX", 5, 8, "ENSG00000000003.1"),
+        ("chrY", 9, 12, "ENSG00000000004.1"),
+    ]
+
+
+def test_public_rebuild_rejects_a_different_source_before_writing(
+    tmp_path: Path,
+) -> None:
+    paths = _write_inputs(tmp_path)
+    paths["output"].write_text("previous index\n")
+    result = _run(paths, mirror=False)
+    assert result.returncode == 1
+    assert "SHA-256" in result.stderr
+    assert paths["output"].read_text() == "previous index\n"
+    assert not paths["provenance"].exists()

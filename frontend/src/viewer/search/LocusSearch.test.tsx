@@ -24,14 +24,17 @@ function parsedFixture() {
     ['IL9R', 'ENSG00000000003.1', 4, 5, 8, '+', 'protein_coding'],
     ['IL9R', 'ENSG00000000004.1', 5, 9, 12, '+', 'protein_coding'],
     ['TP53', 'ENSG00000000002.1', 3, 100, 110, '-', 'protein_coding'],
+    ['OFFSCAFFOLD', 'ENSG00000000007.1', 6, 5, 9, '+', 'lncRNA'],
   ];
   const aliases = [
     ['DEC1', 0],
     ['DEC1', 1],
     ['ERBB1', 2],
     ['p53', 5],
+    ['MIXED', 2], ['MIXED', 6],
   ];
-  const chromosomes = ['chr3', 'chr7', 'chr9', 'chr17', 'chrX', 'chrY'];
+  const viewerChromosomes = ['chr3', 'chr7', 'chr9', 'chr17', 'chrX', 'chrY'];
+  const chromosomes = [...viewerChromosomes, 'chrUn_KI270442v1'];
   return parseGeneIndex({
     format: 'helixweave.gene-index.v1',
     assembly: 'hg38',
@@ -39,6 +42,7 @@ function parsedFixture() {
     coordinate_system: '1-based-closed',
     release: 'GENCODE human 49',
     chromosomes,
+    viewer_chromosomes: viewerChromosomes,
     rows,
     aliases,
     provenance: {
@@ -121,6 +125,39 @@ describe('LocusSearch', () => {
     expect(onNavigate).toHaveBeenLastCalledWith('chr1:10-1');
   });
 
+  it.each([
+    ['EGFR', undefined, ['chr7:10-40']],
+    ['EGFR', 'TP53', []],
+    ['EGFR', 'chr7:3-8', ['chr7:3-8']],
+    ['IL9R', undefined, []],
+  ] as const)('honors a pending Enter for %s when the input becomes %s', async (query, edit, expected) => {
+    let release!: (value: ReturnType<typeof parsedFixture>) => void;
+    loadIndex.mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: query } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    if (edit) fireEvent.change(input(), { target: { value: edit } });
+    await act(async () => release(parsedFixture()));
+    expect(onNavigate.mock.calls.map(([region]) => region)).toEqual(expected);
+  });
+
+  it('explains out-of-scaffold loci and allows the user to choose an available alias hit', async () => {
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="chr7:3-8" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'OFFSCAFFOLD' } });
+    await screen.findByText(/WashU hg38 cannot display chrUn_KI270442v1/);
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    fireEvent.change(input(), { target: { value: 'MIXED' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('cannot display chrUn_KI270442v1');
+    fireEvent.click(screen.getByRole('option', { name: /EGFR/ }));
+    expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
+  });
+
   it('chooses one gene from the index and keeps an ambiguous name until a location is chosen', async () => {
     const onNavigate = vi.fn();
     render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
@@ -139,7 +176,11 @@ describe('LocusSearch', () => {
       'chrY:9-12',
     ]);
     expect(screen.getByRole('status')).toHaveTextContent('IL9R matches 2 locations. Choose one.');
+    fireEvent.keyDown(input(), { key: 'Enter' });
     expect(onNavigate).not.toHaveBeenCalled();
+    expect(input()).not.toHaveAttribute('aria-activedescendant');
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    expect(input()).toHaveAttribute('aria-activedescendant', loci[0]!.id);
     fireEvent.keyDown(input(), { key: 'ArrowDown' });
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(onNavigate).toHaveBeenCalledWith('chrY:9-12');
@@ -151,9 +192,29 @@ describe('LocusSearch', () => {
       'DEC1, alias of BHLHE40 · chr3:1-3 · + · protein_coding · ENSG00000000005.1',
       'DEC1, alias of DELEC1 · chr9:4-7 · + · lncRNA · ENSG00000000006.1',
     ]);
-    fireEvent.mouseDown(aliases[0]!);
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.click(aliases[0]!);
     expect(onNavigate).toHaveBeenCalledWith('chr3:1-3');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('requires an explicit choice even when a prefix has just one suggestion', async () => {
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'EGF' } });
+    const option = await screen.findByRole('option', { name: /EGFR/ });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.keyDown(input(), { key: 'ArrowUp' });
+    expect(option).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(input(), { key: 'Escape' });
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('option', { name: /EGFR/ }));
+    expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
   });
 
   it('says when nothing matches and still accepts coordinates without an annotation', async () => {
