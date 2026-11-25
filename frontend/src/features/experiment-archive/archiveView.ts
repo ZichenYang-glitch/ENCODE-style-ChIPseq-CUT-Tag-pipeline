@@ -1,13 +1,11 @@
 import type { HTMLAttributes } from 'react';
 import type { WashuTrackConfig } from 'wuepgg';
 import { ApiError } from '../../api/fetcher';
+import { ARCHIVE_VERSION_ID, EXPERIMENT_ID, PROJECT_ID } from '../../api/archiveScope';
 import type { ArchivedTrack } from '../../api/archivedTracks';
 import { getCatalogReadArchivedTrackContentUrl, getCatalogReadArchivedTrackIndexUrl } from '../../api/generated/catalog/catalog';
 import { viewerScaffold } from '../run-artifacts/browserWindow';
 
-const PROJECT_ID = /^prj_[0-9a-f]{32}$/;
-const EXPERIMENT_ID = /^exp_[0-9a-f]{32}$/;
-const ARCHIVE_VERSION_ID = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
 const REGION = /^[A-Za-z0-9_.:-]{1,128}:[0-9]{1,10}-[0-9]{1,10}$/;
 
 export const ARCHIVE_PAGE_LIMIT = 50;
@@ -52,10 +50,16 @@ export function archiveErrorCopy(code: string | null | undefined): {
 
 export function archiveErrorFromUnknown(error: unknown): { code: ArchiveErrorCode; message: string } {
   if (error instanceof ApiError) {
-    if (error.status === 401 || error.status === 403) return archiveErrorCopy('archive_unauthorized');
-    return archiveErrorCopy(error.code);
+    return archiveHttpError(error.status, error.code);
   }
   return archiveErrorCopy('archive_invalid');
+}
+
+export function archiveHttpError(status: number, code: string | null) {
+  if (status === 401 || status === 403) return archiveErrorCopy('archive_unauthorized');
+  if (status === 404) return archiveErrorCopy(code ?? 'archive_version_not_found');
+  if (status === 409) return archiveErrorCopy(code ?? 'archive_version_conflict');
+  return archiveErrorCopy(code);
 }
 
 export function archiveViewerRequest(search: string): ArchiveViewerRequest {
@@ -126,20 +130,6 @@ export function archivedContentPath(track: ArchivedTrack): string {
 export function archivedIndexPath(track: ArchivedTrack): string | null {
   if (!track.has_index) return null;
   return getCatalogReadArchivedTrackIndexUrl(track.project_id, track.experiment_id, track.archive_version_id);
-}
-
-export function sameOriginApiUrl(path: string): string | null {
-  if (!path.startsWith('/api/')) return null;
-  const configured = import.meta.env.VITE_API_BASE_URL;
-  if (typeof configured === 'string' && configured.trim() !== '') {
-    try {
-      const url = new URL(configured, window.location.origin);
-      if (url.origin !== window.location.origin) return null;
-    } catch {
-      return null;
-    }
-  }
-  return new URL(path, window.location.origin).toString();
 }
 
 export function archivedHubTracks(track: ArchivedTrack, contentUrl: string, textFile?: File | null): WashuTrackConfig[] {

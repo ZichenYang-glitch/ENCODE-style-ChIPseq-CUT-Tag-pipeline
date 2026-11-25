@@ -42,7 +42,7 @@ export function ArchivedTrackList({
   });
 
   const error = query.isError ? archiveErrorFromUnknown(query.error) : null;
-  const page = query.data ?? null;
+  const page = query.isSuccess ? query.data : null;
   const nextOffset = page?.next_offset ?? null;
 
   return (
@@ -67,7 +67,9 @@ export function ArchivedTrackList({
         </p>
       ) : null}
       {page !== null && page.items.length === 0 ? (
-        <p role="status">这条实验没有已封存轨道。</p>
+        <p role="status">
+          {offset > 0 || nextOffset !== null ? '这一页没有可读取的封存版本。' : '这条实验没有已封存轨道。'}
+        </p>
       ) : null}
       {page !== null && page.items.length > 0 ? (
         <ul aria-label="已封存版本" className="space-y-3">

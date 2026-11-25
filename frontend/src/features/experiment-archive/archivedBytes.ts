@@ -2,7 +2,7 @@ import { ApiError } from '../../api/fetcher';
 import type { ArchivedTrack } from '../../api/archivedTracks';
 import { assemblyKey, PLAIN_PEAK_MAX_BYTES } from '../../viewer/local/contract';
 import { scanPlainPeak } from '../../viewer/local/sliceRead';
-import { archiveErrorCopy, type ArchiveErrorCode } from './archiveView';
+import { archiveHttpError, type ArchiveErrorCode } from './archiveView';
 
 export async function preflightArchivedBytes(
   track: ArchivedTrack,
@@ -45,6 +45,8 @@ async function archiveRange(url: string, range: string, signal: AbortSignal): Pr
       method: 'GET',
       headers: { Range: range },
       credentials: 'same-origin',
+      mode: 'same-origin',
+      redirect: 'error',
       cache: 'no-store',
       signal,
     });
@@ -61,7 +63,6 @@ async function archiveRange(url: string, range: string, signal: AbortSignal): Pr
 }
 
 async function failureFromResponse(response: Response): Promise<{ code: ArchiveErrorCode; message: string }> {
-  if (response.status === 401 || response.status === 403) return archiveErrorCopy('archive_unauthorized');
   let code: string | null = null;
   try {
     const body = (await response.json()) as { issues?: Array<{ code?: unknown }> };
@@ -70,7 +71,5 @@ async function failureFromResponse(response: Response): Promise<{ code: ArchiveE
   } catch {
     code = null;
   }
-  if (response.status === 404) return archiveErrorCopy(code ?? 'archive_version_not_found');
-  if (response.status === 409) return archiveErrorCopy(code ?? 'archive_version_conflict');
-  return archiveErrorCopy(code);
+  return archiveHttpError(response.status, code);
 }

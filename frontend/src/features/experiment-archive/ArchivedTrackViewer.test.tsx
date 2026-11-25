@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { runInNewContext } from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { catalogGetArchivedTrack, catalogListArchivedTracks } from '../../api/archivedTracks';
 import { ApiError } from '../../api/fetcher';
@@ -91,7 +92,11 @@ describe('ArchivedTrackViewer', () => {
     );
     const initial = await screen.findByTestId('washu-mock-viewer');
     expect(initial).toHaveAttribute('data-track-url', expect.stringContaining(ARCHIVE_V1));
-    await user.type(screen.getByRole('textbox', { name: 'Genomic region' }), 'chr1:100-200');
+    expect(initial).toHaveAttribute('data-region', 'chr1:1-10000');
+    const locus = screen.getByRole('textbox', { name: 'Genomic region' });
+    expect(locus).toHaveValue('chr1:1-10000');
+    await user.clear(locus);
+    await user.type(locus, 'chr1:100-200');
     const hub = await screen.findByTestId('washu-genome-viewer');
     expect(hub).toBeInTheDocument();
     expect(screen.getByTestId('washu-mock-viewer')).toHaveAttribute('data-genome', 'hg38');
@@ -106,6 +111,56 @@ describe('ArchivedTrackViewer', () => {
     expect(screen.queryByTestId('local-track-picker')).not.toBeInTheDocument();
     expect(listMock).not.toHaveBeenCalled();
     expect(getMock).toHaveBeenCalledWith(PROJECT_ID, EXPERIMENT_ID, ARCHIVE_V1, expect.any(Object));
+  });
+
+  it.each([
+    [403, 'FORBIDDEN', 'archive_unauthorized'],
+    [409, 'archive_integrity', 'archive_integrity'],
+    [503, 'archive_offline', 'archive_offline'],
+  ] as const)('removes the plot when a later WashU range returns %s', async (status, serverCode, expectedCode) => {
+    getMock.mockResolvedValue(sealedTrack(1));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([4]), { status: 206 })));
+    const transport = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ issues: [{ code: serverCode, message: 'private detail' }] }),
+        { status, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    const createUrl = vi.fn((_blob: Blob | MediaSource) => 'blob:worker');
+    vi.stubGlobal('URL', class extends URL { static createObjectURL = createUrl; });
+    vi.stubGlobal('Worker', class {});
+    const receiver = { onmessage: (_event: { data: unknown }) => {}, close: vi.fn() };
+    vi.stubGlobal('BroadcastChannel', vi.fn(() => receiver));
+    const view = renderViewer();
+    const hub = await screen.findByTestId('washu-mock-viewer');
+    const url = hub.getAttribute('data-track-url')!;
+    URL.createObjectURL(new Blob(['/* WashU worker */'], { type: 'text/javascript;charset=utf-8' }));
+    const script = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(createUrl.mock.calls[0][0] as Blob);
+    });
+    const worker: { fetch: typeof fetch } = { fetch: transport };
+    runInNewContext(script, {
+      self: worker, URL, Request,
+      BroadcastChannel: class { postMessage(data: unknown) { receiver.onmessage({ data }); } },
+    });
+    await act(async () => {
+      await worker.fetch(url, { headers: { Range: 'bytes=2048-2111' } });
+    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveAttribute('data-error-code', expectedCode);
+    expect(alert).not.toHaveTextContent('private detail');
+    expect(screen.queryByTestId('washu-genome-viewer')).toBeNull();
+    if (status === 403) expect(screen.queryByTestId('archived-track-source')).toBeNull();
+    await expect(worker.fetch('https://proxy.example/track')).rejects.toThrow();
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledWith(url, expect.objectContaining({ mode: 'same-origin', redirect: 'error' }));
+    expect(listMock).not.toHaveBeenCalled();
+    view.unmount();
+    expect(URL.createObjectURL).toBe(createUrl);
+    expect(receiver.close).toHaveBeenCalled();
   });
 
   it('does not draw when the response names a different version', async () => {

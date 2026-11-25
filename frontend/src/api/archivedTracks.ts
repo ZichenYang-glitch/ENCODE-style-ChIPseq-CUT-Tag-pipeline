@@ -1,13 +1,13 @@
 /** Validate catalog responses against the selected experiment and version before opening any bytes. */
 import { ApiError } from './fetcher';
+import { ARCHIVE_VERSION_ID, EXPERIMENT_ID, PROJECT_ID, sameOriginApiUrl } from './archiveScope';
 import {
   catalogGetArchivedTrack as readVersion,
   catalogListArchivedTracks as listVersions,
+  getCatalogListArchivedTracksUrl,
 } from './generated/catalog/catalog';
-const PROJECT_ID = /^prj_[0-9a-f]{32}$/;
-const EXPERIMENT_ID = /^exp_[0-9a-f]{32}$/;
+
 const EXPERIMENT_REVISION_ID = /^expr_[0-9a-f]{32}$/;
-const ARCHIVE_VERSION_ID = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const ARTIFACT_ID = /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/;
 const GENERATION = /^artifactgen-[0-9a-f]{64}$/;
@@ -122,7 +122,7 @@ function optionalText(
   field: string,
   pattern: RegExp,
 ): string | null | undefined {
-  if (value[field] === undefined) return undefined;
+  if (value[field] == null) return undefined;
   return text(value[field], pattern);
 }
 
@@ -233,7 +233,7 @@ export function parseArchivedTrack(value: unknown, scope: ArchivedTrackScope): A
 export function parseArchivedTrackList(value: unknown, scope: ArchivedTrackScope): ArchivedTrackList | null {
   if (!isRecord(value) || !exactKeys(value, new Set(['items', 'next_offset']))) return null;
   if (!Array.isArray(value.items) || value.items.length > 100) return null;
-  const next = value.next_offset;
+  const next = value.next_offset ?? null;
   if (next !== null && (!Number.isSafeInteger(next) || (next as number) < 0)) return null;
   if (scope.offset !== undefined && next !== null && (next as number) <= scope.offset) return null;
   const items: ArchivedTrack[] = [];
@@ -250,7 +250,10 @@ export function parseArchivedTrackList(value: unknown, scope: ArchivedTrackScope
 function requireScope(projectId: string, experimentId: string, archiveVersionId?: string): void {
   if (!PROJECT_ID.test(projectId) || !EXPERIMENT_ID.test(experimentId)) rejected();
   if (archiveVersionId !== undefined && !ARCHIVE_VERSION_ID.test(archiveVersionId)) rejected();
+  if (sameOriginApiUrl(getCatalogListArchivedTracksUrl(projectId, experimentId)) === null) rejected();
 }
+
+const archiveRequestOptions: RequestInit = { mode: 'same-origin', redirect: 'error', cache: 'no-store' };
 
 export const catalogListArchivedTracks = async (
   projectId: string,
@@ -262,7 +265,7 @@ export const catalogListArchivedTracks = async (
   const { limit, offset = 0 } = params ?? {};
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)) rejected(400);
   if (!Number.isSafeInteger(offset) || offset < 0) rejected(400);
-  const body = await listVersions(projectId, experimentId, params, options);
+  const body = await listVersions(projectId, experimentId, params, { ...options, ...archiveRequestOptions });
   const parsed = parseArchivedTrackList(body, { projectId, experimentId, offset });
   if (parsed === null) rejected();
   return parsed;
@@ -275,8 +278,11 @@ export const catalogGetArchivedTrack = async (
   options?: RequestInit,
 ): Promise<ArchivedTrack> => {
   requireScope(projectId, experimentId, archiveVersionId);
-  const body = await readVersion(projectId, experimentId, archiveVersionId, options);
-  const parsed = parseArchivedTrack(body, { projectId, experimentId, archiveVersionId });
+  const body = await readVersion(projectId, experimentId, archiveVersionId, { ...options, ...archiveRequestOptions });
+  const parsed = parseArchivedTrack(body, { projectId, experimentId });
   if (parsed === null) rejected();
+  if (parsed.archive_version_id !== archiveVersionId) {
+    throw new ApiError(409, 'archive_version_conflict', 'The response names another archive version.');
+  }
   return parsed;
 };

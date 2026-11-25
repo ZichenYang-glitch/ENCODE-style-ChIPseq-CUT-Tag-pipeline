@@ -1,11 +1,13 @@
-import { preflightArchivedBytes } from './archivedBytes';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GenomeHub } from 'wuepgg';
 import washUStyles from 'wuepgg/style.css?raw';
 import { catalogGetArchivedTrack } from '../../api/archivedTracks';
+import { sameOriginApiUrl } from '../../api/archiveScope';
 import LocusSearch from '../../viewer/search/LocusSearch';
 import { ArchivedTrackFacts } from './ArchivedTrackFacts';
+import { preflightArchivedBytes } from './archivedBytes';
+import { observeArchiveWorkerReads } from './archiveWorkerReads';
 import {
   archivedContentPath,
   archivedHubTracks,
@@ -15,18 +17,24 @@ import {
   archiveErrorCopy,
   archiveErrorFromUnknown,
   isDrawableRegion,
-  sameOriginApiUrl,
   type ArchiveViewerRequest,
 } from './archiveView';
+
+// Every supported scaffold contains chr1. GenomeHub 62.0.2 needs an explicit
+// interval to issue its first drawing read when a sealed track has no suggested locus.
+const INITIAL_REGION = 'chr1:1-10000';
 
 export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest }) {
   const ready = request.kind === 'ready' ? request : null;
   const identity = ready?.archiveVersionId ?? '';
   const [seenIdentity, setSeenIdentity] = useState(identity);
-  const [region, setRegion] = useState('');
+  const [region, setRegion] = useState(INITIAL_REGION);
+  const [readError, setReadError] = useState<ReturnType<typeof archiveErrorCopy> | null>(null);
+  const [workerScope, setWorkerScope] = useState<string | null>(null);
   if (seenIdentity !== identity) {
     setSeenIdentity(identity);
-    setRegion('');
+    setRegion(INITIAL_REGION);
+    setReadError(null);
   }
 
   const descriptorQuery = useQuery({
@@ -41,7 +49,7 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     },
   });
 
-  const descriptor = descriptorQuery.data ?? null;
+  const descriptor = descriptorQuery.isSuccess ? descriptorQuery.data : null;
   const mismatch =
     descriptor !== null &&
     ready !== null &&
@@ -61,11 +69,21 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     queryKey: ['archived-track-bytes', contentUrl, indexUrl],
     enabled: bytesReady,
     retry: false,
+    gcTime: 0,
     queryFn: ({ signal }) => {
       if (contentUrl === null || track === null) throw new Error('Archive content URL is missing.');
       return preflightArchivedBytes(track, contentUrl, indexUrl, signal);
     },
   });
+
+  useLayoutEffect(() => {
+    if (contentUrl === null) return;
+    const stop = observeArchiveWorkerReads(contentUrl, indexUrl, (failure) => {
+      setReadError((current) => failure.code === 'archive_unauthorized' ? failure : current ?? failure);
+    });
+    setWorkerScope(contentUrl);
+    return stop;
+  }, [contentUrl, indexUrl]);
 
   useEffect(() => {
     if (identity === '') return undefined;
@@ -103,8 +121,11 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
       message: '封存轨道只能从当前站点读取。页面没有改读另一版。',
     };
   } else if (bytesQuery.isError) error = archiveErrorFromUnknown(bytesQuery.error);
+  else if (readError !== null) error = readError;
   const draw =
-    error === null && bytesQuery.isSuccess && scaffold !== null && (region === '' || isDrawableRegion(region));
+    error === null && bytesQuery.isSuccess && scaffold !== null &&
+    workerScope === contentUrl && isDrawableRegion(region);
+  const visibleTrack = error?.code === 'archive_unauthorized' ? null : track;
 
   return (
     <article
@@ -114,8 +135,8 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
       data-testid="archived-track-viewer"
       data-content-path={contentPath ?? ''}
       data-index-path={indexPath ?? ''}
-      {...(track !== null ? archivedTrackDataProps(track) : {})}
-      {...(ready !== null && track === null
+      {...(visibleTrack !== null ? archivedTrackDataProps(visibleTrack) : {})}
+      {...(ready !== null && visibleTrack === null
         ? {
             'data-project-id': ready.projectId,
             'data-experiment-id': ready.experimentId,
@@ -124,11 +145,11 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
         : {})}
     >
       <h1 className="text-lg font-semibold">已封存轨道</h1>
-      {ready !== null && track === null ? (
+      {ready !== null && visibleTrack === null ? (
         <p data-testid="archived-track-request">封存版本 {ready.archiveVersionId}</p>
       ) : null}
       {descriptorQuery.isPending && ready !== null ? <p role="status">正在读取这份封存版本…</p> : null}
-      {track !== null ? <ArchivedTrackFacts track={track} /> : null}
+      {visibleTrack !== null ? <ArchivedTrackFacts track={visibleTrack} /> : null}
       {error !== null ? (
         <p role="alert" data-testid="archived-track-error" data-error-code={error.code}>
           {error.message}
@@ -144,7 +165,7 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
             key={JSON.stringify([scaffold, contentUrl, region])}
             storeConfig={storeConfig}
             genomeName={scaffold}
-            viewRegion={region || undefined}
+            viewRegion={region}
             tracks={tracks}
             showGenomeNavigator={false}
             showNavBar={false}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, fetcher } from './fetcher';
 import {
   catalogGetArchivedTrack,
@@ -28,6 +28,17 @@ describe('archived track client', () => {
   beforeEach(() => {
     fetchMock.mockReset();
   });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('rejects the latest alias and an off-site API before sending metadata requests', async () => {
+    await expect(catalogGetArchivedTrack(PROJECT_ID, EXPERIMENT_ID, 'latest')).rejects.toMatchObject({ code: 'archive_invalid' });
+    vi.stubEnv('VITE_API_BASE_URL', 'https://other.example');
+    await expect(catalogGetArchivedTrack(PROJECT_ID, EXPERIMENT_ID, ARCHIVE_V1)).rejects.toMatchObject({ code: 'archive_invalid' });
+    await expect(catalogListArchivedTracks(PROJECT_ID, EXPERIMENT_ID)).rejects.toMatchObject({ code: 'archive_invalid' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('lists every returned version in order and does not keep only the newest', async () => {
     const older = sealedTrack(1);
@@ -49,7 +60,7 @@ describe('archived track client', () => {
     ).rejects.toBeInstanceOf(ApiError);
     await expect(
       catalogGetArchivedTrack(PROJECT_ID, EXPERIMENT_ID, ARCHIVE_V1),
-    ).rejects.toMatchObject({ code: 'archive_invalid' });
+    ).rejects.toMatchObject({ code: 'archive_version_conflict' });
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/v1/catalog/projects/${PROJECT_ID}/experiments/${EXPERIMENT_ID}/archived-tracks/${ARCHIVE_V1}`,
       expect.objectContaining({ method: 'GET' }),
