@@ -28,8 +28,6 @@ export const USER_ASSEMBLIES = [
 
 const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
 
-const ABSOLUTE_HTTP = /^https?:\/\//i;
-
 export type ReferenceBinding = {
   status: string;
   identity: string | null;
@@ -188,31 +186,8 @@ export function placeLocalTrack(
   return { ok: true, warning: label };
 }
 
-function containsForeignUrl(value: unknown, origin: string, depth: number): boolean {
-  if (depth > 4) return false;
-  if (typeof value === 'string') {
-    if (!ABSOLUTE_HTTP.test(value)) return false;
-    try {
-      const url = new URL(value);
-      return !(url.origin === origin && url.pathname.startsWith('/api/'));
-    } catch {
-      return true;
-    }
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => containsForeignUrl(item, origin, depth + 1));
-  }
-  if (value && typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>).some((item) =>
-      containsForeignUrl(item, origin, depth + 1),
-    );
-  }
-  return false;
-}
-
-export function localTrackHasForeignUrl(
-  model: { [key: string]: unknown },
-  origin: string,
-): boolean {
-  return containsForeignUrl(model, origin, 0);
+export function isFileBackedTrack(model: Record<string, unknown>): boolean {
+  // The pinned WashU reader dispatches on these fields. Labels and metadata
+  // can contain arbitrary text and do not determine how it opens the file.
+  return model.url === '' && model.fileObj instanceof File;
 }

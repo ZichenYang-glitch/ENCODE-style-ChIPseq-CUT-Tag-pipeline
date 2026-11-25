@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult,
+} from '@tanstack/react-query';
 import { GenomeHub, type WashuTrackConfig } from 'wuepgg';
 import washUStyles from 'wuepgg/style.css?raw';
 import {
@@ -19,7 +21,7 @@ import LocalTrackPicker, { type LocalWashuTrack } from '../../viewer/local/Local
 import LocusSearch from '../../viewer/search/LocusSearch';
 import {
   declaredAssembly,
-  localTrackHasForeignUrl,
+  isFileBackedTrack,
   placeLocalTrack,
   placePlatformRun,
   referenceBinding,
@@ -41,7 +43,6 @@ import {
 const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
 const DRAW_NOTE =
   'WashU draws at most 100000 rows in one window. A larger count is not fully drawn.';
-const EMPTY_RUNS: string[] = [];
 
 type ChosenTrack = {
   artifactId: string;
@@ -67,6 +68,23 @@ type PlatformRow = {
   track: BrowserTrackResponse;
 };
 
+type SessionQuery = Pick<UseQueryResult<BrowserSessionResponse, unknown>,
+  'data' | 'error' | 'isError' | 'isPending' | 'refetch'>;
+
+// useQueries structurally shares this projection across renders. A failed
+// refetch changes it even when React Query retains the last catalog in data.
+function sessionResults(queries: SessionQuery[]): SessionQuery[] {
+  return queries.map(({ data, error, isError, isPending, refetch }) => ({
+    data, error, isError, isPending, refetch,
+  }));
+}
+
+function currentSession(query: SessionQuery | undefined, runId: string | null) {
+  const session = query?.data;
+  if (query?.isError || !session?.ok || session.run_id !== runId) return undefined;
+  return session;
+}
+
 function isGenerationConflict(error: unknown): boolean {
   return (
     error instanceof ApiError &&
@@ -76,10 +94,16 @@ function isGenerationConflict(error: unknown): boolean {
   );
 }
 
+function retrySession(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) return false;
+  return !isGenerationConflict(error) && failureCount < 3;
+}
+
 function trackCanBeChosen(track: BrowserTrackResponse): boolean {
   return (
     track.preparation !== 'reference_mismatch' &&
-    track.preparation !== 'source_too_large'
+    track.preparation !== 'source_too_large' &&
+    !invalidTrackPath(track)
   );
 }
 
@@ -105,7 +129,7 @@ function reconcileChosen(
 ): { chosen: ChosenTrack[]; stale: string[] } | null {
   const tracks = new Map(session.tracks.map((track) => [track.artifact_id, track]));
   const chosen: ChosenTrack[] = [];
-  const stale: string[] = [];
+  const stale = current.stale.filter((id) => tracks.has(id));
   for (const item of current.chosen) {
     const track = tracks.get(item.artifactId);
     if (!track || !trackCanBeChosen(track)) continue;
@@ -149,7 +173,15 @@ function sameOriginPath(path: string | null | undefined): string | null {
       return null;
     }
   }
-  return new URL(path, window.location.origin).toString();
+  const url = new URL(path, window.location.origin);
+  return url.origin === window.location.origin && url.pathname.startsWith('/api/') ? url.href : null;
+}
+
+function invalidTrackPath(track: BrowserTrackResponse): boolean {
+  return track.preparation === 'ready' && (
+    !sameOriginPath(track.content_path) ||
+    (track.index_path != null && !sameOriginPath(track.index_path))
+  );
 }
 
 function messageFromError(error: unknown): string {
@@ -200,14 +232,7 @@ function activeChosen(
   );
 }
 
-export default function GenomeBrowserPanel({
-  runId = null,
-  initialRegion = null,
-  artifactIds = null,
-  showToolbar = true,
-  onReady,
-  onFailed,
-}: {
+type BrowserPanelProps = {
   runId?: string | null;
   initialRegion?: string | null;
   artifactIds?: readonly string[] | null;
@@ -218,7 +243,20 @@ export default function GenomeBrowserPanel({
     artifactIds: string[];
   }) => void;
   onFailed?: (message: string) => void;
-}) {
+};
+
+export default function GenomeBrowserPanel(props: BrowserPanelProps) {
+  return <BrowserWindow key={props.runId ?? ''} {...props} />;
+}
+
+function BrowserWindow({
+  runId = null,
+  initialRegion = null,
+  artifactIds = null,
+  showToolbar = true,
+  onReady,
+  onFailed,
+}: BrowserPanelProps) {
   ensureTrackReadGuard();
   const queryClient = useQueryClient();
   const openedRunId = runId || null;
@@ -228,13 +266,13 @@ export default function GenomeBrowserPanel({
     queryFn: ({ signal }) => getRunBrowserSession(openedRunId as string, { signal }),
     // A generation conflict is the user's prompt to refresh. Retrying would
     // load the new catalog by itself and hide that choice.
-    retry: (failureCount, error) =>
-      !isGenerationConflict(error) && failureCount < 3,
+    retry: retrySession,
     // Tests observe the exhausted retries immediately. Production keeps the backoff.
     retryDelay: import.meta.env.MODE === 'test' ? 0 : undefined,
   });
-  const session =
+  const lastSession =
     sessionQuery.data?.run_id === openedRunId ? sessionQuery.data : undefined;
+  const session = currentSession(sessionQuery, openedRunId);
   const [selection, setSelection] = useState<TrackSelection | null>(null);
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
@@ -242,27 +280,16 @@ export default function GenomeBrowserPanel({
   const [addedRunIds, setAddedRunIds] = useState<string[]>([]);
   const [addedSelections, setAddedSelections] = useState<Record<string, RunSelection>>({});
   const [pendingRunId, setPendingRunId] = useState('');
+  const [showRunPicker, setShowRunPicker] = useState(false);
+  const browseRuns = openedRunId !== null || showRunPicker;
   const [runNotice, setRunNotice] = useState<string | null>(null);
   const [localTracks, setLocalTracks] = useState<LocalWashuTrack[]>([]);
-  const scope = openedRunId ?? '';
-  const [scopeKey, setScopeKey] = useState(scope);
-  if (scopeKey !== scope) {
-    setScopeKey(scope);
-    setLocalTracks([]);
-    setAddedRunIds([]);
-    setAddedSelections({});
-    setPendingRunId('');
-    setRunNotice(null);
-    setLoadFailures({});
-  }
-  const scopeReady = scopeKey === scope;
-  const activeAddedIds = scopeReady ? addedRunIds : EMPTY_RUNS;
-  const activeLocal = scopeReady ? localTracks : EMPTY_LOCAL;
   const selectionRef = useRef<TrackSelection | null>(null);
   const pendingToggles = useRef<BrowserTrackResponse[]>([]);
   const presetRef = useRef<readonly string[] | null>(artifactIds ?? null);
   const conflictRef = useRef<string | null>(null);
   const regionKey = useRef<string | null>(null);
+  const userNavigated = useRef(false);
   selectionRef.current = selection;
   presetRef.current = artifactIds ?? null;
   if (conflictRef.current !== null && conflictRef.current !== openedRunId) {
@@ -277,10 +304,8 @@ export default function GenomeBrowserPanel({
   const onLocalTracks = useCallback((next: LocalWashuTrack[]) => {
     setLocalTracks((current) => (sameLocal(current, next) ? current : next));
   }, []);
-  const regionHops = useRef<number[]>([]);
   const onNavigate = useCallback((next: string) => {
-    for (const id of regionHops.current) window.clearTimeout(id);
-    regionHops.current = [];
+    userNavigated.current = true;
     setRegion(next.trim());
   }, []);
 
@@ -317,21 +342,12 @@ export default function GenomeBrowserPanel({
   }, [sessionQuery.error, sessionQuery.isError]);
 
   useEffect(() => {
-    if (!openedRunId) return;
-    if (sessionQuery.isError) {
-      const current = selectionRef.current;
-      if (
-        current &&
-        current.runId === openedRunId &&
-        (current.chosen.length > 0 || current.stale.length > 0)
-      ) {
-        const next = { runId: openedRunId, generation: current.generation, chosen: [], stale: [] };
-        selectionRef.current = next;
-        setSelection(next);
-      }
-      return;
+    if (sessionQuery.isError && selectionRef.current?.chosen.length) {
+      const cleared = { ...selectionRef.current, chosen: [], stale: [] };
+      selectionRef.current = cleared;
+      setSelection(cleared);
     }
-    if (!session) return;
+    if (!session || !openedRunId) return;
     const generation = session.artifact_generation ?? null;
     const current = selectionRef.current;
     let next: TrackSelection;
@@ -362,13 +378,12 @@ export default function GenomeBrowserPanel({
       referenceStatus,
       artifactIds: next.chosen.map((item) => item.artifactId),
     });
-  }, [openedRunId, session, sessionQuery.error, sessionQuery.isError]);
+  }, [openedRunId, session, sessionQuery.isError]);
 
   useEffect(() => {
     if (!session || !openedRunId) return;
-    const key = `${openedRunId}:${session.artifact_generation ?? ''}:${initialRegion ?? ''}`;
+    const key = `${openedRunId}:${initialRegion ?? ''}`;
     if (regionKey.current === key) return;
-    regionKey.current = key;
     const suggested = session.tracks.find(
       (track) => track.provenance?.suggested_region,
     )?.provenance?.suggested_region;
@@ -378,28 +393,15 @@ export default function GenomeBrowserPanel({
         : typeof suggested === 'string'
           ? suggested
           : null;
-    if (target === null) return;
-    // GenomeHub applies the region it receives on the first mount, then only
-    // refetches tracks when that string changes. A short hop makes the mounted
-    // viewer query the intended window. A later gene or coordinate edit clears
-    // both timers, so they cannot pull the window back.
-    const parts = target.match(/^(.*:)(\d+)-(\d+)$/);
-    const hop = parts
-      ? `${parts[1]}${Math.max(0, Number(parts[2]) - 400)}-${Math.max(1, Number(parts[3]) - 400)}`
-      : target;
+    if (target === null || (userNavigated.current && !initialRegion)) return;
+    regionKey.current = key;
+    userNavigated.current = false;
     setRegion(target);
-    const move = window.setTimeout(() => setRegion(hop), 600);
-    const settle = window.setTimeout(() => setRegion(target), 1100);
-    regionHops.current = [move, settle];
-    return () => {
-      window.clearTimeout(move);
-      window.clearTimeout(settle);
-      regionHops.current = regionHops.current.filter((id) => id !== move && id !== settle);
-    };
   }, [initialRegion, openedRunId, session]);
 
   const runsQuery = useInfiniteQuery({
     queryKey: ['browser-authorized-runs'],
+    enabled: browseRuns,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) => {
       const page = await listRuns(
@@ -422,47 +424,29 @@ export default function GenomeBrowserPanel({
 
   const addedQueryDefs = useMemo(
     () =>
-      activeAddedIds.map((id) => ({
+      addedRunIds.map((id) => ({
         queryKey: ['browser-session', id] as const,
         queryFn: ({ signal }: { signal: AbortSignal }) => getRunBrowserSession(id, { signal }),
-        retry: (failureCount: number, error: unknown) =>
-          !isGenerationConflict(error) && failureCount < 3,
+        retry: retrySession,
         retryDelay: import.meta.env.MODE === 'test' ? 0 : undefined,
       })),
-    [activeAddedIds],
+    [addedRunIds],
   );
-  const addedSessionQueries = useQueries({ queries: addedQueryDefs });
-  const addedSessionKey = activeAddedIds
-    .map((id, index) => {
-      const query = addedSessionQueries[index];
-      const data = query?.data?.run_id === id ? query.data : undefined;
-      if (!data) return `${id}:${query?.isError ? 'error' : 'pending'}`;
-      return [
-        id,
-        data.artifact_generation ?? '',
-        data.reference.status,
-        data.reference.identity_sha256 ?? '',
-        data.reference.viewer_scaffold ?? '',
-        data.tracks
-          .map(
-            (track) =>
-              `${track.artifact_id}:${track.revision}:${track.preparation}:${track.content_path ?? ''}:${track.index_path ?? ''}`,
-          )
-          .join(','),
-      ].join(':');
-    })
-    .join('|');
-  const addedSessionsRef = useRef(addedSessionQueries);
-  addedSessionsRef.current = addedSessionQueries;
+  const addedSessionQueries = useQueries({ queries: addedQueryDefs, combine: sessionResults });
 
   useEffect(() => {
-    const queries = addedSessionsRef.current;
     setAddedSelections((current) => {
       let changed = false;
       const next = { ...current };
-      activeAddedIds.forEach((id, index) => {
-        const data = queries[index]?.data;
-        if (!data || data.run_id !== id) return;
+      addedRunIds.forEach((id, index) => {
+        const data = currentSession(addedSessionQueries[index], id);
+        if (!data) {
+          if (id in next) {
+            delete next[id];
+            changed = true;
+          }
+          return;
+        }
         const generation = data.artifact_generation ?? null;
         const existing = current[id];
         if (!existing || existing.generation !== generation) {
@@ -476,22 +460,20 @@ export default function GenomeBrowserPanel({
         changed = true;
       });
       for (const id of Object.keys(next)) {
-        if (!activeAddedIds.includes(id)) {
+        if (!addedRunIds.includes(id)) {
           delete next[id];
           changed = true;
         }
       }
       return changed ? next : current;
     });
-  }, [activeAddedIds, addedSessionKey]);
+  }, [addedRunIds, addedSessionQueries]);
 
   const generationConflict = isGenerationConflict(sessionQuery.error);
   const activeChoice = useMemo(() => {
     if (
       generationConflict ||
-      sessionQuery.isError ||
       session === undefined ||
-      session.ok !== true ||
       selection === null ||
       selection.runId !== openedRunId ||
       selection.generation !== (session.artifact_generation ?? null)
@@ -506,7 +488,7 @@ export default function GenomeBrowserPanel({
           trackCanBeChosen(track),
       ),
     );
-  }, [generationConflict, openedRunId, selection, session, sessionQuery.isError]);
+  }, [generationConflict, openedRunId, selection, session]);
   const selected = useMemo(
     () => activeChoice.map((item) => item.artifactId),
     [activeChoice],
@@ -554,11 +536,11 @@ export default function GenomeBrowserPanel({
   );
   const authority = useMemo(() => {
     const primary =
-      session && openedRunId
-        ? { runId: session.run_id, reference: referenceBinding(session.reference) }
+      lastSession?.ok && openedRunId
+        ? { runId: lastSession.run_id, reference: referenceBinding(lastSession.reference) }
         : null;
     return windowAuthority(primary, userAssembly);
-  }, [openedRunId, session, userAssembly]);
+  }, [openedRunId, lastSession, userAssembly]);
   const primaryPlacement =
     session && openedRunId
       ? placePlatformRun(authority, session.run_id, referenceBinding(session.reference))
@@ -573,10 +555,9 @@ export default function GenomeBrowserPanel({
   }, [primaryPlacement?.ok, readyTracks, session]);
   const addedReady = useMemo<PlatformRow[]>(() => {
     const rows: PlatformRow[] = [];
-    activeAddedIds.forEach((id, index) => {
-      const query = addedSessionQueries[index];
-      const data = query?.data;
-      if (!data || data.run_id !== id || !data.ok || isGenerationConflict(query?.error)) return;
+    addedRunIds.forEach((id, index) => {
+      const data = currentSession(addedSessionQueries[index], id);
+      if (!data) return;
       const placement = placePlatformRun(authority, id, referenceBinding(data.reference));
       if (!placement.ok) return;
       const chosen = activeChosen(addedSelections[id] ?? null, data);
@@ -588,9 +569,7 @@ export default function GenomeBrowserPanel({
       }
     });
     return rows;
-    // addedSessionKey stands in for the query payloads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAddedIds, addedSelections, addedSessionKey, authority]);
+  }, [addedRunIds, addedSelections, addedSessionQueries, authority]);
   const platformRows = useMemo(
     () => [...primaryRows, ...addedReady],
     [addedReady, primaryRows],
@@ -605,7 +584,7 @@ export default function GenomeBrowserPanel({
       const key = trackReadKey(row.runId, row.track.artifact_id);
       const controller = new AbortController();
       controllers.set(key, controller);
-      const generation = beginTrackRead(row.track.artifact_id, controller.signal, row.runId);
+      const generation = beginTrackRead(row.track.artifact_id, controller.signal, row.runId, path);
       try {
         const response = await fetch(path, {
           method: 'GET',
@@ -655,8 +634,9 @@ export default function GenomeBrowserPanel({
     };
   }, [platformRows]);
 
-  const visibleRows = platformRows.filter(
-    (row) => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
+  const visibleRows = useMemo(
+    () => platformRows.filter((row) => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)]),
+    [platformRows, loadFailures],
   );
   const failedRows = platformRows.filter(
     (row) => loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
@@ -677,11 +657,7 @@ export default function GenomeBrowserPanel({
     },
   });
 
-  const showAssembly = !(
-    session &&
-    session.reference.status === 'bound' &&
-    session.reference.viewer_scaffold
-  );
+  const showAssembly = authority.source === 'user';
   const authorizedRuns = useMemo(() => {
     const seen = new Set<string>();
     const runs: RunSummaryResponse[] = [];
@@ -697,7 +673,7 @@ export default function GenomeBrowserPanel({
 
   function addRun() {
     if (!pendingRunId) return;
-    if (pendingRunId === openedRunId || activeAddedIds.includes(pendingRunId)) {
+    if (pendingRunId === openedRunId || addedRunIds.includes(pendingRunId)) {
       setRunNotice(`${pendingRunId} is already in this window.`);
       return;
     }
@@ -740,25 +716,27 @@ export default function GenomeBrowserPanel({
     ? 'none'
     : generationConflict
       ? 'conflict'
-      : sessionQuery.isError || (session !== undefined && session.ok !== true)
+      : sessionQuery.isError || (lastSession !== undefined && !session)
         ? 'error'
         : session === undefined
           ? 'loading'
           : 'ready';
 
-  const localPlaced = activeLocal.map((track) => ({
+  const localPlaced = useMemo(() => localTracks.map((track) => ({
     track,
     placement: placeLocalTrack(authority, track),
-    foreign: localTrackHasForeignUrl(track.model, window.location.origin),
-  }));
-  const hubLocal = localPlaced.flatMap((item) =>
-    item.placement.ok && !item.foreign ? [{ id: item.track.id, model: item.track.model }] : [],
+    fileBacked: isFileBackedTrack(track.model),
+  })), [localTracks, authority]);
+  const hubLocal = useMemo(
+    () => localPlaced.flatMap(({ placement, fileBacked, track }) =>
+      placement.ok && fileBacked ? [{ id: track.id, model: track.model }] : []),
+    [localPlaced],
   );
 
   return (
     <section className="min-w-0 space-y-3" aria-label="Genome browser">
-      {session && primaryView === 'ready' ? <ReferenceNotice session={session} /> : null}
-      {session && primaryView === 'ready' ? <InteractionNotice session={session} /> : null}
+      {session ? <ReferenceNotice session={session} /> : null}
+      {session ? <InteractionNotice session={session} /> : null}
       {showAssembly ? (
         <label className="block text-sm">
           Assembly
@@ -863,19 +841,28 @@ export default function GenomeBrowserPanel({
           ) : null}
         </article>
       ) : null}
-      <RunPicker
-        runs={authorizedRuns}
-        pendingRunId={pendingRunId}
-        onPending={setPendingRunId}
-        onAdd={addRun}
-        onMore={() => void runsQuery.fetchNextPage()}
-        hasMore={runsQuery.hasNextPage}
-        loading={runsQuery.isPending}
-        loadingMore={runsQuery.isFetchingNextPage}
-        error={runsQuery.isError}
-        notice={runNotice}
-      />
-      {activeAddedIds.map((id, index) => (
+      <div data-testid="local-track-slot">
+        <LocalTrackPicker assembly={authority.scaffold} onTracksChange={onLocalTracks} />
+      </div>
+      {browseRuns ? (
+        <RunPicker
+          runs={authorizedRuns}
+          pendingRunId={pendingRunId}
+          onPending={setPendingRunId}
+          onAdd={addRun}
+          onMore={() => void runsQuery.fetchNextPage()}
+          hasMore={runsQuery.hasNextPage}
+          loading={runsQuery.isPending}
+          loadingMore={runsQuery.isFetchingNextPage}
+          error={runsQuery.isError}
+          notice={runNotice}
+        />
+      ) : (
+        <Button type="button" variant="secondary" onClick={() => setShowRunPicker(true)}>
+          叠加已授权运行
+        </Button>
+      )}
+      {addedRunIds.map((id, index) => (
         <AddedRunBlock
           key={id}
           runId={id}
@@ -886,18 +873,15 @@ export default function GenomeBrowserPanel({
           onRemove={() => removeRun(id)}
         />
       ))}
-      <div data-testid="local-track-slot">
-        <LocalTrackPicker assembly={authority.scaffold} onTracksChange={onLocalTracks} />
-      </div>
       {localPlaced.length > 0 ? (
         <ul className="space-y-2">
           {localPlaced.map((item) => {
-            const rejected = !item.placement.ok || item.foreign;
-            const reason = item.foreign
-              ? `${item.track.label} names another website. It stays in this browser and is not added to the window.`
-              : item.placement.ok
+            const rejected = !item.placement.ok || !item.fileBacked;
+            const reason = !item.placement.ok
+              ? item.placement.reason
+              : item.fileBacked
                 ? item.placement.warning
-                : item.placement.reason;
+                : 'Select a file on this device. A URL can read from another website.';
             return (
               <li
                 key={item.track.id}
@@ -918,7 +902,7 @@ export default function GenomeBrowserPanel({
         </ul>
       ) : null}
       <LocusSearch assembly={authority.scaffold} region={region} onNavigate={onNavigate} />
-      <RegionNotes region={region} rows={platformRows} />
+      <RegionNotes region={region} rows={visibleRows} />
       <FailureList rows={failedRows} failures={loadFailures} />
       <Viewer
         scaffold={authority.scaffold}
@@ -931,8 +915,6 @@ export default function GenomeBrowserPanel({
     </section>
   );
 }
-
-const EMPTY_LOCAL: LocalWashuTrack[] = [];
 
 function RunPicker({
   runs,
@@ -1006,22 +988,14 @@ function AddedRunBlock({
   onRemove,
 }: {
   runId: string;
-  query:
-    | {
-        data?: BrowserSessionResponse;
-        error: unknown;
-        isError: boolean;
-        isPending: boolean;
-        refetch: () => Promise<unknown>;
-      }
-    | undefined;
+  query: SessionQuery | undefined;
   selection: RunSelection | null;
   authority: WindowAuthority;
   onToggle: (track: BrowserTrackResponse, session: BrowserSessionResponse) => void;
   onRemove: () => void;
 }) {
   const queryClient = useQueryClient();
-  const data = query?.data?.run_id === runId ? query.data : undefined;
+  const data = currentSession(query, runId);
   const conflict = isGenerationConflict(query?.error);
   const prepare = useMutation({
     mutationFn: async (track: BrowserTrackResponse) => {
@@ -1081,7 +1055,7 @@ function AddedRunBlock({
           {messageFromError(query.error)} Tracks from other runs stay available.
         </p>
       ) : null}
-      {data && !data.ok ? (
+      {query?.data && !query.data.ok && !query.isError ? (
         <p role="status">This run's browser view could not be loaded. Other tracks stay available.</p>
       ) : null}
       {placement && !placement.ok ? (
@@ -1094,6 +1068,7 @@ function AddedRunBlock({
           {placement.warning}
         </p>
       ) : null}
+      {data && placement?.ok ? <ReferenceNotice session={data} /> : null}
       {data && data.ok && !conflict ? (
         <TrackChooser
           runId={runId}
@@ -1106,11 +1081,11 @@ function AddedRunBlock({
           onToggle={(track) => onToggle(track, data)}
         />
       ) : null}
-      {data && data.ok ? (
+      {data || conflict ? (
         <Button type="button" variant="secondary" onClick={() => void query?.refetch()}>
           Refresh run {runId}
         </Button>
-      ) : query?.isError ? (
+      ) : query && (query.isError || query.data) ? (
         <Button type="button" variant="secondary" onClick={() => void query.refetch()}>
           Retry run {runId}
         </Button>
@@ -1160,7 +1135,8 @@ function ReferenceNotice({ session }: { session: BrowserSessionResponse }) {
   return (
     <p role="status">
       Reference {reference.profile_id} revision {reference.revision_id}, identity{' '}
-      {reference.identity_sha256}. Navigation uses the built-in {reference.viewer_scaffold}{' '}
+      {reference.identity_sha256}{reference.binding_digest ? `, binding ${reference.binding_digest}` : ''}.
+      {' '}Navigation uses the built-in {reference.viewer_scaffold}{' '}
       chromosome list and does not prove the reference files match that public genome.
     </p>
   );
@@ -1240,6 +1216,11 @@ function TrackChooser({
                   This artifact does not match the run reference identity.
                 </span>
               ) : null}
+              {invalidTrackPath(track) ? (
+                <span className="block" role="status">
+                  The data or index has no same-origin API address. Refresh this run to retry.
+                </span>
+              ) : null}
               {stale.includes(track.artifact_id) ? (
                 <span className="block" role="status">
                   This file changed. Choose it again before the new version is read.
@@ -1269,58 +1250,38 @@ function TrackChooser({
 function RegionNotes({ region, rows }: { region: string; rows: PlatformRow[] }) {
   const seen = seenWindow(region);
   const countable = rows.filter(
-    (row) =>
-      row.generation &&
+    (row): row is PlatformRow & { generation: string } =>
+      Boolean(row.generation) &&
       row.track.kind !== 'signal' &&
       row.track.kind !== 'contact_matrix',
   );
-  const summary = useQuery({
-    queryKey: [
-      'browser-region',
-      region,
-      countable.map(
-        (row) =>
-          `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`,
-      ),
-    ],
-    enabled: Boolean(seen && countable.length > 0),
-    queryFn: async ({ signal }) => {
-      if (!seen) return [];
-      return Promise.allSettled(
-        countable.map((row) =>
-          summarizeRunBrowserTrackRegion(
-            row.runId,
-            row.track.artifact_id,
-            row.generation ?? '',
-            row.track.revision,
-            {
-              chrom: seen.chrom,
-              start: seen.start,
-              end: seen.end,
-            },
-            { signal },
-          ),
+  const summaries = useQueries({
+    queries: seen ? countable.map(({ runId, generation, track }) => ({
+      queryKey: ['browser-region', runId, generation, track.artifact_id, track.revision, seen],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        summarizeRunBrowserTrackRegion(
+          runId, track.artifact_id, generation, track.revision, seen, { signal },
         ),
-      );
-    },
+      retry: false,
+    })) : [],
   });
-  if (!summary.data) return null;
   return (
     <div>
-      {summary.data.map((result, index) => {
+      {summaries.map((result, index) => {
         const row = countable[index];
-        if (!row) return null;
-        if (result.status === 'rejected') {
+        const key = trackReadKey(row.runId, row.track.artifact_id);
+        if (result.isError) {
           return (
-            <p key={`${row.runId}:${row.track.artifact_id}`} role="status">
-              {row.track.label}: This window count failed. The track stays available.
+            <p key={key} role="status">
+              {row.track.label} ({row.runId}): This window count failed. The track stays available.
             </p>
           );
         }
-        const item = result.value;
+        const item = result.data;
+        if (!item) return null;
         return (
-          <p key={`${row.runId}:${row.track.artifact_id}`} role="status">
-            {row.track.label}: {item.detail}
+          <p key={key} role="status">
+            {row.track.label} ({row.runId}): {item.detail}
             {item.records != null ? ` (${item.records} records)` : ''}
             {item.records != null && item.records > 100000 ? ` ${DRAW_NOTE}` : ''}
           </p>
@@ -1364,8 +1325,11 @@ function Viewer({
   storeId: string;
   showToolbar: boolean;
 }) {
-  const dataTracks = useMemo(() => {
-    const models: WashuTrackConfig[] = [];
+  const tracks = useMemo(() => {
+    if (!rows.length && !localTracks.length) return [];
+    // GenomeHub dispatches a session update on every tracks prop change.
+    // Its reducer assigns a new ID each time a model arrives without one.
+    const models: WashuTrackConfig[] = [{ type: 'ruler', name: 'Ruler', id: 'helixweave-ruler' }];
     const names = new Map<string, number>();
     const take = (model: WashuTrackConfig) => {
       const name = typeof model.name === 'string' ? model.name : '';
@@ -1377,12 +1341,13 @@ function Viewer({
     };
     for (const row of rows) {
       take({
+        id: `platform-${row.runId}-${row.track.artifact_id}-${row.generation}-${row.track.revision}`,
         type: row.track.wash_u_type,
         name: row.track.label,
         url: sameOriginPath(row.track.content_path) ?? undefined,
       });
     }
-    for (const track of localTracks) take(track.model);
+    for (const track of localTracks) take(track.model.id ? track.model : { ...track.model, id: track.id });
     return models;
   }, [localTracks, rows]);
   const storeConfig = useMemo(
@@ -1392,9 +1357,9 @@ function Viewer({
     }),
     [storeId],
   );
-  if (!scaffold || !REGION.test(region) || dataTracks.length === 0) return null;
+  if (!scaffold || !REGION.test(region) || tracks.length === 0) return null;
   const trackKey = [
-    ...rows.map((row) => `${row.runId}:${row.track.artifact_id}:${row.track.revision}`),
+    ...rows.map((row) => `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`),
     ...localTracks.map((track) => `local:${track.id}`),
   ].join('|');
   return (
@@ -1406,7 +1371,7 @@ function Viewer({
         storeConfig={storeConfig}
         genomeName={scaffold}
         viewRegion={region}
-        tracks={[{ type: 'ruler', name: 'Ruler' }, ...dataTracks]}
+        tracks={tracks}
         showGenomeNavigator={false}
         showNavBar={false}
         showToolBar={showToolbar}

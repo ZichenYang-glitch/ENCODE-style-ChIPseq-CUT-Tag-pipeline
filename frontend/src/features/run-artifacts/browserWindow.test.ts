@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   declaredAssembly,
-  localTrackHasForeignUrl,
+  isFileBackedTrack,
   placeLocalTrack,
   placePlatformRun,
   seenWindow,
@@ -86,28 +86,12 @@ describe('browser window authority', () => {
     }
   });
 
-  it('rejects a local model that points at another website', () => {
-    expect(
-      localTrackHasForeignUrl(
-        { type: 'bigwig', name: 'Foreign', url: 'https://epigenome.wustl.edu/proxy/signal.bw' },
-        'https://helix.example',
-      ),
-    ).toBe(true);
-    expect(
-      localTrackHasForeignUrl(
-        { type: 'bigwig', name: 'Local', url: 'blob:https://helix.example/1111' },
-        'https://helix.example',
-      ),
-    ).toBe(false);
-    expect(
-      localTrackHasForeignUrl(
-        {
-          type: 'bigwig',
-          name: 'Api',
-          options: { url: 'https://helix.example/api/v1/runs/run-1/browser-tracks/a/bytes/g/r' },
-        },
-        'https://helix.example',
-      ),
-    ).toBe(false);
+  it('sends local models to the native File reader', () => {
+    const fileObj = new File(['test'], 'test.bed');
+    expect(isFileBackedTrack({ url: '', fileObj })).toBe(true);
+    expect(isFileBackedTrack({ url: '' })).toBe(false);
+    for (const url of ['/api/data', 'blob:https://helix.example/1', 'https://example.org/data']) {
+      expect(isFileBackedTrack({ url, fileObj })).toBe(false);
+    }
   });
 });

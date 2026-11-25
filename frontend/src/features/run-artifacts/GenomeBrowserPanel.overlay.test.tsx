@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -229,6 +229,9 @@ describe('GenomeBrowserPanel overlay', () => {
     expect(screen.getByText('当前声明 GRCh38')).toBeInTheDocument();
     expect(screen.getByText('用户指定 GRCh38')).toBeInTheDocument();
     expect(sessionMock).not.toHaveBeenCalled();
+    expect(listRunsMock).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '叠加已授权运行' }));
+    await waitFor(() => expect(listRunsMock).toHaveBeenCalledTimes(1));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'mm10');
     expect(screen.getByTestId('local-track-picker')).toHaveAttribute('data-assembly', 'mm10');
     await userEvent.clear(screen.getByLabelText('Genomic region'));
@@ -348,6 +351,123 @@ describe('GenomeBrowserPanel overlay', () => {
     expect(models().some((track) => track.name === 'Mouse signal')).toBe(false);
     expect(models().some((track) => track.url?.includes('/runs/run-1/'))).toBe(true);
   });
+
+  it('stops a track with an unavailable index address before any bytes are read', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const value = session('run-1', 'a'.repeat(64));
+    value.tracks[0].index_path = 'https://example.org/data.tbi';
+    sessionMock.mockResolvedValue(value);
+    renderPanel(<GenomeBrowserPanel runId="run-1" artifactIds={['artifact-signal']} />);
+    expect(await screen.findByRole('checkbox')).toBeDisabled();
+    expect(screen.getByText(/no same-origin API address/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
+    expect(models().map((track) => track.name)).toEqual(['Ruler', 'Local signal']);
+    expect(byteUrls(fetchMock)).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('example.org'), expect.anything());
+  });
+
+  it('keeps the same WashU model IDs and tracks array when only the locus changes', async () => {
+    sessionMock.mockImplementation(async (id) => session(id, 'a'.repeat(64)));
+    renderPanel(<GenomeBrowserPanel runId="run-1" initialRegion="chr7:100-200" />);
+    await userEvent.click(await screen.findByRole('checkbox'));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Authorized runs' }), 'run-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Add run' }));
+    const second = await screen.findByRole('article', { name: 'Run run-2' });
+    await userEvent.click(await within(second).findByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
+    const hub = globalThis as { __hubTracks?: Array<{ id: string }> };
+    const before = hub.__hubTracks!;
+    expect(before).toHaveLength(4);
+    expect(before.every((model) => typeof model.id === 'string' && model.id.length > 0)).toBe(true);
+    expect(new Set(before.map((model) => model.id)).size).toBe(4);
+    fireEvent.change(screen.getByLabelText('Genomic region'), { target: { value: 'chr7:300-400' } });
+    expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('chr7:300-400');
+    expect(hub.__hubTracks).toBe(before);
+  });
+
+  it('keeps another run’s completed window count visible while a count is pending', async () => {
+    sessionMock.mockImplementation(async (id) => {
+      const value = session(id, 'a'.repeat(64));
+      value.tracks[0].kind = 'peak_intervals';
+      return value;
+    });
+    summaryMock.mockImplementation(async (id, _artifact, _generation, _revision, _region, options) => {
+      if (id === 'run-2') {
+        await new Promise<void>((_resolve, reject) =>
+          options?.signal?.addEventListener('abort', () => reject(new DOMException('Removed', 'AbortError')), { once: true }),
+        );
+      }
+      return { ok: true, kind: 'peak_intervals', records: 2, complete: true, truncated: false, detail: 'Count complete.' };
+    });
+    renderPanel(<GenomeBrowserPanel runId="run-1" initialRegion="chr7:100-200" />);
+    await userEvent.click(await screen.findByRole('checkbox'));
+    const count = await screen.findByText(/run-1.*Count complete.*2 records/);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Authorized runs' }), 'run-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Add run' }));
+    const other = await screen.findByRole('article', { name: 'Run run-2' });
+    await userEvent.click(await within(other).findByRole('checkbox'));
+    await waitFor(() => expect(summaryMock.mock.calls.map(([id]) => id)).toEqual(['run-1', 'run-2']));
+    expect(count).toBeInTheDocument();
+    expect(summaryMock.mock.calls[1][4]).toEqual({ chrom: 'chr7', start: 99, end: 200 });
+    await userEvent.click(screen.getByRole('button', { name: 'Remove run run-2' }));
+    expect(count).toBeInTheDocument();
+  });
+
+  it.each(['run-1', 'run-2'])(
+    'keeps the file, the other run and the chosen locus when %s rejects a catalog refresh',
+    async (rejectedRun) => {
+      const fetchMock = vi.mocked(fetch);
+      let refusal: ApiError | null = null;
+      let generation = 'old';
+      sessionMock.mockImplementation(async (id) => {
+        if (id === rejectedRun && refusal) throw refusal;
+        const value = session(id, 'a'.repeat(64));
+        if (id === rejectedRun) {
+          value.artifact_generation = generation;
+          value.tracks[0].content_path =
+            `/api/v1/runs/${id}/browser-tracks/artifact-signal/bytes/${generation}/r`;
+        }
+        return value;
+      });
+      renderPanel(<GenomeBrowserPanel runId="run-1" />);
+      const primary = await screen.findByRole('article', { name: 'Run run-1' });
+      await userEvent.click(within(primary).getByRole('checkbox'));
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Authorized runs' }), 'run-2');
+      await userEvent.click(screen.getByRole('button', { name: 'Add run' }));
+      const added = await screen.findByRole('article', { name: 'Run run-2' });
+      await userEvent.click(await within(added).findByRole('checkbox'));
+      await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
+      const locus = 'chr7:100-200';
+      fireEvent.change(screen.getByLabelText('Genomic region'), { target: { value: locus } });
+      expect(models()).toHaveLength(4); // ruler, two identically named artifacts and the local file
+      const filePicker = screen.getByTestId('local-track-picker');
+
+      const primaryRejected = rejectedRun === 'run-1';
+      refusal = primaryRejected
+        ? new ApiError(409, 'BROWSER_TRACK_READ_CONFLICT', 'Generation changed.', [
+            { code: 'BROWSER_TRACK_READ_CONFLICT', path: 'generation', message: 'Refresh the list.' },
+          ])
+        : new ApiError(403, 'FORBIDDEN', 'Access to run-2 has ended.');
+      const refreshButton = primaryRejected ? 'Refresh list' : 'Refresh run run-2';
+      await userEvent.click(screen.getByRole('button', { name: refreshButton }));
+      await screen.findByText(primaryRejected ? /not read until you choose/i : /Access to run-2 has ended/i);
+      expect(screen.getByTestId('local-track-picker')).toBe(filePicker);
+      expect(models()).toHaveLength(3);
+      expect(models().some((track) => track.name === 'Local signal')).toBe(true);
+      expect(models().some((track) => track.url?.includes(`/runs/${rejectedRun}/`))).toBe(false);
+      expect(screen.getByLabelText('Genomic region')).toHaveValue(locus);
+
+      refusal = null;
+      generation = 'new';
+      const retryName = primaryRejected ? 'Refresh list' : 'Retry run run-2';
+      await userEvent.click(screen.getByRole('button', { name: retryName }));
+      const recovered = await screen.findByRole('article', { name: `Run ${rejectedRun}` });
+      expect(await within(recovered).findByRole('checkbox')).not.toBeChecked();
+      expect(models()).toHaveLength(3);
+      expect(screen.getByLabelText('Genomic region')).toHaveValue(locus);
+      expect(byteUrls(fetchMock).some((url) => url.includes('/bytes/new/'))).toBe(false);
+    },
+  );
 
   it('keeps the second run and local files when the opened run fails', async () => {
     sessionMock.mockImplementation(async (id: string) => session(id, 'e'.repeat(64)));

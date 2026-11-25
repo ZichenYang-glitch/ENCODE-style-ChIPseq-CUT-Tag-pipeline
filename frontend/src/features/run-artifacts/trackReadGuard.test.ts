@@ -166,4 +166,27 @@ describe('trackReadGuard', () => {
     expect(seen).toEqual([{ artifactId: 'artifact-pet', runId: 'run-1' }]);
     expect(hasTrackReadFailure('artifact-pet')).toBe(true);
   });
+
+  it('ignores native byte and index failures from a retired revision', async () => {
+    const newerUrl = trackUrl.replace('/generation/revision', '/generation/new-revision');
+    let finishOld: (response: Response) => void = () => {};
+    const pending = new Promise<Response>((resolve) => { finishOld = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === trackUrl) return pending;
+      return new Response(null, { status: String(input) === newerUrl ? 206 : 409 });
+    }));
+    ensureTrackReadGuard();
+    const failure = vi.fn();
+    subscribeTrackReadFailure(failure);
+    beginTrackRead('artifact-pet', new AbortController().signal, 'run-1', trackUrl);
+    const oldRead = fetch(trackUrl);
+    beginTrackRead('artifact-pet', new AbortController().signal, 'run-1', newerUrl);
+    expect((await fetch(newerUrl)).status).toBe(206);
+    finishOld(new Response(null, { status: 409 }));
+    await oldRead;
+    await fetch(`${trackUrl}.tbi`);
+    expect(failure).not.toHaveBeenCalled();
+    await fetch(`${newerUrl}.tbi`);
+    expect(failure).toHaveBeenCalledWith('artifact-pet', { runId: 'run-1' });
+  });
 });
