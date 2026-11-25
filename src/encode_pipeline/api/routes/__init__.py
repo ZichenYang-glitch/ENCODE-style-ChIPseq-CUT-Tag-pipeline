@@ -15,6 +15,9 @@ from encode_pipeline.api.routes.artifact_publications import (
     router as artifact_publications_router,
 )
 from encode_pipeline.api.routes.auth import router as auth_router
+from encode_pipeline.api.routes.archived_tracks import (
+    router as archived_tracks_router,
+)
 from encode_pipeline.api.routes.catalog import router as catalog_router
 from encode_pipeline.api.routes.peri_run_actions import (
     router as peri_run_actions_router,
@@ -49,6 +52,10 @@ api_v1_router.include_router(
 )
 api_v1_router.include_router(qc_metrics_router, dependencies=_member_dependencies)
 api_v1_router.include_router(catalog_router, dependencies=_member_dependencies)
+api_v1_router.include_router(
+    archived_tracks_router,
+    dependencies=_member_dependencies,
+)
 api_v1_router.include_router(
     registered_results_router,
     dependencies=_member_dependencies,
