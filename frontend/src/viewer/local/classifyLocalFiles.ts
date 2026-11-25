@@ -8,14 +8,12 @@ import {
   type PreparedLocalFile,
 } from './contract'
 import {
-  HEADER_BYTES,
-  isBgzfHeader,
   isBigBedMagic,
   isBigWigMagic,
-  looksLikeTabix,
   readFileSlice,
   scanPlainPeak,
 } from './sliceRead'
+import { tabixPairProblem } from './tabixPair'
 
 export interface LocalSelectionIssue {
   id: string
@@ -293,23 +291,9 @@ async function resolveIndexedGroup(
 }
 
 async function indexedProblem(data: File, index: File): Promise<LocalSelectionIssue | null> {
-  const [dataHeader, indexOk] = await Promise.all([
-    readFileSlice(data, 0, HEADER_BYTES),
-    looksLikeTabix(index),
-  ])
-  if (!indexOk) {
-    return issue(
-      'wrong-index',
-      `${browserFileName(index)} 不是 tabix 索引。需要未压缩的 TBI 头，或 BGZF 里以 TBI 开头的 .tbi。`,
-    )
-  }
-  if (!isBgzfHeader(dataHeader)) {
-    return issue(
-      'not-bgzf',
-      `${browserFileName(data)} 不是 BGZF。按窗口读取需要 BGZF 数据文件和 .tbi。`,
-    )
-  }
-  return null
+  const verdict = await tabixPairProblem(data, index)
+  if (verdict.ok) return null
+  return issue(verdict.reason, verdict.message)
 }
 
 function fixedIndexedFormat(kind: FileKind): 'longrange' | 'bed' | 'narrowPeak' | 'broadPeak' {

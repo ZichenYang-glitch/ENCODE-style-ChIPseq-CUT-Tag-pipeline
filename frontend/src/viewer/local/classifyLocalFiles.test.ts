@@ -8,6 +8,7 @@ import {
   nativeTabixFiles,
 } from './contract'
 import { classifyLocalFiles } from './classifyLocalFiles'
+import { indexedPair } from './indexFixture'
 
 function bgzfHeader(): Uint8Array {
   return new Uint8Array([
@@ -56,10 +57,13 @@ describe('nativeTabixFiles', () => {
 })
 
 describe('classifyLocalFiles', () => {
-  it('pairs prebuilt longrange and bigWig without reading them whole or calling fetch', async () => {
+  it('pairs a real prebuilt longrange and a bigWig without calling fetch', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'))
-    const longrange = fileNamed('pet.longrange.gz', bgzfHeader())
-    const index = fileNamed('pet.longrange.gz.tbi', tbiBytes())
+    const built = indexedPair([
+      'chr7\t55019017\t55019117\tchr7:55210000-55211000,1',
+    ])
+    const longrange = fileNamed('pet.longrange.gz', built.bgzf)
+    const index = fileNamed('pet.longrange.gz.tbi', built.tabix)
     const signal = fileNamed(
       'signal.bigWig',
       new Uint8Array([0x26, 0xfc, 0x8f, 0x88, 0, 0, 0, 0]),
@@ -94,6 +98,13 @@ describe('classifyLocalFiles', () => {
     expect(wrong.ready).toEqual([])
     expect(wrong.issues.map((item) => item.reason)).toEqual(['wrong-index'])
 
+    const magicOnly = await classifyLocalFiles([
+      fileNamed('pet.longrange.gz', bgzfHeader()),
+      fileNamed('pet.longrange.gz.tbi', tbiBytes()),
+    ])
+    expect(magicOnly.ready).toEqual([])
+    expect(magicOnly.issues.map((item) => item.reason)).toEqual(['wrong-index'])
+
     const raw = await classifyLocalFiles([
       fileNamed('pairs.bedpe', new TextEncoder().encode('chr1\t1\t2\tchr1\t3\t4\n')),
     ])
@@ -102,9 +113,10 @@ describe('classifyLocalFiles', () => {
   })
 
   it('asks when a gzip pair could be longrange or indexed BED', async () => {
+    const built = indexedPair(['chr1\t10\t20\tpeak'])
     const result = await classifyLocalFiles([
-      fileNamed('sample.gz', bgzfHeader()),
-      fileNamed('sample.gz.tbi', tbiBytes()),
+      fileNamed('sample.gz', built.bgzf),
+      fileNamed('sample.gz.tbi', built.tabix),
     ])
     expect(result.ready).toEqual([])
     expect(result.choices).toHaveLength(1)
@@ -116,10 +128,13 @@ describe('classifyLocalFiles', () => {
   })
 
   it('asks when several indexes match one longrange file', async () => {
+    const built = indexedPair([
+      'chr7\t55019017\t55019117\tchr7:55210000-55211000,1',
+    ])
     const result = await classifyLocalFiles([
-      fileNamed('pet.longrange.gz', bgzfHeader()),
-      fileNamed('pet.longrange.gz.tbi', tbiBytes()),
-      fileNamed('pet.longrange.gz.tbi', tbiBytes()),
+      fileNamed('pet.longrange.gz', built.bgzf),
+      fileNamed('pet.longrange.gz.tbi', built.tabix),
+      fileNamed('pet.longrange.gz.tbi', built.tabix),
     ])
     expect(result.ready).toEqual([])
     expect(result.choices[0]?.reason).toBe('ambiguous-index')
@@ -174,11 +189,12 @@ describe('classifyLocalFiles', () => {
   })
 
   it('accepts an indexed BED that is larger than the plain-text cap', async () => {
+    const built = indexedPair(['chr1\t10\t20\tpeak'])
     const padded = new Uint8Array(PLAIN_PEAK_MAX_BYTES + 50)
-    padded.set(bgzfHeader())
+    padded.set(built.bgzf)
     const result = await classifyLocalFiles([
       fileNamed('peaks.bed.gz', padded),
-      fileNamed('peaks.bed.gz.tbi', tbiBytes()),
+      fileNamed('peaks.bed.gz.tbi', built.tabix),
     ])
     expect(result.issues).toEqual([])
     expect(result.ready[0]).toMatchObject({
@@ -187,6 +203,19 @@ describe('classifyLocalFiles', () => {
       readMethod: READ_TABIX_SLICE,
       isText: false,
     })
+  })
+
+  it('rejects a real index that belongs to another track', async () => {
+    const here = indexedPair(['chr7\t55019017\t55019117\tchr7:55210000-55211000,1'])
+    const there = indexedPair(['chr1\t80000000\t80000100\tchr1:80010000-80010100,1'])
+    const result = await classifyLocalFiles([
+      fileNamed('pet.longrange.gz', here.bgzf),
+      fileNamed('pet.longrange.gz.tbi', there.tabix),
+    ])
+    expect(result.ready).toEqual([])
+    expect(result.choices).toEqual([])
+    expect(result.issues.map((item) => item.reason)).toEqual(['index-mismatch'])
+    expect(result.issues[0]?.message).toContain('不含整份数据摘要')
   })
 
   it('rejects a bigBed renamed as bigWig and an unmatched index', async () => {

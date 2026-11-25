@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { indexedPair } from './indexFixture'
 import LocalTrackPicker, { type LocalWashuTrack } from './LocalTrackPicker'
 
 function fileBytes(bytes: Uint8Array): ArrayBuffer {
@@ -20,10 +21,6 @@ function bgzfHeader(): Uint8Array {
   ])
 }
 
-function tbiBytes(): Uint8Array {
-  return new Uint8Array([0x54, 0x42, 0x49, 0x01])
-}
-
 describe('LocalTrackPicker', () => {
   it('adds longrange, bigWig, and BED, then removes one track', async () => {
     const user = userEvent.setup()
@@ -38,9 +35,12 @@ describe('LocalTrackPicker', () => {
     )
     expect(screen.getByTestId('local-track-assembly')).toHaveTextContent('用户指定 GRCh38')
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'))
+    const built = indexedPair([
+      'chr7\t55019017\t55019117\tchr7:55210000-55211000,1',
+    ])
     await user.upload(screen.getByLabelText('Local track files'), [
-      localFile('pet.longrange.gz', bgzfHeader()),
-      localFile('pet.longrange.gz.tbi', tbiBytes()),
+      localFile('pet.longrange.gz', built.bgzf),
+      localFile('pet.longrange.gz.tbi', built.tabix),
       localFile('signal.bw', new Uint8Array([0x26, 0xfc, 0x8f, 0x88])),
       localFile('egfr.bed', new TextEncoder().encode('chr7\t55019017\t55019117\tEGFR\n')),
     ])
@@ -111,9 +111,10 @@ describe('LocalTrackPicker', () => {
     const user = userEvent.setup()
     const onTracksChange = vi.fn()
     render(<LocalTrackPicker assembly="hg38" onTracksChange={onTracksChange} />)
+    const ambiguous = indexedPair(['chr1\t10\t20\tpeak'])
     await user.upload(screen.getByLabelText('Local track files'), [
-      localFile('sample.gz', bgzfHeader()),
-      localFile('sample.gz.tbi', tbiBytes()),
+      localFile('sample.gz', ambiguous.bgzf),
+      localFile('sample.gz.tbi', ambiguous.tabix),
     ])
     const choice = await screen.findByTestId('local-track-choice')
     expect(choice).toHaveAttribute('data-reason', 'ambiguous-format')
@@ -124,8 +125,8 @@ describe('LocalTrackPicker', () => {
     expect(row).toHaveAttribute('data-read-method', 'wuepgg3-track-tabix-file-slice')
 
     await user.upload(screen.getByLabelText('Local track files'), [
-      localFile('other.gz', bgzfHeader()),
-      localFile('other.gz.tbi', tbiBytes()),
+      localFile('other.gz', ambiguous.bgzf),
+      localFile('other.gz.tbi', ambiguous.tabix),
     ])
     const second = await screen.findByTestId('local-track-choice')
     await user.click(within(second).getByRole('button', { name: '不添加' }))
