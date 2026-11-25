@@ -5,19 +5,22 @@
 // Run `node frontend/scripts/catalog-archive-browser.mjs`.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect, request as apiRequest } from '@playwright/test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const python = process.env.HELIXWEAVE_PYTHON ?? 'python3';
 const fixturePython = process.env.WASHU_FIXTURE_PYTHON ?? python;
+for (const key of Object.keys(process.env)) {
+  if (/proxy$/i.test(key)) delete process.env[key];
+}
 const env = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !/^(ENCODE_PIPELINE_|HELIXWEAVE_)|proxy$/i.test(key)),
+  Object.entries(process.env).filter(([key]) => !/^(ENCODE_PIPELINE_|HELIXWEAVE_)/.test(key)),
 );
 const exec = promisify(execFile);
 const size = 17_995_618;
@@ -164,7 +167,48 @@ async function readTranscript(requests, contentPath) {
   return { reads, bytes };
 }
 
-async function openVersion(browser, manifest, fixture, out) {
+async function revokeMemberSessions(manifest, userId) {
+  const admin = await apiRequest.newContext({ baseURL: manifest.api_base });
+  try {
+    const login = await admin.post(loginPath, {
+      data: { username: manifest.admin_username, password: manifest.admin_password },
+    });
+    assert.equal(login.status(), 200);
+    const { cookies } = await admin.storageState();
+    const csrf = cookies.find((cookie) => cookie.name === 'helixweave_csrf');
+    assert(csrf, 'the administrator login did not issue a CSRF cookie');
+    const revoked = await admin.post(`/api/v1/auth/accounts/${userId}/sessions/revoke`, {
+      headers: { 'X-CSRF-Token': csrf.value },
+    });
+    assert.equal(revoked.status(), 200);
+    const { revoked_count: count } = await revoked.json();
+    assert(count > 0, 'no member session was revoked');
+    return count;
+  } finally {
+    await admin.dispose();
+  }
+}
+
+async function readDenial(page, contentPath, status, viewerCode) {
+  const observed = await page.evaluate(async (path) => {
+    const response = await fetch(path, {
+      headers: { Range: 'bytes=0-0' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => null);
+    return { status: response.status, issue: payload?.issues?.[0]?.code ?? null };
+  }, contentPath);
+  assert.equal(observed.status, status);
+  await page.reload();
+  await expect(page.getByTestId('archived-track-error')).toHaveAttribute(
+    'data-error-code', viewerCode,
+  );
+  await expect(page.getByTestId('washu-genome-viewer')).toHaveCount(0);
+  return { ...observed, viewer_code: viewerCode };
+}
+
+async function openVersion(browser, manifest, fixture, out, work) {
   const origin = manifest.api_base;
   const experimentPath = `/api/v1/catalog/projects/${manifest.project_id}/experiments/${manifest.experiment_id}`;
   const descriptorPath = `${experimentPath}/archived-tracks/${fixture.archive_version_id}`;
@@ -278,13 +322,10 @@ async function openVersion(browser, manifest, fixture, out) {
       path: join(out, `v${fixture.version_number}.png`),
     });
 
-    const transcript = await readTranscript(requests, `${descriptorPath}/content`);
+    const contentPath = `${descriptorPath}/content`;
+    const transcript = await readTranscript(requests, contentPath);
     assert.equal(transcript.reads.length, requests.length, 'archive reads continued after the capture');
-    assert.deepEqual(external, [], 'external requests');
-    assert.deepEqual(writes, [], 'unexpected writes or uploads');
-    assert.equal(chooserEvents, 0, 'file chooser events');
-    assert.equal(logins, 1);
-    return {
+    const evidence = {
       version: fixture.version_number,
       archive_version_id: fixture.archive_version_id,
       experiment_revision_id: fixture.experiment_revision_id,
@@ -295,6 +336,31 @@ async function openVersion(browser, manifest, fixture, out) {
       geometry,
       transferred_bytes: transcript.bytes,
       ranges: transcript.reads,
+    };
+    if (fixture.version_number === 1) {
+      const archiveRoot = join(work, 'archive');
+      const offlineRoot = join(work, 'offline-archive');
+      await rename(archiveRoot, offlineRoot);
+      try {
+        evidence.offline = await readDenial(viewer, contentPath, 503, 'archive_offline');
+        assert.equal(evidence.offline.issue, 'archive_offline');
+      } finally {
+        await rename(offlineRoot, archiveRoot);
+      }
+      const revoked = await revokeMemberSessions(manifest, principal.user_id);
+      evidence.revoked = {
+        ...(await readDenial(viewer, contentPath, 401, 'archive_unauthorized')),
+        sessions_revoked: revoked,
+      };
+      assert(requests.every(({ request }) => request.url() === origin + contentPath),
+        'a denied read caused a request for another archived version');
+    }
+    assert.deepEqual(external, [], 'external requests');
+    assert.deepEqual(writes, [], 'unexpected writes or uploads');
+    assert.equal(chooserEvents, 0, 'file chooser events');
+    assert.equal(logins, 1);
+    return {
+      ...evidence,
       uploads: writes.length,
       chooser_events: chooserEvents,
       external_requests: external.length,
@@ -333,7 +399,7 @@ try {
   browser = await chromium.launch({ args: ['--no-proxy-server'] });
   const evidence = [];
   for (const fixture of fixtures.toReversed()) {
-    evidence.push(await openVersion(browser, manifest, fixture, out));
+    evidence.push(await openVersion(browser, manifest, fixture, out, work));
   }
   const receipt = {
     chromium: browser.version(),
