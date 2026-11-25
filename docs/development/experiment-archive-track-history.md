@@ -14,6 +14,10 @@ Use `/api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/archived-
 
 The catalog action opens `/viewer.html?project=…&experiment=…&archive=…` in the existing WashU viewer. The viewer resolves the descriptor before constructing same-origin byte URLs. It shows source, explicit result version and assembly, and uses the existing gene/coordinate navigation. The browser supplies no filename, path, external URL or upload.
 
+## Storage and operation
+
+Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. Include both SQLite and the sealed objects in the archive backup. Keep the existing retention procedure for original inputs and scratch.
+
 ## Acceptance
 
 From the packaged experiment page, an authorized colleague can select either of two identically named sealed bigWigs and read the distinct expected signal at one locus (4.5 for v1 and 9 for v2). Each synthetic bigWig exceeds 16 MiB. Capture HTTP ranges, transferred bytes and expected/rendered value, including v1 after v2 exists. Check missing and same-size changed copies, missing index, unauthorized/wrong-scope requests, exact registered and run identities, and existing registered/run reads. Keep separate evidence for any trial using laboratory data.
