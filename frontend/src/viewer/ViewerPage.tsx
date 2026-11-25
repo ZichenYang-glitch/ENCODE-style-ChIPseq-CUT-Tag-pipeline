@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ArchivedTrackViewer } from '../features/experiment-archive/ArchivedTrackViewer';
+import { archiveViewerRequest } from '../features/experiment-archive/archiveView';
 import GenomeBrowserPanel from '../features/run-artifacts/GenomeBrowserPanel';
 import { bindFramedViewer } from './framedSession';
 import {
@@ -85,6 +87,11 @@ export function ViewerPage() {
   );
 
   const runId = framed ? (command?.runId ?? null) : standaloneRunId(window.location.search);
+  // Sealed versions open this document directly. A framed run viewer keeps
+  // the host protocol and does not read project, experiment, or archive ids.
+  const archiveRequest = framed
+    ? ({ kind: 'absent' } as const)
+    : archiveViewerRequest(window.location.search);
   const reportFailure = useCallback(
     (message: string) => {
       if (runId !== null) publish({ runId, message });
@@ -96,6 +103,8 @@ export function ViewerPage() {
   const waitingForHost = closed || (framed && command === null);
   const body = waitingForHost ? (
     <p role="status">Waiting for the platform viewer host.</p>
+  ) : archiveRequest.kind !== 'absent' ? (
+    <ArchivedTrackViewer request={archiveRequest} />
   ) : (
     <GenomeBrowserPanel
       runId={runId}
