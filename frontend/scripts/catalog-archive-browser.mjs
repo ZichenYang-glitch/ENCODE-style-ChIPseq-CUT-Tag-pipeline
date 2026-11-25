@@ -342,7 +342,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
       const offlineRoot = join(work, 'offline-archive');
       await rename(archiveRoot, offlineRoot);
       try {
-        evidence.offline = await readDenial(viewer, contentPath, 503, 'archive_offline');
+        evidence.offline = await readDenial(viewer, contentPath, 409, 'archive_offline');
         assert.equal(evidence.offline.issue, 'archive_offline');
       } finally {
         await rename(offlineRoot, archiveRoot);
