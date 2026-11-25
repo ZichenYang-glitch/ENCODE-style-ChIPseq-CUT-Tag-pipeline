@@ -11,7 +11,7 @@ describe('recovering one local selection while retaining its neighbours', () => 
     const [choice] = result.choices
     expect(choice.reason).toBe('ambiguous-index')
     expect(choice.options[0].label).toContain('original-index.tbi')
-    expect(await choice.options[0].checkPair?.()).toBeTruthy()
+    expect(await choice.options[0].prepare()).toHaveProperty('issue')
   })
 
   it.each([

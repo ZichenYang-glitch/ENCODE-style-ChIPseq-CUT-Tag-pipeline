@@ -11,11 +11,10 @@
  * without LF is exposed through a one-LF block placed in front of the EOF.
  */
 
-import { assemblyKey, browserFileName } from './contract'
+import { browserFileName } from './contract'
 import {
-  directiveAssembly,
+  collectAssemblies,
   isBgzfHeader,
-  isPeakDirective,
   isTabixMagic,
   readFileSlice,
 } from './sliceRead'
@@ -34,7 +33,13 @@ export type IndexedLocalFormat = 'longrange' | 'bed' | 'narrowPeak' | 'broadPeak
 export type TabixPairReason = 'wrong-index' | 'not-bgzf' | 'index-mismatch' | 'invalid-longrange'
 
 export type TabixPairVerdict =
-  | { ok: true; dataBytesRead: number; maxDataOffset: number }
+  | {
+      ok: true
+      firstRecord: VirtualOffset
+      files: [File, File]
+      dataBytesRead: number
+      maxDataOffset: number
+    }
   | {
       ok: false
       reason: TabixPairReason
@@ -53,6 +58,7 @@ interface IndexedChunk {
   bin: number
   start: VirtualOffset
   end: VirtualOffset
+  endField: number
 }
 
 interface ParsedTabix {
@@ -118,13 +124,14 @@ export async function tabixPairProblem(
     }
     const payload = await readIndexPayload(index)
     const parsed = payload ? parseTabix(payload) : null
-    if (!parsed || parsed.chunks.length === 0) {
+    if (!payload || !parsed || parsed.chunks.length === 0) {
       return wrongIndex(index, dataBytesRead, maxDataOffset)
     }
     if (!offsetsFit(parsed, data.size)) {
       return indexMismatch(data, index, dataBytesRead, maxDataOffset)
     }
-    for (const chunk of sampleChunks(parsed.chunks)) {
+    const samples = sampleChunks(parsed.chunks)
+    for (const chunk of samples) {
       if (!await endsAtRecordBoundary(readData, data.size, chunk.end)) {
         return indexMismatch(data, index, dataBytesRead, maxDataOffset)
       }
@@ -146,7 +153,9 @@ export async function tabixPairProblem(
         }
       }
     }
-    return { ok: true, dataBytesRead, maxDataOffset }
+    const files = await filesForNativeReader(data, index, payload, parsed.chunks, readData)
+    if (!files) return indexMismatch(data, index, dataBytesRead, maxDataOffset)
+    return { ok: true, firstRecord: samples[0].start, files, dataBytesRead, maxDataOffset }
   } catch (error) {
     if (error instanceof DataReadCap) {
       return indexMismatch(data, index, dataBytesRead, maxDataOffset)
@@ -156,77 +165,6 @@ export async function tabixPairProblem(
     }
     return wrongIndex(index, dataBytesRead, maxDataOffset)
   }
-}
-
-// Give the pinned worker the one end-block byte it requires. Only an htslib
-// chunk that stops on the standard EOF is rewritten, and only when that
-// record has no LF. Other chunk ends, missing EOF markers, and files that
-// already end in LF keep the original File.
-export async function drawableIndexedData(data: File, index: File): Promise<File> {
-  try {
-    if (data.size < BGZF_EOF.byteLength + 28) return data
-    const eofOffset = data.size - BGZF_EOF.byteLength
-    const payload = await readIndexPayload(index)
-    const parsed = payload ? parseTabix(payload) : null
-    const endsOnEof = parsed?.chunks.some((chunk) => (
-      chunk.end.block === eofOffset && chunk.end.data === 0
-    )) ?? false
-    if (!endsOnEof) return data
-    const marker = await readFileSlice(data, eofOffset, BGZF_EOF.byteLength)
-    if (!sameBytes(marker, BGZF_EOF)) return data
-    const raw = await lastUncompressedBlock(data, eofOffset)
-    if (!raw || raw.byteLength === 0 || raw[raw.byteLength - 1] === 0x0a) return data
-    return new File(
-      [data.slice(0, eofOffset), LF_BLOCK, data.slice(eofOffset)],
-      data.name,
-      { type: data.type, lastModified: data.lastModified },
-    )
-  } catch {
-    return data
-  }
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false
-  }
-  return true
-}
-
-async function lastUncompressedBlock(data: File, eofOffset: number): Promise<Uint8Array | null> {
-  const window = Math.min(MAX_BGZF_BLOCK, eofOffset)
-  const start = eofOffset - window
-  const tail = await readFileSlice(data, start, window)
-  const read: SliceReader = (from, length) => readFileSlice(data, from, length)
-  for (let index = 0; index < tail.byteLength; index += 1) {
-    const size = bgzfDeclaredSize(tail, index)
-    if (size === null || start + index + size !== eofOffset) continue
-    const block = await readBgzfBlock(read, data.size, start + index)
-    if (block && block.size === size) return block.raw
-  }
-  return null
-}
-
-function bgzfDeclaredSize(block: Uint8Array, offset: number): number | null {
-  if (offset + 18 > block.byteLength || !isBgzfHeader(block.subarray(offset, offset + 18))) return null
-  const extraLength = block[offset + 10]! | (block[offset + 11]! << 8)
-  const extraEnd = offset + 12 + extraLength
-  if (extraEnd > block.byteLength) return null
-  let cursor = offset + 12
-  while (cursor + 4 <= extraEnd) {
-    const subLength = block[cursor + 2]! | (block[cursor + 3]! << 8)
-    if (
-      block[cursor] === 0x42 &&
-      block[cursor + 1] === 0x43 &&
-      subLength >= 2 &&
-      cursor + 6 <= block.byteLength
-    ) {
-      return (block[cursor + 4]! | (block[cursor + 5]! << 8)) + 1
-    }
-    cursor += 4 + subLength
-  }
-  return null
 }
 
 function wrongIndex(
@@ -333,9 +271,9 @@ function parseTabix(bytes: Uint8Array): ParsedTabix | null {
       for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
         const start = readVirtual(view, offset)
         const end = readVirtual(view, offset + 8)
-        offset += 16
         if (!start || !end) return null
-        if (bin < PSEUDO_BIN) chunks.push({ refName, bin, start, end })
+        if (bin < PSEUDO_BIN) chunks.push({ refName, bin, start, end, endField: offset + 8 })
+        offset += 16
       }
     }
     if (offset + 4 > bytes.byteLength) return null
@@ -400,66 +338,108 @@ async function endsAtRecordBoundary(read: SliceReader, fileSize: number, end: Vi
   return next === fileSize || (await readBgzfBlock(read, fileSize, next))?.raw.length === 0
 }
 
-export type IndexedHeaderAssembly =
-  | { status: 'none' }
-  | { status: 'incomplete' }
-  | { status: 'declared'; name: string }
-  | { status: 'conflict'; left: string; right: string }
-
-// Only the leading track/browser/comment lines can name an assembly.
-// Stop at the first data row so a large BGZF file stays a windowed read.
-export async function indexedHeaderAssembly(data: File): Promise<IndexedHeaderAssembly> {
-  const read: SliceReader = (start, length) => readFileSlice(data, start,
-    Math.min(length, DATA_READ_CAP - start))
+// TBI's first indexed record is the end of the header, even when UCSC
+// directives span blocks or follow many lines skipped by tabix -S.
+export async function indexedHeaderAssemblies(data: File, first: VirtualOffset): Promise<Map<string, string> | null> {
+  if (first.block > DATA_READ_CAP) return null
+  const read: SliceReader = (start, length) => readFileSlice(data, start, Math.min(length, DATA_READ_CAP - start))
+  const declarations = new Map<string, string>()
+  const decoder = new TextDecoder()
+  let pending = ''
   let offset = 0
-  let seen = 0
-  let pending: Uint8Array = new Uint8Array()
-  let declared: string | undefined
-  const finish = (): IndexedHeaderAssembly =>
-    declared ? { status: 'declared', name: declared } : { status: 'none' }
-  const note = (line: Uint8Array): IndexedHeaderAssembly | 'data' | 'continue' => {
-    let text: string
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(line)
-    } catch {
-      return 'data'
-    }
-    if (!isPeakDirective(text)) return 'data'
-    const value = directiveAssembly(text)
-    if (value && declared && assemblyKey(value) !== assemblyKey(declared)) {
-      return { status: 'conflict', left: declared, right: value }
-    }
-    if (value) declared = value
-    return 'continue'
-  }
-  while (offset < data.size) {
-    if (offset >= DATA_READ_CAP || seen >= DATA_READ_CAP) return { status: 'incomplete' }
+  let headerBytes = 0
+  while (offset < first.block || (offset === first.block && first.data > 0)) {
     const block = await readBgzfBlock(read, data.size, offset)
-    if (!block) return { status: 'incomplete' }
+    if (!block) return null
+    const last = offset === first.block
+    const bytes = last ? block.raw.subarray(0, first.data) : block.raw
+    headerBytes += bytes.length
+    if (headerBytes > DATA_READ_CAP) return null
+    const lines = decoder.decode(bytes, { stream: !last }).split('\n')
+    lines[0] = pending + lines[0]
+    pending = lines.pop()!
+    // Retain just the comment marker across a block boundary.
+    if (pending.startsWith('#')) pending = '#'
+    for (const line of lines) collectAssemblies(line, declarations)
     offset += block.size
-    if (block.raw.length === 0) break
-    const room = DATA_READ_CAP - seen
-    const chunk = room < block.raw.length ? block.raw.subarray(0, room) : block.raw
-    seen += chunk.byteLength
-    pending = concatBytes([pending, chunk])
-    let start = 0
-    for (let index = 0; index < pending.length; index += 1) {
-      if (pending[index] !== 0x0a) continue
-      const verdict = note(pending.subarray(start, index))
-      if (verdict === 'data') return finish()
-      if (verdict !== 'continue') return verdict
-      start = index + 1
-    }
-    pending = pending.subarray(start)
-    if (pending.length > MAX_LINE_BYTES || chunk.byteLength < block.raw.length) {
-      return { status: 'incomplete' }
-    }
   }
-  if (pending.length > 0 && pending.length <= MAX_LINE_BYTES) {
-    const verdict = note(pending)
-    if (verdict !== 'continue' && verdict !== 'data') return verdict
+  collectAssemblies(pending + decoder.decode(), declarations)
+  return declarations
+}
+
+// @gmod/tabix 1.6.1 in WashU only emits records terminated by LF. Insert
+// a BGZF member containing that delimiter at physical EOF. Blob slices keep
+// every preceding compressed byte and every record start at its original offset.
+async function filesForNativeReader(
+  data: File, index: File, payload: Uint8Array, chunks: IndexedChunk[], read: SliceReader,
+): Promise<[File, File] | null> {
+  const last = chunks.reduce((latest, chunk) => compareVirtual(latest.end, chunk.end) > 0 ? latest : chunk)
+  const end = last.end
+  let eof = end.block
+  let block = end.data ? await readBgzfBlock(read, data.size, end.block) : null
+  if (end.data) {
+    if (!block || end.data > block.raw.length) return null
+    if (block.raw[end.data - 1] === 0x0a) return [data, index]
+    if (end.data !== block.raw.length) return null
+    eof += block.size
   }
-  return finish()
+  if (eof < data.size) {
+    if (data.size - eof > MAX_BGZF_BLOCK) return [data, index]
+    const marker = await readBgzfBlock(read, data.size, eof)
+    if (!marker || marker.raw.length !== 0 || eof + marker.size !== data.size) return [data, index]
+  }
+  if (!block) {
+    block = await blockBefore(read, eof, last.start.block)
+    if (!block) return null
+    if (block.raw[block.raw.length - 1] === 0x0a) return [data, index]
+  }
+
+  const marker = eof === data.size ? BGZF_EOF : data.slice(eof, data.size)
+  const nativeData = new File([data.slice(0, eof), LF_BLOCK, marker], data.name, {
+    type: data.type, lastModified: data.lastModified,
+  })
+  if (end.data === 0) return [nativeData, index]
+
+  // Some writers encode EOF as (last data block, uncompressed length).
+  // Let those chunks read the LF at (next block, 0) as htslib does.
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  for (const chunk of chunks) {
+    if (compareVirtual(chunk.end, end) === 0) view.setBigUint64(chunk.endField, BigInt(eof) << 16n, true)
+  }
+  const parts: BlobPart[] = []
+  const blockPayloadSize = 65280 // Leave room for the gzip member and deflate overhead.
+  for (let start = 0; start < payload.length; start += blockPayloadSize) {
+    parts.push(await encodeBgzfMember(payload.subarray(start, start + blockPayloadSize)))
+  }
+  parts.push(BGZF_EOF)
+  return [nativeData, new File(parts, index.name, { type: index.type, lastModified: index.lastModified })]
+}
+
+async function blockBefore(read: SliceReader, end: number, earliest: number) {
+  const start = Math.max(earliest, end - MAX_BGZF_BLOCK)
+  const tail = await read(start, end - start)
+  for (let i = 0; i + 28 <= tail.length; i++) {
+    if (tail[i] !== 0x1f || !isBgzfHeader(tail.subarray(i, i + 18))) continue
+    const size = 1 + tail[i + 16] + (tail[i + 17] << 8)
+    if (i + size !== tail.length) continue
+    const block = await readBgzfBlock((pos, n) => Promise.resolve(tail.subarray(pos, pos + n)), tail.length, i)
+    if (block) return block
+  }
+  return null
+}
+
+async function encodeBgzfMember(raw: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const compressed = await new Response(
+    new Response(new Uint8Array(raw)).body!.pipeThrough(new CompressionStream('deflate-raw')),
+  ).arrayBuffer()
+  const bytes = new Uint8Array(18 + compressed.byteLength + 8)
+  bytes.set([31, 139, 8, 4, 0, 0, 0, 0, 0, 255, 6, 0, 66, 67, 2, 0])
+  const view = new DataView(bytes.buffer)
+  view.setUint16(16, bytes.length - 1, true)
+  bytes.set(new Uint8Array(compressed), 18)
+  view.setUint32(bytes.length - 8, crc32(raw), true)
+  view.setUint32(bytes.length - 4, raw.length, true)
+  return bytes
 }
 
 async function readIndexedRecord(

@@ -15,12 +15,7 @@ import {
   readFileSlice,
   scanPlainPeak,
 } from './sliceRead'
-import {
-  drawableIndexedData,
-  indexedHeaderAssembly,
-  tabixPairProblem,
-  type IndexedLocalFormat,
-} from './tabixPair'
+import { indexedHeaderAssemblies, tabixPairProblem, type IndexedLocalFormat } from './tabixPair'
 
 export interface LocalSelectionIssue {
   id: string
@@ -28,11 +23,13 @@ export interface LocalSelectionIssue {
   message: string
 }
 
+type Preparation = PreparedLocalFile | { issue: LocalSelectionIssue }
+
 export interface LocalChoiceOption {
   id: string
   label: string
-  prepared: PreparedLocalFile
-  checkPair?: () => Promise<LocalSelectionIssue | null>
+  washUType: 'longrange' | 'bed'
+  prepare: () => Promise<Preparation>
 }
 
 export interface LocalSelectionChoice {
@@ -126,15 +123,12 @@ export async function classifyLocalFiles(
       ? (['longrange', 'bed'] as const)
       : [fixedIndexedFormat(kind)]
     if (exact.length === 1 && formats.length === 1 && indexedNames.get(indexName) === 1) {
-      const problem = await checkIndex(item.file, exact[0], formats[0], assembly)
-      if (problem) issues.push(problem)
-      else ready.push(await withDrawableData(optionFor(item, exact[0], formats[0]).prepared))
+      const result = await prepareIndexed(item, exact[0], formats[0], assembly)
+      if ('issue' in result) issues.push(result.issue)
+      else ready.push(result)
       continue
     }
-    const options = candidates.flatMap(index => formats.map(format => ({
-      ...optionFor(item, index, format),
-      checkPair: () => checkIndex(item.file, index, format, assembly),
-    })))
+    const options = candidates.flatMap(index => formats.map(format => optionFor(item, index, format, assembly)))
     choices.push({
       id: trackId(),
       reason: formats.length > 1 ? 'ambiguous-format' : 'ambiguous-index',
@@ -269,11 +263,8 @@ async function preparePlain(
           : 'plain-invalid'
     return { issue: issue(reason, scanned.error) }
   }
-  const declared = scanned.ok.declaredAssembly
-  if (assembly && declared && assemblyKey(declared) !== assemblyKey(assembly)) {
-    return { issue: issue('assembly-conflict',
-      `${item.name} 的文件头声明 ${declared}，当前选择为 ${assembly}。请选择相符的组装或文件。`) }
-  }
+  const conflict = assemblyConflict(item.name, scanned.ok.declarations, assembly)
+  if (conflict) return { issue: conflict }
   return {
     format: scanned.ok.format,
     washUType: 'bed',
@@ -288,43 +279,56 @@ function readError(file: File): LocalSelectionIssue {
   return issue('unreadable-file', `浏览器无法读取 ${browserFileName(file)}。请确认文件可访问，再重新选择。`)
 }
 
-async function checkIndex(
-  data: File,
+async function prepareIndexed(
+  item: NamedFile,
   index: File,
   format: IndexedLocalFormat,
   assembly?: string,
-): Promise<LocalSelectionIssue | null> {
+): Promise<Preparation> {
   try {
-    const verdict = await tabixPairProblem(data, index, format)
-    if (!verdict.ok) return issue(verdict.reason, verdict.message)
-    return await assemblyConflict(data, assembly)
+    const verdict = await tabixPairProblem(item.file, index, format)
+    if (!verdict.ok) return { issue: issue(verdict.reason, verdict.message) }
+    if (assembly) {
+      const declarations = await indexedHeaderAssemblies(item.file, verdict.firstRecord)
+      if (!declarations) {
+        return { issue: issue('unreadable-header',
+          `${item.name} 的 BGZF 文件头未能完整核对。请检查文件是否完整，或精简注释后重新生成配套 .tbi。`) }
+      }
+      const conflict = assemblyConflict(item.name, declarations, assembly)
+      if (conflict) return { issue: conflict }
+    }
+    const [dataFile, nativeIndex] = verdict.files
+    return {
+      format: format === 'longrange' ? 'longrange' : `indexed-${format}`,
+      washUType: format === 'longrange' ? 'longrange' : 'bed',
+      readMethod: READ_TABIX_SLICE,
+      isText: false,
+      label: item.name,
+      dataFile,
+      files: nativeTabixFiles(dataFile, nativeIndex),
+    }
   } catch {
-    return issue('unreadable-pair',
-      `无法读取 ${browserFileName(data)} 与 ${browserFileName(index)}。请重新选择可访问的数据文件和索引。`)
+    return { issue: issue('unreadable-pair',
+      `无法读取 ${item.name} 与 ${browserFileName(index)}。请重新选择可访问的数据文件和索引。`) }
   }
 }
 
-async function assemblyConflict(
-  data: File,
+function assemblyConflict(
+  name: string,
+  declarations: Map<string, string>,
   assembly: string | undefined,
-): Promise<LocalSelectionIssue | null> {
-  if (!assembly) return null
-  const header = await indexedHeaderAssembly(data)
-  const name = browserFileName(data)
-  if (header.status === 'incomplete') {
-    return issue('unreadable-header',
-      `${name} 的 BGZF 文件头未能完整核对。请检查文件是否完整；较长的注释可精简后重新生成配套 .tbi。`)
-  }
-  if (header.status === 'conflict') {
+): LocalSelectionIssue | null {
+  const [first, second] = declarations.values()
+  if (second) {
     return issue(
       'assembly-conflict',
-      `${name} 的文件头分别声明 ${header.left} 和 ${header.right}。请核对参考组装。`,
+      `${name} 的文件头分别声明 ${first} 和 ${second}。请核对参考组装。`,
     )
   }
-  if (header.status === 'declared' && assemblyKey(header.name) !== assemblyKey(assembly)) {
+  if (assembly && first && !declarations.has(assemblyKey(assembly))) {
     return issue(
       'assembly-conflict',
-      `${name} 的文件头声明 ${header.name}，当前选择为 ${assembly}。请选择相符的组装或文件。`,
+      `${name} 的文件头声明 ${first}，当前选择为 ${assembly}。请选择相符的组装或文件。`,
     )
   }
   return null
@@ -337,34 +341,12 @@ function fixedIndexedFormat(kind: FileKind): IndexedLocalFormat {
   return 'bed'
 }
 
-export async function withDrawableData(prepared: PreparedLocalFile): Promise<PreparedLocalFile> {
-  const files = prepared.files
-  if (!files || files.length < 2) return prepared
-  const index = files[0].name.length >= files[1].name.length ? files[0] : files[1]
-  const data = index === files[0] ? files[1] : files[0]
-  const view = await drawableIndexedData(data, index)
-  if (view === data) return prepared
-  return {
-    ...prepared,
-    dataFile: view,
-    files: nativeTabixFiles(view, index),
-  }
-}
-
 function optionFor(
   item: NamedFile,
   index: File,
   format: IndexedLocalFormat,
+  assembly?: string,
 ): LocalChoiceOption {
-  const prepared: PreparedLocalFile = {
-    format: format === 'longrange' ? 'longrange' : `indexed-${format}`,
-    washUType: format === 'longrange' ? 'longrange' : 'bed',
-    readMethod: READ_TABIX_SLICE,
-    isText: false,
-    label: item.name,
-    dataFile: item.file,
-    files: nativeTabixFiles(item.file, index),
-  }
   const indexLabel = `${browserFileName(index)}（${index.size} 字节）`
   const action =
     format === 'longrange'
@@ -375,7 +357,8 @@ function optionFor(
   return {
     id: trackId(),
     label: `${item.name} + ${indexLabel}，${action}`,
-    prepared,
+    washUType: format === 'longrange' ? 'longrange' : 'bed',
+    prepare: () => prepareIndexed(item, index, format, assembly),
   }
 }
 

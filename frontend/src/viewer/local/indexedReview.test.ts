@@ -322,10 +322,8 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     expect(choice.ready).toEqual([])
     expect(choice.issues).toEqual([])
     expect(choice.choices.map((item) => item.reason)).toEqual(['ambiguous-format'])
-    const reasons = await Promise.all(
-      choice.choices[0]?.options.map(async (option) => (await option.checkPair?.())?.reason) ?? [],
-    )
-    expect(reasons).toEqual(['assembly-conflict', 'assembly-conflict'])
+    const results = await Promise.all(choice.choices[0].options.map(option => option.prepare()))
+    expect(results.map(result => 'issue' in result && result.issue.reason)).toEqual(['assembly-conflict', 'assembly-conflict'])
   })
 
   it('treats equivalent header names as one assembly and blocks contradictory headers', async () => {
@@ -353,6 +351,29 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     const incomplete = await verify('over-limit-header.bed.gz')
     expect(incomplete.ready).toEqual([])
     expect(incomplete.issues.map(item => item.reason)).toEqual(['unreadable-header'])
+  })
+
+  it.each(['plain-bed', 'bgzf-bed', 'bgzf-longrange'] as const)(
+    'uses actual UCSC attributes in %s, including ones after a quoted description',
+    async format => {
+      const description = 'track description="lifted from db=hg38 to db=mm10"'
+      expect((await open(format, description, 'mm10')).ready).toHaveLength(1)
+      const blocked = await open(format, description + ' db="mm39"', 'hg38')
+      expect(blocked.ready).toHaveLength(0)
+      expect(blocked.issues[0]).toMatchObject({ reason: 'assembly-conflict', message: expect.stringContaining('mm39') })
+      const contradictory = await open(format, 'track db=hg38 genome=mm10', 'hg38')
+      expect(contradictory.issues[0]?.reason).toBe('assembly-conflict')
+    },
+  )
+
+  it('checks declarations up to the first indexed row across BGZF members', async () => {
+    const comments = ('#' + 'x'.repeat(1018) + '\n').repeat(127)
+    // The quoted description starts in one block, and the real db is in the next.
+    const header = comments + 'track description="' + 'x'.repeat(1800) + ' db=hg38" db=mm10'
+    const blocked = await open('bgzf-bed', header, 'hg38')
+    expect(blocked.ready).toHaveLength(0)
+    expect(blocked.issues[0]).toMatchObject({ reason: 'assembly-conflict', message: expect.stringContaining('mm10') })
+    expect((await open('bgzf-bed', header, 'mm10')).ready).toHaveLength(1)
   })
 
   it('does not read the padded tail or call the network while checking a declaration', async () => {

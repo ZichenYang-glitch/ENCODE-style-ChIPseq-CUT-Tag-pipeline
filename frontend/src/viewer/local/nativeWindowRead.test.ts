@@ -13,8 +13,23 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { tabixPairProblem } from './tabixPair'
+import { classifyLocalFiles } from './classifyLocalFiles'
+import { indexedRecords } from './indexFixture'
 
 const require = createRequire(import.meta.url)
+const { TabixIndexedFile } = require('@gmod/tabix') as {
+  TabixIndexedFile: new (args: {
+    filehandle: SliceCounter
+    tbiFilehandle: SliceCounter
+  }) => {
+    getLines: (
+      chrom: string,
+      start: number,
+      end: number,
+      callback: (line: string) => void,
+    ) => Promise<void>
+  }
+}
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const frontendRoot = path.join(repoRoot, 'frontend')
 const fixtureDir = mkdtempSync(path.join(tmpdir(), 'local-track-'))
@@ -29,7 +44,7 @@ class SliceCounter {
   readBytes = 0
   readFileBytes = 0
 
-  constructor(private readonly bytes: Uint8Array) {}
+  constructor(private readonly blob: Blob) {}
 
   async read(
     buffer: Buffer,
@@ -39,18 +54,16 @@ class SliceCounter {
   ): Promise<{ bytesRead: number; buffer: Buffer }> {
     if (!length) return { bytesRead: 0, buffer }
     const start = position
-    const end = Math.min(this.bytes.length, start + length)
+    const end = Math.min(this.blob.size, start + length)
     const sliced = new Uint8Array(
-      await new Blob([arrayBuffer(this.bytes)]).slice(start, end).arrayBuffer(),
+      await this.blob.slice(start, end).arrayBuffer(),
     )
     this.readBytes += sliced.byteLength
     return { bytesRead: Buffer.from(sliced).copy(buffer, offset), buffer }
   }
 
   async readFile(): Promise<Buffer> {
-    const sliced = new Uint8Array(
-      await new Blob([arrayBuffer(this.bytes)]).slice(0, this.bytes.byteLength).arrayBuffer(),
-    )
+    const sliced = new Uint8Array(await this.blob.arrayBuffer())
     this.readFileBytes += sliced.byteLength
     return Buffer.from(sliced)
   }
@@ -117,6 +130,34 @@ afterAll(() => {
 })
 
 describe('wuepgg local slice readers', () => {
+  it.each([false, true])('queries the unterminated last record with the native tabix reader (end inside data block = %s)', async endInDataBlock => {
+    const first = 'chr1\t1000\t1200\tchr1:3000-3200,1'
+    const last = 'chr7\t55101000\t55102000\tchr7:55106000-55107000,1'
+    const fixture = indexedRecords({
+      lines: [first, last],
+      header: '#' + 'x'.repeat(65239),
+      trailingNewline: false,
+      endInDataBlock,
+    })
+    for (const hasEofMarker of [false, true]) {
+      const bytes = hasEofMarker ? fixture.bgzf : fixture.bgzf.subarray(0, -28)
+      // Also exercise manual confirmation with a renamed index.
+      const selected = await classifyLocalFiles([
+        new File([arrayBuffer(bytes)], 'sample.longrange.gz'),
+        new File([arrayBuffer(fixture.tabix)], 'renamed.tbi'),
+      ], 'hg38')
+      const result = await selected.choices[0].options[0].prepare()
+      if ('issue' in result || !result.files) throw new Error('expected a readable indexed track')
+      const [data, index] = result.files.map(file => new SliceCounter(file))
+      const native = new TabixIndexedFile({ filehandle: data, tbiFilehandle: index })
+      const lines: string[] = []
+      await native.getLines('chr1', 900, 1300, line => lines.push(line))
+      await native.getLines('chr7', 55100000, 55110000, line => lines.push(line))
+      expect(lines).toEqual([first, last])
+      expect(data.readFileBytes).toBe(0)
+    }
+  })
+
   it('uses File.slice for tabix and bigWig and does not read a whole prebuilt longrange', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const wuepgg = JSON.parse(
@@ -155,21 +196,8 @@ describe('wuepgg local slice readers', () => {
       new File([arrayBuffer(index)], 'test.longrange.gz.tbi'),
     )
     expect(pair.ok).toBe(true)
-    const { TabixIndexedFile } = require('@gmod/tabix') as {
-      TabixIndexedFile: new (args: {
-        filehandle: SliceCounter
-        tbiFilehandle: SliceCounter
-      }) => {
-        getLines: (
-          chrom: string,
-          start: number,
-          end: number,
-          callback: (line: string) => void,
-        ) => Promise<void>
-      }
-    }
-    const dataHandle = new SliceCounter(data)
-    const indexHandle = new SliceCounter(index)
+    const dataHandle = new SliceCounter(new Blob([arrayBuffer(data)]))
+    const indexHandle = new SliceCounter(new Blob([arrayBuffer(index)]))
     const tabix = new TabixIndexedFile({
       filehandle: dataHandle,
       tbiFilehandle: indexHandle,

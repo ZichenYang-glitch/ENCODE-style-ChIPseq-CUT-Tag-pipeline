@@ -120,7 +120,7 @@ describe('classifyLocalFiles', () => {
     expect(result.ready).toEqual([])
     expect(result.choices).toHaveLength(1)
     expect(result.choices[0]?.reason).toBe('ambiguous-format')
-    expect(result.choices[0]?.options.map((option) => option.prepared.washUType)).toEqual([
+    expect(result.choices[0]?.options.map((option) => option.washUType)).toEqual([
       'longrange',
       'bed',
     ])

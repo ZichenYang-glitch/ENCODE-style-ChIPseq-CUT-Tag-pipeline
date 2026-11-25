@@ -8,7 +8,6 @@ import {
 } from './contract'
 import {
   classifyLocalFiles,
-  withDrawableData,
   type LocalSelectionChoice,
   type LocalSelectionIssue,
 } from './classifyLocalFiles'
@@ -74,12 +73,11 @@ export default function LocalTrackPicker({
     const option = choice.options.find((item) => item.id === optionId)
     if (!option || choice.checking) return
     setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: true } : item))
-    const problem = await option.checkPair?.()
-    if (problem) {
-      setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: false, problem } : item))
+    const prepared = await option.prepare()
+    if ('issue' in prepared) {
+      setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: false, problem: prepared.issue } : item))
       return
     }
-    const prepared = await withDrawableData(option.prepared)
     setChoices((current) => current.filter((item) => item.id !== choice.id))
     setTracks((current) => [
       ...current,
@@ -151,7 +149,7 @@ export default function LocalTrackPicker({
               <button
                 key={option.id}
                 type="button"
-                data-choice={option.prepared.washUType}
+                data-choice={option.washUType}
                 disabled={choice.checking}
                 onClick={() => void confirmChoice(choice, option.id)}
               >

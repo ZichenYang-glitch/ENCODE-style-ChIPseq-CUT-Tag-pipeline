@@ -93,7 +93,7 @@ export async function hasBigWigIndexes(file: File, header: Uint8Array): Promise<
     new DataView(indexMagic.buffer, indexMagic.byteOffset, 4).getUint32(0, little) === 0x2468ace0
 }
 
-export function isPeakDirective(raw: string): boolean {
+function isPeakDirective(raw: string): boolean {
   const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
   if (line === '') return true
   const head = line.split('\t', 1)[0] ?? ''
@@ -106,19 +106,24 @@ export function isPeakDirective(raw: string): boolean {
   )
 }
 
-// UCSC track and browser directives can explicitly name an assembly.
-export function directiveAssembly(raw: string): string | undefined {
-  const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-  const declaration = /^track\s/i.test(line)
-    ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(line)
-    : /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(line)
-  return declaration?.[1]
+// Consume whole UCSC attributes so a quoted name or description can mention
+// "db=..." without declaring a reference scaffold.
+export function collectAssemblies(line: string, declarations: Map<string, string>): void {
+  const browser = /^browser\s+genome\s+([\w.-]+)(?:\s|$)/i.exec(line)
+  if (browser) declarations.set(assemblyKey(browser[1]), browser[1])
+  if (!/^track\s/i.test(line)) return
+  const attributes = /\s+([\w.-]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s]+))/g
+  for (const match of line.matchAll(attributes)) {
+    if (!/^(?:db|genome)$/i.test(match[1])) continue
+    const value = match[2] ?? match[3] ?? match[4]
+    if (/^[\w.-]+$/.test(value)) declarations.set(assemblyKey(value), value)
+  }
 }
 
 export interface PlainPeakScan {
   format: 'BED3' | 'BED4' | 'narrowPeak' | 'broadPeak'
   dataRows: number
-  declaredAssembly?: string
+  declarations: Map<string, string>
   dataFile: File
 }
 
@@ -140,7 +145,7 @@ export async function scanPlainPeak(
   let lineNumber = 1
   let dataRows = 0
   let maxColumns = 0
-  let declaredAssembly: string | undefined
+  const declarations = new Map<string, string>()
   const dataParts: string[] = []
   let rows: string[] = []
   let skippedLines = false
@@ -150,11 +155,7 @@ export async function scanPlainPeak(
     if (typeof verdict === 'object') return verdict
     if (verdict === 'skip') {
       skippedLines = true
-      const value = directiveAssembly(raw)
-      if (value && declaredAssembly && assemblyKey(value) !== assemblyKey(declaredAssembly)) {
-        return { error: `${file.name} 的文件头分别声明 ${declaredAssembly} 和 ${value}。请核对参考组装。` }
-      }
-      if (value) declaredAssembly = value
+      collectAssemblies(raw, declarations)
     }
     if (verdict === 'data') {
       dataRows += 1
@@ -211,7 +212,7 @@ export async function scanPlainPeak(
   const dataFile = skippedLines
     ? new File(dataParts, browserFileName(file), { type: file.type, lastModified: file.lastModified })
     : file
-  return { ok: { format, dataRows, declaredAssembly, dataFile } }
+  return { ok: { format, dataRows, declarations, dataFile } }
 }
 
 function inspectPeakLine(

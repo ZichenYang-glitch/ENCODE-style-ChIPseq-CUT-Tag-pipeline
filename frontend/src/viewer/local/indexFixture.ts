@@ -78,6 +78,7 @@ export interface IndexedRecordOptions {
   lines: readonly string[]
   header?: string
   trailingNewline?: boolean
+  endInDataBlock?: boolean
 }
 
 const recordCache = new Map<string, IndexedBed>()
@@ -87,6 +88,7 @@ export function indexedRecords(options: IndexedRecordOptions): IndexedBed {
     lines: options.lines,
     header: options.header ?? '',
     trailingNewline: options.trailingNewline !== false,
+    endInDataBlock: options.endInDataBlock === true,
   })
   const cached = recordCache.get(key)
   if (cached) return cached
@@ -114,28 +116,32 @@ for index, line in enumerate(lines):
     if start < 0 or end <= start:
         raise SystemExit("indexed coordinate is invalid")
     text = line.encode("ascii") + (b"\n" if trailing or index < len(lines) - 1 else b"")
-    virtual_start = len(body)
-    if virtual_start > 0xFFFF:
-        raise SystemExit("record does not fit one block")
+    record_start = len(body)
     body.extend(text)
-    spans.append((chrom, start, end, virtual_start, len(body), text))
-if not spans or len(body) > mod._MAX_UNCOMPRESSED:
+    spans.append((chrom, start, end, record_start, len(body), text))
+if not spans:
     raise SystemExit("indexed fixture was empty")
-block = mod._bgzf_block(bytes(body))
-eof_virtual = len(block) << 16
+block_size = mod._MAX_UNCOMPRESSED
+blocks = bytearray()
+offsets = []
+for pos in range(0, len(body), block_size):
+    offsets.append(len(blocks))
+    blocks.extend(mod._bgzf_block(body[pos:pos + block_size]))
+
+def virtual(pos):
+    if pos == len(body):
+        if request["endInDataBlock"]:
+            return (offsets[-1] << 16) | (pos - (len(offsets) - 1) * block_size)
+        return len(blocks) << 16
+    block, within = divmod(pos, block_size)
+    return (offsets[block] << 16) | within
+
 fixed = tuple(
-    mod._LineSpan(
-        chrom,
-        start,
-        end,
-        virtual_start,
-        eof_virtual if index == len(spans) - 1 else within,
-        text,
-    )
-    for index, (chrom, start, end, virtual_start, within, text) in enumerate(spans)
+    mod._LineSpan(chrom, start, end, virtual(begin), virtual(stop), text)
+    for chrom, start, end, begin, stop, text in spans
 )
 tabix = mod._bgzf_compress(mod._write_tabix(fixed))
-bgzf = block + mod._BGZF_EOF
+bgzf = blocks + mod._BGZF_EOF
 raw = mod._decompress_bgzf(tabix)
 sys.stdout.buffer.write(struct.pack("<III", len(bgzf), len(tabix), len(raw)))
 sys.stdout.buffer.write(bgzf)
