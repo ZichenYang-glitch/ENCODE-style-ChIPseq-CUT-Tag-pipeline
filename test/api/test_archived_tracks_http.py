@@ -43,6 +43,10 @@ from encode_pipeline.platform.registered_results import (  # noqa: E402
     REVISION_DIGEST_SCHEME,
 )
 from encode_pipeline.services.archive_objects import ArchiveObjects  # noqa: E402
+from encode_pipeline.platform.security_audit import (  # noqa: E402
+    AuditResourceKind,
+    build_audit_resource,
+)
 from encode_pipeline.platform.authentication import (  # noqa: E402
     AuthenticatedPrincipal,
     UserAccount,
@@ -511,6 +515,30 @@ def _no_store(response) -> None:
     assert response.headers["cache-control"] == "private, no-store"
 
 
+def _success_downloads(app) -> tuple:
+    return tuple(
+        event
+        for event in app.state.authentication_repository.list_security_audit_events(
+            limit=100
+        )
+        if event.action.value == "registered_result.download"
+        and event.outcome.value == "succeeded"
+    )
+
+
+def _assert_download_target(event, project_id: str, result_id: str, revision_id: str) -> None:
+    expected = build_audit_resource(
+        AuditResourceKind.REGISTERED_RESULT,
+        project_id,
+        result_id,
+        revision_id,
+    )
+    assert event.resource.kind == expected.kind
+    assert event.resource.resource_id == expected.resource_id
+    assert result_id not in event.resource.resource_id
+    assert _SECRET_PATH not in event.resource.resource_id
+
+
 def _redacted(response, *secrets: str) -> None:
     text = response.text
     for secret in secrets:
@@ -686,6 +714,35 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         assert registered.status_code == 200
         assert registered.content == b"reg!"
         _redacted(registered, _SECRET_PATH, _SECRET_SHA)
+        downloads = _success_downloads(seeded_app)
+        assert len(downloads) == 1
+        assert downloads[0].actor_user_id == member.user_id
+        _assert_download_target(
+            downloads[0],
+            world.project.project_id,
+            _RESULT,
+            _RESULT_REVISION,
+        )
+        head = client.request("HEAD", _content(world, _V_REGISTERED))
+        assert head.status_code == 200
+        assert head.content == b""
+        assert len(_success_downloads(seeded_app)) == 1
+        original_audit = seeded_app.state.authentication_repository.record_security_audit
+
+        def _audit_unavailable(_event) -> None:
+            raise RuntimeError("audit store unavailable")
+
+        seeded_app.state.authentication_repository.record_security_audit = (  # type: ignore[method-assign]
+            _audit_unavailable
+        )
+        withheld = client.get(_content(world, _V_REGISTERED))
+        assert withheld.status_code == 500
+        assert withheld.json()["issues"][0]["code"] == "INTERNAL_SERVER_ERROR"
+        assert b"reg!" not in withheld.content
+        assert "audit store" not in withheld.text
+        _no_store(withheld)
+        assert len(_success_downloads(seeded_app)) == 1
+        seeded_app.state.authentication_repository.record_security_audit = original_audit
         unbound = client.get(_content(world, _V_UNBOUND))
         foreign = client.get(_content(world, _V_FOREIGN))
         assert unbound.status_code == 404
@@ -907,6 +964,14 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
         exact = client.get(f"{collection}/{older}/content")
         assert exact.status_code == 200
         assert exact.content == payloads[0]
+        published_downloads = _success_downloads(seeded_app)
+        assert len(published_downloads) == 1
+        _assert_download_target(
+            published_downloads[0],
+            project.project_id,
+            result,
+            "rrev_" + "1" * 32,
+        )
         assert exact.headers["content-type"] == "application/octet-stream"
         _no_store(exact)
         window = client.get(

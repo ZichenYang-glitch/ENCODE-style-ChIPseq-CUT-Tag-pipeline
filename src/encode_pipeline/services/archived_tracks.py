@@ -8,6 +8,7 @@ the native or registered source, then copies one byte window from that version.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 from typing import Any
@@ -25,6 +26,15 @@ from encode_pipeline.persistence.models import (
 from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     UserRole,
+)
+from encode_pipeline.platform.security_audit import (
+    AuditAction,
+    AuditActorKind,
+    AuditOutcome,
+    AuditResourceKind,
+    SecurityAuditEvent,
+    build_audit_resource,
+    new_audit_event_id,
 )
 from encode_pipeline.services.browser_bytes import BrowserByteError, parse_byte_range
 
@@ -230,6 +240,7 @@ class ArchivedTrackService:
             first = b""
             if end > start:
                 first = _read_exact(reader, start, min(end, start + _CHUNK))
+            self._audit_registered_bytes(principal, version, index=index)
         except ArchivedTrackError:
             close()
             raise
@@ -283,6 +294,46 @@ class ArchivedTrackService:
         if not self._allows(version):
             raise _not_found()
         return version
+
+    def _audit_registered_bytes(
+        self,
+        principal: AuthenticatedPrincipal,
+        version: Any,
+        *,
+        index: bool,
+    ) -> None:
+        """Record the same success audit as a registered-result download.
+
+        Metadata, HEAD, and native run bytes are not downloads of a registered
+        revision. A failed audit write does not start the response.
+        """
+
+        source = getattr(version, "source", None)
+        if not isinstance(source, dict) or source.get("kind") != "registered":
+            return
+        result_id = source.get("index_result_id" if index else "result_id")
+        revision_id = source.get(
+            "index_result_revision_id" if index else "result_revision_id"
+        )
+        try:
+            self._authentication.record_security_audit(
+                SecurityAuditEvent(
+                    event_id=new_audit_event_id(),
+                    occurred_at=datetime.now(timezone.utc),
+                    action=AuditAction.REGISTERED_RESULT_DOWNLOAD,
+                    outcome=AuditOutcome.SUCCEEDED,
+                    actor_kind=AuditActorKind.USER,
+                    actor_user_id=principal.user_id,
+                    resource=build_audit_resource(
+                        AuditResourceKind.REGISTERED_RESULT,
+                        getattr(version, "project_id", None),
+                        result_id,
+                        revision_id,
+                    ),
+                )
+            )
+        except Exception:
+            raise _unavailable() from None
 
     def _require_reader(self, principal: AuthenticatedPrincipal) -> None:
         if self._authentication is None or not isinstance(
