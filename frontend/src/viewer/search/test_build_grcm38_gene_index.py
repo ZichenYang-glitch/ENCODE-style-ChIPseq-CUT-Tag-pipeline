@@ -107,7 +107,9 @@ def _write_inputs(root: Path, *, readme: str = README, report: str | None = None
     gtf = root / "annotation.gtf"
     gtf.write_text(_fixture_gtf(), encoding="utf-8")
     report_path = root / "assembly_report.txt"
-    report_path.write_text(report if report is not None else _report(), encoding="utf-8")
+    report_path.write_text(
+        report if report is not None else _report(), encoding="utf-8"
+    )
     readme_path = root / "README.txt"
     readme_path.write_text(readme, encoding="utf-8")
     tables = {
@@ -208,7 +210,12 @@ def test_index_uses_gtf_spans_and_mgi_aliases(tmp_path: Path) -> None:
     assert _alias_targets(index, "p53") == ["Trp53"]
     assert _alias_targets(index, "ERBB1") == []
     assert _alias_targets(index, "Egfr") == []
-    assert _alias_targets(index, "avian erythroblastic leukemia viral (v-erb-b) oncogene homolog") == []
+    assert (
+        _alias_targets(
+            index, "avian erythroblastic leukemia viral (v-erb-b) oncogene homolog"
+        )
+        == []
+    )
     for alias, row_index in index["aliases"]:
         assert alias.upper() != index["rows"][row_index][0].upper()
         assert " " not in alias
@@ -322,7 +329,9 @@ def test_shipped_mm10_index_matches_gencode_m25() -> None:
     assert index["assembly"] == "mm10"
     assert index["format"] == "helixweave.gene-index.v1"
     assert index["coordinate_system"] == "1-based-closed"
-    assert index["chromosomes"][:22] == [name for name, _length in PINNED_MM10_SEQUENCES]
+    assert index["chromosomes"][:22] == [
+        name for name, _length in PINNED_MM10_SEQUENCES
+    ]
     assert _loci(index, "Egfr") == [
         ("chr11", 16752203, 16918158, "ENSMUSG00000020122.16")
     ]
@@ -355,7 +364,8 @@ def test_shipped_mm10_index_matches_gencode_m25() -> None:
         "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70"
     )
     assert all(
-        item["sha256"] == item["canonical_sha256"] for item in provenance["aliases"]["files"]
+        item["sha256"] == item["canonical_sha256"]
+        for item in provenance["aliases"]["files"]
     )
     pinned = set(provenance["viewer_scaffold"]["sequences"])
     off_scaffold = sum(

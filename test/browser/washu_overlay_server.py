@@ -321,8 +321,10 @@ def build_app(
     _prepare(app, client, primary_run_id, primary)
 
     second_run_id = _create_run(client)
-    second_name = "Overlay second hg38" if plan.label == "hg38" else (
-        f"Overlay second {plan.label}"
+    second_name = (
+        "Overlay second hg38"
+        if plan.label == "hg38"
+        else (f"Overlay second {plan.label}")
     )
     _bind_distinct(
         client,

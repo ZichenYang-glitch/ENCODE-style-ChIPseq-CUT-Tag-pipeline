@@ -88,9 +88,7 @@ OFFICIAL_PLAIN_SHA = "009fe0274de483412832839740e92c959877f511833a2c6bcc41043477
 OFFICIAL_PLAIN_BYTES = 888172458
 KNOWN_LOCAL_SHA = "dbd5e0488a5994cc5e9379e13ecaceb0d2affcb0c6c9f7584def7f1be01769b6"
 KNOWN_LOCAL_BYTES = 888182176
-ENSEMBL_BASE = (
-    "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/"
-)
+ENSEMBL_BASE = "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/"
 # filename, sha256, bytes. SHA-256 is of the gzip bytes on that FTP path.
 ENSEMBL_CANONICAL = (
     (
@@ -228,8 +226,7 @@ def read_readme(path: Path) -> dict[str, str]:
     url = found.get("annotation url", "")
     if "gencode.vM25.primary_assembly.annotation.gtf" not in url:
         raise hg.IndexBuildError(
-            "README annotation url is not GENCODE mouse release M25 "
-            "primary assembly"
+            "README annotation url is not GENCODE mouse release M25 primary assembly"
         )
     if found.get("original name") != "mm10":
         raise hg.IndexBuildError("README original name is not mm10")
@@ -237,9 +234,7 @@ def read_readme(path: Path) -> dict[str, str]:
     if not accession:
         raise hg.IndexBuildError("README is missing assembly_accession")
     if accession == GRCM39_ACCESSION or "GRCm39" in accession:
-        raise hg.IndexBuildError(
-            f"README assembly {accession} is GRCm39, not GRCm38"
-        )
+        raise hg.IndexBuildError(f"README assembly {accession} is GRCm39, not GRCm38")
     if accession not in GRCM38_PATCH_ACCESSIONS:
         raise hg.IndexBuildError(
             f"README assembly_accession {accession} is not a GRCm38 release"
@@ -387,9 +382,7 @@ def read_mgi_aliases(
 
 def _file_record(path: Path, canonical_name: str) -> dict[str, object]:
     digest, size = hg.sha256_file(path)
-    expected = next(
-        item for item in ENSEMBL_CANONICAL if item[0] == canonical_name
-    )
+    expected = next(item for item in ENSEMBL_CANONICAL if item[0] == canonical_name)
     return {
         "role": canonical_name,
         "filename": path.name,
@@ -416,8 +409,7 @@ def _annotation_meta(
     if readme is None:
         if not official:
             raise hg.IndexBuildError(
-                "README is required unless --gtf is the pinned GENCODE "
-                "release gzip"
+                "README is required unless --gtf is the pinned GENCODE release gzip"
             )
         return (
             {
@@ -469,10 +461,14 @@ def build_index(
         plain_sha256,
         plain_size,
     ) = read_mouse_genes(gtf, set(lengths))
-    if gtf.suffix == ".gz" and gtf_sha256 == OFFICIAL_GTF_SHA and (
-        gtf_size != OFFICIAL_GTF_BYTES
-        or plain_sha256 != OFFICIAL_PLAIN_SHA
-        or plain_size != OFFICIAL_PLAIN_BYTES
+    if (
+        gtf.suffix == ".gz"
+        and gtf_sha256 == OFFICIAL_GTF_SHA
+        and (
+            gtf_size != OFFICIAL_GTF_BYTES
+            or plain_sha256 != OFFICIAL_PLAIN_SHA
+            or plain_size != OFFICIAL_PLAIN_BYTES
+        )
     ):
         raise hg.IndexBuildError(
             "pinned GENCODE gzip did not decompress to the pinned annotation"

@@ -109,7 +109,10 @@ def test_default_fixture_keeps_hg38_evidence(tmp_path: Path) -> None:
     assert second["reference"]["assembly_label"] == "hg38"
     assert primary["reference"]["viewer_scaffold"] == "hg38"
     assert second["reference"]["viewer_scaffold"] == "hg38"
-    assert primary["reference"]["identity_sha256"] != second["reference"]["identity_sha256"]
+    assert (
+        primary["reference"]["identity_sha256"]
+        != second["reference"]["identity_sha256"]
+    )
     assert foreign["reference"]["assembly_label"] == "mm10"
     assert foreign["reference"]["viewer_scaffold"] == "mm10"
     assert _organism(app, primary["reference"]["revision_id"]) == "Homo sapiens"
@@ -122,7 +125,11 @@ def test_default_fixture_keeps_hg38_evidence(tmp_path: Path) -> None:
         (primary, manifest["primary_generation"]),
         (second, manifest["second_generation"]),
     ):
-        track = next(item for item in body["tracks"] if item["artifact_id"] == manifest["artifact_id"])
+        track = next(
+            item
+            for item in body["tracks"]
+            if item["artifact_id"] == manifest["artifact_id"]
+        )
         assert track["preparation"] == "ready"
         assert body["artifact_generation"] == generation
     anonymous = _anonymous_status(
@@ -178,7 +185,10 @@ def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
     assert second["reference"]["assembly_label"] == label
     assert primary["reference"]["viewer_scaffold"] == "mm10"
     assert second["reference"]["viewer_scaffold"] == "mm10"
-    assert primary["reference"]["identity_sha256"] != second["reference"]["identity_sha256"]
+    assert (
+        primary["reference"]["identity_sha256"]
+        != second["reference"]["identity_sha256"]
+    )
     assert _organism(app, primary["reference"]["revision_id"]) == "Mus musculus"
     assert _organism(app, second["reference"]["revision_id"]) == "Mus musculus"
     assert _artifact_assembly(app, manifest["primary_run_id"]) == label
@@ -187,7 +197,11 @@ def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
     assert foreign_body["reference"]["viewer_scaffold"] == foreign_label
     assert _artifact_assembly(app, manifest["foreign_run_id"]) == foreign_label
     for body in (primary, second):
-        track = next(item for item in body["tracks"] if item["artifact_id"] == manifest["artifact_id"])
+        track = next(
+            item
+            for item in body["tracks"]
+            if item["artifact_id"] == manifest["artifact_id"]
+        )
         assert track["preparation"] == "ready"
 
     replaced = client.post(
