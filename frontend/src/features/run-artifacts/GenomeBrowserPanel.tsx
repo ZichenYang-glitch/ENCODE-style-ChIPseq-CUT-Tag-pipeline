@@ -658,8 +658,9 @@ export default function GenomeBrowserPanel({
     };
   }, [platformRows]);
 
-  const visibleRows = platformRows.filter(
-    (row) => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
+  const visibleRows = useMemo(
+    () => platformRows.filter(row => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)]),
+    [platformRows, loadFailures],
   );
   const failedRows = platformRows.filter(
     (row) => loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
@@ -749,14 +750,14 @@ export default function GenomeBrowserPanel({
           ? 'loading'
           : 'ready';
 
-  const localPlaced = activeLocal.map((track) => ({
+  const localPlaced = useMemo(() => activeLocal.map(track => ({
     track,
     placement: placeLocalTrack(authority, track),
     foreign: localTrackHasForeignUrl(track.model, window.location.origin),
-  }));
-  const hubLocal = localPlaced.flatMap((item) =>
+  })), [activeLocal, authority]);
+  const hubLocal = useMemo(() => localPlaced.flatMap(item =>
     item.placement.ok && !item.foreign ? [{ id: item.track.id, model: item.track.model }] : [],
-  );
+  ), [localPlaced]);
 
   return (
     <section className="min-w-0 space-y-3" aria-label="Genome browser">
@@ -1374,7 +1375,7 @@ function Viewer({
   showToolbar: boolean;
 }) {
   const dataTracks = useMemo(() => {
-    const models: WashuTrackConfig[] = [];
+    const models: WashuTrackConfig[] = [{ type: 'ruler', name: 'Ruler' }];
     const names = new Map<string, number>();
     const take = (model: WashuTrackConfig) => {
       const name = typeof model.name === 'string' ? model.name : '';
@@ -1401,9 +1402,10 @@ function Viewer({
     }),
     [storeId],
   );
-  if (!scaffold || !REGION.test(region) || dataTracks.length === 0) return null;
+  if (!scaffold || !REGION.test(region) || dataTracks.length === 1) return null;
   const trackKey = [
-    ...rows.map((row) => `${row.runId}:${row.track.artifact_id}:${row.track.revision}`),
+    scaffold,
+    ...rows.map(row => `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`),
     ...localTracks.map((track) => `local:${track.id}`),
   ].join('|');
   return (
@@ -1415,7 +1417,7 @@ function Viewer({
         storeConfig={storeConfig}
         genomeName={scaffold}
         viewRegion={region}
-        tracks={[{ type: 'ruler', name: 'Ruler' }, ...dataTracks]}
+        tracks={dataTracks}
         showGenomeNavigator={false}
         showNavBar={false}
         showToolBar={showToolbar}

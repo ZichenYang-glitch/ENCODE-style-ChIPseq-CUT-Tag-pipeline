@@ -10,11 +10,6 @@ import { chromium } from '@playwright/test';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const python =
   process.env.HELIXWEAVE_PYTHON ?? join(root, '.local/envs/ci-fast/bin/python');
-const browsers =
-  process.env.PLAYWRIGHT_BROWSERS_PATH ??
-  '/home/yangzichen/workflow/ENCODE-style-ChIPseq-CUT-Tag-pipeline/.local/ms-playwright';
-if (existsSync(browsers)) process.env.PLAYWRIGHT_BROWSERS_PATH = browsers;
-
 const work = process.env.WASHU_OVERLAY_DIR
   ? (mkdirSync(process.env.WASHU_OVERLAY_DIR, { recursive: true }), process.env.WASHU_OVERLAY_DIR)
   : mkdtempSync(join(tmpdir(), 'helixweave-washu-overlay-'));
@@ -232,7 +227,6 @@ async function readHub(frame) {
     const drawn = [];
     const stack = fiber ? [fiber] : [];
     let guard = 0;
-    const interesting = /peak-(?:primary|second|local)|5800|5500|6000/;
     while (stack.length && guard < 12000) {
       guard += 1;
       const node = stack.pop();
@@ -262,16 +256,13 @@ async function readHub(frame) {
         regions.push({ start, end });
       }
       if (props) {
-        for (const bucket of [props.data, props.items, props.features]) {
+        for (const bucket of [props.data, props.items, props.features, props.placements, props.arrangedData]) {
           if (!Array.isArray(bucket)) continue;
-          for (const item of bucket.slice(0, 40)) {
-            let text = '';
-            try {
-              text = JSON.stringify(item);
-            } catch {
-              text = '';
+          for (const item of bucket) {
+            const feature = item?.feature;
+            if (feature?.chr === 'chr1' && item.placedFeatures?.length && item.xSpan?.end > item.xSpan?.start) {
+              drawn.push(`${feature.chr}:${feature.start}-${feature.end} ${feature[3] ?? ''}`);
             }
-            if (text && interesting.test(text)) drawn.push(text.slice(0, 240));
           }
         }
       }
@@ -655,7 +646,7 @@ async function main() {
         urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
         state.models.some((track) => track.file && track.url === '') &&
         covers(state.regions, 5600, 6100) &&
-        state.drawn.some((text) => text.includes('5800') || text.includes('peak-local'))
+        ['chr1:5500-5700', 'chr1:5800-6000', 'chr1:6000-6200'].every(locus => state.drawn.some(text => text.includes(locus)))
       );
     },
     25_000,
