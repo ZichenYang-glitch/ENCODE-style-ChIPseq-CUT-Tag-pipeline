@@ -7395,6 +7395,16 @@
             },
             "description": "Bad Request"
           },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -7435,15 +7445,15 @@
             },
             "description": "Internal Server Error"
           },
-          "422": {
-            "description": "Validation Error",
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/AuthErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           }
         }
       }
@@ -7509,6 +7519,16 @@
             },
             "description": "Bad Request"
           },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -7549,15 +7569,15 @@
             },
             "description": "Internal Server Error"
           },
-          "422": {
-            "description": "Validation Error",
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/AuthErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           }
         }
       }
@@ -7604,7 +7624,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -7624,7 +7644,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -7632,7 +7663,7 @@
             }
           },
           "206": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -7652,7 +7683,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -7668,6 +7710,16 @@
               }
             },
             "description": "Bad Request"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
           },
           "401": {
             "content": {
@@ -7709,6 +7761,16 @@
             },
             "description": "Internal Server Error"
           },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
           "416": {
             "description": "The requested byte range cannot be satisfied.",
             "headers": {
@@ -7723,16 +7785,6 @@
                   "type": "string"
                 },
                 "description": "private, no-store"
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -7779,7 +7831,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -7799,7 +7851,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -7807,7 +7870,7 @@
             }
           },
           "206": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -7827,7 +7890,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -7843,6 +7917,16 @@
               }
             },
             "description": "Bad Request"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
           },
           "401": {
             "content": {
@@ -7884,6 +7968,16 @@
             },
             "description": "Internal Server Error"
           },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
           "416": {
             "description": "The requested byte range cannot be satisfied.",
             "headers": {
@@ -7898,16 +7992,6 @@
                   "type": "string"
                 },
                 "description": "private, no-store"
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -7956,7 +8040,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -7976,7 +8060,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -7984,7 +8079,7 @@
             }
           },
           "206": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -8004,7 +8099,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -8020,6 +8126,16 @@
               }
             },
             "description": "Bad Request"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
           },
           "401": {
             "content": {
@@ -8061,6 +8177,16 @@
             },
             "description": "Internal Server Error"
           },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
           "416": {
             "description": "The requested byte range cannot be satisfied.",
             "headers": {
@@ -8075,16 +8201,6 @@
                   "type": "string"
                 },
                 "description": "private, no-store"
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -8131,7 +8247,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -8151,7 +8267,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -8159,7 +8286,7 @@
             }
           },
           "206": {
-            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching.",
+            "description": "Bytes of the requested sealed member. One Range returns 206 with Content-Range. An unsatisfiable range returns 416. Responses use private, no-store caching. HEAD returns the same headers without a body.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -8179,7 +8306,18 @@
                   "type": "string"
                 }
               },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "Content-Range": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
                 "schema": {
                   "type": "string"
                 }
@@ -8195,6 +8333,16 @@
               }
             },
             "description": "Bad Request"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Client Error"
           },
           "401": {
             "content": {
@@ -8236,6 +8384,16 @@
             },
             "description": "Internal Server Error"
           },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
           "416": {
             "description": "The requested byte range cannot be satisfied.",
             "headers": {
@@ -8250,16 +8408,6 @@
                   "type": "string"
                 },
                 "description": "private, no-store"
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }

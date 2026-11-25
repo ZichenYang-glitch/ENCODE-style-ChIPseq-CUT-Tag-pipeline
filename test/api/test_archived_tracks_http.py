@@ -26,7 +26,6 @@ from encode_pipeline.persistence.archived_tracks import (  # noqa: E402
 )
 from encode_pipeline.persistence.database import create_session_factory  # noqa: E402
 from encode_pipeline.persistence.models import (  # noqa: E402
-    ArchivedTrackVersionRow,
     ExperimentRevisionRow,
     ExperimentRow,
     RegisteredResultRevisionRow,
@@ -36,13 +35,14 @@ from encode_pipeline.persistence.models import (  # noqa: E402
     RunRow,
     StoragePoolRow,
 )
+from encode_pipeline.platform.archived_tracks import ArchiveStoreError, CHUNK_BYTES  # noqa: E402
 from encode_pipeline.platform.experiment_catalog import (  # noqa: E402
     EXPERIMENT_REVISION_PAYLOAD_DIGEST_SCHEME,
 )
 from encode_pipeline.platform.registered_results import (  # noqa: E402
     REVISION_DIGEST_SCHEME,
 )
-from encode_pipeline.services.archive_objects import ArchiveObjects  # noqa: E402
+from encode_pipeline.services.archive_objects import ArchiveObjects, ArchiveReader  # noqa: E402
 from encode_pipeline.platform.security_audit import (  # noqa: E402
     AuditResourceKind,
     build_audit_resource,
@@ -65,6 +65,7 @@ from encode_pipeline.services.authentication_service import (  # noqa: E402
     AuthenticationActor,
 )
 from encode_pipeline.services.data_registry import DataRegistryService  # noqa: E402
+from encode_pipeline.workers.settings import ARCHIVE_ROOT_ENV  # noqa: E402
 
 
 _HEX = "ab" * 32
@@ -89,12 +90,6 @@ _V_PAIR = "aver_" + "6" * 32
 _V_LIST = "aver_" + "7" * 32
 _SECRET_PATH = "pool/secret-signal.bw"
 _SECRET_SHA = "cd" * 32
-
-
-class ArchiveStoreError(Exception):
-    def __init__(self, code: str) -> None:
-        self.code = code
-        super().__init__(code)
 
 
 class _Member:
@@ -204,12 +199,14 @@ def _version(
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, monkeypatch):
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV, str(tmp_path / "archive"))
     application = create_app(
         database_url=f"sqlite:///{tmp_path / 'platform.db'}",
         workspace_root=tmp_path / "workspaces",
     )
     yield application
+    application.state.run_queue.close()
     application.state.persistence.close()
 
 
@@ -334,7 +331,7 @@ def _install(app, tmp_path: Path, *, run_digest: str = "a" * 64):
             storage_pool_id=_POOL,
             relative_path=_SECRET_PATH,
             size_bytes=4,
-            content_sha256=_SECRET_SHA,
+            content_sha256=sha256(b"reg!").hexdigest(),
         ),
         RegisteredResultRevisionRow(
             result_revision_id=_OTHER_RESULT_REVISION,
@@ -376,6 +373,7 @@ def _install(app, tmp_path: Path, *, run_digest: str = "a" * 64):
                 version_number=1,
                 source=run_source,
                 members={"data": v1},
+                assembly="GRCh38",
             ),
             _version(
                 archive_version_id=_V2,
@@ -467,6 +465,7 @@ def _install(app, tmp_path: Path, *, run_digest: str = "a" * 64):
         repository=repository,
         v1=v1,
         v2=v2,
+        data=data,
         index=index,
     )
 
@@ -650,6 +649,8 @@ def test_exact_version_ranges_and_same_size_replacement(seeded_app, tmp_path) ->
         assert page.status_code == 200
         assert page.json()["items"][0]["archive_version_id"] == _V_PAIR
         assert page.json()["next_offset"] == 2
+        past_end = client.get(_collection(world), params={"offset": 2**63})
+        assert past_end.json() == {"items": [], "next_offset": None}
         invalid = client.get(_collection(world), params={"limit": 101})
         assert invalid.status_code == 400
         assert invalid.json()["issues"][0]["code"] == "archive_invalid"
@@ -687,6 +688,21 @@ def test_exact_version_ranges_and_same_size_replacement(seeded_app, tmp_path) ->
             headers={"Range": "bytes=0-1,2-3"},
         )
         assert multi.status_code == 416
+        repeated = client.get(
+            _content(world, _V1),
+            headers={"Range": "bytes=0-1", "range": "bytes=2-3"},
+        )
+        assert repeated.status_code == 416
+        assert repeated.content == b""
+        assert repeated.headers["content-range"] == "bytes */16"
+        assert repeated.headers["content-length"] == "0"
+        _no_store(repeated)
+        large_suffix = client.get(
+            _content(world, _V1), headers={"Range": "Bytes=-" + "9" * 4500}
+        )
+        assert large_suffix.status_code == 206
+        assert large_suffix.content == v1.content
+        assert large_suffix.headers["content-range"] == "bytes 0-15/16"
         head = client.request("HEAD", _content(world, _V1))
         assert head.status_code == 200
         assert head.content == b""
@@ -700,6 +716,12 @@ def test_exact_version_ranges_and_same_size_replacement(seeded_app, tmp_path) ->
         assert ranged_head.status_code == 206
         assert ranged_head.content == b""
         assert ranged_head.headers["content-length"] == "4"
+        for response in (v1, window, head, ranged_head, missing, repeated):
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["accept-ranges"] == "bytes"
+            assert "etag" not in response.headers
+            assert "content-disposition" not in response.headers
+            _no_store(response)
 
         world.v1.path.write_bytes(b"XXXXXXXXXXXXXXXX")
         replaced = client.get(_content(world, _V1))
@@ -772,6 +794,15 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         )
         assert wrong_experiment.status_code == 404
         _no_store(wrong_experiment)
+        attempts = len(world.objects.attempts)
+        wrong_project = client.get(
+            _content(world, _V_REGISTERED).replace(
+                world.project.project_id, world.other.project_id
+            )
+        )
+        assert wrong_project.status_code == 404
+        assert len(world.objects.attempts) == attempts
+        _no_store(wrong_project)
         seeded_app.state.test_auth_tokens = ("a" * 43, "b" * 43)
         admin = client.get(_content(world, _V_REGISTERED))
         assert admin.status_code == 200
@@ -797,11 +828,18 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         )
         seeded_app.state.test_auth_tokens = tokens
         attempts = len(world.objects.attempts)
-        disabled = client.get(_content(world, _V1))
-        assert disabled.status_code == 401
-        assert disabled.json()["issues"][0]["code"] == "AUTHENTICATION_REQUIRED"
-        _no_store(disabled)
+        downloads = len(_success_downloads(seeded_app))
+        for url in (
+            _content(world, _V1),
+            _content(world, _V_REGISTERED),
+            _content(world, _V_PAIR, index=True),
+        ):
+            disabled = client.get(url)
+            assert disabled.status_code == 401
+            assert disabled.json()["issues"][0]["code"] == "AUTHENTICATION_REQUIRED"
+            _no_store(disabled)
         assert len(world.objects.attempts) == attempts
+        assert len(_success_downloads(seeded_app)) == downloads
 
         seeded_app.state.authentication_service.resolve_session = resolve_session
         seeded_app.state.test_auth_tokens = ("a" * 43, "b" * 43)
@@ -811,7 +849,10 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         assert archived.json()["issues"][0]["code"] == "archive_version_not_found"
 
 
-def test_index_and_data_stay_on_the_requested_version(seeded_app, tmp_path) -> None:
+@pytest.mark.parametrize("missing_role", ["index", "data"])
+def test_index_and_data_stay_on_the_requested_version(
+    seeded_app, tmp_path, missing_role
+) -> None:
     world = _install(seeded_app, tmp_path)
     with ApiTestClient(seeded_app) as client:
         data = client.get(_content(world, _V_PAIR))
@@ -830,20 +871,110 @@ def test_index_and_data_stay_on_the_requested_version(seeded_app, tmp_path) -> N
         assert bigwig_index.content != b"0123456789abcdef"
         assert b"0123456789abcdef" not in bigwig_index.content
         _no_store(bigwig_index)
-        world.index.path.unlink()
-        missing_index = client.get(_content(world, _V_PAIR, index=True))
-        assert missing_index.status_code == 409
-        assert missing_index.json()["issues"][0]["code"] == "archive_offline"
-        assert b"data-win" not in missing_index.content
-        data_still = client.get(_content(world, _V_PAIR))
-        assert data_still.status_code == 200
-        assert data_still.content == b"data-win"
+        getattr(world, missing_role).path.unlink()
+        for index_url in (False, True):
+            url = _content(world, _V_PAIR, index=index_url)
+            missing = client.get(url, headers={"Range": "bytes=0-3"})
+            assert missing.status_code == 409
+            assert missing.json()["issues"][0]["code"] == "archive_offline"
+            assert b"data-win" not in missing.content
+            assert b"idx-window" not in missing.content
+            _no_store(missing)
+            head = client.request("HEAD", url)
+            assert head.status_code == 409
+            assert head.content == b""
+            _no_store(head)
         other = client.get(_content(world, _V2))
         assert other.status_code == 200
         assert other.content == b"fedcba9876543210"
 
 
-def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> None:
+def test_registered_pair_audits_the_requested_member_and_checks_both_sources(
+    seeded_app, tmp_path
+) -> None:
+    world = _install(seeded_app, tmp_path)
+    project_id = world.project.project_id
+    index_result = "rreg_" + "8" * 32
+    index_revision = "rrev_" + "9" * 32
+    factory = create_session_factory(seeded_app.state.persistence.engine)
+    with factory.begin() as session:
+        session.add(
+            RegisteredResultRow(
+                result_id=index_result,
+                project_id=project_id,
+                stable_key="pairs-index",
+                created_at=_now(),
+            )
+        )
+        session.flush()
+        session.add(
+            RegisteredResultRevisionRow(
+                result_revision_id=index_revision,
+                result_id=index_result,
+                revision_number=1,
+                canonical_payload="{}",
+                digest_scheme=REVISION_DIGEST_SCHEME,
+                revision_digest="e" * 64,
+                created_at=_now(),
+                storage_pool_id=_POOL,
+                relative_path="pairs.tbi",
+                size_bytes=world.index.size_bytes,
+                content_sha256=world.index.sha256,
+            )
+        )
+    pair = world.repository.get_version(project_id, _EXPERIMENT, _V_PAIR)
+    registered = world.repository.get_version(project_id, _EXPERIMENT, _V_REGISTERED)
+    pair.members["data"] = registered.members["data"]
+    pair.source = {
+        **registered.source,
+        "index_result_id": index_result,
+        "index_result_revision_id": index_revision,
+    }
+    member, tokens = _member_session(seeded_app)
+    seeded_app.state.test_auth_tokens = tokens
+    with ApiTestClient(seeded_app) as client:
+        index = client.get(
+            _content(world, _V_PAIR, index=True), headers={"Range": "bytes=0-2"}
+        )
+        assert index.status_code == 206
+        assert index.content == b"idx"
+        (audit,) = _success_downloads(seeded_app)
+        assert audit.actor_user_id == member.user_id
+        _assert_download_target(audit, project_id, index_result, index_revision)
+
+        data = client.get(_content(world, _V_PAIR))
+        assert data.status_code == 200
+        assert data.content == b"reg!"
+        (data_audit,) = [
+            event
+            for event in _success_downloads(seeded_app)
+            if event.event_id != audit.event_id
+        ]
+        _assert_download_target(data_audit, project_id, _RESULT, _RESULT_REVISION)
+        world.index.path.write_bytes(b"X" * world.index.size_bytes)
+        for index_url in (False, True):
+            changed = client.get(_content(world, _V_PAIR, index=index_url))
+            assert changed.status_code == 409
+            assert changed.json()["issues"][0]["code"] == "archive_integrity"
+            _no_store(changed)
+
+        # A foreign companion makes both roles invisible before any file is opened.
+        pair.source.update(
+            index_result_id=_OTHER_RESULT,
+            index_result_revision_id=_OTHER_RESULT_REVISION,
+        )
+        attempts = list(world.objects.attempts)
+        for index_url in (False, True):
+            denied = client.get(_content(world, _V_PAIR, index=index_url))
+            assert denied.status_code == 404
+            assert denied.json()["issues"][0]["code"] == "archive_version_not_found"
+            _no_store(denied)
+        assert world.objects.attempts == attempts
+        assert len(_success_downloads(seeded_app)) == 2
+
+
+@pytest.fixture
+def published_archive(seeded_app, tmp_path):
     project = _registry(seeded_app).create_project("Sealed project")
     factory = create_session_factory(seeded_app.state.persistence.engine)
     root = tmp_path / "archive"
@@ -853,7 +984,10 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
     experiment = "exp_" + "e" * 32
     result = "rreg_" + "a" * 32
     pool = "stgp_" + "b" * 32
-    payloads = (b"v1-signal-window!!", b"v2-signal-window!!")
+    payloads = (
+        b"v1-signal-window!!" + b"A" * CHUNK_BYTES,
+        b"v2-signal-window!!" + b"B" * CHUNK_BYTES,
+    )
     members = []
     for payload in payloads:
         source = tmp_path / f"{payload[:2].decode()}.bw"
@@ -915,44 +1049,35 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
             )
         session.commit()
     repository = ArchiveRepository(factory)
-    # Seed a source using its assembly alias at insertion time. A sealed
-    # catalog version cannot be renamed or reclassified by a later UPDATE.
-    from sqlalchemy import event
+    published = [
+        repository.publish(
+            project_id=project.project_id,
+            experiment_id=experiment,
+            experiment_revision_id="expr_" + str(number) * 32,
+            track_key="signal",
+            display_name="signal.bw",
+            assembly="hg38",
+            track_type="bigwig",
+            source={
+                "kind": "registered",
+                "result_id": result,
+                "result_revision_id": "rrev_" + str(number) * 32,
+            },
+            members={"data": member},
+        )
+        for number, member in enumerate(members, start=1)
+    ]
+    collection = f"/api/v1/catalog/projects/{project.project_id}/experiments/{experiment}/archived-tracks"
+    return collection, published, payloads
 
-    def seed_alias(_mapper, _connection, row):
-        if row.version_number == 1:
-            row.assembly = "GRCh38"
 
-    event.listen(ArchivedTrackVersionRow, "before_insert", seed_alias)
-    try:
-        published = [
-            repository.publish(
-                project_id=project.project_id,
-                experiment_id=experiment,
-                experiment_revision_id="expr_" + str(number) * 32,
-                track_key="signal",
-                display_name="signal.bw",
-                assembly="hg38",
-                track_type="bigwig",
-                source={
-                    "kind": "registered",
-                    "result_id": result,
-                    "result_revision_id": "rrev_" + str(number) * 32,
-                },
-                members={"data": member},
-            )
-            for number, member in enumerate(members, start=1)
-        ]
-    finally:
-        event.remove(ArchivedTrackVersionRow, "before_insert", seed_alias)
-    seeded_app.state.archived_track_service = ArchivedTrackService(
-        repository=repository,
-        objects=objects,
-        authentication=seeded_app.state.authentication_repository,
-        access=SqlArchiveReadGate(factory),
-    )
-    world = SimpleNamespace(project=SimpleNamespace(project_id=project.project_id))
-    collection = _collection(world).replace(_EXPERIMENT, experiment)
+def test_published_repository_serves_the_sealed_copy(
+    seeded_app, published_archive, tmp_path
+) -> None:
+    collection, published, payloads = published_archive
+    result = published[0].source["result_id"]
+    root = tmp_path / "archive"
+    members = [version.members["data"] for version in published]
     secrets = (members[0].sha256, members[1].sha256, "secret/v1.bw", str(root))
     with ApiTestClient(seeded_app) as client:
         listed = client.get(collection)
@@ -983,7 +1108,7 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
         assert len(published_downloads) == 1
         _assert_download_target(
             published_downloads[0],
-            project.project_id,
+            published[0].project_id,
             result,
             "rrev_" + "1" * 32,
         )
@@ -1013,16 +1138,55 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
         untouched = client.get(f"{collection}/{newer}/content")
         assert untouched.status_code == 200
         assert untouched.content == payloads[1]
-        seeded_app.state.archived_track_service = ArchivedTrackService(
-            repository=repository,
-            objects=ArchiveObjects(None),
-            authentication=seeded_app.state.authentication_repository,
-            access=SqlArchiveReadGate(factory),
-        )
-        still_listed = client.get(collection)
-        assert still_listed.status_code == 200
-        offline = client.get(f"{collection}/{newer}/content")
-        assert offline.status_code == 409
-        assert offline.json()["issues"][0]["code"] == "archive_offline"
-        assert payloads[1] not in offline.content
-        _no_store(offline)
+
+
+def test_unconfigured_volume_preserves_history(
+    seeded_app, published_archive, tmp_path, monkeypatch
+):
+    collection, versions, payloads = published_archive
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV)
+    unconfigured = create_app(
+        database_url=f"sqlite:///{tmp_path / 'platform.db'}",
+        workspace_root=tmp_path / "workspaces",
+    )
+    try:
+        unconfigured.state.test_auth_tokens = seeded_app.state.test_auth_tokens
+        with ApiTestClient(unconfigured) as client:
+            assert client.get(collection).status_code == 200
+            offline = client.get(
+                f"{collection}/{versions[1].archive_version_id}/content"
+            )
+            assert offline.status_code == 409
+            assert offline.json()["issues"][0]["code"] == "archive_offline"
+            assert payloads[1] not in offline.content
+            _no_store(offline)
+    finally:
+        unconfigured.state.run_queue.close()
+        unconfigured.state.persistence.close()
+
+
+def test_registered_get_verifies_the_whole_window_before_auditing(
+    seeded_app, published_archive, monkeypatch
+) -> None:
+    collection, versions, payloads = published_archive
+    url = f"{collection}/{versions[0].archive_version_id}/content"
+    read = ArchiveReader.read
+
+    def unreadable_second_chunk(reader, start, end):
+        if end > CHUNK_BYTES:
+            raise ArchiveStoreError("archive_integrity")
+        return read(reader, start, end)
+
+    monkeypatch.setattr(ArchiveReader, "read", unreadable_second_chunk)
+    with ApiTestClient(seeded_app) as client:
+        for headers in ({}, {"Range": f"bytes={CHUNK_BYTES - 2}-{CHUNK_BYTES + 3}"}):
+            response = client.get(url, headers=headers)
+            assert response.status_code == 409
+            assert response.json()["issues"][0]["code"] == "archive_integrity"
+            assert b"v1-signal-window" not in response.content
+            _no_store(response)
+        assert _success_downloads(seeded_app) == ()
+        readable = client.get(url, headers={"Range": "bytes=0-5"})
+        assert readable.status_code == 206
+        assert readable.content == payloads[0][:6]
+        assert len(_success_downloads(seeded_app)) == 1
