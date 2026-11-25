@@ -98,12 +98,15 @@ export async function tabixPairProblem(data: File, index: File): Promise<TabixPa
       return indexMismatch(data, index, dataBytesRead, maxDataOffset)
     }
     for (const chunk of sampleChunks(parsed.chunks)) {
+      if (!await endsAtRecordBoundary(readData, data.size, chunk.end)) {
+        return indexMismatch(data, index, dataBytesRead, maxDataOffset)
+      }
       const record = await readIndexedRecord(readData, data.size, chunk.start, parsed.columns)
       if (!record || record.chrom !== chunk.refName) {
         return indexMismatch(data, index, dataBytesRead, maxDataOffset)
       }
       const bin = coordinateBin(record.start, record.end, parsed.zeroBasedHalfOpen)
-      if (bin === null || bin !== chunk.bin) {
+      if (bin === null || !containsBin(chunk.bin, bin)) {
         return indexMismatch(data, index, dataBytesRead, maxDataOffset)
       }
     }
@@ -156,7 +159,10 @@ async function readIndexPayload(index: File): Promise<Uint8Array | null> {
     const block = await readBgzfBlock(readIndex, index.size, offset)
     if (!block) return null
     offset += block.size
-    if (block.raw.length === 0) break
+    if (block.raw.length === 0) {
+      if (offset !== index.size) return null
+      break
+    }
     total += block.raw.length
     if (total > MAX_INDEX_UNCOMPRESSED) return null
     parts.push(block.raw)
@@ -234,7 +240,8 @@ function parseTabix(bytes: Uint8Array): ParsedTabix | null {
       if (virtual.block !== 0 || virtual.data !== 0) linearBlocks.push(virtual.block)
     }
   }
-  if (offset !== bytes.byteLength) return null
+  // htslib appends the optional uint64 count of records without a coordinate.
+  if (bytes.byteLength !== offset && bytes.byteLength !== offset + 8) return null
   return {
     zeroBasedHalfOpen: (formatFlags & 0x10000) !== 0,
     columns: { ref: refColumn, start: startColumn, end: endColumn },
@@ -269,6 +276,19 @@ function sampleChunks(chunks: IndexedChunk[]): IndexedChunk[] {
     }
   }
   return [first]
+}
+
+// Files can share a chromosome, first block and bin. The chunk must also
+// end at a real BGZF block or immediately after a record in that block.
+async function endsAtRecordBoundary(read: SliceReader, fileSize: number, end: VirtualOffset): Promise<boolean> {
+  if (end.block === fileSize) return end.data === 0
+  if (end.data === 0) return isBgzfHeader(await read(end.block, 18))
+  const block = await readBgzfBlock(read, fileSize, end.block)
+  if (!block || end.data > block.raw.length) return false
+  if (block.raw[end.data - 1] === 0x0a) return true
+  if (end.data !== block.raw.length) return false
+  const next = end.block + block.size
+  return next === fileSize || (await readBgzfBlock(read, fileSize, next))?.raw.length === 0
 }
 
 async function readIndexedRecord(
@@ -349,13 +369,10 @@ async function inflateRaw(compressed: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream !== 'function') {
     throw new Error('deflate-raw is unavailable')
   }
-  const stream = new DecompressionStream('deflate-raw')
-  const writer = stream.writable.getWriter()
-  const copy = new ArrayBuffer(compressed.byteLength)
-  new Uint8Array(copy).set(compressed)
-  await writer.write(new Uint8Array(copy))
-  await writer.close()
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer())
+  const source = new Response(new Uint8Array(compressed)).body!
+  return new Uint8Array(await new Response(
+    source.pipeThrough(new DecompressionStream('deflate-raw')),
+  ).arrayBuffer())
 }
 
 function splitNames(bytes: Uint8Array): string[] | null {
@@ -386,6 +403,13 @@ function readVirtual(view: DataView, offset: number): VirtualOffset | null {
 function compareVirtual(left: VirtualOffset, right: VirtualOffset): number {
   if (left.block !== right.block) return left.block - right.block
   return left.data - right.data
+}
+
+// htslib can merge sparse child bins into their parent. The indexed
+// chunk may therefore cover a broader interval than its first feature.
+function containsBin(indexed: number, feature: number): boolean {
+  while (feature > indexed) feature = (feature - 1) >>> 3
+  return feature === indexed
 }
 
 function coordinateBin(start: number, end: number, zeroBasedHalfOpen: boolean): number | null {

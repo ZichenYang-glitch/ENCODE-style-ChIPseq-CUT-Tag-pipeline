@@ -29,6 +29,7 @@ let page;
 let port = 0;
 let manifest;
 let workspace = '';
+let stage = 'open';
 
 const evidence = {
   window: null,
@@ -505,7 +506,7 @@ async function main() {
   ]);
   page = await context.newPage();
   page.on('console', (message) => {
-    consoleMessages.push(`${message.type()}: ${message.text()}`);
+    consoleMessages.push(`${message.type()}: [${stage}] ${message.text()}`);
   });
   page.on('pageerror', (error) => {
     consoleMessages.push(`pageerror: ${error.message}`);
@@ -586,6 +587,7 @@ async function main() {
     throw new Error('the second run was open before it was added');
   }
 
+  stage = 'select primary';
   await primaryBox.check();
   await viewerFrame.locator('[data-testid="local-track-file-input"]').setInputFiles(localBed);
   await viewerFrame
@@ -608,6 +610,7 @@ async function main() {
   }
   const secondBox = secondArticle.getByRole('checkbox');
   if (await secondBox.isDisabled()) throw new Error('second run track could not be chosen');
+  stage = 'select second';
   await secondBox.check();
 
   const started = Date.now();
@@ -679,6 +682,7 @@ async function main() {
   await viewerFrame.getByRole('button', { name: `Remove run ${manifest.second_run_id}` }).click();
   await secondArticle.waitFor({ state: 'detached', timeout: 10_000 });
   const regionBox = viewerFrame.getByRole('textbox', { name: 'Genomic region' });
+  stage = 'navigate after removal';
   await regionBox.fill(navigatedRegion);
   await viewerFrame.waitForFunction(
     (expected) => {
@@ -714,6 +718,7 @@ async function main() {
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
   const restored = runArticle(viewerFrame, manifest.second_run_id);
   await restored.waitFor({ timeout: 20_000 });
+  stage = 'restore second';
   await restored.getByRole('checkbox').check();
   const beforeExpiry = reads.length;
   const restoredAt = Date.now();
@@ -750,25 +755,18 @@ async function main() {
   if (primaryStill.status !== 206 && primaryStill.status !== 200) {
     throw new Error(`primary bytes failed after the other run changed (${primaryStill.status})`);
   }
-  const expiryStarted = Date.now();
-  let afterExpiry = null;
-  while (Date.now() - expiryStarted < 20_000) {
-    afterExpiry = await readHub(viewerFrame);
-    const urls = afterExpiry?.models.map((track) => track.url) ?? [];
-    const primaryRemains = urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`));
-    const localRemains = (afterExpiry?.models ?? []).some((track) => track.file && track.url === '');
-    const newRead = reads.some((read) => {
-      const parsed = parseTrackUrl(read.url);
-      return (
-        parsed &&
-        parsed.runId === manifest.second_run_id &&
-        parsed.generation === invalidated.generation &&
-        (read.status === 200 || read.status === 206)
-      );
-    });
-    if (primaryRemains && localRemains && !newRead) break;
-    await page.waitForTimeout(200);
-  }
+  const expiredWindow = 'chr1:5300-6350';
+  stage = 'navigate after expiry';
+  await regionBox.fill(expiredWindow);
+  const expiredNotice = viewerFrame.getByRole('alert').filter({ hasText: manifest.second_run_id });
+  await expiredNotice.getByText(/generation_changed|revision_changed/).waitFor({ timeout: 20_000 });
+  const notice = await expiredNotice.innerText();
+  const afterExpiry = await waitForHub(viewerFrame, state =>
+    state.models.some(track => track.url.includes(`/runs/${manifest.primary_run_id}/`)) &&
+    state.models.some(track => track.file && track.url === '') &&
+    !state.models.some(track => track.url.includes(`/runs/${manifest.second_run_id}/`)) &&
+    state.drawn.some(item => item.startsWith('chr1:5500-5700')) &&
+    state.drawn.some(item => item.startsWith('chr1:5800-6000')), 20_000);
   const newGenerationRead = reads.some((read) => {
     const parsed = parseTrackUrl(read.url);
     return (
@@ -794,6 +792,8 @@ async function main() {
     new_revision: invalidated.revision,
     rejected_status: rejected.status,
     rejected_reason: rejected.text.includes('generation_changed') ? 'generation_changed' : 'revision_changed',
+    visible_failure: notice,
+    remaining_features: [...new Set(afterExpiry.drawn)],
     primary_still_readable: primaryStill.status,
     new_generation_read: false,
   };
@@ -802,7 +802,8 @@ async function main() {
   await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.foreign_run_id);
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
   const foreignArticle = runArticle(viewerFrame, manifest.foreign_run_id);
-  await foreignArticle.waitFor({ timeout: 20_000 });
+  stage = 'add incompatible source';
+  await foreignArticle.getByTestId('reference-conflict').waitFor({ timeout: 20_000 });
   const foreignConflict = (
     await foreignArticle.locator('[data-testid="reference-conflict"]').allInnerTexts()
   ).join('\n');
@@ -844,8 +845,17 @@ async function main() {
   if (reads.some((read) => isExternal(read.url) || !new URL(read.url).pathname.startsWith('/api/'))) {
     throw new Error('a track read left the same-origin artifact API');
   }
+  const renderingErrors = consoleMessages.filter(message =>
+    /Minified React error|Maximum update depth exceeded|Genome View Error|^pageerror:/.test(message));
+  if (renderingErrors.length) throw new Error(renderingErrors.join('\n'));
+  const cspBlocked = posts.filter(post => new URL(post.url).pathname === '/csp-report').map(post => {
+    const blocked = JSON.parse(post.body)['csp-report']?.['blocked-uri'];
+    try { return new URL(blocked).origin; } catch { return blocked ?? null; }
+  });
   evidence.network = {
     external: external.length,
+    csp_blocked_origins: cspBlocked,
+    rendering_errors: renderingErrors,
     local_uploads: uploaded.length,
     byte_reads: reads.length,
     posts: posts.map((post) => `${post.method} ${new URL(post.url).pathname}`),

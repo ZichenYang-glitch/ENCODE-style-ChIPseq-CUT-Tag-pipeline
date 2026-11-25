@@ -17,9 +17,6 @@ from pathlib import Path
 from random import Random
 import time
 
-import pyBigWig
-import pysam
-
 ONLINE_SOURCE_BYTES = 32 * 1024 * 1024
 ONLINE_SOURCE_RECORDS = 2_000_000
 DEFAULT_FILLER_PAIRS = 1_010_000
@@ -48,11 +45,15 @@ def fetch_window(
     start: int,
     end: int,
 ) -> list[str]:
+    import pysam
+
     with pysam.TabixFile(str(data), index=str(index)) as table:
         return list(table.fetch(chrom, start, end))
 
 
 def _write_longrange(path: Path, spec: dict, filler_pairs: int) -> int:
+    import pysam
+
     random = Random(spec["seed"])
     pending: list[str] = []
     count = 0
@@ -83,12 +84,16 @@ def _write_longrange(path: Path, spec: dict, filler_pairs: int) -> int:
 
 
 def _write_other(path: Path, line: str) -> None:
+    import pysam
+
     with pysam.BGZFile(str(path), "wb") as out:
         out.write((line + "\n").encode())
     pysam.tabix_index(str(path), preset="bed", force=True)
 
 
 def _write_signal(path: Path, spec: dict) -> list[list]:
+    import pyBigWig
+
     sizes = spec["chrom_sizes_hg38"]
     with pyBigWig.open(str(path), "w") as writer:
         writer.addHeader(

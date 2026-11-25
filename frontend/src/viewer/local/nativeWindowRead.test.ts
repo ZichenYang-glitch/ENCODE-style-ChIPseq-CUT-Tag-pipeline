@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { looksLikeTabix } from './sliceRead'
+import { tabixPairProblem } from './tabixPair'
 
 const require = createRequire(import.meta.url)
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -150,7 +150,11 @@ describe('wuepgg local slice readers', () => {
     expect(bundle).toContain('D.url === ""')
 
     const { data, index } = writeLongrangeFixture()
-    expect(await looksLikeTabix(new Blob([arrayBuffer(index)]))).toBe(true)
+    const pair = await tabixPairProblem(
+      new File([arrayBuffer(data)], 'test.longrange.gz'),
+      new File([arrayBuffer(index)], 'test.longrange.gz.tbi'),
+    )
+    expect(pair.ok).toBe(true)
     const { TabixIndexedFile } = require('@gmod/tabix') as {
       TabixIndexedFile: new (args: {
         filehandle: SliceCounter

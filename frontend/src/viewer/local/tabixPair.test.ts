@@ -37,6 +37,31 @@ describe('tabixPairProblem', () => {
     fetchSpy.mockRestore()
   })
 
+  it('accepts the optional uint64 unplaced-record count emitted by htslib', async () => {
+    const built = indexedPair([chr1Line(1_000_000)])
+    const raw = new Uint8Array(built.rawTabix.length + 8)
+    raw.set(built.rawTabix)
+    new DataView(raw.buffer).setBigUint64(built.rawTabix.length, 42n, true)
+    const data = fileNamed('htslib.longrange.gz', built.bgzf)
+    expect((await tabixPairProblem(data, fileNamed('htslib.tbi', raw))).ok).toBe(true)
+    expect((await tabixPairProblem(data, fileNamed('cut.tbi', raw.subarray(0, -1)))).ok).toBe(false)
+  })
+
+  it('accepts a sparse tabix chunk promoted into a parent bin by htslib', async () => {
+    const built = indexedPair([chr1Line(1_000_000)])
+    const raw = Uint8Array.from(built.rawTabix)
+    const view = new DataView(raw.buffer)
+    const firstBin = 36 + view.getUint32(32, true) + 4
+    const leafBin = view.getUint32(firstBin, true)
+    expect(leafBin).toBeGreaterThan(4680)
+    view.setUint32(firstBin, (leafBin - 1) >>> 3, true)
+    const result = await tabixPairProblem(
+      fileNamed('sparse.longrange.gz', built.bgzf),
+      fileNamed('sparse.longrange.gz.tbi', raw),
+    )
+    expect(result.ok).toBe(true)
+  })
+
   it('does not read padding pasted after a matching BGZF payload', async () => {
     const built = indexedPair([chr1Line(1_000_000)])
     const padded = new Uint8Array(built.bgzf.byteLength + 1024 * 1024)
@@ -51,6 +76,17 @@ describe('tabixPairProblem', () => {
       expect(verdict.maxDataOffset).toBeLessThanOrEqual(built.bgzf.byteLength)
       expect(verdict.dataBytesRead).toBeLessThan(padded.byteLength / 2)
     }
+  })
+
+  it('rejects the wrong BGZF block end even when start, chromosome and bin coincide', async () => {
+    const built = indexedPair([chr1Line(1_000_000)])
+    const raw = Uint8Array.from(built.rawTabix)
+    const view = new DataView(raw.buffer)
+    const firstChunkEnd = 36 + view.getUint32(32, true) + 4 + 8 + 8
+    view.setBigUint64(firstChunkEnd, 5n << 16n, true)
+    const result = await tabixPairProblem(fileNamed('near.gz', built.bgzf), fileNamed('other.tbi', raw))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toBe('index-mismatch')
   })
 
   it('rejects a real index from another chromosome without reading the whole data file', async () => {

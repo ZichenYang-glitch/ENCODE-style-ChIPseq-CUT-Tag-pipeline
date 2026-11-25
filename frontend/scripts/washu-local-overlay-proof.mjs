@@ -28,10 +28,17 @@ const peak = join(fixtures, 'peak.bed');
 const observation = JSON.parse(await readFile(join(fixtures, 'observation.json'), 'utf8'));
 const dataSize = (await stat(data)).size;
 assert(dataSize > 32 * 1024 ** 2 && observation.record_count > 2_000_000);
-const egfr = {
-  chrom: 'chr7', pet: [55101000, 55102000, 55106000, 55107000],
-  signal: { start: 55104400, end: 55105900, value: 4.5 }, peak: [55103200, 55104100],
-};
+const planted = JSON.parse(await readFile(join(root, 'test/fixtures/browser/local-overlay-consensus.json'), 'utf8'));
+function expectedDrawing(gene) {
+  const chrom = planted.genes[gene].chrom;
+  const pair = planted.longrange_pairs[gene.toLowerCase()][0];
+  const region = planted.peaks.find(peak => peak.chrom === chrom);
+  return {
+    chrom, pet: [...pair.a, ...pair.b], peak: [region.start, region.end],
+    signal: planted.signals.find(signal => signal.chrom === chrom),
+  };
+}
+const egfr = expectedDrawing('EGFR');
 
 async function drawn(page, expected) {
   const handle = await page.waitForFunction(renderedWindow, expected, { timeout: 20000 });
@@ -95,6 +102,11 @@ try {
   page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => {
+    if (/Minified React error|Maximum update depth exceeded|Genome View Error/.test(message.text())) {
+      errors.push(message.text());
+    }
+  });
   await page.goto(origin);
   await page.getByRole('link', { name: '打开本地轨道', exact: true }).click();
   await page.waitForURL(url => url.pathname === '/viewer.html' && !url.search);
@@ -114,7 +126,7 @@ try {
   await page.getByTestId('washu-genome-viewer').screenshot({ path: join(work, 'EGFR.png') });
 
   await chooseGene(page, 'TP53', 'TP53', 'chr17:7661779-7687546');
-  await page.waitForFunction(renderedChromosome, 'chr17');
+  const tp53Drawing = await drawn(page, expectedDrawing('TP53'));
   await field.fill('chr7:55100000-55110000');
   await drawn(page, egfr);
   await page.getByTestId('washu-genome-viewer').screenshot({ path: join(work, 'coordinate.png') });
@@ -137,7 +149,7 @@ try {
   const wrongDir = join(work, 'wrong');
   await mkdir(wrongDir, { recursive: true });
   const wrong = join(wrongDir, basename(index));
-  await copyFile(join(fixtures, 'wrong-index.tbi'), wrong);
+  await copyFile(join(fixtures, 'other.longrange.gz.tbi'), wrong);
   await fileInput.setInputFiles([data, wrong]);
   await page.locator('[role="alert"][data-reason*="index"]:not([data-reason="missing-index"])').waitFor();
   await drawn(page, egfr);
@@ -164,7 +176,7 @@ try {
   const result = {
     source: 'synthetic', annotation: 'GENCODE v49', coordinateConvention: '1-based closed for search; BED half-open',
     records: observation.record_count, dataFileBytes: dataSize, indexFileBytes: (await stat(index)).size,
-    elapsedMs, byteCounts, visible, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
+    elapsedMs, byteCounts, visible, tp53Drawing, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
     tested: ['SHOX chrX/chrY', 'ERBB1 alias', 'missing gene', 'missing TBI', 'wrong valid TBI',
       'renamed TBI', 'explicit BED assembly conflict', 'switch assembly', 'remove and reopen'],
     networkPaths: [...routes], forbidden, errors,

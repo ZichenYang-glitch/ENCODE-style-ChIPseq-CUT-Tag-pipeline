@@ -52,9 +52,7 @@ def _gene(
 ) -> str:
     name_attr = f' gene_name "{name}";' if include_name else ""
     attrs = f'gene_id "{gene_id}"; gene_type "protein_coding";{name_attr}'
-    return (
-        f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
-    )
+    return f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
 
 
 def _fixture_gtf() -> str:
@@ -76,7 +74,9 @@ def _fixture_gtf() -> str:
     )
 
 
-def _write_inputs(root: Path, *, readme: str = README, hgnc: str = HGNC) -> dict[str, Path]:
+def _write_inputs(
+    root: Path, *, readme: str = README, hgnc: str = HGNC
+) -> dict[str, Path]:
     gtf = root / "annotation.gtf"
     gtf.write_text(_fixture_gtf(), encoding="utf-8")
     report = root / "assembly_report.txt"
@@ -139,9 +139,10 @@ def test_index_uses_gtf_spans_and_hgnc_aliases(tmp_path: Path) -> None:
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     assert index["provenance"] == provenance
     assert index["coordinate_system"] == "1-based-closed"
-    assert index["provenance"]["annotation"]["sha256"] == hashlib.sha256(
-        paths["gtf"].read_bytes()
-    ).hexdigest()
+    assert (
+        index["provenance"]["annotation"]["sha256"]
+        == hashlib.sha256(paths["gtf"].read_bytes()).hexdigest()
+    )
     assert _loci(index, "EGFR") == [("chr7", 10, 40, "ENSG00000000001.1")]
     assert _loci(index, "IL9R") == [
         ("chrX", 5, 8, "ENSG00000000003.1"),

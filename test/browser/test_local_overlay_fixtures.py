@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -15,8 +19,6 @@ from local_overlay_fixtures import (
     DEFAULT_FILLER_PAIRS,
     ONLINE_SOURCE_BYTES,
     ONLINE_SOURCE_RECORDS,
-    build_local_overlay_fixtures,
-    fetch_window,
     load_consensus,
     pair_lines,
 )
@@ -65,37 +67,48 @@ def test_chr7_matches_the_drawn_fixture_and_tp53_stays_inside_the_gene() -> None
     assert ONLINE_SOURCE_RECORDS == MAX_SOURCE_RECORDS
 
 
+@pytest.fixture(scope="module")
+def fixture_python() -> str:
+    # The browser data writers live in workflow/envs/chipseq.lock; ci-fast
+    # can still check the fixture coordinates and online converter contract.
+    interpreter = os.environ.get("WASHU_FIXTURE_PYTHON")
+    if interpreter:
+        return interpreter
+    if all(importlib.util.find_spec(name) for name in ("pysam", "pyBigWig")):
+        return sys.executable
+    pytest.skip("set WASHU_FIXTURE_PYTHON to the locked chipseq Python")
+
+
+def _build(dest: Path, pairs: int, interpreter: str) -> dict:
+    subprocess.run(
+        [
+            interpreter,
+            str(Path(__file__).with_name("local_overlay_fixtures.py")),
+            "--dest",
+            str(dest),
+            "--filler-pairs",
+            str(pairs),
+        ],
+        check=True,
+    )
+    return json.loads((dest / "observation.json").read_text(encoding="utf-8"))
+
+
 def test_small_build_is_deterministic_and_rejects_a_foreign_index(
     tmp_path: Path,
+    fixture_python: str,
 ) -> None:
     spec = load_consensus()
-    first = build_local_overlay_fixtures(tmp_path / "a", filler_pairs=8)
-    second = build_local_overlay_fixtures(tmp_path / "b", filler_pairs=8)
+    first = _build(tmp_path / "a", 8, fixture_python)
+    second = _build(tmp_path / "b", 8, fixture_python)
     assert first["data_sha256"] == second["data_sha256"]
     assert first["index_sha256"] == second["index_sha256"]
     names = spec["filenames"]
-    window = spec["windows"]["egfr"]
     expected = pair_lines("chr7", spec["longrange_pairs"]["egfr"][0])
-    hits = fetch_window(
-        tmp_path / "a" / names["longrange"],
-        tmp_path / "a" / names["longrange_index"],
-        window["chrom"],
-        window["start"],
-        window["end"],
-    )
-    assert hits == expected
     assert first["window"]["hits"] == expected
-    tp53 = spec["windows"]["tp53"]
     assert first["tp53_window"]["hits"] == pair_lines(
         "chr17", spec["longrange_pairs"]["tp53"][0]
     )
-    assert fetch_window(
-        tmp_path / "a" / names["longrange"],
-        tmp_path / "a" / names["longrange_index"],
-        tp53["chrom"],
-        tp53["start"],
-        tp53["end"],
-    ) == pair_lines("chr17", spec["longrange_pairs"]["tp53"][0])
     assert first["signal_intervals"] == [
         ["chr7", 55104400, 55105900, 4.5],
         ["chr17", 7675400, 7676900, 2.25],
@@ -104,23 +117,15 @@ def test_small_build_is_deterministic_and_rejects_a_foreign_index(
     assert peaks == (
         "chr7\t55103200\t55104100\tPeak-one\nchr17\t7674200\t7675100\tPeak-tp53\n"
     )
-    with pytest.raises(ValueError):
-        fetch_window(
-            tmp_path / "a" / names["longrange"],
-            tmp_path / "a" / names["other_index"],
-            window["chrom"],
-            window["start"],
-            window["end"],
-        )
     assert first["wrong_index"]["raised"] is True
     assert first["wrong_index"]["hits"] == []
 
 
-def test_default_fixture_exceeds_both_online_caps(tmp_path: Path) -> None:
+def test_default_fixture_exceeds_both_online_caps(
+    tmp_path: Path, fixture_python: str
+) -> None:
     spec = load_consensus()
-    observation = build_local_overlay_fixtures(
-        tmp_path, filler_pairs=DEFAULT_FILLER_PAIRS
-    )
+    observation = _build(tmp_path, DEFAULT_FILLER_PAIRS, fixture_python)
     assert observation["filler_pairs"] == 1_010_000
     assert observation["record_count"] == 2_020_004
     assert observation["record_count"] > MAX_SOURCE_RECORDS

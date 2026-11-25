@@ -51,9 +51,7 @@ OFFICIAL_GTF_URL = (
     "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/"
     "gencode.v49.primary_assembly.annotation.gtf.gz"
 )
-OFFICIAL_GTF_SHA = (
-    "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
-)
+OFFICIAL_GTF_SHA = "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
 OFFICIAL_GTF_BYTES = 93496634
 HGNC_URL = (
     "https://storage.googleapis.com/public-download-files/hgnc/archive/"
@@ -179,8 +177,7 @@ def read_readme(path: Path) -> dict[str, str]:
     url = found.get("annotation url", "")
     if GENCODE_V49_GTF not in url:
         raise IndexBuildError(
-            "README annotation url is not GENCODE human release 49 "
-            "primary assembly"
+            "README annotation url is not GENCODE human release 49 primary assembly"
         )
     if found.get("original name") != "hg38":
         raise IndexBuildError("README original name is not hg38")
@@ -349,9 +346,7 @@ def read_hgnc_aliases(path: Path) -> dict[str, set[str]]:
     return aliases
 
 
-def _alias_links(
-    rows: list[GeneRow], hgnc: dict[str, set[str]]
-) -> list[list[object]]:
+def _alias_links(rows: list[GeneRow], hgnc: dict[str, set[str]]) -> list[list[object]]:
     by_ensembl: dict[str, list[int]] = {}
     for index, row in enumerate(rows):
         by_ensembl.setdefault(row.gene_id.split(".", 1)[0], []).append(index)
@@ -362,7 +357,7 @@ def _alias_links(
             continue
         for row_index in row_indexes:
             symbol = rows[row_index].symbol
-            for alias in spellings:
+            for alias in sorted(spellings):
                 if _ALIAS.fullmatch(alias) is None:
                     continue
                 if alias.upper() == symbol.upper():
@@ -381,16 +376,14 @@ def _annotation_meta(
     if readme is None:
         if not official:
             raise IndexBuildError(
-                "README is required unless --gtf is the pinned GENCODE "
-                "release gzip"
+                "README is required unless --gtf is the pinned GENCODE release gzip"
             )
         return (
             {
                 "annotation url": OFFICIAL_GTF_URL,
                 "assembly_accession": "GCA_000001405.15",
                 "genome url": (
-                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/"
-                    "hg38.fa.gz"
+                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz"
                 ),
             },
             "",

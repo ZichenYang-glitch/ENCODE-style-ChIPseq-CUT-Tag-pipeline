@@ -617,7 +617,7 @@ export default function GenomeBrowserPanel({
           signal: controller.signal,
         });
         if (!response.ok && response.status !== 206) {
-          throw new Error(`HTTP ${response.status}`);
+          throw await trackReadError(response);
         }
         const indexPath = sameOriginPath(row.track.index_path);
         if (indexPath) {
@@ -628,7 +628,7 @@ export default function GenomeBrowserPanel({
             signal: controller.signal,
           });
           if (!indexResponse.ok && indexResponse.status !== 206) {
-            throw new Error(`HTTP ${indexResponse.status}`);
+            throw await trackReadError(indexResponse);
           }
         }
         if (!cancelled && noteTrackReadSucceeded(row.track.artifact_id, generation, row.runId)) {
@@ -645,8 +645,8 @@ export default function GenomeBrowserPanel({
         setLoadFailures((current) => ({
           ...current,
           [key]:
-            error instanceof Error && error.message.startsWith('HTTP ')
-              ? `Track failed to load (${error.message}).`
+            error instanceof Error && error.message.startsWith('Track failed to load (HTTP ')
+              ? error.message
               : 'Track failed to load.',
         }));
       }
@@ -656,7 +656,7 @@ export default function GenomeBrowserPanel({
       cancelled = true;
       for (const controller of controllers.values()) controller.abort();
     };
-  }, [platformRows]);
+  }, [platformRows, region]);
 
   const visibleRows = useMemo(
     () => platformRows.filter(row => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)]),
@@ -1359,6 +1359,22 @@ function FailureList({
   );
 }
 
+async function trackReadError(response: Response): Promise<Error> {
+  const status = `Track failed to load (HTTP ${response.status}).`;
+  if (response.status === 401 || response.status === 403) {
+    return new Error(`${status} Check your session and access to this run.`);
+  }
+  if (response.status === 404) return new Error(`${status} This artifact is unavailable.`);
+  if (response.status === 409) {
+    const body = await response.json().catch(() => null);
+    const code = body?.issues?.[0]?.context?.reason_code;
+    if (['generation_changed', 'revision_changed', 'derivative_changed'].includes(code)) {
+      return new Error(`${status} The selected version changed (${code}). Reload the run and select the current track.`);
+    }
+  }
+  return new Error(status);
+}
+
 function Viewer({
   scaffold,
   region,
@@ -1393,21 +1409,20 @@ function Viewer({
       });
     }
     for (const track of localTracks) take(track.model);
-    return models;
+    // 62.0.2 uses this flag for a complete initial track selection. Without
+    // it the vendor's track-list effect can dispatch updates back to itself.
+    return models.map(model => ({ ...model, waitToUpdate: true }));
   }, [localTracks, rows]);
-  const storeConfig = useMemo(
-    () => ({
-      storeId,
-      enablePersistence: false,
-    }),
-    [storeId],
-  );
-  if (!scaffold || !REGION.test(region) || dataTracks.length === 1) return null;
   const trackKey = [
     scaffold,
     ...rows.map(row => `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`),
     ...localTracks.map((track) => `local:${track.id}`),
   ].join('|');
+  const storeConfig = useMemo(
+    () => ({ storeId, enablePersistence: false }),
+    [storeId],
+  );
+  if (!scaffold || !REGION.test(region) || dataTracks.length === 1) return null;
   return (
     <div className="min-h-[28rem] overflow-hidden" data-testid="washu-genome-viewer">
       {/* Adding a bigWig to an already mounted hub crashes that hub. Remount

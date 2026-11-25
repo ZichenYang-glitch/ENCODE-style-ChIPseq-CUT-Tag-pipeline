@@ -23,6 +23,23 @@
 
 GRCh38 注释来源是 GENCODE 人类第 49 版的 primary assembly GTF。上游压缩文件的 SHA-256 为 `5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023`。逐一比较 chr1–22、X、Y 和 M 上的 78,691 条 gene 记录，本地参考与上游的染色体、起止、链、gene ID、名称、HGNC ID 一致。[GENCODE 发布记录](https://www.gencodegenes.org/human/release_49.html)
 
+基因别名取自 HGNC 2025-10-07 快照，通过 Ensembl gene ID 对到基因位置。索引包含 57,711 条别名到位置的映射。来源、输入 SHA-256、参考组装及坐标约定随 `frontend/src/viewer/search/hg38-gene-index.provenance.json` 发布。搜索首次需要时从 HelixWeave 同源静态资源加载索引，后续查词在内存中进行。[HGNC 历史快照](https://storage.googleapis.com/public-download-files/hgnc/archive/archive/quarterly/tsv/hgnc_complete_set_2025-10-07.tsv)
+
+### 从打包页面复验
+
+在仓库根目录使用 Node 22 和 Playwright Chromium。准备两个 Python 环境：一个安装当前提交构建的 wheel，另一个按仓库的 ci-fast 环境在当前工作树安装可编辑包。合成文件生成器使用 `workflow/envs/chipseq.lock` 中的 pysam 和 pyBigWig。命令里的 Python 路径由复审者换成自己的安装位置。
+
+```bash
+HELIXWEAVE_PYTHON=/path/to/wheel-env/bin/python \
+  WASHU_FIXTURE_PYTHON=/path/to/chipseq/bin/python \
+  node frontend/scripts/washu-local-overlay-proof.mjs
+
+HELIXWEAVE_PYTHON=/path/to/checkout-ci-fast/bin/python \
+  node frontend/scripts/washu-multi-source-proof.mjs
+```
+
+第一条从未登录首页开始。检查 EGFR、TP53 的已绘制 PET 锚点、bigWig 柱值和峰区间，复验坐标输入、歧义、缺失或错配的索引、参考冲突，并记录首次窗口绘制的耗时以及文档和 worker 实际读取的字节。默认生成 2,020,004 行的合成互作文件和真实 TBI；已有同一套夹具时可指定 `WASHU_LOCAL_FIXTURES`。结果目录含 `browser.json`、`EGFR.png` 和 `coordinate.png`。第二条从已授权运行进入，核对三条轨道绘制和移除、另一运行的旧版本被拒绝、剩余轨道仍可操作，输出 `evidence.json`。两者均只使用合成数据。可用 `WASHU_LOCAL_OVERLAY_DIR` 和 `WASHU_OVERLAY_DIR` 指定各自的输出目录。
+
 ## 组件
 
 - npm：`wuepgg@62.0.2`（精确版本），样式 `wuepgg/style.css`

@@ -1,6 +1,5 @@
 import { PLAIN_PEAK_MAX_BYTES, assemblyKey } from './contract'
 
-export const HEADER_BYTES = 18
 export const SCAN_WINDOW_BYTES = 64 * 1024
 const MAX_LINE_BYTES = 64 * 1024
 const CHROM = /^[A-Za-z0-9_.:-]{1,128}$/
@@ -53,47 +52,6 @@ export function isTabixMagic(bytes: Uint8Array): boolean {
     bytes[2] === 0x49 &&
     bytes[3] === 0x01
   )
-}
-
-/** A .tbi is either raw TBI bytes or a BGZF block whose payload starts with TBI. */
-export async function looksLikeTabix(file: Blob): Promise<boolean> {
-  const head = await readFileSlice(file, 0, HEADER_BYTES)
-  if (isTabixMagic(head)) return true
-  if (!isBgzfHeader(head)) return false
-  if (typeof DecompressionStream !== 'function') return true
-  try {
-    const inflated = await inflateFirstBgzfBlock(file)
-    return inflated !== null && isTabixMagic(inflated)
-  } catch {
-    return false
-  }
-}
-
-async function inflateFirstBgzfBlock(file: Blob): Promise<Uint8Array | null> {
-  const prefix = await readFileSlice(file, 0, 64)
-  if (!isBgzfHeader(prefix) || prefix.length < 18) return null
-  const xlen = prefix[10]! | (prefix[11]! << 8)
-  const extraEnd = 12 + xlen
-  const extra = extraEnd <= prefix.length ? prefix : await readFileSlice(file, 0, extraEnd)
-  let cursor = 12
-  let blockSize = -1
-  while (cursor + 4 <= extraEnd && cursor + 4 <= extra.length) {
-    const si1 = extra[cursor]
-    const si2 = extra[cursor + 1]
-    const slen = extra[cursor + 2]! | (extra[cursor + 3]! << 8)
-    if (si1 === 0x42 && si2 === 0x43 && slen >= 2 && cursor + 6 <= extra.length) {
-      blockSize = (extra[cursor + 4]! | (extra[cursor + 5]! << 8)) + 1
-      break
-    }
-    cursor += 4 + slen
-  }
-  if (blockSize < 28 || blockSize > file.size) return null
-  const block = await readFileSlice(file, 0, blockSize)
-  if (block.length < blockSize) return null
-  const compressed = block.slice(12 + xlen, block.length - 8)
-  const source = new Response(compressed).body!
-  const decoded = source.pipeThrough(new DecompressionStream('deflate-raw'))
-  return new Uint8Array(await new Response(decoded).arrayBuffer())
 }
 
 export function isBigWigMagic(bytes: Uint8Array): boolean {
