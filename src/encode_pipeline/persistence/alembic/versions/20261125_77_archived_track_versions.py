@@ -43,4 +43,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    has_versions = (
+        op.get_bind()
+        .execute(sa.text("SELECT 1 FROM archived_track_versions LIMIT 1"))
+        .scalar()
+    )
+    if has_versions:
+        raise RuntimeError("Cannot downgrade a catalog with sealed track versions")
     op.drop_table("archived_track_versions")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import closing, contextmanager, suppress
+from contextlib import contextmanager, suppress
 import errno
 import fcntl
 import hashlib
@@ -137,7 +137,7 @@ class ArchiveObjects:
                     installed = os.open(digest, _file_flags(), dir_fd=directory)
                 finally:
                     fcntl.flock(directory, fcntl.LOCK_UN)
-                with closing(os.fdopen(installed, "rb", buffering=0)) as handle:
+                with os.fdopen(installed, "rb", buffering=0) as handle:
                     info = os.fstat(installed)
                     if (
                         not stat.S_ISREG(info.st_mode)
