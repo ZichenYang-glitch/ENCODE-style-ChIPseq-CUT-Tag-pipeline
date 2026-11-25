@@ -167,11 +167,12 @@ def _record(
     content: bytes,
     head_result_revision_id: str,
     reference: dict[str, object] | None = None,
+    result_format: str = "bigwig",
 ) -> RevisionRecord:
     payload = parse_metadata(
         {
             "display_name": "signal.bw",
-            "format": "bigwig",
+            "format": result_format,
             "origin": {"kind": "external", "source": {"status": "unknown"}},
             "method": {"status": "unknown"},
             "reference": reference or {"status": "unknown"},
@@ -323,6 +324,45 @@ def test_registered_seal_reads_the_revision_path_not_the_display_name(
     assert (root / "tracks" / "signal-v1.bw").read_bytes() == content
 
 
+def test_declared_format_conflict_does_not_read_the_pool_file(tmp_path: Path) -> None:
+    content = b"bed-not-bigwig"
+    record = _record(
+        result_id=RESULT,
+        result_revision_id=RESULT_REVISION,
+        relative_path="tracks/signal-v1.bw",
+        content=content,
+        head_result_revision_id=RESULT_REVISION,
+        result_format="bed",
+    )
+    service, objects, _repository, root = _service(tmp_path, records=(record,))
+    _write_pool(root, "tracks/signal-v1.bw", content)
+
+    with pytest.raises(ArchiveSealError) as captured:
+        _seal_registered(service)
+    assert captured.value.code == "archive_invalid"
+    assert objects.payloads == []
+    assert (root / "tracks" / "signal-v1.bw").read_bytes() == content
+
+
+def test_indexed_longrange_without_an_index_is_refused(tmp_path: Path) -> None:
+    content = b"pairs"
+    record = _record(
+        result_id=RESULT,
+        result_revision_id=RESULT_REVISION,
+        relative_path="tracks/pairs",
+        content=content,
+        head_result_revision_id=RESULT_REVISION,
+        result_format="indexed-longrange",
+    )
+    service, objects, _repository, root = _service(tmp_path, records=(record,))
+    _write_pool(root, "tracks/pairs", content)
+
+    with pytest.raises(ArchiveSealError) as captured:
+        _seal_registered(service, track_type="longrange")
+    assert captured.value.code == "archive_invalid"
+    assert objects.payloads == []
+
+
 def test_bound_reference_assembly_is_kept_and_a_conflict_is_refused(
     tmp_path: Path,
 ) -> None:
@@ -406,6 +446,7 @@ def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
         relative_path="tracks/pairs.bed",
         content=data,
         head_result_revision_id=HEAD_REVISION,
+        result_format="longrange",
     )
     index_record = _record(
         result_id=INDEX_RESULT,
@@ -413,6 +454,7 @@ def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
         relative_path="tracks/pairs.bed.tbi",
         content=index,
         head_result_revision_id=INDEX_REVISION,
+        result_format="tbi",
     )
     service, objects, repository, root = _service(
         tmp_path,
@@ -774,6 +816,22 @@ def test_run_seal_reads_the_artifact_descriptor_not_a_filename(tmp_path: Path) -
     assert receipt["source"]["revision"] == stored["signal"].revision
     assert gate.publications[0]["generation"] == generation
     assert (workspace / "run-1" / "results" / "tracked-signal.bw").read_bytes() == content
+    with pytest.raises(ArchiveSealError) as captured:
+        service.seal_run(
+            project_id=PROJECT,
+            experiment_id=EXPERIMENT,
+            experiment_revision_id=REVISION,
+            track_key="signal",
+            display_name="signal.bw",
+            assembly="hg38",
+            track_type="bed",
+            run_id="run-1",
+            artifact_id="signal",
+            generation=generation,
+            revision=stored["signal"].revision,
+        )
+    assert captured.value.code == "archive_invalid"
+    assert objects.payloads == [content]
 
 
 def test_run_assembly_conflict_does_not_open_the_artifact(tmp_path: Path) -> None:
@@ -845,8 +903,8 @@ def test_run_index_uses_its_own_artifact(tmp_path: Path) -> None:
         runs,
         workspace,
         (
-            ("pairs", "results/pairs.bed", data),
-            ("pairsIndex", "results/pairs.bed.tbi", index),
+            ("pairs", "results/pairs.pairs", data),
+            ("pairsIndex", "results/pairs.pairs.tbi", index),
         ),
     )
     archive = tmp_path / "archive"
