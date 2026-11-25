@@ -35,10 +35,16 @@ from encode_pipeline.platform.experiment_catalog import (
 )
 from encode_pipeline.platform.registered_results import REVISION_DIGEST_SCHEME
 from encode_pipeline.services.archive_objects import ArchiveObjects
+from encode_pipeline.services.browser_bgzf import write_indexed_bed
 
 
 @pytest.fixture
-def archive_case(tmp_path):
+def archive_payloads():
+    return bytes([1]) * 32, bytes([2]) * 32
+
+
+@pytest.fixture
+def archive_case(tmp_path, archive_payloads):
     url = f"sqlite:///{tmp_path / 'experiment.db'}"
     upgrade_database(url)
     engine = create_database_engine(url)
@@ -83,11 +89,11 @@ def archive_case(tmp_path):
             )
         )
         db.flush()
-        for i in (1, 2):
+        for i, payload in enumerate(archive_payloads, start=1):
             exp_rev = "expr_" + str(i) * 32
             result_rev = "rrev_" + str(i) * 32
             f = tmp_path / "signal.bw"
-            f.write_bytes(bytes([i]) * 32)
+            f.write_bytes(payload)
             with f.open("rb") as handle:
                 member = objects.seal_fd(handle.fileno())
             db.add(
@@ -262,10 +268,22 @@ def test_upgrade_preserves_both_historical_manifests(archive_case, early_layout)
         db.execute(text("UPDATE archived_track_versions SET version_number = 3"))
 
 
+def _indexed_track(chrom):
+    return write_indexed_bed((f"{chrom}\t10\t20\t{chrom}:40-50,1",))
+
+
+@pytest.mark.parametrize(
+    "archive_payloads,matching",
+    [
+        ((_indexed_track("chr1").bgzf, _indexed_track("chr1").tabix), True),
+        ((_indexed_track("chr1").bgzf, _indexed_track("chr2").tabix), False),
+    ],
+    ids=["valid-pair", "historical-mismatched-index"],
+)
 def test_operator_restores_indexed_version_from_database_and_volume_backups(
-    tmp_path, archive_case, capsys
+    tmp_path, archive_case, capsys, matching
 ):
-    _, sessions, repo, project, experiment, _, archive, versions = archive_case
+    _, _, repo, project, experiment, _, archive, versions = archive_case
     data, index = versions
     version = repo.publish(
         **(
@@ -317,7 +335,11 @@ def test_operator_restores_indexed_version_from_database_and_volume_backups(
         assert archive_cli.main(args) == 1
         assert json.loads(capsys.readouterr().err)["error"]["code"] == "archive_offline"
         # Equal size but different data at the expected index name.
-        shutil.copy2(archive / data_member.sha256, root / index_member.sha256)
+        index_bytes = (archive / index_member.sha256).read_bytes()
+        (root / index_member.sha256).write_bytes(
+            index_bytes[:-1] + bytes([index_bytes[-1] ^ 1])
+        )
+        (root / index_member.sha256).chmod(0o440)
         assert archive_cli.main(args) == 1
         assert (
             json.loads(capsys.readouterr().err)["error"]["code"] == "archive_integrity"
@@ -331,6 +353,19 @@ def test_operator_restores_indexed_version_from_database_and_volume_backups(
 
         (root / index_member.sha256).unlink()
         shutil.copy2(archive / index_member.sha256, root / index_member.sha256)
+        if not matching:
+            assert archive_cli.main(args) == 1
+            assert (
+                json.loads(capsys.readouterr().err)["error"]["code"]
+                == "archive_invalid"
+            )
+            assert (
+                restored_repo.get_version(
+                    project, experiment, version.archive_version_id
+                )
+                == version
+            )
+            return
         for _ in range(2):
             assert archive_cli.main(args) == 0
             receipt = json.loads(capsys.readouterr().out)
@@ -340,14 +375,13 @@ def test_operator_restores_indexed_version_from_database_and_volume_backups(
         recovered = restored_repo.get_version(
             project, experiment, version.archive_version_id
         )
-        for role, byte in (("data", 1), ("index", 2)):
-            member = recovered.members[role]
+        for role, member in recovered.members.items():
             assert member.same_content(version.members[role])
             assert member.identity != version.members[role].identity
             with store.open_member(member) as reader:
                 assert (
                     reader.read(0, member.size_bytes)
-                    == bytes([byte]) * member.size_bytes
+                    == (archive / member.sha256).read_bytes()
                 )
         assert (
             repo.get_version(project, experiment, version.archive_version_id) == version

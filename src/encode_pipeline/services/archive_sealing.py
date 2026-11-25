@@ -718,6 +718,7 @@ class ArchiveSealingService:
                 role: self._objects.verify_restored(member)  # type: ignore[attr-defined]
                 for role, member in original.members.items()
             }
+            self._verify_pair(members)
             restored = self._repository.rebind_restored(original, members)  # type: ignore[attr-defined]
         except ArchiveSealError:
             raise
@@ -915,19 +916,22 @@ class ArchiveSealingService:
         _require_member(member, expected_sha256)
         return member
 
+    def _verify_pair(self, members: dict[str, SealedMember]) -> None:
+        if "index" in members:
+            data, index = members["data"], members["index"]
+            with (
+                self._objects.open_member(data) as data_reader,
+                self._objects.open_member(index) as index_reader,
+            ):
+                verify_longrange_index(
+                    data_reader, data.size_bytes, index_reader, index.size_bytes
+                )
+
     def _publish(
         self, *, members: dict[str, SealedMember], **kwargs: object
     ) -> dict[str, object]:
         try:
-            if "index" in members:
-                data, index = members["data"], members["index"]
-                with (
-                    self._objects.open_member(data) as data_reader,
-                    self._objects.open_member(index) as index_reader,
-                ):
-                    verify_longrange_index(
-                        data_reader, data.size_bytes, index_reader, index.size_bytes
-                    )
+            self._verify_pair(members)
             version = self._repository.publish(members=members, **kwargs)  # type: ignore[attr-defined]
         except ArchiveSealError:
             raise

@@ -38,7 +38,9 @@ helixweave archive restore \
   --archive-version-id "$archive_version_id"
 ```
 
-The operator command reads each member from the archive volume, verifies its mode, size, full SHA-256 and chunk hashes, and rebinds all verified file identities in one database transaction. The original result version and viewer URL then work even after the source pool or run workspace has been retired. A missing or mismatched member leaves the entire version pending recovery. Repeating the command on the same verified copy returns the same receipt.
+The operator command verifies each member's mode, size, full SHA-256 and chunk hashes against the catalog. For indexed longrange tracks, it checks that the tabix index locates the expected records in the restored data. It rechecks the source binding and records all verified file identities in one database transaction. The original result version and viewer URL then work even after the source pool or run workspace has been retired. A missing or mismatched member leaves the entire version pending recovery. Repeating the command on the same verified copy returns the same receipt.
+
+For indexed tracks, each data or index request opens both members of the selected version. The API verifies the requested window before sending the response and recording a successful registered download. Windows larger than 256 KiB use a temporary file on the API host. A full-file request requires temporary space for that file.
 
 ## Acceptance
 

@@ -55,6 +55,19 @@ def _scoped_row(
     return row
 
 
+def _scoped_revision(
+    session: Session, project_id: str, experiment_id: str, revision_id: str
+) -> ExperimentRevisionRow:
+    revision = session.get(ExperimentRevisionRow, revision_id)
+    if (
+        revision is None
+        or revision.experiment_id != experiment_id
+        or revision.project_id != project_id
+    ):
+        raise ArchiveStoreError("archive_version_not_found")
+    return revision
+
+
 def _version(row: Row, *, include_members: bool = True) -> ArchiveVersion:
     members = {}
     if include_members:
@@ -239,6 +252,15 @@ class ArchiveRepository:
             current = _version(row)
             if current.members != original.members and current.members != verified:
                 raise ArchiveStoreError("archive_version_conflict")
+            revision = _scoped_revision(
+                session,
+                current.project_id,
+                current.experiment_id,
+                current.experiment_revision_id,
+            )
+            _source_matches(
+                session, current.project_id, revision, current.source, verified
+            )
             return _rebind_members(row, current, verified)
 
     def publish(
@@ -282,14 +304,11 @@ class ArchiveRepository:
             # SQLite owns numbering across all operator processes, including retries.
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             experiment = _scope(session, project_id, experiment_id)
-            revision = session.get(ExperimentRevisionRow, experiment_revision_id)
-            if (
-                revision is None
-                or revision.experiment_id != experiment_id
-                or revision.project_id != project_id
-                or experiment.archived_at is not None
-            ):
+            if experiment.archived_at is not None:
                 raise ArchiveStoreError("archive_version_not_found")
+            revision = _scoped_revision(
+                session, project_id, experiment_id, experiment_revision_id
+            )
             _source_matches(session, project_id, revision, source, members)
             series = (Row.experiment_id == experiment_id, Row.track_key == track_key)
             existing = session.scalar(
