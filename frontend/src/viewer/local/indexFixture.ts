@@ -1,9 +1,26 @@
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const cache = new Map<string, IndexedBed>()
+
+export function signalBigWig(): Uint8Array {
+  return readFileSync(path.join(repoRoot, 'test/fixtures/browser/chr1-signal.bw'))
+}
+
+export function bgzfIndex(payload: Uint8Array): Uint8Array {
+  const script = [
+    'import sys',
+    'from browser_bgzf import _bgzf_compress',
+    'sys.stdout.buffer.write(_bgzf_compress(sys.stdin.buffer.read()))',
+  ].join('\n')
+  return execFileSync('python3', ['-c', script], {
+    cwd: path.join(repoRoot, 'src/encode_pipeline/services'),
+    input: payload,
+  })
+}
 
 export interface IndexedBed {
   bgzf: Uint8Array
