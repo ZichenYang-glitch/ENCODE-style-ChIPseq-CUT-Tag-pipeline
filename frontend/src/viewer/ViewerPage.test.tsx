@@ -3,6 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ViewerPage } from './ViewerPage';
 import { getRunBrowserSession } from '../api/generated/artifacts/artifacts';
+import { catalogGetArchivedTrack, catalogListArchivedTracks } from '../api/archivedTracks';
+import { EXPERIMENT_ID, PROJECT_ID, sealedTrack } from '../features/experiment-archive/archiveFixtures';
 
 vi.mock('wuepgg', () => ({
   GenomeHub: () => <div data-testid="washu-mock-viewer" />,
@@ -23,7 +25,14 @@ vi.mock('../api/generated/runs/runs', () => ({
   })),
 }));
 
+vi.mock('../api/archivedTracks', () => ({
+  catalogGetArchivedTrack: vi.fn(),
+  catalogListArchivedTracks: vi.fn(),
+}));
+
 const sessionMock = vi.mocked(getRunBrowserSession);
+const archivedGetMock = vi.mocked(catalogGetArchivedTrack);
+const archivedListMock = vi.mocked(catalogListArchivedTracks);
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -38,6 +47,9 @@ describe('ViewerPage', () => {
   afterEach(() => {
     window.history.replaceState(null, '', '/');
     sessionMock.mockReset();
+    archivedGetMock.mockReset();
+    archivedListMock.mockReset();
+    vi.unstubAllGlobals();
   });
 
   it('opens a standalone window with no run on hg38', async () => {
@@ -109,6 +121,33 @@ describe('ViewerPage', () => {
       view.unmount();
       if (descriptor) Object.defineProperty(window, 'parent', descriptor);
     }
+  });
+
+  it('opens the sealed version in the address and leaves run and local tracks unloaded', async () => {
+    archivedGetMock.mockResolvedValue(sealedTrack(1));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([1]), { status: 206 })),
+    );
+    const track = sealedTrack(1);
+    window.history.replaceState(
+      null,
+      '',
+      `/viewer.html?run=run-1&project=${PROJECT_ID}&experiment=${EXPERIMENT_ID}&archive=${track.archive_version_id}`,
+    );
+    renderPage();
+    expect(await screen.findByTestId('archived-track-version-label')).toHaveTextContent('第 1 版');
+    expect(screen.getByTestId('archived-track-source')).toHaveTextContent('运行 run-v1');
+    expect(screen.queryByRole('combobox', { name: 'Assembly' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('local-track-picker')).not.toBeInTheDocument();
+    expect(sessionMock).not.toHaveBeenCalled();
+    expect(archivedListMock).not.toHaveBeenCalled();
+    expect(archivedGetMock).toHaveBeenCalledWith(
+      PROJECT_ID,
+      EXPERIMENT_ID,
+      track.archive_version_id,
+      expect.any(Object),
+    );
   });
 
   it('does not load a run id the address bar cannot name', async () => {
