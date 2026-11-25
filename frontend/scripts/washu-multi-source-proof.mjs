@@ -279,13 +279,11 @@ async function readHub(frame) {
   });
 }
 
-function covers(regions, startAtMost, endAtLeast) {
+function showsRegion(regions, displayRegion) {
+  const [, start, end] = displayRegion.match(/^chr1:(\d+)-(\d+)$/);
   return regions.some(
     (region) =>
-      typeof region.start === 'number' &&
-      typeof region.end === 'number' &&
-      region.start <= startAtMost &&
-      region.end >= endAtLeast,
+      region.start === Number(start) - 1 && region.end === Number(end),
   );
 }
 
@@ -597,6 +595,7 @@ async function main() {
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
   const secondArticle = runArticle(viewerFrame, manifest.second_run_id);
   await secondArticle.waitFor({ timeout: 20_000 });
+  await secondArticle.getByRole('checkbox').waitFor({ timeout: 20_000 });
   const secondIdentity = await secondArticle.getAttribute('data-reference-identity');
   const primaryIdentity = await runArticle(viewerFrame, manifest.primary_run_id).getAttribute(
     'data-reference-identity',
@@ -605,7 +604,7 @@ async function main() {
   if (conflict) {
     throw new Error(`same-assembly run was rejected\n${conflict}`);
   }
-  if (!primaryIdentity || primaryIdentity === secondIdentity) {
+  if (primaryIdentity !== evidence.api.primary_identity || secondIdentity !== evidence.api.second_identity || primaryIdentity === secondIdentity) {
     throw new Error('the open runs do not show two reference identities');
   }
   const secondBox = secondArticle.getByRole('checkbox');
@@ -648,7 +647,7 @@ async function main() {
         urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
         urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
         state.models.some((track) => track.file && track.url === '') &&
-        covers(state.regions, 5600, 6100) &&
+        showsRegion(state.regions, manifest.window) &&
         ['chr1:5500-5700', 'chr1:5800-6000', 'chr1:6000-6200'].every(locus => state.drawn.some(text => text.includes(locus)))
       );
     },
@@ -674,6 +673,7 @@ async function main() {
       identity: secondIdentity,
       read: secondRead.data,
     },
+    plotted_features: [...new Set(hub.drawn)],
     local_drawn: hub.drawn.filter((text) => text.includes('peak-local') || text.includes('5800')).slice(0, 4),
     regions: hub.regions.slice(0, 4),
   };
@@ -701,7 +701,7 @@ async function main() {
         urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
         !urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
         state.models.some((track) => track.file && track.url === '') &&
-        covers(state.regions, 5600, 5900)
+        showsRegion(state.regions, navigatedRegion)
       );
     },
     20_000,
