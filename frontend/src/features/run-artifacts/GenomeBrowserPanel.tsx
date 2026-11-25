@@ -1441,17 +1441,25 @@ function Viewer({
     ...rows.map(row => `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`),
     ...localTracks.map((track) => `local:${track.id}`),
   ].join('|');
+  const visible = Boolean(scaffold && REGION.test(region) && dataTracks.length > 1);
+  // GenomeHub draws the region it receives on mount. While its track-load
+  // guard is closed it drops a later viewRegion change, so a coordinate typed
+  // in the same moment as a track removal moved the field and left the ruler
+  // behind. The key includes the region: that coordinate mounts a new hub on
+  // the window it should draw. A zoom stays inside the current hub and does
+  // not change this key. The store id stays on this browser. The vendor cache
+  // never drops a store, so a new id on each coordinate would keep the old
+  // tracks for the life of the page.
+  const hubKey = visible ? JSON.stringify([trackKey, region]) : '';
   const storeConfig = useMemo(
     () => ({ storeId, enablePersistence: false }),
     [storeId],
   );
-  if (!scaffold || !REGION.test(region) || dataTracks.length === 1) return null;
+  if (!visible) return null;
   return (
     <div className="min-h-[28rem] overflow-hidden" data-testid="washu-genome-viewer">
-      {/* Adding a bigWig to an already mounted hub crashes that hub. Remount
-          when the chosen files change and let the new hub take the region. */}
       <GenomeHub
-        key={trackKey}
+        key={hubKey}
         storeConfig={storeConfig}
         genomeName={scaffold}
         viewRegion={region}
