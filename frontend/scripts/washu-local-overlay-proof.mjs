@@ -11,6 +11,12 @@ import { chromium } from '@playwright/test';
 import { installFileReadMeter } from './washu-file-reads.mjs';
 import { renderedChromosome, renderedWindow } from './washu-local-overlay-observe.mjs';
 
+// Mouse acceptance is a separate script so this hg38 path stays the default.
+if (process.env.WASHU_ASSEMBLY === 'mm10') {
+  await import('./washu-mouse-local-overlay-proof.mjs');
+  process.exit(0);
+}
+
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const work = process.env.WASHU_LOCAL_OVERLAY_DIR ?? await mkdtemp(join(tmpdir(), 'washu-local-'));
 await mkdir(work, { recursive: true });
