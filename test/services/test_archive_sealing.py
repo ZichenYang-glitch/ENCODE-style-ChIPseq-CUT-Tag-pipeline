@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
@@ -34,6 +35,7 @@ from encode_pipeline.services.archive_sealing import (
 )
 from encode_pipeline.services.archive_sealing import ArchiveSealingService
 from encode_pipeline.services.artifact_downloads import ArtifactDownloadService
+from encode_pipeline.services.browser_bgzf import write_indexed_bed
 from encode_pipeline.services.defaults import create_default_workflow_registry
 from encode_pipeline.services.private_storage_pools import (
     PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
@@ -74,6 +76,13 @@ class _Objects:
             )
         self.payloads.append(bytes(payload))
         return SimpleNamespace(size_bytes=len(payload), sha256=digest)
+
+    @contextmanager
+    def open_member(self, member):
+        payload = next(
+            p for p in self.payloads if hashlib.sha256(p).hexdigest() == member.sha256
+        )
+        yield SimpleNamespace(read=lambda start, end: payload[start:end])
 
 
 class _Repository:
@@ -249,10 +258,8 @@ def _service(
         registered_revisions=_Revisions(*records),
         pool_lookup=_Pools(),
         pool_config_path=config,
-        scratch_root=tmp_path / "scratch",
         assemblies=assemblies,
     )
-    (tmp_path / "scratch").mkdir()
     return service, objects, repository, root
 
 
@@ -318,12 +325,14 @@ def test_registered_seal_reads_the_revision_path_not_the_display_name(
     }
     assert "tracks/signal-v1.bw" not in json.dumps(receipt)
     assert repository.calls[0]["source"]["result_revision_id"] == RESULT_REVISION
-    assert created
-    assert all(not Path(path).exists() for path in created)
+    assert created == []
     assert (root / "tracks" / "signal-v1.bw").read_bytes() == content
 
 
-def test_declared_format_conflict_does_not_read_the_pool_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("declared", ["bed", "bam", "hic", "tbi"])
+def test_declared_format_conflict_does_not_read_the_pool_file(
+    tmp_path: Path, declared: str
+) -> None:
     content = b"bed-not-bigwig"
     record = _record(
         result_id=RESULT,
@@ -331,7 +340,7 @@ def test_declared_format_conflict_does_not_read_the_pool_file(tmp_path: Path) ->
         relative_path="tracks/signal-v1.bw",
         content=content,
         head_result_revision_id=RESULT_REVISION,
-        result_format="bed",
+        result_format=declared,
     )
     service, objects, _repository, root = _service(tmp_path, records=(record,))
     _write_pool(root, "tracks/signal-v1.bw", content)
@@ -436,9 +445,20 @@ def test_registered_retry_returns_the_repository_identity_for_the_old_revision(
     assert first["source"]["result_revision_id"] == RESULT_REVISION
 
 
-def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
-    data = b"bed-rows"
-    index = b"tbi-bytes"
+@pytest.mark.parametrize(
+    "index_case", ["matching", "other-contig", "wrong-bin", "truncated", "not-tabix"]
+)
+def test_registered_index_is_a_separate_revision(
+    tmp_path: Path, index_case: str
+) -> None:
+    indexed = write_indexed_bed(("chr1\t10\t20\tchr1:40-50,1",))
+    data, index = indexed.bgzf, indexed.tabix
+    if index_case == "other-contig":
+        index = write_indexed_bed(("chr2\t10\t20\tchr2:40-50,1",)).tabix
+    if index_case == "wrong-bin":
+        index = write_indexed_bed(("chr1\t500000\t500010\tchr1:50-60,1",)).tabix
+    if index_case == "truncated":
+        index = index[: len(index) // 2]
     data_record = _record(
         result_id=RESULT,
         result_revision_id=RESULT_REVISION,
@@ -453,7 +473,7 @@ def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
         relative_path="tracks/pairs.bed.tbi",
         content=index,
         head_result_revision_id=INDEX_REVISION,
-        result_format="tbi",
+        result_format="bai" if index_case == "not-tabix" else "tbi",
     )
     service, objects, repository, root = _service(
         tmp_path,
@@ -462,7 +482,7 @@ def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
     _write_pool(root, "tracks/pairs.bed", data)
     _write_pool(root, "tracks/pairs.bed.tbi", index)
 
-    receipt = service.seal_registered(
+    arguments = dict(
         project_id=PROJECT,
         experiment_id=EXPERIMENT,
         experiment_revision_id=REVISION,
@@ -475,6 +495,13 @@ def test_registered_index_is_a_separate_revision(tmp_path: Path) -> None:
         index_result_id=INDEX_RESULT,
         index_result_revision_id=INDEX_REVISION,
     )
+    if index_case != "matching":
+        with pytest.raises(ArchiveSealError) as captured:
+            service.seal_registered(**arguments)
+        assert captured.value.code == "archive_invalid"
+        assert repository.calls == []
+        return
+    receipt = service.seal_registered(**arguments)
 
     assert objects.payloads == [data, index]
     assert receipt["has_index"] is True
@@ -600,6 +627,7 @@ def test_catalog_gate_uses_the_named_revision_and_publication() -> None:
                 }
             return {
                 "trace_status": "experiment_snapshot",
+                "result": {"artifact_revision": "artifactrev-" + "a" * 64},
                 "project_id": kwargs["project_id"],
                 "experiment_revision_id": REVISION,
                 "run_id": kwargs["run_id"],
@@ -617,6 +645,7 @@ def test_catalog_gate_uses_the_named_revision_and_publication() -> None:
         run_id="run-1",
         artifact_id="signal",
         generation=generation,
+        revision="artifactrev-" + "a" * 64,
     )
     assert catalog.traces[0]["artifact_generation"] == generation
 
@@ -636,6 +665,7 @@ def test_catalog_gate_uses_the_named_revision_and_publication() -> None:
             run_id="run-1",
             artifact_id="signal",
             generation="artifactgen-" + "b" * 64,
+            revision="artifactrev-" + "a" * 64,
         )
     assert unbound.value.code == "archive_invalid"
 
@@ -662,6 +692,7 @@ def test_catalog_gate_uses_the_named_revision_and_publication() -> None:
             run_id="run-1",
             artifact_id="signal",
             generation=generation,
+            revision="artifactrev-" + "a" * 64,
         )
     assert not_found.value.code == "archive_version_not_found"
 
@@ -702,7 +733,7 @@ def _artifact(relative_path: str, content: bytes, artifact_id: str) -> RunArtifa
         revision="artifactrev-" + "0" * 64,
         metadata={
             "relative_path": relative_path,
-            "output_type": "summary",
+            "output_type": "file",
             "size_bytes": len(content),
         },
     )
@@ -740,7 +771,7 @@ def _bind(artifact: RunArtifactRef, workspace: Path, content: bytes) -> RunArtif
         ),
     )
     revision = build_artifact_content_revision(
-        output_type="summary",
+        output_type=str(artifact.metadata["output_type"]),
         relative_path=relative_path,
         content=content,
     )
@@ -900,8 +931,8 @@ def test_run_assembly_conflict_does_not_open_the_artifact(tmp_path: Path) -> Non
 
 def test_run_index_uses_its_own_artifact(tmp_path: Path) -> None:
     downloads, runs, workspace = _runtime(tmp_path)
-    data = b"bed-rows"
-    index = b"tbi-bytes"
+    indexed = write_indexed_bed(("chr1\t10\t20\tchr1:40-50,1",))
+    data, index = indexed.bgzf, indexed.tabix
     generation, stored = _publish_run(
         runs,
         workspace,
@@ -1022,3 +1053,265 @@ def test_wrong_generation_does_not_seal_another_artifact(tmp_path: Path) -> None
 
     assert captured.value.code == "archive_version_conflict"
     assert objects.payloads == []
+
+
+def _seed_bound_run(app):
+    from conftest import seed_test_authentication
+    from encode_pipeline.persistence.database import create_session_factory
+    from encode_pipeline.persistence.models import (
+        RunExperimentBindingRow,
+        RunProjectBindingRow,
+        RunResultStateRow,
+        RunRow,
+    )
+    from encode_pipeline.services.data_registry import DataRegistryService
+
+    persistence = app.state.persistence
+    actor = seed_test_authentication(app)
+    registry = DataRegistryService(repository=persistence.data_registry_repository)
+    project = registry.create_project("Switched publication").project_id
+    sample = registry.import_sample(
+        project, stable_key="control", display_name="Control", attributes={}
+    )
+    unknown = {"status": "unknown"}
+    experiment = app.state.experiment_catalog_service.create_experiment(
+        actor_user_id=actor.user_id,
+        idempotency_key="archive-experiment",
+        raw_body=b"{}",
+        project_id=project,
+        stable_key="range",
+        display_name="Range",
+        assay=unknown,
+        target=unknown,
+        batch=unknown,
+        samples=[
+            {
+                "sample_revision_id": sample.revision.sample_revision_id,
+                "replicate_role": unknown,
+            }
+        ],
+    )
+    revision_id = experiment["experiment_revision_id"]
+    now = datetime.now(timezone.utc)
+    sessions = create_session_factory(persistence.engine)
+    with sessions.begin() as db:
+        db.add(
+            RunRow(
+                run_id="run-1",
+                workflow_id=WORKFLOW_ID,
+                inputs=WorkflowInputs(config={}).to_dict(),
+                tags={},
+                status="succeeded",
+                created_at=now,
+                updated_at=now,
+                ended_at=now,
+            )
+        )
+        db.flush()
+        db.add_all(
+            [
+                RunResultStateRow(run_id="run-1"),
+                RunProjectBindingRow(
+                    run_id="run-1",
+                    project_id=project,
+                    binding_mode="bound_v1",
+                    provenance="resolved",
+                    workflow_inputs_digest="0" * 64,
+                    binding_digest_scheme="sha256-framed-project-sample-binding-v1",
+                    binding_digest="0" * 64,
+                    created_at=now,
+                ),
+                RunExperimentBindingRow(
+                    run_id="run-1",
+                    experiment_revision_id=revision_id,
+                    payload_digest=db.get(
+                        ExperimentRevisionRow, revision_id
+                    ).payload_digest,
+                ),
+            ]
+        )
+    return project, experiment["experiment_id"], revision_id
+
+
+def test_installed_cli_seals_switched_generation_after_reindex(tmp_path: Path):
+    import asyncio
+    import subprocess
+    import sys
+
+    import httpx
+    from encode_pipeline.api.main import create_app
+    from encode_pipeline.services.artifact_disk_relocation import ArtifactDiskRelocation
+
+    workspace, durable, archive = (
+        tmp_path / name for name in ("workspaces", "relocation", "archive")
+    )
+    archive.mkdir()
+    database = f"sqlite:///{tmp_path / 'platform.db'}"
+    app = create_app(
+        database_url=database, workspace_root=workspace, relocation_root=durable
+    )
+    persistence = app.state.persistence
+    try:
+        project, experiment, revision_id = _seed_bound_run(app)
+        path = "results/peaks.bed"
+        old, new = b"chr1\t10\t20\tA\n", b"chr1\t10\t20\tB\n"
+        runs = app.state.run_service
+        first_gen, first = _publish_run(runs, workspace, (("peaks", path, old),))
+        old_rev = first["peaks"].revision
+        relocation = ArtifactDiskRelocation(source_root=workspace, durable_root=durable)
+        receipt = app.state.artifact_download_service.capture_relocation(
+            relocation,
+            run_id="run-1",
+            artifact_id="peaks",
+            expected_generation=first_gen,
+            expected_revision=old_rev,
+        )
+        for _ in range(2):
+            receipt = relocation.resume(run_id="run-1", artifact_id="peaks")
+        assert receipt.stage == "verified"
+        second_gen, second = _publish_run(runs, workspace, (("peaks", path, new),))
+        assert second_gen != first_gen
+
+        def seal(generation, revision, *extra, artifact="peaks", track_type="bed"):
+            command = [
+                str(Path(sys.executable).with_name("helixweave")),
+                "archive",
+                "seal",
+                "run",
+                "--database-url",
+                database,
+                "--archive-root",
+                str(archive),
+                "--workspace-root",
+                str(workspace),
+                "--project-id",
+                project,
+                "--experiment-id",
+                experiment,
+                "--experiment-revision-id",
+                revision_id,
+                "--track-key",
+                artifact,
+                "--display-name",
+                artifact,
+                "--assembly",
+                "GRCh38",
+                "--track-type",
+                track_type,
+                "--run-id",
+                "run-1",
+                "--artifact-id",
+                artifact,
+                "--generation",
+                generation,
+                "--revision",
+                revision,
+                *extra,
+            ]
+            env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+            proc = subprocess.run(
+                command,
+                cwd=tmp_path,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return proc.returncode, json.loads(
+                proc.stderr if proc.returncode else proc.stdout
+            )
+
+        async def download_old():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://test",
+                cookies={
+                    app.state.auth_cookie_policy.session_cookie.name: app.state.test_auth_tokens[
+                        0
+                    ]
+                },
+            ) as client:
+                return await client.get(
+                    "/api/v1/runs/run-1/artifacts/peaks/download",
+                    params={"generation": first_gen, "revision": old_rev},
+                )
+
+        assert (
+            seal(first_gen, old_rev)[1]["error"]["code"] == "archive_version_conflict"
+        )
+        option = ("--relocation-root", str(durable))
+        assert (
+            seal(first_gen, old_rev, *option)[1]["error"]["code"]
+            == "archive_version_conflict"
+        )
+        assert (
+            relocation.resume(run_id="run-1", artifact_id="peaks").stage == "switched"
+        )
+        code, v1 = seal(first_gen, old_rev, *option)
+        assert code == 0, v1
+        code, v2 = seal(second_gen, second["peaks"].revision, *option)
+        assert code == 0, v2
+        assert [v1["version_number"], v2["version_number"]] == [1, 2]
+        assert [v1["source"]["revision"], v2["source"]["revision"]] == [
+            old_rev,
+            second["peaks"].revision,
+        ]
+        assert [
+            (archive / v["members"]["data"]["sha256"]).read_bytes() for v in (v1, v2)
+        ] == [old, new]
+        assert (
+            seal(first_gen, old_rev, *option)[1]["archive_version_id"]
+            == v1["archive_version_id"]
+        )
+        public = asyncio.run(download_old())
+        assert public.status_code == 409
+        assert (
+            public.json()["issues"][0]["context"]["reason_code"]
+            == "ARTIFACT_DOWNLOAD_GENERATION_CHANGED"
+        )
+        relocation.payload_file("run-1", "peaks").write_bytes(new)
+        assert (
+            seal(first_gen, old_rev, *option)[1]["error"]["code"] == "archive_integrity"
+        )
+        assert (
+            seal(first_gen, second["peaks"].revision, *option)[1]["error"]["code"]
+            == "archive_version_conflict"
+        )
+
+        pair = write_indexed_bed(("chr1\t10\t20\tchr1:40-50,1",))
+        other = write_indexed_bed(("chr2\t10\t20\tchr2:40-50,1",))
+        generation, artifacts = _publish_run(
+            runs,
+            workspace,
+            (
+                ("links", "results/links.longrange.gz", pair.bgzf),
+                ("index", "results/links.longrange.gz.tbi", pair.tabix),
+                ("other", "results/other/links.longrange.gz.tbi", other.tabix),
+            ),
+        )
+
+        def pair_with(index):
+            return seal(
+                generation,
+                artifacts["links"].revision,
+                "--index-artifact-id",
+                index,
+                "--index-generation",
+                generation,
+                "--index-revision",
+                artifacts[index].revision,
+                artifact="links",
+                track_type="longrange",
+            )
+
+        assert pair_with("other")[1]["error"]["code"] == "archive_invalid"
+        code, indexed = pair_with("index")
+        assert code == 0, indexed
+        assert indexed["version_number"] == 1 and indexed["has_index"] is True
+        assert (
+            indexed["members"]["index"]["sha256"]
+            == hashlib.sha256(pair.tabix).hexdigest()
+        )
+    finally:
+        app.state.run_queue.close()
+        persistence.close()
