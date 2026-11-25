@@ -6,7 +6,9 @@
  * full because it is the small file. The data file is only touched at the
  * header and at most two indexed virtual offsets, each limited to two BGZF
  * blocks. A complete final record is valid with or without a trailing LF;
- * htslib still points the chunk end at the following BGZF block.
+ * htslib still points the chunk end at the following BGZF block. The pinned
+ * reader needs one uncompressed byte from that block, so a final record
+ * without LF is exposed through a one-LF block placed in front of the EOF.
  */
 
 import { assemblyKey, browserFileName } from './contract'
@@ -64,6 +66,17 @@ type SliceReader = (start: number, length: number) => Promise<Uint8Array>
 
 class DataReadCap extends Error {}
 class IndexSizeLimit extends Error {}
+
+const BGZF_EOF = Uint8Array.from([
+  0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43,
+  0x02, 0x00, 0x1b, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+])
+
+// zlib BGZF block whose uncompressed payload is a single LF.
+const LF_BLOCK = Uint8Array.from([
+  0x1f, 0x8b, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x06, 0x00, 0x42, 0x43,
+  0x02, 0x00, 0x1c, 0x00, 0xe3, 0x02, 0x00, 0x93, 0x06, 0xd7, 0x32, 0x01, 0x00, 0x00, 0x00,
+])
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -143,6 +156,77 @@ export async function tabixPairProblem(
     }
     return wrongIndex(index, dataBytesRead, maxDataOffset)
   }
+}
+
+// Give the pinned worker the one end-block byte it requires. Only an htslib
+// chunk that stops on the standard EOF is rewritten, and only when that
+// record has no LF. Other chunk ends, missing EOF markers, and files that
+// already end in LF keep the original File.
+export async function drawableIndexedData(data: File, index: File): Promise<File> {
+  try {
+    if (data.size < BGZF_EOF.byteLength + 28) return data
+    const eofOffset = data.size - BGZF_EOF.byteLength
+    const payload = await readIndexPayload(index)
+    const parsed = payload ? parseTabix(payload) : null
+    const endsOnEof = parsed?.chunks.some((chunk) => (
+      chunk.end.block === eofOffset && chunk.end.data === 0
+    )) ?? false
+    if (!endsOnEof) return data
+    const marker = await readFileSlice(data, eofOffset, BGZF_EOF.byteLength)
+    if (!sameBytes(marker, BGZF_EOF)) return data
+    const raw = await lastUncompressedBlock(data, eofOffset)
+    if (!raw || raw.byteLength === 0 || raw[raw.byteLength - 1] === 0x0a) return data
+    return new File(
+      [data.slice(0, eofOffset), LF_BLOCK, data.slice(eofOffset)],
+      data.name,
+      { type: data.type, lastModified: data.lastModified },
+    )
+  } catch {
+    return data
+  }
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false
+  }
+  return true
+}
+
+async function lastUncompressedBlock(data: File, eofOffset: number): Promise<Uint8Array | null> {
+  const window = Math.min(MAX_BGZF_BLOCK, eofOffset)
+  const start = eofOffset - window
+  const tail = await readFileSlice(data, start, window)
+  const read: SliceReader = (from, length) => readFileSlice(data, from, length)
+  for (let index = 0; index < tail.byteLength; index += 1) {
+    const size = bgzfDeclaredSize(tail, index)
+    if (size === null || start + index + size !== eofOffset) continue
+    const block = await readBgzfBlock(read, data.size, start + index)
+    if (block && block.size === size) return block.raw
+  }
+  return null
+}
+
+function bgzfDeclaredSize(block: Uint8Array, offset: number): number | null {
+  if (offset + 18 > block.byteLength || !isBgzfHeader(block.subarray(offset, offset + 18))) return null
+  const extraLength = block[offset + 10]! | (block[offset + 11]! << 8)
+  const extraEnd = offset + 12 + extraLength
+  if (extraEnd > block.byteLength) return null
+  let cursor = offset + 12
+  while (cursor + 4 <= extraEnd) {
+    const subLength = block[cursor + 2]! | (block[cursor + 3]! << 8)
+    if (
+      block[cursor] === 0x42 &&
+      block[cursor + 1] === 0x43 &&
+      subLength >= 2 &&
+      cursor + 6 <= block.byteLength
+    ) {
+      return (block[cursor + 4]! | (block[cursor + 5]! << 8)) + 1
+    }
+    cursor += 4 + subLength
+  }
+  return null
 }
 
 function wrongIndex(

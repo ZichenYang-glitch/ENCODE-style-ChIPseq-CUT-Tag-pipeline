@@ -205,6 +205,28 @@ describe('LocalTrackPicker', () => {
     expect(handed.every((track) => track.model.metadata.assemblySignature === '用户指定 GRCm38')).toBe(true)
   })
 
+  it('gives the worker a final record without LF while keeping the original index', async () => {
+    const user = userEvent.setup()
+    const onTracksChange = vi.fn()
+    render(<LocalTrackPicker assembly="hg38" onTracksChange={onTracksChange} />)
+    const built = indexedRecords({
+      lines: ['chr7\t55100900\t55101900\tFinalPeak'],
+      trailingNewline: false,
+    })
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('final.bed.gz', built.bgzf),
+      localFile('final.bed.gz.tbi', built.tabix),
+    ])
+    const row = await screen.findByTestId('local-track')
+    expect(row).toHaveTextContent('final.bed.gz')
+    const handed = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]
+    const model = handed[0]?.model
+    expect(model?.fileObj.size).toBe(built.bgzf.byteLength + 29)
+    expect(model?.files?.[0]).toBe(model?.fileObj)
+    expect(model?.files?.[1]?.name).toBe('final.bed.gz.tbi')
+    expect(model?.files?.[1]?.size).toBe(built.tabix.byteLength)
+  })
+
   it('blocks an indexed mm10 declaration opened on hg38 before it becomes a track', async () => {
     const user = userEvent.setup()
     const onTracksChange = vi.fn()
@@ -226,6 +248,26 @@ describe('LocalTrackPicker', () => {
     expect(row).toHaveTextContent('local.bed')
     const handed = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]
     expect(handed.map((track) => track.label)).toEqual(['local.bed'])
+  })
+
+  it('supplies the missing newline when an ambiguous gzip is confirmed', async () => {
+    const user = userEvent.setup()
+    const onTracksChange = vi.fn()
+    render(<LocalTrackPicker assembly="hg38" onTracksChange={onTracksChange} />)
+    const built = indexedRecords({
+      lines: ['chr7\t55100900\t55101900\tFinalPeak'],
+      trailingNewline: false,
+    })
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('sample.gz', built.bgzf),
+      localFile('sample.gz.tbi', built.tabix),
+    ])
+    const choice = await screen.findByTestId('local-track-choice')
+    await user.click(within(choice).getByRole('button', { name: /作为索引 BED/ }))
+    await waitFor(() => expect(screen.getByTestId('local-track')).toBeInTheDocument())
+    const handed = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]
+    expect(handed[0]?.model.fileObj.size).toBe(built.bgzf.byteLength + 29)
+    expect(handed[0]?.model.files?.[1]?.size).toBe(built.tabix.byteLength)
   })
 
   it('reports an assembly conflict when an ambiguous gzip is confirmed', async () => {
