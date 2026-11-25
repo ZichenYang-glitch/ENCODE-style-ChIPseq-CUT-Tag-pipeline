@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { indexedPair, signalBigWig } from './indexFixture'
+import { indexedPair, indexedRecords, signalBigWig } from './indexFixture'
 import LocalTrackPicker, { type LocalWashuTrack } from './LocalTrackPicker'
 
 function fileBytes(bytes: Uint8Array): ArrayBuffer {
@@ -152,6 +152,101 @@ describe('LocalTrackPicker', () => {
     await waitFor(() => expect(screen.getAllByTestId('local-track')).toHaveLength(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByTestId('local-track-choice')).not.toBeInTheDocument()
+  })
+
+  it('withholds conflicting indexed files and keeps the assembly the user selected', async () => {
+    const user = userEvent.setup()
+    const onTracksChange = vi.fn()
+    render(<LocalTrackPicker assembly="mm10" onTracksChange={onTracksChange} />)
+    const goodPeak = indexedRecords({
+      lines: ['chr1\t1000\t1200\tLocalPeak'],
+      trailingNewline: false,
+    })
+    const goodPairs = indexedRecords({
+      lines: ['chr1\t1000\t1200\tchr1:3000-3200,1'],
+    })
+    const foreignPeak = indexedRecords({
+      header: 'track db=mm39',
+      lines: ['chr1\t1000\t1200\tForeignPeak'],
+    })
+    const foreignPairs = indexedRecords({
+      header: 'browser genome hg38',
+      lines: ['chr1\t1000\t1200\tchr1:3000-3200,1'],
+      trailingNewline: false,
+    })
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('foreign.bed', new TextEncoder().encode('track db=mm39\nchr1\t10\t20\tForeign')),
+      localFile('local.bed', new TextEncoder().encode('chr1\t10\t20\tLocal')),
+      localFile('foreign.bed.gz', foreignPeak.bgzf),
+      localFile('foreign.bed.gz.tbi', foreignPeak.tabix),
+      localFile('local.bed.gz', goodPeak.bgzf),
+      localFile('local.bed.gz.tbi', goodPeak.tabix),
+      localFile('foreign.longrange.gz', foreignPairs.bgzf),
+      localFile('foreign.longrange.gz.tbi', foreignPairs.tabix),
+      localFile('local.longrange.gz', goodPairs.bgzf),
+      localFile('local.longrange.gz.tbi', goodPairs.tabix),
+    ])
+    await waitFor(() => expect(screen.getAllByTestId('local-track')).toHaveLength(3))
+    expect(screen.getAllByRole('alert')).toHaveLength(3)
+    for (const alert of screen.getAllByRole('alert')) {
+      expect(alert).toHaveAttribute('data-reason', 'assembly-conflict')
+    }
+    for (const row of screen.getAllByTestId('local-track')) {
+      expect(row).toHaveAttribute('data-assembly', 'mm10')
+      expect(row).toHaveTextContent('用户指定 GRCm38')
+      expect(row.textContent).not.toContain('foreign')
+    }
+    const handed = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]
+    expect(handed.map((track) => track.label)).toEqual([
+      'local.bed',
+      'local.bed.gz',
+      'local.longrange.gz',
+    ])
+    expect(handed.every((track) => track.assembly === 'mm10')).toBe(true)
+    expect(handed.every((track) => track.model.metadata.assemblySignature === '用户指定 GRCm38')).toBe(true)
+  })
+
+  it('blocks an indexed mm10 declaration opened on hg38 before it becomes a track', async () => {
+    const user = userEvent.setup()
+    const onTracksChange = vi.fn()
+    render(<LocalTrackPicker assembly="hg38" onTracksChange={onTracksChange} />)
+    const foreign = indexedRecords({
+      header: 'track db=mm10',
+      lines: ['chr7\t55103200\t55104100\tMousePeak'],
+    })
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('mouse.bed.gz', foreign.bgzf),
+      localFile('mouse.bed.gz.tbi', foreign.tabix),
+      localFile('local.bed', new TextEncoder().encode('chr7\t10\t20\tLocalPeak')),
+    ])
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveAttribute('data-reason', 'assembly-conflict')
+    const row = await screen.findByTestId('local-track')
+    expect(row).toHaveAttribute('data-assembly', 'hg38')
+    expect(row).toHaveTextContent('用户指定 GRCh38')
+    expect(row).toHaveTextContent('local.bed')
+    const handed = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]
+    expect(handed.map((track) => track.label)).toEqual(['local.bed'])
+  })
+
+  it('reports an assembly conflict when an ambiguous gzip is confirmed', async () => {
+    const user = userEvent.setup()
+    const onTracksChange = vi.fn()
+    render(<LocalTrackPicker assembly="mm10" onTracksChange={onTracksChange} />)
+    const built = indexedRecords({
+      header: 'track db=hg38',
+      lines: ['chr1\t1000\t1200\tchr1:3000-3200,1'],
+    })
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('sample.gz', built.bgzf),
+      localFile('sample.gz.tbi', built.tabix),
+    ])
+    const choice = await screen.findByTestId('local-track-choice')
+    expect(choice).toHaveAttribute('data-reason', 'ambiguous-format')
+    await user.click(within(choice).getByRole('button', { name: /作为索引 BED/ }))
+    expect(await within(choice).findByRole('alert')).toHaveAttribute('data-reason', 'assembly-conflict')
+    expect(screen.queryByTestId('local-track')).not.toBeInTheDocument()
+    for (const call of onTracksChange.mock.calls) expect(call[0]).toEqual([])
   })
 
   it('shows a recoverable error for a missing index and keeps a valid peak', async () => {

@@ -15,7 +15,7 @@ import {
   readFileSlice,
   scanPlainPeak,
 } from './sliceRead'
-import { tabixPairProblem, type IndexedLocalFormat } from './tabixPair'
+import { indexedHeaderAssembly, tabixPairProblem, type IndexedLocalFormat } from './tabixPair'
 
 export interface LocalSelectionIssue {
   id: string
@@ -121,14 +121,14 @@ export async function classifyLocalFiles(
       ? (['longrange', 'bed'] as const)
       : [fixedIndexedFormat(kind)]
     if (exact.length === 1 && formats.length === 1 && indexedNames.get(indexName) === 1) {
-      const problem = await checkIndex(item.file, exact[0], formats[0])
+      const problem = await checkIndex(item.file, exact[0], formats[0], assembly)
       if (problem) issues.push(problem)
       else ready.push(optionFor(item, exact[0], formats[0]).prepared)
       continue
     }
     const options = candidates.flatMap(index => formats.map(format => ({
       ...optionFor(item, index, format),
-      checkPair: () => checkIndex(item.file, index, format),
+      checkPair: () => checkIndex(item.file, index, format, assembly),
     })))
     choices.push({
       id: trackId(),
@@ -283,14 +283,42 @@ function readError(file: File): LocalSelectionIssue {
   return issue('unreadable-file', `浏览器无法读取 ${browserFileName(file)}。请确认文件可访问，再重新选择。`)
 }
 
-async function checkIndex(data: File, index: File, format: IndexedLocalFormat): Promise<LocalSelectionIssue | null> {
+async function checkIndex(
+  data: File,
+  index: File,
+  format: IndexedLocalFormat,
+  assembly?: string,
+): Promise<LocalSelectionIssue | null> {
   try {
     const verdict = await tabixPairProblem(data, index, format)
-    return verdict.ok ? null : issue(verdict.reason, verdict.message)
+    if (!verdict.ok) return issue(verdict.reason, verdict.message)
+    return await assemblyConflict(data, assembly)
   } catch {
     return issue('unreadable-pair',
       `无法读取 ${browserFileName(data)} 与 ${browserFileName(index)}。请重新选择可访问的数据文件和索引。`)
   }
+}
+
+async function assemblyConflict(
+  data: File,
+  assembly: string | undefined,
+): Promise<LocalSelectionIssue | null> {
+  if (!assembly) return null
+  const header = await indexedHeaderAssembly(data)
+  const name = browserFileName(data)
+  if (header.status === 'conflict') {
+    return issue(
+      'assembly-conflict',
+      `${name} 的文件头分别声明 ${header.left} 和 ${header.right}。请核对参考组装。`,
+    )
+  }
+  if (header.status === 'declared' && assemblyKey(header.name) !== assemblyKey(assembly)) {
+    return issue(
+      'assembly-conflict',
+      `${name} 的文件头声明 ${header.name}，当前选择为 ${assembly}。请选择相符的组装或文件。`,
+    )
+  }
+  return null
 }
 
 function fixedIndexedFormat(kind: FileKind): IndexedLocalFormat {
