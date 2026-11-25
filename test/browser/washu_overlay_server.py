@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from importlib import metadata
 import json
 from pathlib import Path
 import secrets
+import socket
 import sys
 
 import uvicorn
@@ -20,7 +22,6 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "test"))
 sys.path.insert(0, str(ROOT / "test" / "api"))
 
@@ -36,7 +37,7 @@ from encode_pipeline.platform.reference_profiles import (  # noqa: E402
     build_reference_profile_revision_binding,
 )
 from encode_pipeline.services.browser_tracks import BrowserTrackService  # noqa: E402
-from conftest import seed_test_authentication  # noqa: E402
+from api_test_client import ApiTestClient  # noqa: E402
 from test_routes_browser_tracks import (  # noqa: E402
     WORKFLOW_ID,
     _bind_reference,
@@ -55,13 +56,8 @@ SECOND_NAME = "second_peaks.narrowPeak"
 FOREIGN_NAME = "foreign_peaks.narrowPeak"
 
 
-class _Client:
-    def __init__(self, app) -> None:
-        self.app = app
-
-
 def _bind_distinct(
-    client: _Client,
+    client: ApiTestClient,
     run_id: str,
     *,
     assembly: str,
@@ -131,7 +127,7 @@ def _bind_distinct(
         )
 
 
-def _peak(client: _Client, run_id: str, name: str, content: bytes, assembly: str):
+def _peak(client: ApiTestClient, run_id: str, name: str, content: bytes, assembly: str):
     return _record(
         client,
         run_id,
@@ -144,7 +140,7 @@ def _peak(client: _Client, run_id: str, name: str, content: bytes, assembly: str
     )
 
 
-def _prepare(app, client: _Client, run_id: str, artifact) -> None:
+def _prepare(app, client: ApiTestClient, run_id: str, artifact) -> None:
     service = BrowserTrackService(
         run_service=app.state.run_service,
         download_service=app.state.artifact_download_service,
@@ -159,7 +155,9 @@ def _prepare(app, client: _Client, run_id: str, artifact) -> None:
     )
 
 
-def _install_invalidate(app, client: _Client, second_run_id: str, token: str) -> None:
+def _install_invalidate(
+    app, client: ApiTestClient, second_run_id: str, token: str
+) -> None:
     bumps = {"count": 0}
 
     async def invalidate(request: Request):
@@ -180,6 +178,7 @@ def _install_invalidate(app, client: _Client, second_run_id: str, token: str) ->
         content = f"chr1\t6000\t6200\tpeak-second\t{score}\t+\n".encode()
         try:
             artifact = _peak(client, second_run_id, SECOND_NAME, content, "hg38")
+            _prepare(app, client, second_run_id, artifact)
             generation = _generation(client, second_run_id)
         except Exception:
             return JSONResponse(
@@ -206,8 +205,11 @@ def build_app(database: Path, workspace: Path):
         database_url=f"sqlite:///{database}",
         workspace_root=workspace,
     )
-    seed_test_authentication(app)
-    client = _Client(app)
+    password = secrets.token_urlsafe(24)
+    app.state.account_administration_service.bootstrap_initial_administrator(
+        "overlay-reviewer", password
+    )
+    client = ApiTestClient(app)
     primary_run_id = _create_run(client)
     _bind_reference(client, primary_run_id, assembly="hg38")
     primary = _peak(client, primary_run_id, PRIMARY_NAME, PRIMARY_PEAK, "hg38")
@@ -239,12 +241,17 @@ def build_app(database: Path, workspace: Path):
 
     token = secrets.token_hex(24)
     _install_invalidate(app, client, second_run_id, token)
-    app.mount(
-        "/",
-        ManifestStaticApplication(load_packaged_frontend_assets()),
-        name="frontend",
-    )
+    assets = load_packaged_frontend_assets()
+    app.mount("/", ManifestStaticApplication(assets), name="frontend")
+    distribution = metadata.distribution("helixweave")
+    direct_url = json.loads(distribution.read_text("direct_url.json") or "{}")
     manifest = {
+        "frontend_identity": assets.manifest.identity,
+        "package_version": distribution.version,
+        "wheel_sha256": direct_url.get("archive_info", {})
+        .get("hashes", {})
+        .get("sha256"),
+        "password": password,
         "primary_run_id": primary_run_id,
         "second_run_id": second_run_id,
         "foreign_run_id": foreign_run_id,
@@ -263,16 +270,19 @@ def build_app(database: Path, workspace: Path):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
     _app, manifest = build_app(args.database, args.workspace)
-    print(
-        "WASHU_OVERLAY " + json.dumps(manifest, separators=(",", ":")),
-        flush=True,
-    )
-    uvicorn.run(_app, host="127.0.0.1", port=args.port, log_level="warning")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", args.port))
+        listener.listen()
+        manifest["port"] = listener.getsockname()[1]
+        print("WASHU_OVERLAY " + json.dumps(manifest), flush=True)
+        uvicorn.Server(uvicorn.Config(_app, log_level="warning")).run(
+            sockets=[listener]
+        )
 
 
 if __name__ == "__main__":

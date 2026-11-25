@@ -32,7 +32,6 @@ from encode_pipeline.platform.runs import RunArtifactRef, RunStatus
 from encode_pipeline.persistence.models import RunReferenceBindingRow
 from encode_pipeline.services.artifact_downloads import _descriptor_identity_text
 from api_test_client import ApiTestClient
-from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -41,6 +40,10 @@ FIXTURE = Path(__file__).parents[1] / "fixtures" / "browser" / "chr1-signal.bw"
 
 @pytest.fixture
 def client(tmp_path: Path):
+    # Standalone browser fixtures reuse the run helpers with an installed wheel.
+    # Only pytest's checkout-backed client needs its conftest bootstrap.
+    from conftest import seed_test_authentication
+
     app = create_app(
         database_url=f"sqlite:///{tmp_path / 'platform.db'}",
         workspace_root=tmp_path / "workspaces",

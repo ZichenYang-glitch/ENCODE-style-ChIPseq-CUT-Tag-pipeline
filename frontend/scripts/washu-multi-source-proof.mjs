@@ -1,888 +1,468 @@
+// Run against a packaged HelixWeave frontend using HELIXWEAVE_PYTHON.
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import net from 'node:net';
+import { once } from 'node:events';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import zlib from 'node:zlib';
-import { chromium } from '@playwright/test';
+import { gunzipSync } from 'node:zlib';
+import { chromium, expect } from '@playwright/test';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const python =
-  process.env.HELIXWEAVE_PYTHON ?? join(root, '.local/envs/ci-fast/bin/python');
 const work = process.env.WASHU_OVERLAY_DIR
-  ? (mkdirSync(process.env.WASHU_OVERLAY_DIR, { recursive: true }), process.env.WASHU_OVERLAY_DIR)
-  : mkdtempSync(join(tmpdir(), 'helixweave-washu-overlay-'));
-const localBed = join(root, 'test/fixtures/browser/overlay-peak-local.bed');
-const evidencePath = join(work, 'evidence.json');
-const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
-const navigatedRegion = 'chr1:5200-6400';
-const sessionCookie = 'a'.repeat(43);
-const csrfCookie = 'b'.repeat(43);
-const children = [];
-const reads = [];
-const posts = [];
-const external = [];
-const consoleMessages = [];
+  ? resolve(process.env.WASHU_OVERLAY_DIR)
+  : await mkdtemp(join(tmpdir(), 'helixweave-overlay-'));
+await mkdir(work, { recursive: true });
+const fixture = await mkdtemp(join(work, 'fixture-'));
+const workspace = join(fixture, 'workspace');
+// The control waits for the two surviving tracks to paint before editing the
+// coordinates. The default exercises the same enabled input immediately after removal.
+const waitForRemovalDraw = process.argv.includes('--wait-for-removal-draw');
+const evidence = {
+  source: 'synthetic',
+  navigationAfterRemoval: waitForRemovalDraw ? 'after redraw' : 'immediate',
+};
+const expectedPeaks = {
+  'peak-primary': [5500, 5700, 61],
+  'peak-local': [5800, 6000, null],
+  'peak-second': [6000, 6200, 73],
+};
+const remaining = ['peak-primary', 'peak-local'];
+const allPeaks = [...remaining, 'peak-second'];
+const timeout = 20_000;
+const checkoutPython = join(root, '.local/envs/ci-fast/bin/python');
+const python = process.env.HELIXWEAVE_PYTHON ?? (existsSync(checkoutPython) ? checkoutPython : 'python3');
+const server = spawn(python, [
+  '-I', 'test/browser/washu_overlay_server.py',
+  '--workspace', workspace, '--database', join(fixture, 'overlay.sqlite'),
+], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
+const serverExit = once(server, 'exit');
+const lines = createInterface({ input: server.stdout });
 let browser;
 let page;
-let port = 0;
-let manifest;
-let workspace = '';
-let stage = 'open';
+let frame;
+let network;
 
-const evidence = {
-  window: null,
-  api: null,
-  protection: null,
-  tracks: null,
-  removal: null,
-  expiry: null,
-  foreign: null,
-  network: null,
-};
-
-function log(line) {
-  writeFileSync(join(work, 'proof.log'), `${line}\n`, { flag: 'a' });
+function decodedBody(bytes) {
+  return bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes;
 }
 
-function writeEvidence() {
-  writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-}
-
-function start(command, args) {
-  const child = spawn(command, args, {
-    cwd: root,
-    env: { ...process.env, PYTHONPATH: join(root, 'src') },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
-  children.push(child);
-  return child;
-}
-
-function waitFor(stream, pattern, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    let text = '';
-    const timer = setTimeout(() => {
-      reject(new Error(`timed out waiting for ${pattern}\n${text.slice(-2000)}`));
-    }, timeoutMs);
-    stream.on('data', (chunk) => {
-      text += chunk.toString();
-      const match = text.match(pattern);
-      if (match) {
-        clearTimeout(timer);
-        resolve(match);
+function monitorBrowser(context, origin, localFile) {
+  const requests = [];
+  const reads = [];
+  const forbidden = [];
+  const policyReports = [];
+  const pageErrors = [];
+  context.on('page', tab => {
+    tab.on('pageerror', error => pageErrors.push(error.message));
+    tab.on('console', message => {
+      if (message.type() === 'error' && /minified React error|maximum update depth exceeded|Genome View Error/i.test(message.text())) {
+        pageErrors.push(message.text());
       }
     });
   });
-}
-
-function reserve(startPort) {
-  return new Promise((resolve, reject) => {
-    const attempt = (candidate) => {
-      if (candidate > startPort + 30) {
-        reject(new Error(`no free port from ${startPort}`));
-        return;
-      }
-      const server = net.createServer();
-      server.once('error', () => attempt(candidate + 1));
-      server.listen(candidate, '127.0.0.1', () => {
-        server.close(() => resolve(candidate));
-      });
-    };
-    attempt(startPort);
-  });
-}
-
-function portFree(target) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.listen(target, '127.0.0.1', () => {
-      server.close(() => resolve(true));
-    });
-  });
-}
-
-async function waitUntilListening() {
-  const started = Date.now();
-  let lastError = 'fixture server did not accept connections';
-  while (Date.now() - started < 20_000) {
-    try {
-      await fetch(`http://127.0.0.1:${port}/viewer.html`);
-      return;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(lastError);
-}
-
-async function stopAll() {
-  if (browser) {
-    await browser.close().catch(() => {});
-    browser = undefined;
-  }
-  for (const child of children) {
-    try {
-      process.kill(-child.pid, 'SIGTERM');
-    } catch {
-      child.kill('SIGTERM');
-    }
-  }
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  for (const child of children) {
-    try {
-      process.kill(-child.pid, 'SIGKILL');
-    } catch {
-      // The process group has already exited.
-    }
-  }
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  if (port && !(await portFree(port))) {
-    throw new Error(`proof port still listening: ${port}`);
-  }
-}
-
-function cookieHeader() {
-  return `helixweave_session=${sessionCookie}; helixweave_csrf=${csrfCookie}`;
-}
-
-async function apiGet(path, { cookie = true } = {}) {
-  const headers = {};
-  if (cookie) headers.cookie = cookieHeader();
-  const response = await fetch(`http://127.0.0.1:${port}${path}`, { headers });
-  const body = Buffer.from(await response.arrayBuffer());
-  return { status: response.status, text: body.toString('utf8'), body };
-}
-
-function bytePath(runId, generation, revision, artifactId = manifest.artifact_id) {
-  return `/api/v1/runs/${runId}/browser-tracks/${artifactId}/bytes/${generation}/${revision}`;
-}
-
-function assertClosed(response, label) {
-  if (response.text.includes(workspace)) {
-    throw new Error(`${label} leaked the workspace path`);
-  }
-}
-
-function inflateBgzf(buffer) {
-  const parts = [];
-  let offset = 0;
-  while (offset + 18 <= buffer.length) {
-    if (buffer[offset] !== 0x1f || buffer[offset + 1] !== 0x8b) break;
-    const extraLength = buffer.readUInt16LE(offset + 10);
-    let blockSize = null;
-    let cursor = offset + 12;
-    const extraEnd = cursor + extraLength;
-    while (cursor + 4 <= extraEnd && cursor + 4 <= buffer.length) {
-      const subfieldLength = buffer.readUInt16LE(cursor + 2);
-      if (buffer[cursor] === 66 && buffer[cursor + 1] === 67 && subfieldLength === 2) {
-        blockSize = buffer.readUInt16LE(cursor + 4);
-      }
-      cursor += 4 + subfieldLength;
-    }
-    if (blockSize == null) break;
-    const blockLength = blockSize + 1;
-    if (offset + blockLength > buffer.length) break;
-    parts.push(zlib.gunzipSync(buffer.subarray(offset, offset + blockLength)));
-    offset += blockLength;
-  }
-  return Buffer.concat(parts);
-}
-
-function parseTrackUrl(url) {
-  const match = url.match(
-    /\/runs\/([^/]+)\/browser-tracks\/([^/]+)\/bytes\/([^/]+)\/([^/?]+)/,
-  );
-  if (!match) return null;
-  return {
-    runId: match[1],
-    artifactId: match[2],
-    generation: match[3],
-    revision: decodeURIComponent(match[4].replace(/\.tbi$/, '')),
-    index: match[4].includes('.tbi') || url.includes('.tbi'),
-  };
-}
-
-function isExternal(url) {
-  const parsed = new URL(url);
-  if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
-  return parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost';
-}
-
-function runArticle(frame, runId) {
-  return frame.locator(`[data-testid="browser-run"][data-run-id="${runId}"]`);
-}
-
-async function readHub(frame) {
-  return frame.evaluate(() => {
-    const root = document.querySelector('[data-testid="washu-genome-viewer"]');
-    if (!(root instanceof HTMLElement)) return null;
-    const key = Object.getOwnPropertyNames(root).find((name) => name.startsWith('__reactFiber'));
-    const fiber = key ? root[key] : null;
-    let models = [];
-    const regions = [];
-    const drawn = [];
-    const stack = fiber ? [fiber] : [];
-    let guard = 0;
-    while (stack.length && guard < 12000) {
-      guard += 1;
-      const node = stack.pop();
-      const props = node?.memoizedProps;
-      if (props && Array.isArray(props.tracks)) {
-        const next = props.tracks.map((track) => ({
-          type: typeof track?.type === 'string' ? track.type : '',
-          name: typeof track?.name === 'string' ? track.name : '',
-          url: typeof track?.url === 'string' ? track.url : '',
-          file: Boolean(track?.fileObj || (Array.isArray(track?.files) && track.files.length)),
-        }));
-        if (next.some((track) => track.type === 'ruler') && next.length >= models.length) {
-          models = next;
-        }
-      }
-      const region = props?.viewRegion;
-      if (region && typeof region.getWidth === 'function') {
-        let start = null;
-        let end = null;
-        try {
-          const coords = region.getContextCoordinates();
-          start = coords.start;
-          end = coords.end;
-        } catch {
-          start = null;
-        }
-        regions.push({ start, end });
-      }
-      if (props) {
-        for (const bucket of [props.data, props.items, props.features, props.placements, props.arrangedData]) {
-          if (!Array.isArray(bucket)) continue;
-          for (const item of bucket) {
-            const feature = item?.feature;
-            if (feature?.chr === 'chr1' && item.placedFeatures?.length && item.xSpan?.end > item.xSpan?.start) {
-              drawn.push(`${feature.chr}:${feature.start}-${feature.end} ${feature[3] ?? ''}`);
-            }
-          }
-        }
-      }
-      if (node?.child) stack.push(node.child);
-      if (node?.sibling) stack.push(node.sibling);
-    }
-    return {
-      viewers: document.querySelectorAll('[data-testid="washu-genome-viewer"]').length,
-      models,
-      regions,
-      drawn,
-    };
-  });
-}
-
-function showsRegion(regions, displayRegion) {
-  const [, start, end] = displayRegion.match(/^chr1:(\d+)-(\d+)$/);
-  return regions.some(
-    (region) =>
-      region.start === Number(start) - 1 && region.end === Number(end),
-  );
-}
-
-async function waitForHub(frame, ready, timeoutMs) {
-  const started = Date.now();
-  let last = null;
-  while (Date.now() - started < timeoutMs) {
-    last = await readHub(frame);
-    if (last && ready(last)) return last;
-    await page.waitForTimeout(200);
-  }
-  throw new Error(`genome hub did not reach the expected tracks\n${JSON.stringify(last)}`);
-}
-
-function dataReads(runId, since = 0) {
-  return reads.slice(since).filter((read) => {
-    const parsed = parseTrackUrl(read.url);
-    return (
-      parsed &&
-      parsed.runId === runId &&
-      parsed.artifactId === manifest.artifact_id &&
-      !parsed.index &&
-      !read.preflight &&
-      (read.status === 200 || read.status === 206) &&
-      read.body.length > 1
-    );
-  });
-}
-
-async function protectionChecks() {
-  const primarySession = await apiGet(`/api/v1/runs/${manifest.primary_run_id}/browser-session`);
-  const secondSession = await apiGet(`/api/v1/runs/${manifest.second_run_id}/browser-session`);
-  const foreignSession = await apiGet(`/api/v1/runs/${manifest.foreign_run_id}/browser-session`);
-  for (const [label, response] of [
-    ['primary session', primarySession],
-    ['second session', secondSession],
-    ['foreign session', foreignSession],
-  ]) {
-    if (response.status !== 200) throw new Error(`${label} returned ${response.status}`);
-    assertClosed(response, label);
-  }
-  const primary = JSON.parse(primarySession.text);
-  const second = JSON.parse(secondSession.text);
-  const foreign = JSON.parse(foreignSession.text);
-  if (primary.reference.viewer_scaffold !== 'hg38' || second.reference.viewer_scaffold !== 'hg38') {
-    throw new Error('the two authorized runs are not both on the hg38 scaffold');
-  }
-  if (primary.reference.assembly_label !== 'hg38' || second.reference.assembly_label !== 'hg38') {
-    throw new Error('the two authorized runs do not both declare hg38');
-  }
-  if (
-    !primary.reference.identity_sha256 ||
-    primary.reference.identity_sha256 === second.reference.identity_sha256
-  ) {
-    throw new Error('the second run does not have its own reference identity');
-  }
-  if (foreign.reference.viewer_scaffold !== 'mm10' || foreign.reference.assembly_label !== 'mm10') {
-    throw new Error(`foreign run scaffold was ${foreign.reference.viewer_scaffold}`);
-  }
-  const history = await apiGet('/api/v1/runs?limit=100');
-  assertClosed(history, 'run history');
-  if (history.status !== 200) throw new Error(`run history returned ${history.status}`);
-  const listed = new Set(JSON.parse(history.text).runs.map((run) => run.run_id));
-  for (const runId of [manifest.primary_run_id, manifest.second_run_id, manifest.foreign_run_id]) {
-    if (!listed.has(runId)) throw new Error(`authorized run ${runId} was not listed`);
-  }
-  for (const [label, body, generation, revision] of [
-    ['primary', primary, manifest.primary_generation, manifest.primary_revision],
-    ['second', second, manifest.second_generation, manifest.second_revision],
-  ]) {
-    const track = body.tracks.find((item) => item.artifact_id === manifest.artifact_id);
-    if (!track || track.preparation !== 'ready' || track.revision !== revision) {
-      throw new Error(`${label} peak was not ready at the seeded revision`);
-    }
-    if (body.artifact_generation !== generation) {
-      throw new Error(`${label} generation did not match the seed`);
-    }
-  }
-  const foreignTrack = foreign.tracks.find((item) => item.artifact_id === manifest.artifact_id);
-  if (!foreignTrack) throw new Error('foreign run did not publish the shared artifact id');
-
-  const anonymous = await apiGet(
-    bytePath(manifest.primary_run_id, manifest.primary_generation, manifest.primary_revision),
-    { cookie: false },
-  );
-  assertClosed(anonymous, 'anonymous byte read');
-  if (anonymous.status !== 401 || anonymous.text.includes('peak-primary')) {
-    throw new Error(`anonymous byte read returned ${anonymous.status}`);
-  }
-  const missing = await apiGet(
-    bytePath(
-      manifest.primary_run_id,
-      manifest.primary_generation,
-      manifest.primary_revision,
-      'missing-artifact',
-    ),
-  );
-  assertClosed(missing, 'missing artifact');
-  if (missing.status !== 404 || !missing.text.includes('RUN_ARTIFACT_NOT_FOUND')) {
-    throw new Error(`missing artifact returned ${missing.status} ${missing.text.slice(0, 180)}`);
-  }
-  const staleRevision = await apiGet(
-    bytePath(
-      manifest.primary_run_id,
-      manifest.primary_generation,
-      `artifactrev-${'d'.repeat(64)}`,
-    ),
-  );
-  assertClosed(staleRevision, 'stale revision');
-  if (staleRevision.status !== 409 || !staleRevision.text.includes('revision_changed')) {
-    throw new Error(`stale revision returned ${staleRevision.status} ${staleRevision.text.slice(0, 180)}`);
-  }
-  const staleGeneration = await apiGet(
-    bytePath(
-      manifest.primary_run_id,
-      `artifactgen-${'e'.repeat(64)}`,
-      manifest.primary_revision,
-    ),
-  );
-  assertClosed(staleGeneration, 'stale generation');
-  if (staleGeneration.status !== 409 || !staleGeneration.text.includes('generation')) {
-    throw new Error(`stale generation returned ${staleGeneration.status}`);
-  }
-  evidence.api = {
-    primary_identity: primary.reference.identity_sha256,
-    second_identity: second.reference.identity_sha256,
-    foreign_identity: foreign.reference.identity_sha256,
-    primary_revision_id: primary.reference.revision_id,
-    second_revision_id: second.reference.revision_id,
-    scaffolds: {
-      primary: primary.reference.viewer_scaffold,
-      second: second.reference.viewer_scaffold,
-      foreign: foreign.reference.viewer_scaffold,
-    },
-    artifact_id: manifest.artifact_id,
-    primary_generation: manifest.primary_generation,
-    second_generation: manifest.second_generation,
-  };
-  evidence.protection = {
-    anonymous: anonymous.status,
-    missing_artifact: missing.status,
-    revision_changed: staleRevision.status,
-    generation_rejected: staleGeneration.status,
-    workspace_leaked: false,
-  };
-}
-
-function inflatedText(runId) {
-  return Buffer.concat(dataReads(runId).map((read) => inflateBgzf(read.body))).toString('utf8');
-}
-
-function sameOriginRead(runId, generation, revision) {
-  const hits = reads.filter((read) => {
-    const parsed = parseTrackUrl(read.url);
-    if (!parsed || parsed.runId !== runId) return false;
-    const url = new URL(read.url);
-    return (
-      url.hostname === '127.0.0.1' &&
-      url.pathname.startsWith('/api/') &&
-      parsed.generation === generation &&
-      parsed.revision === revision &&
-      (read.status === 200 || read.status === 206)
-    );
-  });
-  const data = hits.find((read) => !parseTrackUrl(read.url).index && !read.preflight && read.body.length > 1);
-  const index = hits.find((read) => parseTrackUrl(read.url).index && !read.preflight && read.body.length > 1);
-  if (!data || !index) return null;
-  return { data: data.url, index: index.url };
-}
-
-async function main() {
-  if (!existsSync(localBed)) throw new Error('local BED fixture is missing');
-  const localText = readFileSync(localBed, 'utf8');
-  if (!localText.includes('peak-local') || !localText.includes('5800\t6000')) {
-    throw new Error('local BED fixture is not the synthetic peak-local interval');
-  }
-  port = await reserve(18940);
-  workspace = join(work, 'workspace');
-  mkdirSync(workspace, { recursive: true });
-  const server = start(python, [
-    'test/browser/washu_overlay_server.py',
-    '--port',
-    String(port),
-    '--database',
-    join(work, 'overlay.sqlite'),
-    '--workspace',
-    workspace,
-  ]);
-  server.stderr.on('data', (chunk) => {
-    writeFileSync(join(work, 'server.log'), chunk.toString(), { flag: 'a' });
-  });
-  const ready = await waitFor(server.stdout, /WASHU_OVERLAY (\{.*\})/, 90_000);
-  manifest = JSON.parse(ready[1]);
-  evidence.window = manifest.window;
-  await waitUntilListening();
-  await protectionChecks();
-  writeEvidence();
-
-  browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  await context.addCookies([
-    {
-      name: 'helixweave_session',
-      value: sessionCookie,
-      domain: '127.0.0.1',
-      path: '/',
-      httpOnly: true,
-      sameSite: 'Lax',
-    },
-    {
-      name: 'helixweave_csrf',
-      value: csrfCookie,
-      domain: '127.0.0.1',
-      path: '/',
-      httpOnly: false,
-      sameSite: 'Lax',
-    },
-  ]);
-  page = await context.newPage();
-  page.on('console', (message) => {
-    consoleMessages.push(`${message.type()}: [${stage}] ${message.text()}`);
-  });
-  page.on('pageerror', (error) => {
-    consoleMessages.push(`pageerror: ${error.message}`);
-  });
-  page.on('request', (request) => {
-    const url = request.url();
-    if (isExternal(url)) external.push(`${request.method()} ${url}`);
-    if (request.method() !== 'GET' && request.method() !== 'HEAD') {
-      posts.push({ method: request.method(), url, body: request.postData() ?? '' });
+  context.on('request', request => {
+    const url = new URL(request.url());
+    if (url.protocol === 'data:' || url.protocol === 'blob:') return;
+    requests.push(url);
+    const body = request.postDataBuffer();
+    const payload = [decodeURIComponent(url.href), body?.toString('utf8'), ...Object.values(request.headers())].join('\n');
+    const localContent = payload.includes(localFile) || payload.includes('peak-local') || payload.includes('5800\t6000');
+    const report = url.origin === origin && url.pathname === '/csp-report' && request.method() === 'POST';
+    if (report) policyReports.push(JSON.parse(body.toString('utf8'))['csp-report']?.['blocked-uri']);
+    if (url.origin !== origin || localContent || url.pathname.startsWith('/__washu_overlay__/') ||
+        (!report && (body !== null || !['GET', 'HEAD'].includes(request.method())))) {
+      forbidden.push({ method: request.method(), path: url.origin + url.pathname, localContent });
     }
   });
-  page.on('response', (response) => {
-    const url = response.url();
-    if (!url.includes('/bytes/')) return;
-    const range = response.request().headers().range ?? '';
+  context.on('response', response => {
+    const url = new URL(response.url());
+    if (!url.pathname.includes('/bytes/')) return;
     const entry = {
-      url,
-      range,
-      status: response.status(),
-      body: Buffer.alloc(0),
-      preflight: range === 'bytes=0-0' || range === 'bytes=0-1',
+      path: url.pathname, origin: url.origin, status: response.status(),
+      range: response.request().headers().range ?? null, body: null,
     };
     reads.push(entry);
-    void response.body().then((buf) => {
-      entry.body = Buffer.from(buf);
-    }).catch(() => {});
+    // A remount can abort an in-flight read. Only a completed response can prove a read.
+    void response.body().then(bytes => { entry.body = bytes; }).catch(() => {});
   });
+  return { origin, requests, reads, forbidden, policyReports, pageErrors };
+}
 
-  const navigation = await page.goto(
-    `http://127.0.0.1:${port}/runs/${manifest.primary_run_id}?view=artifacts`,
-  );
-  const documentPolicy = navigation?.headers()['content-security-policy'] ?? '';
-  await page.getByRole('button', { name: 'View tracks in genome browser' }).click();
-  await page.getByTitle('Genome browser').waitFor();
-  let viewerFrame;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    viewerFrame = page.frames().find((frame) => frame.url().includes('/viewer.html'));
-    if (viewerFrame) break;
-    await page.waitForTimeout(100);
+function networkReceipt(log) {
+  return {
+    httpRequests: log.requests.length, byteRequests: log.requests.filter(url => url.pathname.includes('/bytes/')).length,
+    externalRequests: log.requests.filter(url => url.origin !== log.origin).length,
+    localUploads: log.forbidden.filter(item => item.localContent).length,
+    forbidden: log.forbidden, cspReports: log.policyReports, pageErrors: log.pageErrors,
+  };
+}
+
+async function platformRead(network, origin, track, peak, since = 0) {
+  async function completed(path) {
+    let hit;
+    await expect.poll(() => {
+      hit = network.reads.slice(since).find(read => read.origin === origin && read.path === path &&
+        [200, 206].includes(read.status) && read.body?.length > 2);
+      return Boolean(hit);
+    }, { timeout, message: 'Expected a completed browser read of ' + path }).toBe(true);
+    return hit;
   }
-  if (!viewerFrame) throw new Error('viewer frame did not load');
-  const viewerResponse = await page.request.get(viewerFrame.url());
-  const viewerPolicy = viewerResponse.headers()['content-security-policy'] ?? '';
-  const viewerFrameOptions = viewerResponse.headers()['x-frame-options'] ?? '';
+  const data = await completed(track.content_path);
+  const index = await completed(track.index_path);
+  const [start, end, score] = expectedPeaks[peak];
+  const row = ['chr1', start, end, peak, score, '+'].join('\t');
+  assert(decodedBody(data.body).toString('utf8').split('\n').includes(row));
+  assert.equal(decodedBody(index.body).subarray(0, 4).toString('latin1'), 'TBI\x01');
+  const receipt = ({ path, status, range, body }) => ({ path, status, range, bytes: body.length });
+  return { origin, data: receipt(data), index: receipt(index), row };
+}
+
+// GenomeHub 62 exposes its visible genomic interval and BED placements in its
+// committed React tree. Pair each placed feature with the rectangle actually in the SVG.
+function renderedHub(host) {
+  function* descendants(node) {
+    if (!node) return;
+    yield node;
+    for (let child = node.child; child; child = child.sibling) yield* descendants(child);
+  }
+  const key = Object.keys(host).find(name => name.startsWith('__reactFiber'));
+  if (!key) return null;
+  let rootFiber = host[key];
+  while (rootFiber.return) rootFiber = rootFiber.return;
+  let current;
+  for (const node of descendants(rootFiber.stateNode.current)) {
+    if (node.stateNode === host) { current = node; break; }
+  }
+  const rects = [...host.querySelectorAll('svg rect')];
+  let models;
+  let window;
+  let ruler;
+  const peaks = {};
+  for (const node of descendants(current)) {
+    const props = node.memoizedProps;
+    if (!props) continue;
+    if (props.genomeName && props.storeConfig && Array.isArray(props.tracks)) {
+      models = props.tracks.map(track => ({
+        name: track.name, type: track.type, url: track.url ?? '', file: track.fileObj?.name ?? null,
+      }));
+    }
+    const intervals = props.userViewRegion?.getGenomeIntervals?.();
+    if (intervals?.length === 1) {
+      const { chr, start, end } = intervals[0];
+      window = { chr, start, end };
+    }
+    if (props.trackModel?.type === 'ruler' && props.windowWidth > 0) {
+      const selected = props.selectedRegion?.getGenomeIntervals?.();
+      if (selected?.length === 1) {
+        const { chr, start, end } = selected[0];
+        ruler = { chr, start, end, pixels: props.windowWidth };
+      }
+    }
+    if (!Array.isArray(props.placements)) continue;
+    for (const { feature, xSpan, placedFeatures } of props.placements) {
+      if (!feature || !placedFeatures?.length || !(xSpan?.end > xSpan.start)) continue;
+      const mark = rects.find(rect => Math.abs(rect.x.baseVal.value - xSpan.start) < 0.01 &&
+        Math.abs(rect.width.baseVal.value - (xSpan.end - xSpan.start)) < 0.01);
+      if (!mark) continue;
+      const box = mark.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0 || !mark.checkVisibility()) continue;
+      peaks[feature[3]] = {
+        chr: feature.chr, start: feature.start, end: feature.end,
+        score: feature[4] == null ? null : Number(feature[4]),
+        svgWidth: box.width, svgHeight: box.height,
+      };
+    }
+  }
+  return { window, ruler, models, peaks };
+}
+
+async function expectDrawing(region, names, urls, localFile) {
+  const viewer = frame.getByTestId('washu-genome-viewer');
+  await expect(viewer).toHaveCount(1, { timeout });
+  await viewer.scrollIntoViewIfNeeded();
+  const [first, last] = region.split(':')[1].split('-').map(Number);
+  let state;
+  try {
+    await expect.poll(async () => {
+      state = await viewer.evaluate(renderedHub);
+      if (state?.window?.chr !== 'chr1' || state.window.start !== first - 1 ||
+          state.window.end !== last || state.models?.length !== names.length + 1) return false;
+      if (state.ruler?.chr !== 'chr1' || state.ruler.start !== first - 1 || state.ruler.end !== last) return false;
+      const local = state.models.some(track => track.type === 'bed' && track.file === localFile && track.url === '');
+      if (!local || !state.models.some(track => track.type === 'ruler') ||
+          !urls.every(url => state.models.some(track => track.type === 'bed' && track.url === url))) return false;
+      if (Object.keys(state.peaks).length !== names.length) return false;
+      return names.every(name => {
+        const peak = state.peaks[name];
+        const [start, end, score] = expectedPeaks[name];
+        const width = (end - start) * state.ruler.pixels / (state.ruler.end - state.ruler.start);
+        return peak?.chr === 'chr1' && peak.start === start && peak.end === end &&
+          peak.score === score && Math.abs(peak.svgWidth - width) < 1;
+      });
+    }, { timeout }).toBe(true);
+  } catch (error) {
+    evidence.drawingFailure = { requested: region, expectedPeaks: names, observed: state };
+    await viewer.screenshot({ path: join(work, 'overlay-window-mismatch.png'), timeout: 2000 }).catch(() => {});
+    throw new Error('Expected ' + names.join(', ') + ' at ' + region + '. Observed ' + JSON.stringify(state), { cause: error });
+  }
+  return { viewerCount: 1, ...state };
+}
+
+async function main(manifest) {
+  const origin = 'http://127.0.0.1:' + manifest.port;
+  browser = await chromium.launch();
+  const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+  const login = await context.request.post(origin + '/api/v1/auth/login', {
+    headers: { Origin: origin }, data: { username: 'overlay-reviewer', password: manifest.password },
+  });
+  assert.equal(login.status(), 200);
+  evidence.build = {
+    chromium: browser.version(), package: manifest.package_version,
+    wheelSha256: manifest.wheel_sha256, frontendIdentity: manifest.frontend_identity,
+  };
+  const api = context.request;
+  const primaryId = manifest.primary_run_id;
+  const secondId = manifest.second_run_id;
+  const foreignId = manifest.foreign_run_id;
+  const ids = [primaryId, secondId, foreignId];
+  const history = await api.get(origin + '/api/v1/runs?limit=100');
+  assert.equal(history.status(), 200);
+  assert(!(await history.text()).includes(workspace));
+  const listed = (await history.json()).runs.map(run => run.run_id);
+  const tracks = [];
+  for (const [index, id] of ids.entries()) {
+    assert(listed.includes(id));
+    const session = await api.get(origin + '/api/v1/runs/' + id + '/browser-session');
+    assert.equal(session.status(), 200);
+    assert(!(await session.text()).includes(workspace));
+    const data = await session.json();
+    const scaffold = index === 2 ? 'mm10' : 'hg38';
+    assert.equal(data.reference.viewer_scaffold, scaffold);
+    assert.equal(data.reference.assembly_label, scaffold);
+    const track = data.tracks.find(item => item.artifact_id === manifest.artifact_id);
+    assert.equal(track?.preparation, 'ready');
+    const base = '/api/v1/runs/' + id + '/browser-tracks/' + manifest.artifact_id + '/bytes/';
+    assert.equal(track.content_path, base + data.artifact_generation + '/' + track.revision);
+    assert.equal(track.index_path, track.content_path + '.tbi');
+    tracks.push({
+      ...track, run: id, generation: data.artifact_generation,
+      referenceId: data.reference.revision_id, identity: data.reference.identity_sha256,
+    });
+  }
+  const [primary, second] = tracks;
+  assert(primary.identity && second.identity && primary.identity !== second.identity);
+  assert.equal(primary.generation, manifest.primary_generation);
+  assert.equal(primary.revision, manifest.primary_revision);
+  assert.equal(second.generation, manifest.second_generation);
+  assert.equal(second.revision, manifest.second_revision);
+  const anonymousRanges = [];
+  for (const track of [primary, second]) {
+    for (const path of [track.content_path, track.index_path]) {
+      const denial = await fetch(origin + path, { headers: { Range: 'bytes=0-3' } });
+      assert.equal(denial.status, 401);
+      const text = await denial.text();
+      assert(!text.includes(workspace) && !/peak-primary|peak-second/.test(text));
+      anonymousRanges.push({ path, status: denial.status });
+    }
+  }
+  async function rejected(path, status, reason) {
+    const res = await api.get(origin + path, { headers: { Range: 'bytes=0-3' } });
+    assert.equal(res.status(), status);
+    const text = await res.text();
+    assert(text.includes(reason) && !text.includes(workspace));
+    return { status, reason };
+  }
   evidence.protection = {
-    ...evidence.protection,
-    document_policy: documentPolicy,
-    viewer_policy: viewerPolicy,
-    frame_options: viewerFrameOptions,
+    login: login.status(), anonymousRanges,
+    missing: await rejected(primary.content_path.replace('/' + manifest.artifact_id + '/', '/missing-artifact/'), 404, 'RUN_ARTIFACT_NOT_FOUND'),
+    staleRevision: await rejected(primary.content_path.replace(primary.revision, 'artifactrev-' + 'd'.repeat(64)), 409, 'revision_changed'),
+    staleGeneration: await rejected(primary.content_path.replace(primary.generation, 'artifactgen-' + 'e'.repeat(64)), 409, 'generation_changed'),
   };
-  if (
-    !documentPolicy.startsWith(enforcedPolicy) ||
-    !viewerPolicy.startsWith(enforcedPolicy) ||
-    !viewerPolicy.includes("frame-ancestors 'self'") ||
-    viewerFrameOptions !== 'SAMEORIGIN'
-  ) {
-    throw new Error(
-      `viewer protection differed from the packaged contract ${JSON.stringify(evidence.protection)}`,
-    );
-  }
-  const overlayReady = await viewerFrame
-    .locator('[data-testid="browser-run"]')
-    .waitFor({ timeout: 20_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!overlayReady) {
-    throw new Error(
-      'WASHU_OVERLAY ui-not-ready: the packaged page has no browser-run selector yet',
-    );
-  }
-  const primaryBox = runArticle(viewerFrame, manifest.primary_run_id).getByRole('checkbox');
-  await primaryBox.waitFor({ timeout: 20_000 });
-  if ((await primaryBox.isChecked()) || reads.length !== 0) {
-    throw new Error(`opened with a selected track or ${reads.length} byte reads`);
-  }
-  const secondBoxEarly = runArticle(viewerFrame, manifest.second_run_id);
-  if (await secondBoxEarly.count()) {
-    throw new Error('the second run was open before it was added');
-  }
 
-  stage = 'select primary';
+  network = monitorBrowser(context, origin, manifest.local_bed);
+  // Record and stop any attempted off-origin transfer before contacting another server.
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url());
+    return url.origin === origin || ['blob:', 'data:'].includes(url.protocol) ? route.continue() : route.abort();
+  });
+  page = await context.newPage();
+  const nav = await page.goto(origin + '/runs/' + primaryId + '?view=artifacts');
+  const frameResponse = page.waitForResponse(r => new URL(r.url()).pathname === '/viewer.html' && r.request().isNavigationRequest());
+  await page.getByRole('button', { name: 'View tracks in genome browser' }).click();
+  const viewerDoc = await frameResponse;
+  frame = viewerDoc.frame();
+  const documentPolicy = nav.headers()['content-security-policy'];
+  const viewerPolicy = viewerDoc.headers()['content-security-policy'];
+  const frameOptions = viewerDoc.headers()['x-frame-options'];
+  for (const policy of [documentPolicy, viewerPolicy]) {
+    assert(policy.startsWith("connect-src 'self'; report-uri /csp-report"));
+  }
+  assert(viewerPolicy.includes("frame-ancestors 'self'"));
+  assert.equal(frameOptions, 'SAMEORIGIN');
+  Object.assign(evidence.protection, { documentPolicy, viewerPolicy, frameOptions });
+
+  const article = id => frame.getByTestId('browser-run').and(frame.getByRole('article', { name: 'Run ' + id, exact: true }));
+  const primaryBox = article(primaryId).getByRole('checkbox');
+  const region = frame.getByRole('textbox', { name: 'Genomic region' });
+  const picker = frame.getByRole('combobox', { name: 'Authorized runs' });
+  async function addRun(id) {
+    await picker.selectOption(id);
+    await frame.getByRole('button', { name: 'Add run', exact: true }).click();
+  }
+  await expect(primaryBox).toBeEnabled({ timeout });
+  // Include the initial delayed region settling in the zero-read observation.
+  await page.waitForTimeout(1250);
+  await expect(primaryBox).not.toBeChecked();
+  await expect(frame.getByTestId('browser-run')).toHaveCount(1);
+  await expect(frame.getByTestId('washu-genome-viewer')).toHaveCount(0);
+  evidence.initial = {
+    checked: await frame.getByRole('checkbox', { checked: true }).count(),
+    byteRequests: network.requests.filter(url => url.pathname.includes('/bytes/')).length,
+    summaryRequests: network.requests.filter(url => url.pathname.includes('/region-summary/')).length,
+  };
+  assert.deepEqual(evidence.initial, { checked: 0, byteRequests: 0, summaryRequests: 0 });
+
   await primaryBox.check();
-  await viewerFrame.locator('[data-testid="local-track-file-input"]').setInputFiles(localBed);
-  await viewerFrame
-    .locator('[data-testid="local-browser-track"][data-source="local"]')
-    .waitFor({ timeout: 20_000 });
-  await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
-  await viewerFrame.getByRole('button', { name: 'Add run' }).click();
-  const secondArticle = runArticle(viewerFrame, manifest.second_run_id);
-  await secondArticle.waitFor({ timeout: 20_000 });
-  await secondArticle.getByRole('checkbox').waitFor({ timeout: 20_000 });
-  const secondIdentity = await secondArticle.getAttribute('data-reference-identity');
-  const primaryIdentity = await runArticle(viewerFrame, manifest.primary_run_id).getAttribute(
-    'data-reference-identity',
-  );
-  const conflict = (await secondArticle.locator('[data-testid="reference-conflict"]').allInnerTexts()).join('\n');
-  if (conflict) {
-    throw new Error(`same-assembly run was rejected\n${conflict}`);
-  }
-  if (primaryIdentity !== evidence.api.primary_identity || secondIdentity !== evidence.api.second_identity || primaryIdentity === secondIdentity) {
-    throw new Error('the open runs do not show two reference identities');
-  }
+  await frame.getByTestId('local-track-file-input').setInputFiles(join(root, 'test/fixtures/browser', manifest.local_bed));
+  await expect(frame.getByTestId('local-browser-track')).toBeVisible();
+  await addRun(secondId);
+  const secondArticle = article(secondId);
   const secondBox = secondArticle.getByRole('checkbox');
-  if (await secondBox.isDisabled()) throw new Error('second run track could not be chosen');
-  stage = 'select second';
+  for (const track of [primary, second]) {
+    const run = article(track.run);
+    await expect(run).toHaveAttribute('data-reference-identity', track.identity);
+    await expect(run).toHaveAttribute('data-generation', track.generation);
+    await expect(run.getByTestId('browser-track')).toHaveAttribute('data-revision', track.revision);
+  }
+  await expect(secondArticle.getByTestId('reference-conflict')).toHaveCount(0);
   await secondBox.check();
+  await expect(region).toHaveValue(manifest.window);
+  const primaryUrl = origin + primary.content_path;
+  const bothUrls = [primaryUrl, origin + second.content_path];
+  const parsed = await expectDrawing(manifest.window, allPeaks, bothUrls, manifest.local_bed);
+  evidence.overlay = { ...parsed, platform: [] };
+  for (const [track, peak] of [[primary, 'peak-primary'], [second, 'peak-second']]) {
+    evidence.overlay.platform.push({
+      run: track.run, artifact: track.artifact_id, generation: track.generation, revision: track.revision,
+      referenceId: track.referenceId, identity: track.identity,
+      read: await platformRead(network, origin, track, peak),
+    });
+  }
+  const hub = frame.getByTestId('washu-genome-viewer');
+  await hub.screenshot({ path: join(work, 'overlay-three.png') });
 
-  const started = Date.now();
-  while (Date.now() - started < 25_000) {
-    if (dataReads(manifest.primary_run_id).length && dataReads(manifest.second_run_id).length) break;
-    await page.waitForTimeout(200);
-  }
-  const primaryBytes = inflatedText(manifest.primary_run_id);
-  const secondBytes = inflatedText(manifest.second_run_id);
-  if (!primaryBytes.includes('peak-primary\t61') || !primaryBytes.includes('chr1\t5500\t5700')) {
-    throw new Error(`primary peak bytes were not read\n${primaryBytes.slice(0, 200)}`);
-  }
-  if (!secondBytes.includes('peak-second\t73') || !secondBytes.includes('chr1\t6000\t6200')) {
-    throw new Error(`second peak bytes were not read\n${secondBytes.slice(0, 200)}`);
-  }
-  const primaryRead = sameOriginRead(
-    manifest.primary_run_id,
-    manifest.primary_generation,
-    manifest.primary_revision,
-  );
-  const secondRead = sameOriginRead(
-    manifest.second_run_id,
-    manifest.second_generation,
-    manifest.second_revision,
-  );
-  if (!primaryRead || !secondRead) {
-    throw new Error('platform tracks were not read from their own generation and revision');
-  }
-  const hub = await waitForHub(
-    viewerFrame,
-    (state) => {
-      const urls = state.models.map((track) => track.url);
-      return (
-        state.viewers === 1 &&
-        urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-        urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
-        state.models.some((track) => track.file && track.url === '') &&
-        showsRegion(state.regions, manifest.window) &&
-        ['chr1:5500-5700', 'chr1:5800-6000', 'chr1:6000-6200'].every(locus => state.drawn.some(text => text.includes(locus)))
-      );
-    },
-    25_000,
-  );
-  if (!hub.drawn.some((text) => text.includes('5800') || text.includes('peak-local'))) {
-    throw new Error('local peak was not drawn in the shared window');
-  }
-  evidence.tracks = {
-    viewers: hub.viewers,
-    models: hub.models.map((track) => ({ type: track.type, name: track.name, file: track.file, same_origin: track.url.startsWith(`http://127.0.0.1:${port}/api/`) || track.url === '' })),
-    primary: {
-      run_id: manifest.primary_run_id,
-      generation: manifest.primary_generation,
-      revision: manifest.primary_revision,
-      identity: primaryIdentity,
-      read: primaryRead.data,
-    },
-    second: {
-      run_id: manifest.second_run_id,
-      generation: manifest.second_generation,
-      revision: manifest.second_revision,
-      identity: secondIdentity,
-      read: secondRead.data,
-    },
-    plotted_features: [...new Set(hub.drawn)],
-    local_drawn: hub.drawn.filter((text) => text.includes('peak-local') || text.includes('5800')).slice(0, 4),
-    regions: hub.regions.slice(0, 4),
-  };
-  await page.screenshot({ path: join(work, 'overlay-three.png'), fullPage: true });
+  await secondArticle.getByRole('button', { name: 'Remove run ' + secondId }).click();
+  await expect(secondArticle).toHaveCount(0);
+  if (waitForRemovalDraw) await expectDrawing(manifest.window, remaining, [primaryUrl], manifest.local_bed);
+  const nextRegion = 'chr1:5200-6400';
+  await region.fill(nextRegion);
+  evidence.removal = await expectDrawing(nextRegion, remaining, [primaryUrl], manifest.local_bed);
+  await hub.screenshot({ path: join(work, 'overlay-after-remove.png') });
 
-  await viewerFrame.getByRole('button', { name: `Remove run ${manifest.second_run_id}` }).click();
-  await secondArticle.waitFor({ state: 'detached', timeout: 10_000 });
-  const regionBox = viewerFrame.getByRole('textbox', { name: 'Genomic region' });
-  stage = 'navigate after removal';
-  await regionBox.fill(navigatedRegion);
-  await viewerFrame.waitForFunction(
-    (expected) => {
-      const input = document.querySelector('[aria-label="Genomic region"]');
-      return input instanceof HTMLInputElement && input.value === expected;
-    },
-    navigatedRegion,
-    { timeout: 10_000 },
-  );
-  const afterRemoval = await waitForHub(
-    viewerFrame,
-    (state) => {
-      const urls = state.models.map((track) => track.url);
-      return (
-        state.viewers === 1 &&
-        urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-        !urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
-        state.models.some((track) => track.file && track.url === '') &&
-        showsRegion(state.regions, navigatedRegion)
-      );
-    },
-    20_000,
-  );
-  evidence.removal = {
-    removed: manifest.second_run_id,
-    region: navigatedRegion,
-    remaining: afterRemoval.models.map((track) => track.name),
-    regions: afterRemoval.regions.slice(0, 4),
-  };
-  await page.screenshot({ path: join(work, 'overlay-after-remove.png'), fullPage: true });
+  await addRun(foreignId);
+  const foreign = article(foreignId);
+  const conflict = foreign.getByTestId('reference-conflict');
+  await expect(conflict).toContainText('mm10');
+  await expect(foreign.getByRole('checkbox')).toBeDisabled();
+  await foreign.screenshot({ path: join(work, 'overlay-foreign.png') });
+  const foreignReads = network.requests.filter(url => url.pathname.includes('/runs/' + foreignId + '/browser-tracks/'));
+  assert.equal(foreignReads.length, 0);
+  evidence.foreign = { run: foreignId, assembly: 'mm10', reason: await conflict.innerText(), trackRequests: foreignReads.length };
+  await expectDrawing(nextRegion, remaining, [primaryUrl], manifest.local_bed);
+  await foreign.getByRole('button', { name: 'Remove run ' + foreignId }).click();
+  await expect(foreign).toHaveCount(0);
 
-  await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
-  await viewerFrame.getByRole('button', { name: 'Add run' }).click();
-  const restored = runArticle(viewerFrame, manifest.second_run_id);
-  await restored.waitFor({ timeout: 20_000 });
-  stage = 'restore second';
-  await restored.getByRole('checkbox').check();
-  const beforeExpiry = reads.length;
-  const restoredAt = Date.now();
-  while (Date.now() - restoredAt < 20_000) {
-    if (dataReads(manifest.second_run_id, beforeExpiry).length) break;
-    await page.waitForTimeout(200);
-  }
-  const liveSecond = dataReads(manifest.second_run_id, beforeExpiry)[0];
-  if (!liveSecond) throw new Error('the restored second run was not read');
-  const oldUrl = new URL(liveSecond.url);
-  const invalidateResponse = await fetch(`http://127.0.0.1:${port}/__washu_overlay__/invalidate`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-washu-overlay-token': manifest.token,
-    },
-    body: JSON.stringify({ run_id: manifest.second_run_id }),
+  await addRun(secondId);
+  await secondBox.check();
+  await expectDrawing(nextRegion, allPeaks, bothUrls, manifest.local_bed);
+
+  const changed = await api.post(origin + '/__washu_overlay__/invalidate', {
+    headers: { 'x-washu-overlay-token': manifest.token }, data: { run_id: secondId },
   });
-  const invalidated = await invalidateResponse.json();
-  if (!invalidateResponse.ok || invalidated.generation === manifest.second_generation) {
-    throw new Error(`second run generation did not change ${JSON.stringify(invalidated)}`);
-  }
-  const rejected = await apiGet(`${oldUrl.pathname}${oldUrl.search}`);
-  assertClosed(rejected, 'expired byte read');
-  if (
-    rejected.status !== 409 ||
-    (!rejected.text.includes('generation_changed') && !rejected.text.includes('revision_changed'))
-  ) {
-    throw new Error(`old second-run bytes returned ${rejected.status} ${rejected.text.slice(0, 180)}`);
-  }
-  const primaryStill = await apiGet(
-    bytePath(manifest.primary_run_id, manifest.primary_generation, manifest.primary_revision),
-  );
-  if (primaryStill.status !== 206 && primaryStill.status !== 200) {
-    throw new Error(`primary bytes failed after the other run changed (${primaryStill.status})`);
-  }
+  assert.equal(changed.status(), 200);
+  const replacement = await changed.json();
+  assert.equal(replacement.run_id, secondId);
+  assert.notEqual(replacement.generation, second.generation);
+  assert.notEqual(replacement.revision, second.revision);
+  const readsBeforeExpiry = network.reads.length;
+  // Navigate while the stale track is still selected. The page must discover
+  // the conflict on its own versioned byte route and keep the other sources usable.
   const expiredWindow = 'chr1:5300-6350';
-  stage = 'navigate after expiry';
-  await regionBox.fill(expiredWindow);
-  const expiredNotice = viewerFrame.getByRole('alert').filter({ hasText: manifest.second_run_id });
-  await expiredNotice.getByText(/generation_changed|revision_changed/).waitFor({ timeout: 20_000 });
-  const notice = await expiredNotice.innerText();
-  const afterExpiry = await waitForHub(viewerFrame, state =>
-    state.models.some(track => track.url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-    state.models.some(track => track.file && track.url === '') &&
-    !state.models.some(track => track.url.includes(`/runs/${manifest.second_run_id}/`)) &&
-    state.drawn.some(item => item.startsWith('chr1:5500-5700')) &&
-    state.drawn.some(item => item.startsWith('chr1:5800-6000')), 20_000);
-  const newGenerationRead = reads.some((read) => {
-    const parsed = parseTrackUrl(read.url);
-    return (
-      parsed &&
-      parsed.runId === manifest.second_run_id &&
-      parsed.generation === invalidated.generation &&
-      (read.status === 200 || read.status === 206)
-    );
-  });
-  if (newGenerationRead) throw new Error('the replacement generation was read without a new choice');
-  const expiredUrls = afterExpiry?.models.map((track) => track.url) ?? [];
-  if (
-    !expiredUrls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) ||
-    !(afterExpiry?.models ?? []).some((track) => track.file && track.url === '')
-  ) {
-    throw new Error(`primary or local track left the hub\n${JSON.stringify(afterExpiry?.models)}`);
-  }
+  const invalidRead = page.waitForResponse(r => r.url() === bothUrls[1] && r.status() === 409);
+  await region.fill(expiredWindow);
+  const stale = await invalidRead;
+  const reason = await stale.text();
+  assert(reason.includes('generation_changed') && !reason.includes(workspace));
+  const alert = frame.getByRole('alert').filter({ hasText: secondId });
+  await expect(alert).toContainText('generation_changed');
+  const failureMessage = await alert.innerText();
+  const kept = await api.get(primaryUrl, { headers: { Range: 'bytes=0-3' } });
+  assert.equal(kept.status(), 206);
+  assert.equal((await kept.body()).length, 4);
+  const afterFailure = await expectDrawing(expiredWindow, remaining, [primaryUrl], manifest.local_bed);
+  await hub.screenshot({ path: join(work, 'overlay-after-expiry.png') });
   evidence.expiry = {
-    run_id: manifest.second_run_id,
-    old_generation: manifest.second_generation,
-    old_revision: manifest.second_revision,
-    new_generation: invalidated.generation,
-    new_revision: invalidated.revision,
-    rejected_status: rejected.status,
-    rejected_reason: rejected.text.includes('generation_changed') ? 'generation_changed' : 'revision_changed',
-    visible_failure: notice,
-    remaining_features: [...new Set(afterExpiry.drawn)],
-    primary_still_readable: primaryStill.status,
-    new_generation_read: false,
+    run: secondId, oldGeneration: second.generation, oldRevision: second.revision,
+    newGeneration: replacement.generation, newRevision: replacement.revision,
+    browserByteStatus: stale.status(), reason: 'generation_changed', failureMessage,
+    primaryRangeStatus: kept.status(), primaryContentRange: kept.headers()['content-range'], afterFailure,
+    primaryBrowserRead: await platformRead(network, origin, primary, 'peak-primary', readsBeforeExpiry),
   };
-
-  const readsBeforeForeign = reads.length;
-  await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.foreign_run_id);
-  await viewerFrame.getByRole('button', { name: 'Add run' }).click();
-  const foreignArticle = runArticle(viewerFrame, manifest.foreign_run_id);
-  stage = 'add incompatible source';
-  await foreignArticle.getByTestId('reference-conflict').waitFor({ timeout: 20_000 });
-  const foreignConflict = (
-    await foreignArticle.locator('[data-testid="reference-conflict"]').allInnerTexts()
-  ).join('\n');
-  if (!/mm10/.test(foreignConflict)) {
-    throw new Error(`mm10 run was not rejected\n${foreignConflict}`);
-  }
-  const foreignBox = foreignArticle.getByRole('checkbox');
-  if (await foreignBox.isEnabled()) throw new Error('mm10 track stayed selectable');
-  await page.waitForTimeout(1000);
-  const foreignReads = reads.slice(readsBeforeForeign).filter((read) => read.url.includes(manifest.foreign_run_id));
-  if (foreignReads.length) {
-    throw new Error(`mm10 bytes were read\n${foreignReads.map((read) => read.url).join('\n')}`);
-  }
-  const stillThere = await readHub(viewerFrame);
-  const stillUrls = stillThere?.models.map((track) => track.url) ?? [];
-  if (
-    !stillUrls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) ||
-    !(stillThere?.models ?? []).some((track) => track.file)
-  ) {
-    throw new Error('rejecting mm10 removed the tracks already open');
-  }
-  evidence.foreign = {
-    run_id: manifest.foreign_run_id,
-    scaffold: 'mm10',
-    reason: foreignConflict,
-    bytes_read: 0,
-  };
-  await page.screenshot({ path: join(work, 'overlay-foreign.png'), fullPage: true });
-
-  const uploaded = posts.filter(
-    (post) => post.body.includes('peak-local') || post.body.includes('5800\t6000'),
-  );
-  const controlFromPage = posts.filter((post) => post.url.includes('/__washu_overlay__/'));
-  if (uploaded.length || controlFromPage.length || external.length) {
-    throw new Error(
-      `local content or another origin left the browser\n${JSON.stringify({ uploaded, controlFromPage, external })}`,
-    );
-  }
-  if (reads.some((read) => isExternal(read.url) || !new URL(read.url).pathname.startsWith('/api/'))) {
-    throw new Error('a track read left the same-origin artifact API');
-  }
-  const renderingErrors = consoleMessages.filter(message =>
-    /Minified React error|Maximum update depth exceeded|Genome View Error|^pageerror:/.test(message));
-  if (renderingErrors.length) throw new Error(renderingErrors.join('\n'));
-  const cspBlocked = posts.filter(post => new URL(post.url).pathname === '/csp-report').map(post => {
-    const blocked = JSON.parse(post.body)['csp-report']?.['blocked-uri'];
-    try { return new URL(blocked).origin; } catch { return blocked ?? null; }
-  });
-  evidence.network = {
-    external: external.length,
-    csp_blocked_origins: cspBlocked,
-    rendering_errors: renderingErrors,
-    local_uploads: uploaded.length,
-    byte_reads: reads.length,
-    posts: posts.map((post) => `${post.method} ${new URL(post.url).pathname}`),
-  };
-  writeEvidence();
-  await stopAll();
-  console.log(`WASHU_OVERLAY ok ${evidencePath}`);
+  await secondArticle.getByRole('button', { name: 'Refresh run ' + secondId }).click();
+  await expect(secondArticle).toHaveAttribute('data-generation', replacement.generation);
+  await expect(secondArticle.getByTestId('browser-track')).toHaveAttribute('data-revision', replacement.revision);
+  await expect(secondBox).toBeEnabled();
+  await expect(secondBox).not.toBeChecked();
+  evidence.expiry.afterRefresh = await expectDrawing(expiredWindow, remaining, [primaryUrl], manifest.local_bed);
 }
 
 try {
-  await main();
+  let manifest;
+  for await (const line of lines) {
+    if (line.startsWith('WASHU_OVERLAY ')) { manifest = JSON.parse(line.slice('WASHU_OVERLAY '.length)); break; }
+  }
+  assert(manifest, 'overlay fixture exited before startup');
+  await main(manifest);
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  evidence.error = message;
-  evidence.console = consoleMessages.filter(
-    (line) => line.startsWith('error') || line.startsWith('pageerror'),
-  );
-  writeEvidence();
-  log(message);
-  console.error(message);
-  console.error(`proof work ${work}`);
-  console.error(`evidence ${evidencePath}`);
-  process.exitCode = 1;
+  evidence.error = error.message;
+  if (frame) evidence.viewerText = await frame.getByTestId('washu-genome-viewer').innerText({ timeout: 1000 }).catch(() => '');
+  if (page) await page.screenshot({ path: join(work, 'failure.png') }).catch(() => {});
+  console.error('Overlay evidence', work);
+  throw error;
+} finally {
   try {
-    await stopAll();
-  } catch (stopError) {
-    console.error(stopError instanceof Error ? stopError.message : stopError);
-    process.exitCode = 1;
+    if (browser) await browser.close();
+  } finally {
+    lines.close();
+    if (server.exitCode === null && server.signalCode === null) server.kill();
+    await serverExit;
+    if (network) {
+      evidence.network = networkReceipt(network);
+      if (evidence.expiry) {
+        evidence.expiry.replacementByteRequests = network.requests.filter(url =>
+          url.pathname.includes('/bytes/' + evidence.expiry.newGeneration + '/')).length;
+      }
+      if (evidence.foreign) {
+        evidence.foreign.trackRequests = network.requests.filter(url =>
+          url.pathname.includes('/runs/' + evidence.foreign.run + '/browser-tracks/')).length;
+      }
+    }
+    await writeFile(join(work, 'evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
   }
 }
+assert.equal(evidence.expiry.replacementByteRequests, 0);
+assert.equal(evidence.foreign.trackRequests, 0);
+assert.deepEqual(evidence.network.forbidden, []);
+assert.deepEqual(evidence.network.pageErrors, []);
+// At base-level zoom the pinned ruler can ask for the public hg38 sequence.
+// Production CSP blocks it and its fallback. A report about any track is a failure.
+const referenceOnly = new Set([
+  'https://vizhub.wustl.edu/public/hg38/hg38.2bit',
+  'https://epigenome.wustl.edu/cors/vizhub.wustl.edu/public/hg38/hg38.2bit',
+]);
+for (const blocked of evidence.network.cspReports) assert(referenceOnly.has(blocked), 'Unexpected blocked URL: ' + blocked);
+console.log('WASHU_OVERLAY ok', join(work, 'evidence.json'));
