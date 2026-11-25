@@ -229,7 +229,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _install(app, tmp_path: Path):
+def _install(app, tmp_path: Path, *, run_digest: str = "a" * 64):
     project = _registry(app).create_project("Archive project")
     other = _registry(app).create_project("Other project")
     moment = _now()
@@ -291,7 +291,7 @@ def _install(app, tmp_path: Path):
         RunExperimentBindingRow(
             run_id=_RUN,
             experiment_revision_id=_REVISION,
-            payload_digest="c" * 64,
+            payload_digest=run_digest,
         ),
         RunProjectBindingRow(
             run_id=_RUN,
@@ -526,7 +526,9 @@ def _success_downloads(app) -> tuple:
     )
 
 
-def _assert_download_target(event, project_id: str, result_id: str, revision_id: str) -> None:
+def _assert_download_target(
+    event, project_id: str, result_id: str, revision_id: str
+) -> None:
     expected = build_audit_resource(
         AuditResourceKind.REGISTERED_RESULT,
         project_id,
@@ -595,6 +597,15 @@ def test_setup_required_does_not_serve_bytes(app) -> None:
     assert response.status_code == 503
     assert response.json()["issues"][0]["code"] == "SETUP_REQUIRED"
     _no_store(response)
+
+
+def test_inconsistent_run_snapshot_cannot_read_its_sealed_content(seeded_app, tmp_path):
+    world = _install(seeded_app, tmp_path, run_digest="c" * 64)
+    with ApiTestClient(seeded_app) as client:
+        response = client.get(_content(world, _V1))
+        assert response.status_code == 404
+        assert response.json()["issues"][0]["code"] == "archive_version_not_found"
+        _no_store(response)
 
 
 def test_exact_version_ranges_and_same_size_replacement(seeded_app, tmp_path) -> None:
@@ -727,7 +738,9 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         assert head.status_code == 200
         assert head.content == b""
         assert len(_success_downloads(seeded_app)) == 1
-        original_audit = seeded_app.state.authentication_repository.record_security_audit
+        original_audit = (
+            seeded_app.state.authentication_repository.record_security_audit
+        )
 
         def _audit_unavailable(_event) -> None:
             raise RuntimeError("audit store unavailable")
@@ -742,7 +755,9 @@ def test_native_and_registered_reads_share_session_scope(seeded_app, tmp_path) -
         assert "audit store" not in withheld.text
         _no_store(withheld)
         assert len(_success_downloads(seeded_app)) == 1
-        seeded_app.state.authentication_repository.record_security_audit = original_audit
+        seeded_app.state.authentication_repository.record_security_audit = (
+            original_audit
+        )
         unbound = client.get(_content(world, _V_UNBOUND))
         foreign = client.get(_content(world, _V_FOREIGN))
         assert unbound.status_code == 404

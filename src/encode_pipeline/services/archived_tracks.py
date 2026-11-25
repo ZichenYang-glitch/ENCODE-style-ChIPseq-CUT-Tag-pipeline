@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from encode_pipeline.adapters.browser.scaffolds import viewer_scaffold
+from encode_pipeline.persistence.archived_tracks import ArchiveRepository
 from encode_pipeline.persistence.models import (
     ExperimentRevisionRow,
     ExperimentRow,
@@ -36,6 +37,7 @@ from encode_pipeline.platform.security_audit import (
     build_audit_resource,
     new_audit_event_id,
 )
+from encode_pipeline.services.archive_objects import ArchiveObjects
 from encode_pipeline.services.browser_bytes import BrowserByteError, parse_byte_range
 
 
@@ -125,7 +127,7 @@ class SqlArchiveReadGate:
             ):
                 return False
             if source.get("kind") == "run":
-                return _run_source_bound(session, project_id, revision_id, source)
+                return _run_source_bound(session, project_id, revision, source)
             if source.get("kind") == "registered":
                 return _registered_source_bound(session, project_id, source)
             return False
@@ -386,35 +388,10 @@ def build_archived_track_service(
     authentication: Any,
     archive_root: Path | None,
 ) -> ArchivedTrackService:
-    """Wire the shared repository and object store when those modules exist.
-
-    ``archive_root`` is ``WorkerSettings.archive_root`` (operator setting
-    ``ENCODE_PIPELINE_ARCHIVE_ROOT``). Until that attribute and the archive
-    owner's modules are both present, reads fail closed.
-    """
-
-    repository = None
-    objects = None
-    try:
-        from encode_pipeline.persistence.archived_tracks import (  # type: ignore
-            ArchiveRepository,
-        )
-        from encode_pipeline.services.archive_objects import (  # type: ignore
-            ArchiveObjects,
-        )
-    except ImportError:
-        ArchiveRepository = None
-        ArchiveObjects = None
-    if ArchiveRepository is not None and ArchiveObjects is not None:
-        try:
-            repository = ArchiveRepository(session_factory)
-            objects = ArchiveObjects(archive_root)
-        except Exception:
-            repository = None
-            objects = None
+    """Use the configured archive volume and the same catalog as experiment reads."""
     return ArchivedTrackService(
-        repository=repository,
-        objects=objects,
+        repository=ArchiveRepository(session_factory),
+        objects=ArchiveObjects(archive_root),
         authentication=authentication,
         access=SqlArchiveReadGate(session_factory),
     )
@@ -423,31 +400,29 @@ def build_archived_track_service(
 def _project_visible(session: Any, project_id: str) -> bool:
     project = session.get(ProjectRow, project_id)
     return (
-        project is not None
-        and project.archived_at is None
-        and project.kind == "user"
+        project is not None and project.archived_at is None and project.kind == "user"
     )
 
 
 def _run_source_bound(
     session: Any,
     project_id: str,
-    revision_id: str,
+    revision: ExperimentRevisionRow,
     source: dict[str, Any],
 ) -> bool:
     # The index pin names another artifact of this same run, not a second run.
     run_id = source.get("run_id")
-    if not _binding_matches(session, revision_id, run_id):
-        return False
-    project_binding = session.get(RunProjectBindingRow, run_id)
-    return project_binding is not None and project_binding.project_id == project_id
-
-
-def _binding_matches(session: Any, revision_id: str, run_id: object) -> bool:
     if not isinstance(run_id, str):
         return False
     binding = session.get(RunExperimentBindingRow, run_id)
-    return binding is not None and binding.experiment_revision_id == revision_id
+    if (
+        binding is None
+        or binding.experiment_revision_id != revision.experiment_revision_id
+        or binding.payload_digest != revision.payload_digest
+    ):
+        return False
+    project_binding = session.get(RunProjectBindingRow, run_id)
+    return project_binding is not None and project_binding.project_id == project_id
 
 
 def _registered_source_bound(
@@ -565,7 +540,9 @@ def _public_source(source: object) -> dict[str, str]:
     if _has_any(source, index_fields):
         for name in index_fields:
             public[name] = _require_id(source.get(name), patterns[name])
-    elif any(name in source and source[name] not in (None, "") for name in index_fields):
+    elif any(
+        name in source and source[name] not in (None, "") for name in index_fields
+    ):
         raise _invalid()
     return public
 

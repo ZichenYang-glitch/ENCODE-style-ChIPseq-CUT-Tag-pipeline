@@ -357,7 +357,7 @@ def create_app(
     app.state.archived_track_service = build_archived_track_service(
         session_factory=create_session_factory(persistence.engine),
         authentication=authentication_repository,
-        archive_root=getattr(worker_settings, "archive_root", None),
+        archive_root=worker_settings.archive_root,
     )
     app.state.registered_result_service = registered_result_service
     app.state.authentication_service = AuthenticationService(
