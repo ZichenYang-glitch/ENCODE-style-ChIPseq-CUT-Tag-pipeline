@@ -233,10 +233,15 @@ def _acceptable_symbol(value: str) -> bool:
 
 
 def read_genes(
-    path: Path, admitted: set[str]
+    path: Path,
+    admitted: set[str],
+    *,
+    gene_id_pattern: re.Pattern[str] = _GENE_ID,
+    sequence_aliases: dict[str, str] | None = None,
 ) -> tuple[list[GeneRow], dict[str, int], str, int, str, int]:
     file_sha, file_size = sha256_file(path)
     compressed = path.suffix == ".gz"
+    aliases = sequence_aliases or {}
     lines = _HashedLines()
     rows: list[GeneRow] = []
     dropped_incomplete = 0
@@ -261,12 +266,12 @@ def read_genes(
             if (
                 start < 1
                 or end < start
-                or _GENE_ID.fullmatch(gene_id) is None
+                or gene_id_pattern.fullmatch(gene_id) is None
                 or not _acceptable_symbol(symbol)
             ):
                 dropped_incomplete += 1
                 continue
-            chrom = fields[0]
+            chrom = aliases.get(fields[0], fields[0])
             if chrom not in admitted:
                 dropped_sequence += 1
                 continue

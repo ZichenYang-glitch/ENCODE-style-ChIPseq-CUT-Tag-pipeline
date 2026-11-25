@@ -23,12 +23,16 @@ Pinned annotation:
 * Ensembl release 100 ``mus_musculus_core_100_38`` tables
   external_db, gene, xref, external_synonym, and object_xref.
   GENCODE M25 is that Ensembl release on GRCm38. Only ``db_name`` MGI
-  (external_db_id 1400) supplies symbols and synonyms.
+  (external_db_id 1400) supplies symbols and synonyms. Supply the release
+  gzip files or their exact uncompressed contents.
 
 * An assembly report for GCA_000001635.2 with UCSC-style-name and
-  Sequence-Length. Every sequence in the pinned wuepgg 62.0.2 mm10 genome
-  must be present at that genome's length. GCA_000001635.9 is GRCm39 and
-  is rejected. mm39 chr1 is 195154279, not 195471971.
+  Sequence-Length. The GenBank-Accn column maps upstream scaffold names to
+  the UCSC names in the local genomepy annotation. Both forms produce the
+  same rows and aliases. Provenance records the actual inputs. The report is at
+  https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.2_GRCm38/GCA_000001635.2_GRCm38_assembly_report.txt
+  Every sequence in the pinned wuepgg 62.0.2 mm10 genome must be present
+  at that genome's length.
 
 Example:
 
@@ -48,6 +52,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
 import re
@@ -89,34 +94,34 @@ OFFICIAL_PLAIN_BYTES = 888172458
 KNOWN_LOCAL_SHA = "dbd5e0488a5994cc5e9379e13ecaceb0d2affcb0c6c9f7584def7f1be01769b6"
 KNOWN_LOCAL_BYTES = 888182176
 ENSEMBL_BASE = "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/"
-# filename, sha256, bytes. SHA-256 is of the gzip bytes on that FTP path.
-ENSEMBL_CANONICAL = (
-    (
-        "external_db.txt.gz",
+# SHA-256 and size of each release gzip, followed by SHA-256 of its contents.
+ENSEMBL_CANONICAL = {
+    "external_db.txt.gz": (
         "1627403c7f8ed443ad65087ca11d2e1133499874c322af2046f4e59448ce91d0",
         14232,
+        "87f570b4e8eb8a298a876748487a87aa39ea81552914f01d491c679a428c48b3",
     ),
-    (
-        "gene.txt.gz",
+    "gene.txt.gz": (
         "7eb13f94fa7ce33b41d7b2d36ec973aa89e1b9741c6948f311bed14f201f4431",
         3146731,
+        "15e6dcf7632553402e7c1dffb0ce8e0136b546798df72429d9a191c3e50d1382",
     ),
-    (
-        "xref.txt.gz",
+    "xref.txt.gz": (
         "6de286b59baaa4c05486284e5fdfec368f289691bd06916f34e22d5964946439",
         30340560,
+        "cbed03b891c17c281c4aedc92ca843d4031fdc98be36974ad8f1d45dd070799c",
     ),
-    (
-        "external_synonym.txt.gz",
+    "external_synonym.txt.gz": (
         "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70",
         381823,
+        "6354a830dca7acdbb23412844a3a5ff7d5870c7bc0bed8efe8dc9ac49c0b9428",
     ),
-    (
-        "object_xref.txt.gz",
+    "object_xref.txt.gz": (
         "44ee975e37c04f4cea75d69c2ae32d33f8de3f70b71b0b8babac49165e54ca87",
         27426363,
+        "bebaecf0d79c00576edb60e3168f3b3db4f310cd8190ed230bc21773e610e4ea",
     ),
-)
+}
 # Sequences constructed for genome "mm10" in the locked viewer 62.0.2.
 # chrM is last. mm39 in that same viewer puts chrM before chrX and its
 # chr1 length is 195154279. No random, unplaced, or alt names.
@@ -153,9 +158,8 @@ MGI_LICENSE = (
     "Mouse Genome Informatics, The Jackson Laboratory."
 )
 ATTESTATION = (
-    "The GTF has no ##version header. The release is the annotation url in "
-    "the local genomepy README, and the file identity is the SHA-256 of the "
-    "GTF bytes."
+    "The uncompressed GTF matches a pinned GENCODE M25 annotation digest. "
+    "The supplied genomepy README identifies the release and assembly."
 )
 OFFICIAL_ATTESTATION = (
     "The annotation file is the GENCODE mouse release M25 primary-assembly "
@@ -202,17 +206,6 @@ ASSEMBLY_NOTE = (
 )
 
 
-def read_mouse_genes(path: Path, admitted: set[str]):
-    """Read gene rows, accepting ENSMUSG ids instead of ENSG ids."""
-
-    previous = hg._GENE_ID
-    hg._GENE_ID = _ENSMUSG
-    try:
-        return hg.read_genes(path, admitted)
-    finally:
-        hg._GENE_ID = previous
-
-
 def read_readme(path: Path) -> dict[str, str]:
     found: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -242,36 +235,37 @@ def read_readme(path: Path) -> dict[str, str]:
     return found
 
 
-def read_ucsc_lengths(path: Path) -> dict[str, int]:
+def read_assembly_report(path: Path) -> tuple[dict[str, int], dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as handle:
-        header = handle.readline().rstrip("\r\n").split("\t")
-        try:
-            name_column = header.index("UCSC-style-name")
-            length_column = header.index("Sequence-Length")
-        except ValueError as error:
+        # NCBI includes a commented preamble and header. genomepy strips both
+        # the preamble and the header's comment marker.
+        headers = (line.lstrip("# ").rstrip("\r\n").split("\t") for line in handle)
+        header = next((fields for fields in headers if "UCSC-style-name" in fields), [])
+        if "Sequence-Length" not in header:
             raise hg.IndexBuildError(
                 "assembly report needs UCSC-style-name and Sequence-Length"
-            ) from error
+            )
         lengths: dict[str, int] = {}
-        for line in handle:
-            if not line or line.startswith("#"):
-                continue
-            parts = line.rstrip("\r\n").split("\t")
-            if len(parts) <= max(name_column, length_column):
-                continue
-            name = parts[name_column].strip()
+        sequence_aliases: dict[str, str] = {}
+        data = (line for line in handle if not line.startswith("#"))
+        for record in csv.DictReader(data, fieldnames=header, delimiter="\t"):
+            name = (record["UCSC-style-name"] or "").strip()
             if not name or name == "na":
                 continue
             try:
-                length = int(parts[length_column])
+                length = int(record["Sequence-Length"] or "")
             except ValueError:
                 continue
-            previous = lengths.get(name)
-            if previous is not None and previous != length:
+            if lengths.setdefault(name, length) != length:
                 raise hg.IndexBuildError(
                     f"assembly report repeats {name} with different lengths"
                 )
-            lengths[name] = length
+            accession = (record.get("GenBank-Accn") or "").strip()
+            if accession and accession != "na":
+                if sequence_aliases.setdefault(accession, name) != name:
+                    raise hg.IndexBuildError(
+                        f"assembly report maps {accession} to multiple UCSC names"
+                    )
     if not lengths:
         raise hg.IndexBuildError("assembly report lists no UCSC sequence names")
     for name, expected in PINNED_MM10_SEQUENCES:
@@ -281,7 +275,7 @@ def read_ucsc_lengths(path: Path) -> dict[str, int]:
                 f"assembly report length for {name} is {got}, "
                 f"not the pinned mm10 length {expected}"
             )
-    return lengths
+    return lengths, sequence_aliases
 
 
 def _rows(path: Path):
@@ -382,14 +376,19 @@ def read_mgi_aliases(
 
 def _file_record(path: Path, canonical_name: str) -> dict[str, object]:
     digest, size = hg.sha256_file(path)
-    expected = next(item for item in ENSEMBL_CANONICAL if item[0] == canonical_name)
+    gzip_sha, gzip_size, plain_sha = ENSEMBL_CANONICAL[canonical_name]
+    expected = gzip_sha if path.suffix == ".gz" else plain_sha
+    if digest != expected:
+        raise hg.IndexBuildError(
+            f"{canonical_name} SHA-256 does not match Ensembl release 100"
+        )
     return {
         "role": canonical_name,
         "filename": path.name,
         "bytes": size,
         "sha256": digest,
-        "canonical_bytes": expected[2],
-        "canonical_sha256": expected[1],
+        "canonical_bytes": gzip_size,
+        "canonical_sha256": gzip_sha,
         "url": ENSEMBL_BASE + canonical_name,
     }
 
@@ -452,7 +451,7 @@ def build_index(
     synonym: Path,
     object_xref: Path,
 ) -> dict[str, object]:
-    lengths = read_ucsc_lengths(assembly_report)
+    lengths, sequence_aliases = read_assembly_report(assembly_report)
     (
         rows,
         drop_counts,
@@ -460,7 +459,18 @@ def build_index(
         gtf_size,
         plain_sha256,
         plain_size,
-    ) = read_mouse_genes(gtf, set(lengths))
+    ) = hg.read_genes(
+        gtf, set(lengths), gene_id_pattern=_ENSMUSG, sequence_aliases=sequence_aliases
+    )
+    if plain_sha256 not in {OFFICIAL_PLAIN_SHA, KNOWN_LOCAL_SHA}:
+        raise hg.IndexBuildError(
+            "GTF SHA-256 does not match a pinned GENCODE M25 annotation"
+        )
+    if drop_counts["dropped_unknown_sequence"]:
+        raise hg.IndexBuildError(
+            "assembly report does not identify all sequences with M25 gene records. "
+            "The upstream GTF needs the GenBank-Accn to UCSC-style-name mapping."
+        )
     if (
         gtf.suffix == ".gz"
         and gtf_sha256 == OFFICIAL_GTF_SHA

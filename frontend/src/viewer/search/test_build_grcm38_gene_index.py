@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
-import subprocess
 import sys
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import build_grcm38_gene_index as mouse
 from build_grcm38_gene_index import PINNED_MM10_SEQUENCES
 
-SCRIPT = Path(__file__).with_name("build_grcm38_gene_index.py")
 README = """\
 name: GRCm38
 original name: mm10
@@ -60,6 +64,13 @@ OBJECT_XREF = (
     "4\t1400001\tGene\t2195001\t\\N\t1\n"
     "5\t1400002\tGene\t2195002\t\\N\t1\n"
 )
+TABLES = {
+    "external_db": EXTERNAL_DB,
+    "gene": GENE,
+    "xref": XREF,
+    "external_synonym": SYNONYM,
+    "object_xref": OBJECT_XREF,
+}
 
 
 def _gene(
@@ -86,7 +97,6 @@ def _fixture_gtf() -> str:
             _gene("chr11", 100, 110, "ENSMUSG00000059552.13", "Trp53"),
             _gene("chr11", 200, 210, "ENSMUSG00000000003.1", "Other"),
             _gene("chr1_GL456210_random", 1, 5, "ENSMUSG00000000004.1", "KeepScaffold"),
-            _gene("chrUn_GL456239", 1, 5, "ENSMUSG00000000005.1", "DropMe"),
             _gene("chr11", 1, 5, "ENSG00000000001.1", "HumanLike"),
             _gene("chr11", 1, 2, "ENSMUSG00000000008.1", "NoName", include_name=False),
             _gene("chr11", 10, 4, "ENSMUSG00000000009.1", "BadEnd"),
@@ -95,10 +105,10 @@ def _fixture_gtf() -> str:
 
 
 def _report() -> str:
-    rows = ["Sequence-Name\tSequence-Length\tUCSC-style-name"]
+    rows = ["Sequence-Name\tSequence-Length\tUCSC-style-name\tGenBank-Accn"]
     for name, length in PINNED_MM10_SEQUENCES:
-        rows.append(f"{name}\t{length}\t{name}")
-    rows.append("GL456210.1\t169725\tchr1_GL456210_random")
+        rows.append(f"{name}\t{length}\t{name}\tna")
+    rows.append("MMCHR1_RANDOM_CTG1\t169725\tchr1_GL456210_random\tGL456210.1")
     return "\n".join(rows) + "\n"
 
 
@@ -112,13 +122,6 @@ def _write_inputs(root: Path, *, readme: str = README, report: str | None = None
     )
     readme_path = root / "README.txt"
     readme_path.write_text(readme, encoding="utf-8")
-    tables = {
-        "external_db": EXTERNAL_DB,
-        "gene": GENE,
-        "xref": XREF,
-        "synonym": SYNONYM,
-        "object_xref": OBJECT_XREF,
-    }
     paths = {
         "gtf": gtf,
         "report": report_path,
@@ -126,17 +129,17 @@ def _write_inputs(root: Path, *, readme: str = README, report: str | None = None
         "output": root / "mm10-gene-index.json",
         "provenance": root / "mm10-gene-index.provenance.json",
     }
-    for name, text in tables.items():
+    for name, text in TABLES.items():
         path = root / f"{name}.txt"
         path.write_text(text, encoding="utf-8")
         paths[name] = path
     return paths
 
 
-def _run(paths: dict[str, Path], *, readme: bool = True):
-    command = [
-        sys.executable,
-        str(SCRIPT),
+def _run(
+    paths: dict[str, Path], *, readme: bool = True, pinned_gtf: str | None = None
+) -> tuple[int, str]:
+    args = [
         "--gtf",
         str(paths["gtf"]),
         "--assembly-report",
@@ -148,7 +151,7 @@ def _run(paths: dict[str, Path], *, readme: bool = True):
         "--ensembl-xref",
         str(paths["xref"]),
         "--ensembl-synonym",
-        str(paths["synonym"]),
+        str(paths["external_synonym"]),
         "--ensembl-object-xref",
         str(paths["object_xref"]),
         "--output",
@@ -157,8 +160,27 @@ def _run(paths: dict[str, Path], *, readme: bool = True):
         str(paths["provenance"]),
     ]
     if readme:
-        command.extend(["--readme", str(paths["readme"])])
-    return subprocess.run(command, check=False, capture_output=True, text=True)
+        args.extend(["--readme", str(paths["readme"])])
+
+    # Pin the miniature release independently of the files a test has supplied.
+    plain = (pinned_gtf if pinned_gtf is not None else _fixture_gtf()).encode()
+    pins = {}
+    for stem, text in TABLES.items():
+        data = text.encode()
+        packed = gzip.compress(data, mtime=0)
+        pins[f"{stem}.txt.gz"] = (
+            hashlib.sha256(packed).hexdigest(),
+            len(packed),
+            hashlib.sha256(data).hexdigest(),
+        )
+    stderr = io.StringIO()
+    with (
+        patch.object(mouse, "OFFICIAL_PLAIN_SHA", hashlib.sha256(plain).hexdigest()),
+        patch.dict(mouse.ENSEMBL_CANONICAL, pins),
+        redirect_stderr(stderr),
+    ):
+        status = mouse.main(args)
+    return status, stderr.getvalue()
 
 
 def _loci(index: dict, symbol: str) -> list[tuple]:
@@ -180,8 +202,8 @@ def _alias_targets(index: dict, alias: str) -> list[str]:
 
 def test_index_uses_gtf_spans_and_mgi_aliases(tmp_path: Path) -> None:
     paths = _write_inputs(tmp_path)
-    result = _run(paths)
-    assert result.returncode == 0, result.stderr
+    status, stderr = _run(paths)
+    assert status == 0, stderr
     index = json.loads(paths["output"].read_text(encoding="utf-8"))
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     assert index["provenance"] == provenance
@@ -200,7 +222,6 @@ def test_index_uses_gtf_spans_and_mgi_aliases(tmp_path: Path) -> None:
     assert _loci(index, "KeepScaffold") == [
         ("chr1_GL456210_random", 1, 5, "ENSMUSG00000000004.1")
     ]
-    assert _loci(index, "DropMe") == []
     assert _loci(index, "HumanLike") == []
     assert _loci(index, "EXONONLY") == []
     symbols = {row[0] for row in index["rows"]}
@@ -220,7 +241,7 @@ def test_index_uses_gtf_spans_and_mgi_aliases(tmp_path: Path) -> None:
         assert alias.upper() != index["rows"][row_index][0].upper()
         assert " " not in alias
     assert index["provenance"]["counts"]["genes"] == 4
-    assert index["provenance"]["counts"]["dropped_unknown_sequence"] == 1
+    assert index["provenance"]["counts"]["dropped_unknown_sequence"] == 0
     assert index["provenance"]["counts"]["dropped_incomplete"] == 3
     assert index["provenance"]["aliases"]["db_name"] == "MGI"
     assert index["provenance"]["aliases"]["excluded_db_names"] == ["HGNC"]
@@ -241,9 +262,9 @@ def test_readme_for_a_different_release_is_rejected(tmp_path: Path) -> None:
             "gencode.vM26.primary_assembly.annotation.gtf",
         ),
     )
-    result = _run(paths)
-    assert result.returncode == 1
-    assert "M25" in result.stderr
+    status, stderr = _run(paths)
+    assert status == 1
+    assert "M25" in stderr
     assert not paths["output"].exists()
 
 
@@ -252,17 +273,17 @@ def test_mm39_name_and_accession_are_rejected(tmp_path: Path) -> None:
         tmp_path / "name",
         readme=README.replace("original name: mm10", "original name: mm39"),
     )
-    result = _run(named)
-    assert result.returncode == 1
-    assert "mm10" in result.stderr
+    status, stderr = _run(named)
+    assert status == 1
+    assert "mm10" in stderr
     assert not named["output"].exists()
     accession = _write_inputs(
         tmp_path / "accession",
         readme=README.replace("GCA_000001635.2", "GCA_000001635.9"),
     )
-    result = _run(accession)
-    assert result.returncode == 1
-    assert "GRCm39" in result.stderr
+    status, stderr = _run(accession)
+    assert status == 1
+    assert "GRCm39" in stderr
     assert not accession["output"].exists()
 
 
@@ -271,8 +292,8 @@ def test_grcm38_patch_accession_is_accepted(tmp_path: Path) -> None:
         tmp_path,
         readme=README.replace("GCA_000001635.2", "GCA_000001635.8"),
     )
-    result = _run(paths)
-    assert result.returncode == 0, result.stderr
+    status, stderr = _run(paths)
+    assert status == 0, stderr
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     assert provenance["annotation"]["assembly_accession"] == "GCA_000001635.8"
 
@@ -280,10 +301,10 @@ def test_grcm38_patch_accession_is_accepted(tmp_path: Path) -> None:
 def test_pinned_mm10_length_is_required(tmp_path: Path) -> None:
     report = _report().replace("chr1\t195471971\tchr1", "chr1\t195154279\tchr1")
     paths = _write_inputs(tmp_path, report=report)
-    result = _run(paths)
-    assert result.returncode == 1
-    assert "pinned mm10 length" in result.stderr
-    assert "195471971" in result.stderr
+    status, stderr = _run(paths)
+    assert status == 1
+    assert "pinned mm10 length" in stderr
+    assert "195471971" in stderr
     assert not paths["output"].exists()
 
 
@@ -295,8 +316,8 @@ def test_gzip_annotation_records_both_checksums(tmp_path: Path) -> None:
         handle.write(plain)
     paths["gtf"].unlink()
     paths["gtf"] = gz_path
-    result = _run(paths)
-    assert result.returncode == 0, result.stderr
+    status, stderr = _run(paths)
+    assert status == 0, stderr
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     annotation = provenance["annotation"]
     assert annotation["sha256"] == hashlib.sha256(gz_path.read_bytes()).hexdigest()
@@ -310,10 +331,89 @@ def test_gzip_annotation_records_both_checksums(tmp_path: Path) -> None:
 
 def test_plain_gtf_without_readme_is_rejected(tmp_path: Path) -> None:
     paths = _write_inputs(tmp_path)
-    result = _run(paths, readme=False)
-    assert result.returncode == 1
-    assert "README" in result.stderr
+    status, stderr = _run(paths, readme=False)
+    assert status == 1
+    assert "README" in stderr
     assert not paths["output"].exists()
+
+
+def test_public_gtf_and_ncbi_report_reproduce_genomepy_loci(tmp_path: Path) -> None:
+    local = _write_inputs(tmp_path / "genomepy")
+    status, stderr = _run(local)
+    assert status == 0, stderr
+
+    report = "# Assembly name: GRCm38\r\n# " + _report().replace("\n", "\r\n")
+    public = _write_inputs(tmp_path / "public", report=report)
+    gtf = _fixture_gtf().replace("chr1_GL456210_random\t", "GL456210.1\t")
+    packed = gzip.compress(gtf.encode(), mtime=0)
+    public["gtf"] = public["gtf"].with_suffix(".gtf.gz")
+    public["gtf"].write_bytes(packed)
+    with patch.multiple(
+        mouse,
+        OFFICIAL_GTF_SHA=hashlib.sha256(packed).hexdigest(),
+        OFFICIAL_GTF_BYTES=len(packed),
+        OFFICIAL_PLAIN_BYTES=len(gtf.encode()),
+    ):
+        status, stderr = _run(public, readme=False, pinned_gtf=gtf)
+    assert status == 0, stderr
+    expected = json.loads(local["output"].read_bytes())
+    actual = json.loads(public["output"].read_bytes())
+    assert _loci(actual, "KeepScaffold") == [
+        ("chr1_GL456210_random", 1, 5, "ENSMUSG00000000004.1")
+    ]
+    assert {k: v for k, v in actual.items() if k != "provenance"} == {
+        k: v for k, v in expected.items() if k != "provenance"
+    }
+    assert (
+        actual["provenance"]["annotation"]["sha256"]
+        == hashlib.sha256(packed).hexdigest()
+    )
+
+
+def test_valid_mm10_readme_cannot_label_different_coordinates(tmp_path: Path) -> None:
+    paths = _write_inputs(tmp_path)
+    paths["gtf"].write_text(
+        _fixture_gtf().replace("gene\t10\t40", "gene\t11\t41"), encoding="utf-8"
+    )
+    status, stderr = _run(paths)
+    assert status == 1
+    assert "GTF SHA-256" in stderr
+    assert not paths["output"].exists()
+    assert not paths["provenance"].exists()
+
+
+def test_report_with_only_ucsc_names_can_rebuild_local_but_not_drop_public_scaffold(
+    tmp_path: Path,
+) -> None:
+    report = (
+        "\n".join(line.rsplit("\t", 1)[0] for line in _report().splitlines()) + "\n"
+    )
+    paths = _write_inputs(tmp_path, report=report)
+    status, stderr = _run(paths)
+    assert status == 0, stderr
+    assert _loci(json.loads(paths["output"].read_bytes()), "KeepScaffold")
+
+    public_gtf = _fixture_gtf().replace("chr1_GL456210_random\t", "GL456210.1\t")
+    paths["gtf"].write_text(public_gtf, encoding="utf-8")
+    status, stderr = _run(paths, pinned_gtf=public_gtf)
+    assert status == 1
+    assert "GenBank-Accn" in stderr
+
+
+@pytest.mark.parametrize("table", TABLES)
+def test_changed_ensembl_table_does_not_replace_index(
+    tmp_path: Path, table: str
+) -> None:
+    paths = _write_inputs(tmp_path)
+    status, stderr = _run(paths)
+    assert status == 0, stderr
+    before = [paths[key].read_bytes() for key in ("output", "provenance")]
+    with paths[table].open("ab") as handle:
+        handle.write(b"\n")
+    status, stderr = _run(paths)
+    assert status == 1
+    assert f"{table}.txt.gz SHA-256" in stderr
+    assert [paths[key].read_bytes() for key in ("output", "provenance")] == before
 
 
 def test_shipped_mm10_index_matches_gencode_m25() -> None:
@@ -383,7 +483,7 @@ def test_alias_table_without_mgi_is_rejected(tmp_path: Path) -> None:
         "1100\tHGNC\t\\N\tKNOWNXREF\t1\tHGNC Symbol\tPRIMARY_DB_SYNONYM\n",
         encoding="utf-8",
     )
-    result = _run(paths)
-    assert result.returncode == 1
-    assert "no MGI" in result.stderr
+    status, stderr = _run(paths)
+    assert status == 1
+    assert "no MGI" in stderr
     assert not paths["output"].exists()
