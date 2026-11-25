@@ -84,19 +84,18 @@ export function ViewerPage() {
     [framed, instanceId],
   );
 
-  const runId = framed ? command?.runId ?? null : standaloneRunId(window.location.search);
+  const runId = framed ? (command?.runId ?? null) : standaloneRunId(window.location.search);
   const reportFailure = useCallback(
     (message: string) => {
       if (runId !== null) publish({ runId, message });
     },
     [publish, runId],
   );
-  const body = closed || runId === null ? (
-    <p role="status">
-      {framed
-        ? 'Waiting for the platform viewer host.'
-        : 'Open this page with a run id from HelixWeave.'}
-    </p>
+  // A framed document still waits for the host. A standalone document opens
+  // with no run so local tracks and authorized runs can share one window.
+  const waitingForHost = closed || (framed && command === null);
+  const body = waitingForHost ? (
+    <p role="status">Waiting for the platform viewer host.</p>
   ) : (
     <GenomeBrowserPanel
       runId={runId}

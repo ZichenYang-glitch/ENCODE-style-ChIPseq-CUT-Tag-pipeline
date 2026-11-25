@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GenomeHub } from 'wuepgg';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { GenomeHub, type WashuTrackConfig } from 'wuepgg';
 import washUStyles from 'wuepgg/style.css?raw';
 import {
   getRunBrowserSession,
@@ -10,7 +10,36 @@ import {
 import type {
   BrowserSessionResponse,
   BrowserTrackResponse,
+  RunSummaryResponse,
 } from '../../api/generated/models';
+import { listRuns } from '../../api/generated/runs/runs';
+import { ApiError } from '../../api/fetcher';
+import { Button } from '../../components/Button';
+import LocalTrackPicker, { type LocalWashuTrack } from '../../viewer/local/LocalTrackPicker';
+import LocusSearch from '../../viewer/search/LocusSearch';
+import {
+  localTrackHasForeignUrl,
+  placeLocalTrack,
+  placePlatformRun,
+  referenceBinding,
+  userSpecifiedReference,
+  USER_ASSEMBLIES,
+  windowAuthority,
+  type WindowAuthority,
+} from './browserWindow';
+import {
+  beginTrackRead,
+  clearTrackReadFailures,
+  ensureTrackReadGuard,
+  noteTrackReadSucceeded,
+  subscribeTrackReadFailure,
+  trackReadKey,
+} from './trackReadGuard';
+
+const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
+const DRAW_NOTE =
+  'WashU draws at most 100000 rows in one window. A larger count is not fully drawn.';
+const EMPTY_RUNS: string[] = [];
 
 type ChosenTrack = {
   artifactId: string;
@@ -22,6 +51,18 @@ type TrackSelection = {
   generation: string | null;
   chosen: ChosenTrack[];
   stale: string[];
+};
+
+type RunSelection = {
+  generation: string | null;
+  chosen: ChosenTrack[];
+  stale: string[];
+};
+
+type PlatformRow = {
+  runId: string;
+  generation: string | null;
+  track: BrowserTrackResponse;
 };
 
 function isGenerationConflict(error: unknown): boolean {
@@ -56,14 +97,10 @@ function presetChosen(
   return chosen;
 }
 
-function reconcileSelection(
-  current: TrackSelection,
+function reconcileChosen(
+  current: { chosen: ChosenTrack[]; stale: string[] },
   session: BrowserSessionResponse,
-): TrackSelection {
-  const generation = session.artifact_generation ?? null;
-  if (current.generation !== generation) {
-    return { runId: current.runId, generation, chosen: [], stale: [] };
-  }
+): { chosen: ChosenTrack[]; stale: string[] } | null {
   const tracks = new Map(session.tracks.map((track) => [track.artifact_id, track]));
   const chosen: ChosenTrack[] = [];
   const stale: string[] = [];
@@ -82,22 +119,22 @@ function reconcileSelection(
   const sameStale =
     stale.length === current.stale.length &&
     stale.every((artifactId, index) => artifactId === current.stale[index]);
-  if (sameChosen && sameStale) return current;
-  return { ...current, chosen, stale };
+  if (sameChosen && sameStale) return null;
+  return { chosen, stale };
 }
-import { ApiError } from '../../api/fetcher';
-import { Button } from '../../components/Button';
-import {
-  beginTrackRead,
-  clearTrackReadFailures,
-  ensureTrackReadGuard,
-  noteTrackReadSucceeded,
-  subscribeTrackReadFailure,
-} from './trackReadGuard';
 
-const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
-const DRAW_NOTE =
-  'WashU draws at most 100000 rows in one window. A larger count is not fully drawn.';
+function reconcileSelection(
+  current: TrackSelection,
+  session: BrowserSessionResponse,
+): TrackSelection {
+  const generation = session.artifact_generation ?? null;
+  if (current.generation !== generation) {
+    return { runId: current.runId, generation, chosen: [], stale: [] };
+  }
+  const next = reconcileChosen(current, session);
+  if (next === null) return current;
+  return { ...current, ...next };
+}
 
 function sameOriginPath(path: string | null | undefined): string | null {
   if (!path || !path.startsWith('/api/')) return null;
@@ -118,15 +155,58 @@ function messageFromError(error: unknown): string {
   return 'The browser view could not be loaded.';
 }
 
+function sameLocal(current: LocalWashuTrack[], next: LocalWashuTrack[]): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((track, index) => {
+    const other = next[index];
+    return (
+      other !== undefined &&
+      track.id === other.id &&
+      track.label === other.label &&
+      track.assembly === other.assembly &&
+      track.model === other.model
+    );
+  });
+}
+
+function sessionReadyTracks(
+  session: BrowserSessionResponse,
+  selected: readonly string[],
+): BrowserTrackResponse[] {
+  return session.tracks.filter(
+    (track) =>
+      selected.includes(track.artifact_id) &&
+      track.preparation === 'ready' &&
+      sameOriginPath(track.content_path) !== null,
+  );
+}
+
+function activeChosen(
+  selection: RunSelection | null,
+  session: BrowserSessionResponse,
+): ChosenTrack[] {
+  if (selection === null || selection.generation !== (session.artifact_generation ?? null)) {
+    return [];
+  }
+  return selection.chosen.filter((item) =>
+    session.tracks.some(
+      (track) =>
+        track.artifact_id === item.artifactId &&
+        track.revision === item.revision &&
+        trackCanBeChosen(track),
+    ),
+  );
+}
+
 export default function GenomeBrowserPanel({
-  runId,
+  runId = null,
   initialRegion = null,
   artifactIds = null,
   showToolbar = true,
   onReady,
   onFailed,
 }: {
-  runId: string;
+  runId?: string | null;
   initialRegion?: string | null;
   artifactIds?: readonly string[] | null;
   showToolbar?: boolean;
@@ -139,9 +219,11 @@ export default function GenomeBrowserPanel({
 }) {
   ensureTrackReadGuard();
   const queryClient = useQueryClient();
+  const openedRunId = runId || null;
   const sessionQuery = useQuery({
-    queryKey: ['browser-session', runId],
-    queryFn: ({ signal }) => getRunBrowserSession(runId, { signal }),
+    queryKey: ['browser-session', openedRunId],
+    enabled: openedRunId !== null,
+    queryFn: ({ signal }) => getRunBrowserSession(openedRunId as string, { signal }),
     // A generation conflict is the user's prompt to refresh. Retrying would
     // load the new catalog by itself and hide that choice.
     retry: (failureCount, error) =>
@@ -150,10 +232,30 @@ export default function GenomeBrowserPanel({
     retryDelay: import.meta.env.MODE === 'test' ? 0 : undefined,
   });
   const session =
-    sessionQuery.data?.run_id === runId ? sessionQuery.data : undefined;
+    sessionQuery.data?.run_id === openedRunId ? sessionQuery.data : undefined;
   const [selection, setSelection] = useState<TrackSelection | null>(null);
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
+  const [userAssembly, setUserAssembly] = useState('hg38');
+  const [addedRunIds, setAddedRunIds] = useState<string[]>([]);
+  const [addedSelections, setAddedSelections] = useState<Record<string, RunSelection>>({});
+  const [pendingRunId, setPendingRunId] = useState('');
+  const [runNotice, setRunNotice] = useState<string | null>(null);
+  const [localTracks, setLocalTracks] = useState<LocalWashuTrack[]>([]);
+  const scope = openedRunId ?? '';
+  const [scopeKey, setScopeKey] = useState(scope);
+  if (scopeKey !== scope) {
+    setScopeKey(scope);
+    setLocalTracks([]);
+    setAddedRunIds([]);
+    setAddedSelections({});
+    setPendingRunId('');
+    setRunNotice(null);
+    setLoadFailures({});
+  }
+  const scopeReady = scopeKey === scope;
+  const activeAddedIds = scopeReady ? addedRunIds : EMPTY_RUNS;
+  const activeLocal = scopeReady ? localTracks : EMPTY_LOCAL;
   const selectionRef = useRef<TrackSelection | null>(null);
   const pendingToggles = useRef<BrowserTrackResponse[]>([]);
   const presetRef = useRef<readonly string[] | null>(artifactIds ?? null);
@@ -161,39 +263,47 @@ export default function GenomeBrowserPanel({
   const regionKey = useRef<string | null>(null);
   selectionRef.current = selection;
   presetRef.current = artifactIds ?? null;
-  if (conflictRef.current !== null && conflictRef.current !== runId) {
+  if (conflictRef.current !== null && conflictRef.current !== openedRunId) {
     conflictRef.current = null;
   }
-  if (isGenerationConflict(sessionQuery.error)) conflictRef.current = runId;
+  if (isGenerationConflict(sessionQuery.error)) conflictRef.current = openedRunId;
 
   const onReadyRef = useRef(onReady);
   const onFailedRef = useRef(onFailed);
   onReadyRef.current = onReady;
   onFailedRef.current = onFailed;
+  const onLocalTracks = useCallback((next: LocalWashuTrack[]) => {
+    setLocalTracks((current) => (sameLocal(current, next) ? current : next));
+  }, []);
+  const onNavigate = useCallback((next: string) => {
+    setRegion(next.trim());
+  }, []);
 
   useEffect(
     () =>
-      subscribeTrackReadFailure((artifactId) => {
+      subscribeTrackReadFailure((artifactId, detail) => {
+        const failedRun = detail?.runId ?? null;
+        if (!failedRun) return;
+        const key = trackReadKey(failedRun, artifactId);
         setLoadFailures((current) =>
-          current[artifactId]
-            ? current
-            : { ...current, [artifactId]: 'Track failed to load.' },
+          current[key] ? current : { ...current, [key]: 'Track failed to load.' },
         );
       }),
     [],
   );
   useEffect(() => () => clearTrackReadFailures(), []);
 
+  const browserKey = openedRunId ?? 'standalone';
   useEffect(() => {
     const style = document.createElement('style');
-    style.dataset.helixweaveWashu = runId;
+    style.dataset.helixweaveWashu = browserKey;
     style.textContent = washUStyles;
     document.head.appendChild(style);
     return () => {
       style.remove();
-      localStorage.removeItem(`persist:helixweave-browser-${runId}`);
+      localStorage.removeItem(`persist:helixweave-browser-${browserKey}`);
     };
-  }, [runId]);
+  }, [browserKey]);
 
   useEffect(() => {
     if (sessionQuery.isError && !isGenerationConflict(sessionQuery.error)) {
@@ -202,15 +312,15 @@ export default function GenomeBrowserPanel({
   }, [sessionQuery.error, sessionQuery.isError]);
 
   useEffect(() => {
-    if (!session || isGenerationConflict(sessionQuery.error)) return;
+    if (!session || !openedRunId || isGenerationConflict(sessionQuery.error)) return;
     const generation = session.artifact_generation ?? null;
     const current = selectionRef.current;
     let next: TrackSelection;
-    if (current === null || current.runId !== runId) {
-      const skipPreset = conflictRef.current === runId;
+    if (current === null || current.runId !== openedRunId) {
+      const skipPreset = conflictRef.current === openedRunId;
       if (skipPreset) conflictRef.current = null;
       next = {
-        runId,
+        runId: openedRunId,
         generation,
         chosen: skipPreset ? [] : presetChosen(session, presetRef.current),
         stale: [],
@@ -233,11 +343,11 @@ export default function GenomeBrowserPanel({
       referenceStatus,
       artifactIds: next.chosen.map((item) => item.artifactId),
     });
-  }, [runId, session, sessionQuery.error]);
+  }, [openedRunId, session, sessionQuery.error]);
 
   useEffect(() => {
-    if (!session) return;
-    const key = `${runId}:${session.artifact_generation ?? ''}:${initialRegion ?? ''}`;
+    if (!session || !openedRunId) return;
+    const key = `${openedRunId}:${session.artifact_generation ?? ''}:${initialRegion ?? ''}`;
     if (regionKey.current === key) return;
     regionKey.current = key;
     const suggested = session.tracks.find(
@@ -264,7 +374,94 @@ export default function GenomeBrowserPanel({
       window.clearTimeout(move);
       window.clearTimeout(settle);
     };
-  }, [initialRegion, runId, session]);
+  }, [initialRegion, openedRunId, session]);
+
+  const runsQuery = useInfiniteQuery({
+    queryKey: ['browser-authorized-runs'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = await listRuns(
+        { limit: 100, after: typeof pageParam === 'string' ? pageParam : undefined },
+        { signal },
+      );
+      if (!page || page.ok !== true || !Array.isArray(page.runs)) {
+        throw new Error('Authorized runs could not be loaded.');
+      }
+      return page;
+    },
+    getNextPageParam: (lastPage, pages, lastParam) => {
+      void pages;
+      const cursor = lastPage.next_cursor;
+      if (typeof cursor !== 'string' || cursor === '' || cursor === lastParam) return undefined;
+      return cursor;
+    },
+    retry: import.meta.env.MODE === 'test' ? false : 1,
+  });
+
+  const addedQueryDefs = useMemo(
+    () =>
+      activeAddedIds.map((id) => ({
+        queryKey: ['browser-session', id] as const,
+        queryFn: ({ signal }: { signal: AbortSignal }) => getRunBrowserSession(id, { signal }),
+        retry: (failureCount: number, error: unknown) =>
+          !isGenerationConflict(error) && failureCount < 3,
+        retryDelay: import.meta.env.MODE === 'test' ? 0 : undefined,
+      })),
+    [activeAddedIds],
+  );
+  const addedSessionQueries = useQueries({ queries: addedQueryDefs });
+  const addedSessionKey = activeAddedIds
+    .map((id, index) => {
+      const query = addedSessionQueries[index];
+      const data = query?.data?.run_id === id ? query.data : undefined;
+      if (!data) return `${id}:${query?.isError ? 'error' : 'pending'}`;
+      return [
+        id,
+        data.artifact_generation ?? '',
+        data.reference.status,
+        data.reference.identity_sha256 ?? '',
+        data.reference.viewer_scaffold ?? '',
+        data.tracks
+          .map(
+            (track) =>
+              `${track.artifact_id}:${track.revision}:${track.preparation}:${track.content_path ?? ''}:${track.index_path ?? ''}`,
+          )
+          .join(','),
+      ].join(':');
+    })
+    .join('|');
+  const addedSessionsRef = useRef(addedSessionQueries);
+  addedSessionsRef.current = addedSessionQueries;
+
+  useEffect(() => {
+    const queries = addedSessionsRef.current;
+    setAddedSelections((current) => {
+      let changed = false;
+      const next = { ...current };
+      activeAddedIds.forEach((id, index) => {
+        const data = queries[index]?.data;
+        if (!data || data.run_id !== id) return;
+        const generation = data.artifact_generation ?? null;
+        const existing = current[id];
+        if (!existing || existing.generation !== generation) {
+          next[id] = { generation, chosen: [], stale: [] };
+          changed = true;
+          return;
+        }
+        const reconciled = reconcileChosen(existing, data);
+        if (reconciled === null) return;
+        next[id] = { ...existing, ...reconciled };
+        changed = true;
+      });
+      for (const id of Object.keys(next)) {
+        if (!activeAddedIds.includes(id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [activeAddedIds, addedSessionKey]);
 
   const generationConflict = isGenerationConflict(sessionQuery.error);
   const activeChoice = useMemo(() => {
@@ -272,7 +469,7 @@ export default function GenomeBrowserPanel({
       generationConflict ||
       session === undefined ||
       selection === null ||
-      selection.runId !== runId ||
+      selection.runId !== openedRunId ||
       selection.generation !== (session.artifact_generation ?? null)
     ) {
       return [];
@@ -285,7 +482,7 @@ export default function GenomeBrowserPanel({
           trackCanBeChosen(track),
       ),
     );
-  }, [generationConflict, runId, selection, session]);
+  }, [generationConflict, openedRunId, selection, session]);
   const selected = useMemo(
     () => activeChoice.map((item) => item.artifactId),
     [activeChoice],
@@ -293,7 +490,7 @@ export default function GenomeBrowserPanel({
   const stale =
     session !== undefined &&
     selection !== null &&
-    selection.runId === runId &&
+    selection.runId === openedRunId &&
     selection.generation === (session.artifact_generation ?? null)
       ? selection.stale
       : [];
@@ -308,21 +505,16 @@ export default function GenomeBrowserPanel({
       setSelection((current) => {
         const generation = session?.artifact_generation ?? null;
         let next: TrackSelection =
-          current !== null && current.runId === runId
+          current !== null && current.runId === openedRunId
             ? current
-            : { runId, generation, chosen: [], stale: [] };
+            : { runId: openedRunId ?? '', generation, chosen: [], stale: [] };
         for (const item of batch) {
-          const exists = next.chosen.some(
-            (chosen) => chosen.artifactId === item.artifact_id,
-          );
+          const exists = next.chosen.some((chosen) => chosen.artifactId === item.artifact_id);
           next = {
             ...next,
             chosen: exists
               ? next.chosen.filter((chosen) => chosen.artifactId !== item.artifact_id)
-              : [
-                  ...next.chosen,
-                  { artifactId: item.artifact_id, revision: item.revision },
-                ],
+              : [...next.chosen, { artifactId: item.artifact_id, revision: item.revision }],
             stale: next.stale.filter((artifactId) => artifactId !== item.artifact_id),
           };
         }
@@ -333,29 +525,80 @@ export default function GenomeBrowserPanel({
   }
 
   const readyTracks = useMemo(
-    () =>
-      (session?.tracks ?? []).filter(
-        (track) =>
-          selected.includes(track.artifact_id) &&
-          track.preparation === 'ready' &&
-          sameOriginPath(track.content_path) !== null,
-      ),
+    () => (session ? sessionReadyTracks(session, selected) : []),
     [selected, session],
   );
-  const visibleTracks = useMemo(
-    () => readyTracks.filter((track) => !loadFailures[track.artifact_id]),
-    [loadFailures, readyTracks],
+  const addedBindings = activeAddedIds.flatMap((id, index) => {
+    const data = addedSessionQueries[index]?.data;
+    if (!data || data.run_id !== id) return [];
+    return [{ runId: id, reference: referenceBinding(data.reference) }];
+  });
+  const addedBindingKey = addedBindings
+    .map((item) =>
+      [
+        item.runId,
+        item.reference.status,
+        item.reference.identity ?? '',
+        item.reference.scaffold ?? '',
+      ].join(':'),
+    )
+    .join('|');
+  const addedBindingsRef = useRef(addedBindings);
+  addedBindingsRef.current = addedBindings;
+  const authority = useMemo(() => {
+    const primary =
+      session && openedRunId
+        ? { runId: session.run_id, reference: referenceBinding(session.reference) }
+        : null;
+    return windowAuthority(primary, addedBindingsRef.current, userAssembly);
+  }, [addedBindingKey, openedRunId, session, userAssembly]);
+  const primaryPlacement =
+    session && openedRunId
+      ? placePlatformRun(authority, session.run_id, referenceBinding(session.reference))
+      : null;
+  const primaryRows = useMemo<PlatformRow[]>(() => {
+    if (!session || !primaryPlacement?.ok) return [];
+    return readyTracks.map((track) => ({
+      runId: session.run_id,
+      generation: session.artifact_generation ?? null,
+      track,
+    }));
+  }, [primaryPlacement?.ok, readyTracks, session]);
+  const addedReady = useMemo<PlatformRow[]>(() => {
+    const rows: PlatformRow[] = [];
+    activeAddedIds.forEach((id, index) => {
+      const query = addedSessionQueries[index];
+      const data = query?.data;
+      if (!data || data.run_id !== id || !data.ok || isGenerationConflict(query?.error)) return;
+      const placement = placePlatformRun(authority, id, referenceBinding(data.reference));
+      if (!placement.ok) return;
+      const chosen = activeChosen(addedSelections[id] ?? null, data);
+      for (const track of sessionReadyTracks(
+        data,
+        chosen.map((item) => item.artifactId),
+      )) {
+        rows.push({ runId: id, generation: data.artifact_generation ?? null, track });
+      }
+    });
+    return rows;
+    // addedSessionKey stands in for the query payloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAddedIds, addedSelections, addedSessionKey, authority]);
+  const platformRows = useMemo(
+    () => [...primaryRows, ...addedReady],
+    [addedReady, primaryRows],
   );
 
   useEffect(() => {
     const controllers = new Map<string, AbortController>();
     let cancelled = false;
-    async function preflight(track: BrowserTrackResponse) {
-      const path = sameOriginPath(track.content_path);
+    async function preflight(row: PlatformRow) {
+      const path = sameOriginPath(row.track.content_path);
       if (!path) return;
+      const key = trackReadKey(row.runId, row.track.artifact_id);
       const controller = new AbortController();
-      controllers.set(track.artifact_id, controller);
-      const generation = beginTrackRead(track.artifact_id, controller.signal);
+      controllers.set(key, controller);
+      const generation = beginTrackRead(row.track.artifact_id, controller.signal, row.runId);
       try {
         const response = await fetch(path, {
           method: 'GET',
@@ -366,7 +609,7 @@ export default function GenomeBrowserPanel({
         if (!response.ok && response.status !== 206) {
           throw new Error(`HTTP ${response.status}`);
         }
-        const indexPath = sameOriginPath(track.index_path);
+        const indexPath = sameOriginPath(row.track.index_path);
         if (indexPath) {
           const indexResponse = await fetch(indexPath, {
             method: 'GET',
@@ -378,11 +621,11 @@ export default function GenomeBrowserPanel({
             throw new Error(`HTTP ${indexResponse.status}`);
           }
         }
-        if (!cancelled && noteTrackReadSucceeded(track.artifact_id, generation)) {
+        if (!cancelled && noteTrackReadSucceeded(row.track.artifact_id, generation, row.runId)) {
           setLoadFailures((current) => {
-            if (!current[track.artifact_id]) return current;
+            if (!current[key]) return current;
             const next = { ...current };
-            delete next[track.artifact_id];
+            delete next[key];
             return next;
           });
         }
@@ -391,36 +634,102 @@ export default function GenomeBrowserPanel({
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setLoadFailures((current) => ({
           ...current,
-          [track.artifact_id]:
+          [key]:
             error instanceof Error && error.message.startsWith('HTTP ')
               ? `Track failed to load (${error.message}).`
               : 'Track failed to load.',
         }));
       }
     }
-    for (const track of readyTracks) void preflight(track);
+    for (const row of platformRows) void preflight(row);
     return () => {
       cancelled = true;
       for (const controller of controllers.values()) controller.abort();
     };
-  }, [readyTracks]);
+  }, [platformRows]);
+
+  const visibleRows = platformRows.filter(
+    (row) => !loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
+  );
+  const failedRows = platformRows.filter(
+    (row) => loadFailures[trackReadKey(row.runId, row.track.artifact_id)],
+  );
 
   const prepare = useMutation({
     mutationFn: async (track: BrowserTrackResponse) => {
-      if (!session?.artifact_generation) {
+      if (!openedRunId || !session?.artifact_generation) {
         throw new ApiError(409, 'BROWSER_TRACK_READ_CONFLICT', 'Reload the browser view.');
       }
-      return prepareRunBrowserTrack(runId, track.artifact_id, {
+      return prepareRunBrowserTrack(openedRunId, track.artifact_id, {
         generation: session.artifact_generation,
         revision: track.revision,
       });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['browser-session', runId] });
+      await queryClient.invalidateQueries({ queryKey: ['browser-session', openedRunId] });
     },
   });
 
-  if (generationConflict) {
+  const showAssembly = !(
+    session &&
+    session.reference.status === 'bound' &&
+    session.reference.viewer_scaffold
+  );
+  const authorizedRuns = useMemo(() => {
+    const seen = new Set<string>();
+    const runs: RunSummaryResponse[] = [];
+    for (const page of runsQuery.data?.pages ?? []) {
+      for (const run of page.runs) {
+        if (seen.has(run.run_id)) continue;
+        seen.add(run.run_id);
+        runs.push(run);
+      }
+    }
+    return runs;
+  }, [runsQuery.data]);
+
+  function addRun() {
+    if (!pendingRunId) return;
+    if (pendingRunId === openedRunId || activeAddedIds.includes(pendingRunId)) {
+      setRunNotice(`${pendingRunId} is already in this window.`);
+      return;
+    }
+    setRunNotice(null);
+    setAddedRunIds((current) =>
+      current.includes(pendingRunId) ? current : [...current, pendingRunId],
+    );
+    setPendingRunId('');
+  }
+
+  function removeRun(id: string) {
+    setAddedRunIds((current) => current.filter((item) => item !== id));
+    setAddedSelections((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function toggleAddedTrack(id: string, sessionForRun: BrowserSessionResponse, track: BrowserTrackResponse) {
+    setAddedSelections((current) => {
+      const generation = sessionForRun.artifact_generation ?? null;
+      const existing = current[id] ?? { generation, chosen: [], stale: [] };
+      const exists = existing.chosen.some((item) => item.artifactId === track.artifact_id);
+      return {
+        ...current,
+        [id]: {
+          generation: existing.generation ?? generation,
+          chosen: exists
+            ? existing.chosen.filter((item) => item.artifactId !== track.artifact_id)
+            : [...existing.chosen, { artifactId: track.artifact_id, revision: track.revision }],
+          stale: existing.stale.filter((artifactId) => artifactId !== track.artifact_id),
+        },
+      };
+    });
+  }
+
+  if (openedRunId && generationConflict) {
     return (
       <div role="alert">
         <p>
@@ -433,7 +742,7 @@ export default function GenomeBrowserPanel({
       </div>
     );
   }
-  if (sessionQuery.isError || (session !== undefined && !session.ok)) {
+  if (openedRunId && (sessionQuery.isError || (session !== undefined && !session.ok))) {
     return (
       <div role="alert">
         <p>{messageFromError(sessionQuery.error)}</p>
@@ -443,68 +752,364 @@ export default function GenomeBrowserPanel({
       </div>
     );
   }
-  if (sessionQuery.isPending || session === undefined) {
+  if (openedRunId && (sessionQuery.isPending || session === undefined)) {
     return <p role="status">Loading genome browser…</p>;
   }
 
+  const localPlaced = activeLocal.map((track) => ({
+    track,
+    placement: placeLocalTrack(authority, track),
+    foreign: localTrackHasForeignUrl(track.model, window.location.origin),
+  }));
+  const hubLocal = localPlaced.flatMap((item) =>
+    item.placement.ok && !item.foreign ? [{ id: item.track.id, model: item.track.model }] : [],
+  );
+
   return (
     <section className="min-w-0 space-y-3" aria-label="Genome browser">
-      <ReferenceNotice session={session} />
-      <InteractionNotice session={session} />
-      <TrackChooser
-        tracks={session.tracks}
-        unavailable={session.unavailable}
-        selected={selected}
-        stale={stale}
-        onToggle={toggleTrack}
+      {session ? <ReferenceNotice session={session} /> : null}
+      {session ? <InteractionNotice session={session} /> : null}
+      {showAssembly ? (
+        <label className="block text-sm">
+          Assembly
+          <select
+            className="mt-1 block border border-[var(--color-border)] px-2 py-1"
+            aria-label="Assembly"
+            value={userAssembly}
+            onChange={(event) => setUserAssembly(event.target.value)}
+          >
+            {USER_ASSEMBLIES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {authority.source === 'user' ? (
+        <p role="status">{userSpecifiedReference(authority.scaffold)}</p>
+      ) : null}
+      {session && openedRunId ? (
+        <article
+          className="space-y-2"
+          aria-label={`Run ${session.run_id}`}
+          data-testid="browser-run"
+          data-run-id={session.run_id}
+          data-run-source="platform"
+          data-generation={session.artifact_generation ?? ''}
+          data-reference-identity={session.reference.identity_sha256 ?? ''}
+          data-scaffold={session.reference.viewer_scaffold ?? ''}
+        >
+          <p>
+            Source {session.workflow_id} · run {session.run_id} · generation{' '}
+            {session.artifact_generation ?? 'unknown'}
+            {session.reference.revision_id
+              ? ` · reference revision ${session.reference.revision_id}`
+              : ''}
+          </p>
+          <TrackChooser
+            runId={session.run_id}
+            generation={session.artifact_generation ?? null}
+            tracks={session.tracks}
+            unavailable={session.unavailable}
+            selected={primaryPlacement?.ok ? selected : []}
+            stale={stale}
+            selectable={primaryPlacement?.ok === true}
+            onToggle={toggleTrack}
+          />
+          <Button type="button" variant="secondary" onClick={() => void sessionQuery.refetch()}>
+            Refresh list
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            {session.tracks
+              .filter(
+                (track) =>
+                  selected.includes(track.artifact_id) && track.preparation === 'needed',
+              )
+              .map((track) => (
+                <Button
+                  key={track.artifact_id}
+                  type="button"
+                  variant="secondary"
+                  onClick={() => prepare.mutate(track)}
+                  disabled={prepare.isPending}
+                >
+                  Prepare {track.label}
+                </Button>
+              ))}
+          </div>
+          {prepare.isError ? <p role="alert">{messageFromError(prepare.error)}</p> : null}
+        </article>
+      ) : null}
+      <RunPicker
+        runs={authorizedRuns}
+        pendingRunId={pendingRunId}
+        onPending={setPendingRunId}
+        onAdd={addRun}
+        onMore={() => void runsQuery.fetchNextPage()}
+        hasMore={runsQuery.hasNextPage}
+        loading={runsQuery.isPending}
+        loadingMore={runsQuery.isFetchingNextPage}
+        error={runsQuery.isError}
+        notice={runNotice}
       />
-      <Button variant="secondary" onClick={() => void sessionQuery.refetch()}>
-        Refresh list
-      </Button>
-      <label className="block text-sm">
-        Genomic region
-        <input
-          className="mt-1 w-full max-w-md border border-[var(--color-border)] px-2 py-1"
-          value={region}
-          onChange={(event) => setRegion(event.target.value.trim())}
-          aria-label="Genomic region"
+      {activeAddedIds.map((id, index) => (
+        <AddedRunBlock
+          key={id}
+          runId={id}
+          query={addedSessionQueries[index]}
+          selection={addedSelections[id] ?? null}
+          authority={authority}
+          onToggle={(track, data) => toggleAddedTrack(id, data, track)}
+          onRemove={() => removeRun(id)}
         />
-      </label>
-      <div className="flex flex-wrap gap-2">
-        {session.tracks
-          .filter(
-            (track) =>
-              selected.includes(track.artifact_id) && track.preparation === 'needed',
-          )
-          .map((track) => (
-            <Button
-              key={track.artifact_id}
-              variant="secondary"
-              onClick={() => prepare.mutate(track)}
-              disabled={prepare.isPending}
-            >
-              Prepare {track.label}
-            </Button>
-          ))}
+      ))}
+      <div data-testid="local-track-slot">
+        <LocalTrackPicker assembly={authority.scaffold} onTracksChange={onLocalTracks} />
       </div>
-      {prepare.isError ? <p role="alert">{messageFromError(prepare.error)}</p> : null}
-      <RegionNotes
-        runId={runId}
-        generation={session.artifact_generation}
-        region={region}
-        tracks={readyTracks}
-      />
-      <FailureList tracks={readyTracks} failures={loadFailures} />
+      {localPlaced.length > 0 ? (
+        <ul className="space-y-2">
+          {localPlaced.map((item) => {
+            const rejected = !item.placement.ok || item.foreign;
+            const reason = item.foreign
+              ? `${item.track.label} names another website. It stays in this browser and is not added to the window.`
+              : item.placement.ok
+                ? item.placement.warning
+                : item.placement.reason;
+            return (
+              <li
+                key={item.track.id}
+                data-testid={rejected ? 'reference-conflict' : 'local-browser-track'}
+                data-source="local"
+                data-track-id={item.track.id}
+                data-assembly={item.track.assembly}
+                role="status"
+              >
+                <span className="font-medium">{item.track.label}</span>
+                <span className="block">
+                  Source local file · {item.track.assembly}
+                  {reason ? ` · ${reason}` : ''}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <LocusSearch assembly={authority.scaffold} region={region} onNavigate={onNavigate} />
+      <RegionNotes region={region} rows={platformRows} />
+      <FailureList rows={failedRows} failures={loadFailures} />
       <Viewer
-        session={session}
+        scaffold={authority.scaffold}
         region={region}
-        tracks={visibleTracks}
-        trackKey={readyTracks
-          .map((track) => `${track.artifact_id}:${track.revision}`)
-          .join('|')}
+        rows={visibleRows}
+        localTracks={hubLocal}
+        storeId={`helixweave-browser-${browserKey}`}
         showToolbar={showToolbar}
       />
     </section>
+  );
+}
+
+const EMPTY_LOCAL: LocalWashuTrack[] = [];
+
+function RunPicker({
+  runs,
+  pendingRunId,
+  onPending,
+  onAdd,
+  onMore,
+  hasMore,
+  loading,
+  loadingMore,
+  error,
+  notice,
+}: {
+  runs: RunSummaryResponse[];
+  pendingRunId: string;
+  onPending: (runId: string) => void;
+  onAdd: () => void;
+  onMore: () => void;
+  hasMore: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  error: boolean;
+  notice: string | null;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm">
+        Authorized runs
+        <select
+          className="mt-1 block w-full max-w-xl border border-[var(--color-border)] px-2 py-1"
+          aria-label="Authorized runs"
+          value={pendingRunId}
+          onChange={(event) => onPending(event.target.value)}
+        >
+          <option value="">Select a run</option>
+          {runs.map((run) => (
+            <option key={run.run_id} value={run.run_id}>
+              {run.workflow_id} · {run.run_id} · {run.status} · {run.updated_at}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="secondary" onClick={onAdd} disabled={pendingRunId === ''}>
+          Add run
+        </Button>
+        {hasMore ? (
+          <Button type="button" variant="secondary" onClick={onMore} disabled={loadingMore}>
+            More authorized runs
+          </Button>
+        ) : null}
+      </div>
+      {loading ? <p role="status">Loading authorized runs…</p> : null}
+      {error ? (
+        <p role="status">Authorized runs could not be loaded. Tracks already open stay available.</p>
+      ) : null}
+      {!loading && !error && runs.length === 0 ? (
+        <p role="status">No authorized runs are available.</p>
+      ) : null}
+      {notice ? <p role="status">{notice}</p> : null}
+    </div>
+  );
+}
+
+function AddedRunBlock({
+  runId,
+  query,
+  selection,
+  authority,
+  onToggle,
+  onRemove,
+}: {
+  runId: string;
+  query:
+    | {
+        data?: BrowserSessionResponse;
+        error: unknown;
+        isError: boolean;
+        isPending: boolean;
+        refetch: () => Promise<unknown>;
+      }
+    | undefined;
+  selection: RunSelection | null;
+  authority: WindowAuthority;
+  onToggle: (track: BrowserTrackResponse, session: BrowserSessionResponse) => void;
+  onRemove: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const data = query?.data?.run_id === runId ? query.data : undefined;
+  const conflict = isGenerationConflict(query?.error);
+  const prepare = useMutation({
+    mutationFn: async (track: BrowserTrackResponse) => {
+      if (!data?.artifact_generation) {
+        throw new ApiError(409, 'BROWSER_TRACK_READ_CONFLICT', 'Reload the browser view.');
+      }
+      return prepareRunBrowserTrack(runId, track.artifact_id, {
+        generation: data.artifact_generation,
+        revision: track.revision,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['browser-session', runId] });
+    },
+  });
+  const placement =
+    data && data.ok && !conflict
+      ? placePlatformRun(authority, runId, referenceBinding(data.reference))
+      : null;
+  const chosen = data && placement?.ok ? activeChosen(selection, data) : [];
+  const selected = chosen.map((item) => item.artifactId);
+  const stale =
+    data && selection && selection.generation === (data.artifact_generation ?? null)
+      ? selection.stale
+      : [];
+
+  return (
+    <article
+      className="space-y-2"
+      aria-label={`Run ${runId}`}
+      data-testid="browser-run"
+      data-run-id={runId}
+      data-run-source="platform"
+      data-generation={data?.artifact_generation ?? ''}
+      data-reference-identity={data?.reference.identity_sha256 ?? ''}
+      data-scaffold={data?.reference.viewer_scaffold ?? ''}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p>
+          {data
+            ? `Source ${data.workflow_id} · run ${data.run_id} · generation ${data.artifact_generation ?? 'unknown'}${data.reference.revision_id ? ` · reference revision ${data.reference.revision_id}` : ''}`
+            : `Run ${runId}`}
+        </p>
+        <Button type="button" variant="secondary" onClick={onRemove}>
+          Remove run {runId}
+        </Button>
+      </div>
+      {query?.isPending ? <p role="status">Loading run {runId}…</p> : null}
+      {conflict ? (
+        <p role="status">
+          These files changed. Refresh the list and choose the tracks again. New files are not
+          read until you choose them.
+        </p>
+      ) : null}
+      {query?.isError && !conflict ? (
+        <p role="status">
+          {messageFromError(query.error)} Tracks from other runs stay available.
+        </p>
+      ) : null}
+      {data && !data.ok ? (
+        <p role="status">This run's browser view could not be loaded. Other tracks stay available.</p>
+      ) : null}
+      {placement && !placement.ok ? (
+        <p role="status" data-testid="reference-conflict">
+          {placement.reason}
+        </p>
+      ) : null}
+      {placement?.ok && placement.warning ? <p role="status">{placement.warning}</p> : null}
+      {data && data.ok && !conflict ? (
+        <TrackChooser
+          runId={runId}
+          generation={data.artifact_generation ?? null}
+          tracks={data.tracks}
+          unavailable={data.unavailable}
+          selected={placement?.ok ? selected : []}
+          stale={stale}
+          selectable={placement?.ok === true}
+          onToggle={(track) => onToggle(track, data)}
+        />
+      ) : null}
+      {data && data.ok ? (
+        <Button type="button" variant="secondary" onClick={() => void query?.refetch()}>
+          Refresh run {runId}
+        </Button>
+      ) : query?.isError ? (
+        <Button type="button" variant="secondary" onClick={() => void query.refetch()}>
+          Retry run {runId}
+        </Button>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {data && placement?.ok
+          ? data.tracks
+              .filter(
+                (track) => selected.includes(track.artifact_id) && track.preparation === 'needed',
+              )
+              .map((track) => (
+                <Button
+                  key={track.artifact_id}
+                  type="button"
+                  variant="secondary"
+                  onClick={() => prepare.mutate(track)}
+                  disabled={prepare.isPending}
+                >
+                  Prepare {track.label}
+                </Button>
+              ))
+          : null}
+      </div>
+      {prepare.isError ? <p role="status">{messageFromError(prepare.error)}</p> : null}
+    </article>
   );
 }
 
@@ -546,16 +1151,22 @@ function InteractionNotice({ session }: { session: BrowserSessionResponse }) {
 }
 
 function TrackChooser({
+  runId,
+  generation,
   tracks,
   unavailable,
   selected,
   stale,
+  selectable,
   onToggle,
 }: {
+  runId: string;
+  generation: string | null;
   tracks: BrowserTrackResponse[];
   unavailable: BrowserSessionResponse['unavailable'];
   selected: string[];
   stale: string[];
+  selectable: boolean;
   onToggle: (track: BrowserTrackResponse) => void;
 }) {
   if (tracks.length === 0 && unavailable.length === 0) {
@@ -564,17 +1175,30 @@ function TrackChooser({
   return (
     <ul className="space-y-2">
       {tracks.map((track) => (
-        <li key={track.artifact_id}>
+        <li
+          key={track.artifact_id}
+          data-testid="browser-track"
+          data-run-id={runId}
+          data-artifact-id={track.artifact_id}
+          data-revision={track.revision}
+          data-generation={generation ?? ''}
+          data-source="platform"
+        >
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"
-              checked={selected.includes(track.artifact_id)}
-              onChange={() => onToggle(track)}
-              disabled={!trackCanBeChosen(track)}
+              checked={selectable && selected.includes(track.artifact_id)}
+              onChange={() => {
+                if (selectable && trackCanBeChosen(track)) onToggle(track);
+              }}
+              disabled={!selectable || !trackCanBeChosen(track)}
             />
             <span>
               <span className="font-medium">{track.label}</span>
               <span className="block text-[var(--color-text-muted)]">{track.detail}</span>
+              <span className="block">
+                Source {runId} · revision {track.revision}
+              </span>
               {track.preparation === 'needed' ? (
                 <span className="block" role="status">
                   An index is not prepared yet. Choose this file, then prepare it.
@@ -616,38 +1240,30 @@ function TrackChooser({
   );
 }
 
-function RegionNotes({
-  runId,
-  generation,
-  region,
-  tracks,
-}: {
-  runId: string;
-  generation: string | null | undefined;
-  region: string;
-  tracks: BrowserTrackResponse[];
-}) {
+function RegionNotes({ region, rows }: { region: string; rows: PlatformRow[] }) {
   const parsed = REGION.exec(region);
-  const countable = tracks.filter(
-    (track) => track.kind !== 'signal' && track.kind !== 'contact_matrix',
+  const countable = rows.filter(
+    (row) =>
+      row.generation &&
+      row.track.kind !== 'signal' &&
+      row.track.kind !== 'contact_matrix',
   );
   const summary = useQuery({
     queryKey: [
       'browser-region',
-      runId,
       region,
-      countable.map((track) => track.artifact_id),
+      countable.map((row) => `${row.runId}:${row.track.artifact_id}:${row.track.revision}`),
     ],
-    enabled: Boolean(generation && parsed && countable.length > 0),
+    enabled: Boolean(parsed && countable.length > 0),
     queryFn: async ({ signal }) => {
-      if (!parsed || !generation) return [];
-      return Promise.all(
-        countable.map((track) =>
+      if (!parsed) return [];
+      return Promise.allSettled(
+        countable.map((row) =>
           summarizeRunBrowserTrackRegion(
-            runId,
-            track.artifact_id,
-            generation,
-            track.revision,
+            row.runId,
+            row.track.artifact_id,
+            row.generation ?? '',
+            row.track.revision,
             {
               chrom: parsed[1],
               start: Number(parsed[2]),
@@ -662,31 +1278,42 @@ function RegionNotes({
   if (!summary.data) return null;
   return (
     <div>
-      {summary.data.map((item, index) => (
-        <p key={countable[index]?.artifact_id ?? index} role="status">
-          {countable[index]?.label}: {item.detail}
-          {item.records != null ? ` (${item.records} records)` : ''}
-          {item.records != null && item.records > 100000 ? ` ${DRAW_NOTE}` : ''}
-        </p>
-      ))}
+      {summary.data.map((result, index) => {
+        const row = countable[index];
+        if (!row) return null;
+        if (result.status === 'rejected') {
+          return (
+            <p key={`${row.runId}:${row.track.artifact_id}`} role="status">
+              {row.track.label}: This window count failed. The track stays available.
+            </p>
+          );
+        }
+        const item = result.value;
+        return (
+          <p key={`${row.runId}:${row.track.artifact_id}`} role="status">
+            {row.track.label}: {item.detail}
+            {item.records != null ? ` (${item.records} records)` : ''}
+            {item.records != null && item.records > 100000 ? ` ${DRAW_NOTE}` : ''}
+          </p>
+        );
+      })}
     </div>
   );
 }
 
 function FailureList({
-  tracks,
+  rows,
   failures,
 }: {
-  tracks: BrowserTrackResponse[];
+  rows: PlatformRow[];
   failures: Record<string, string>;
 }) {
-  const failed = tracks.filter((track) => failures[track.artifact_id]);
-  if (failed.length === 0) return null;
+  if (rows.length === 0) return null;
   return (
     <div role="alert">
-      {failed.map((track) => (
-        <p key={track.artifact_id}>
-          {track.label}: {failures[track.artifact_id]}
+      {rows.map((row) => (
+        <p key={trackReadKey(row.runId, row.track.artifact_id)}>
+          {row.track.label} ({row.runId}): {failures[trackReadKey(row.runId, row.track.artifact_id)]}
         </p>
       ))}
     </div>
@@ -694,47 +1321,53 @@ function FailureList({
 }
 
 function Viewer({
-  session,
+  scaffold,
   region,
-  tracks,
-  trackKey,
+  rows,
+  localTracks,
+  storeId,
   showToolbar,
 }: {
-  session: BrowserSessionResponse;
+  scaffold: string;
   region: string;
-  tracks: BrowserTrackResponse[];
-  trackKey: string;
+  rows: PlatformRow[];
+  localTracks: Array<{ id: string; model: WashuTrackConfig }>;
+  storeId: string;
   showToolbar: boolean;
 }) {
-  const scaffold = session.reference.viewer_scaffold;
-  const model = useMemo(
-    () => [
-      { type: 'ruler', name: 'Ruler' },
-      ...tracks.map((track) => ({
-        type: track.wash_u_type,
-        name: track.label,
-        url: sameOriginPath(track.content_path) ?? undefined,
-      })),
-    ],
-    [tracks],
-  );
+  const dataTracks = useMemo(() => {
+    const models: WashuTrackConfig[] = [];
+    const names = new Map<string, number>();
+    const take = (model: WashuTrackConfig) => {
+      const name = typeof model.name === 'string' ? model.name : '';
+      const seen = names.get(name) ?? 0;
+      names.set(name, seen + 1);
+      models.push(
+        seen === 0 || name === '' ? model : { ...model, name: `${name} (${seen + 1})` },
+      );
+    };
+    for (const row of rows) {
+      take({
+        type: row.track.wash_u_type,
+        name: row.track.label,
+        url: sameOriginPath(row.track.content_path) ?? undefined,
+      });
+    }
+    for (const track of localTracks) take(track.model);
+    return models;
+  }, [localTracks, rows]);
   const storeConfig = useMemo(
     () => ({
-      storeId: `helixweave-browser-${session.run_id}`,
+      storeId,
       enablePersistence: false,
     }),
-    [session.run_id],
+    [storeId],
   );
-  if (!scaffold || !REGION.test(region) || tracks.length === 0) return null;
-  const crossOrigin = tracks.some((track) => sameOriginPath(track.content_path) === null);
-  if (crossOrigin) {
-    return (
-      <p role="alert">
-        Genome tracks must be read from this site. A separate API origin cannot send
-        the session cookie.
-      </p>
-    );
-  }
+  if (!scaffold || !REGION.test(region) || dataTracks.length === 0) return null;
+  const trackKey = [
+    ...rows.map((row) => `${row.runId}:${row.track.artifact_id}:${row.track.revision}`),
+    ...localTracks.map((track) => `local:${track.id}`),
+  ].join('|');
   return (
     <div className="min-h-[28rem] overflow-hidden" data-testid="washu-genome-viewer">
       {/* Adding a bigWig to an already mounted hub crashes that hub. Remount
@@ -744,7 +1377,7 @@ function Viewer({
         storeConfig={storeConfig}
         genomeName={scaffold}
         viewRegion={region}
-        tracks={model}
+        tracks={[{ type: 'ruler', name: 'Ruler' }, ...dataTracks]}
         showGenomeNavigator={false}
         showNavBar={false}
         showToolBar={showToolbar}
