@@ -45,6 +45,12 @@ function expectedDrawing(gene) {
   };
 }
 const egfr = expectedDrawing('EGFR');
+const indexedReview = JSON.parse(await readFile(
+  join(root, 'frontend/src/viewer/local/indexed-review-bytes.json'), 'utf8',
+));
+function indexedReviewFile(name) {
+  return { name, mimeType: 'application/octet-stream', buffer: Buffer.from(indexedReview[name], 'base64') };
+}
 
 async function drawn(page, expected) {
   const handle = await page.waitForFunction(renderedWindow, expected, { timeout: 20000 });
@@ -96,7 +102,7 @@ try {
     const url = new URL(request.url());
     if (['blob:', 'data:'].includes(url.protocol)) return route.continue();
     const unsafe = url.origin !== origin || !['GET', 'HEAD'].includes(request.method()) ||
-      request.postDataBuffer() !== null || /EGFR|TP53|SHOX|ERBB1|PHOG|pet\.longrange|signal\.bw|peak\.bed/i.test(url.href);
+      request.postDataBuffer() !== null || /EGFR|TP53|SHOX|ERBB1|PHOG|pet\.longrange|signal\.bw|peak\.bed|mouse\.(bed|longrange)|final-line\.bed/i.test(url.href);
     if (unsafe) {
       forbidden.push([request.method(), url.href]);
       await route.abort();
@@ -181,15 +187,28 @@ try {
   await choice.getByRole('button', { name: /index-original\.tbi/ }).click();
   await drawn(page, egfr);
   assert.equal(await page.getByTestId('local-track').count(), 3);
+  // These htslib pairs are valid. Assembly rejection and the final peak
+  // must be observed after handoff to the production worker.
+  for (const name of ['mouse.bed.gz', 'mouse.longrange.gz']) {
+    await fileInput.setInputFiles([indexedReviewFile(name), indexedReviewFile(name + '.tbi')]);
+    await page.locator('[data-reason="assembly-conflict"]').filter({ hasText: name }).first().waitFor();
+    assert.equal(await page.getByTestId('local-track').count(), 3);
+  }
+  await fileInput.setInputFiles([
+    indexedReviewFile('final-line.bed.gz'), indexedReviewFile('final-line.bed.gz.tbi'),
+  ]);
+  const finalLine = await drawn(page, { ...egfr, peak: [55100900, 55101900] });
+  assert.equal(finalLine.peak.name, 'FinalPeak');
+  assert.equal(await page.getByTestId('local-track').count(), 4);
   assert.deepEqual(await page.evaluate(() => window.__localViewerCsp), []);
   assert.deepEqual(forbidden, []);
   assert.deepEqual(errors, []);
   const result = {
     source: 'synthetic', annotation: 'GENCODE v49', coordinateConvention: '1-based closed for search; BED half-open',
     records: observation.record_count, dataFileBytes: dataSize, indexFileBytes: (await stat(index)).size,
-    elapsedMs, byteCounts, visible, tp53Drawing, zoomWindows, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
+    elapsedMs, byteCounts, visible, tp53Drawing, zoomWindows, finalLine, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
     tested: ['SHOX chrX/chrY', 'ERBB1 alias', 'missing gene', 'missing TBI', 'wrong valid TBI',
-      'renamed TBI', 'explicit BED assembly conflict', 'switch assembly', 'remove and reopen'],
+      'renamed TBI', 'indexed final peak without LF', 'explicit plain/indexed assembly conflict', 'switch assembly', 'remove and reopen'],
     networkPaths: [...routes], forbidden, errors,
   };
   await writeFile(join(work, 'browser.json'), JSON.stringify(result, null, 2) + '\n');
