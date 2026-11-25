@@ -78,7 +78,7 @@ def _version(row: Row, *, include_members: bool = True) -> ArchiveVersion:
 def _source_matches(
     session: Session,
     project: str,
-    exp_revision: str,
+    exp_revision: ExperimentRevisionRow,
     source: dict[str, str],
     members: dict[str, SealedMember],
 ) -> None:
@@ -101,6 +101,11 @@ def _source_matches(
         allowed.update("index_" + field for field in fields)
     if set(source) != allowed or any(not isinstance(v, str) for v in source.values()):
         raise ArchiveStoreError("archive_invalid")
+    if "index" in members and (
+        members["index"].sha256 == members["data"].sha256
+        or all(source[field] == source["index_" + field] for field in fields)
+    ):
+        raise ArchiveStoreError("archive_invalid")
     if kind == "run":
         run_project = session.get(RunProjectBindingRow, source["run_id"])
         run_experiment = session.get(RunExperimentBindingRow, source["run_id"])
@@ -108,7 +113,9 @@ def _source_matches(
             run_project is None
             or run_project.project_id != project
             or run_experiment is None
-            or run_experiment.experiment_revision_id != exp_revision
+            or run_experiment.experiment_revision_id
+            != exp_revision.experiment_revision_id
+            or run_experiment.payload_digest != exp_revision.payload_digest
         ):
             raise ArchiveStoreError("archive_version_not_found")
     for role, member in members.items():
@@ -158,7 +165,12 @@ class ArchiveRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ArchiveVersion], int | None]:
-        if limit < 1 or limit > 100 or offset < 0:
+        if (
+            type(limit) is not int
+            or type(offset) is not int
+            or not 1 <= limit <= 100
+            or offset < 0
+        ):
             raise ArchiveStoreError("archive_invalid")
         with self._sessions() as session:
             _scope(session, project_id, experiment_id)
@@ -205,12 +217,19 @@ class ArchiveRepository:
     ) -> ArchiveVersion:
         expected = {"data", "index"} if track_type == "longrange" else {"data"}
         if (
-            set(members) != expected
+            not isinstance(members, dict)
+            or not isinstance(source, dict)
+            or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in source.items()
+            )
+            or set(members) != expected
             or track_type not in {"bigwig", "bed", "longrange"}
             or assembly not in {"hg19", "hg38", "mm9", "mm10", "mm39"}
             or any(not isinstance(member, SealedMember) for member in members.values())
             or any(
-                not name.strip()
+                not isinstance(name, str)
+                or not name.strip()
                 or len(name) > 255
                 or any(c in "/\\" or not c.isprintable() for c in name)
                 for name in (track_key, display_name)
@@ -232,9 +251,7 @@ class ArchiveRepository:
                 or experiment.archived_at is not None
             ):
                 raise ArchiveStoreError("archive_version_not_found")
-            _source_matches(
-                session, project_id, experiment_revision_id, source, members
-            )
+            _source_matches(session, project_id, revision, source, members)
             series = (Row.experiment_id == experiment_id, Row.track_key == track_key)
             existing = session.scalar(
                 select(Row).where(*series, Row.source_identity == identity)

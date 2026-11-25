@@ -18,6 +18,18 @@ The catalog action opens `/viewer.html?project=…&experiment=…&archive=…` i
 
 Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. After a byte-identical disk restore, an operator can repeat the original seal to verify the restored copy and rebind its physical identity. The result keeps its version and URL. Include both SQLite and the sealed objects in the archive backup. Keep the existing retention procedure for original inputs and scratch.
 
+Use the same track key for successive publications of one signal. For example, for a registered result, run the installed operator command once per verified revision.
+
+```sh
+helixweave archive seal registered \
+  --project-id "$project_id" --experiment-id "$experiment_id" \
+  --experiment-revision-id "$experiment_revision_id" --track-key signal \
+  --display-name signal.bw --assembly hg38 --track-type bigwig \
+  --result-id "$result_id" --result-revision-id "$result_revision_id"
+```
+
+The terminal receipt identifies the exact version. A researcher signs in, opens **Experiments**, selects the experiment, then chooses **在 WashU 查看** on the row for **第 1 版**. The viewer opens in the assembly's default window. Use the gene or coordinate field to move to the locus of interest. Sealed bigWig and indexed longrange use byte ranges. Plain BED supports nonempty UTF-8 intervals up to 8 MiB. The archived copy can outlive the scratch file. Changes to inode, link count or permissions require operator verification of the full restored bytes before the old address can serve them again.
+
 ## Acceptance
 
 From the packaged experiment page, an authorized colleague can select either of two identically named sealed bigWigs and read the distinct expected signal at one locus (4.5 for v1 and 9 for v2). Each synthetic bigWig exceeds 16 MiB. Capture HTTP ranges, transferred bytes and expected/rendered value, including v1 after v2 exists. Check missing and same-size changed copies, missing index, unauthorized/wrong-scope requests, exact registered and run identities, and existing registered/run reads. Keep separate evidence for any trial using laboratory data.

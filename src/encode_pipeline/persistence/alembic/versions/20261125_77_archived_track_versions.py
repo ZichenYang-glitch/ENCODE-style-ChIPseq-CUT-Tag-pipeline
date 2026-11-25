@@ -41,6 +41,39 @@ def upgrade() -> None:
         sa.CheckConstraint("track_type IN ('bigwig','bed','longrange')"),
     )
 
+    op.execute("""
+        CREATE TRIGGER archive_version_experiment_insert BEFORE INSERT ON archived_track_versions
+        WHEN NOT EXISTS (
+            SELECT 1 FROM experiment_revisions WHERE experiment_revision_id = NEW.experiment_revision_id
+                AND experiment_id = NEW.experiment_id AND project_id = NEW.project_id
+        )
+        BEGIN SELECT RAISE(ABORT, 'archive experiment scope mismatch'); END
+    """)
+    op.execute("""
+        CREATE TRIGGER archive_version_fixed_update BEFORE UPDATE OF
+            archive_version_id, project_id, experiment_id, experiment_revision_id, track_key,
+            version_number, display_name, assembly, track_type, source_identity, source
+        ON archived_track_versions
+        BEGIN SELECT RAISE(ABORT, 'sealed archive version is immutable'); END
+    """)
+    # The only mutable fields are the physical file identities after an operator
+    # verifies a byte-identical restore. Compare each member independent of JSON key order.
+    protected = [
+        f"json_extract(OLD.members, '$.{role}.{field}') IS NOT json_extract(NEW.members, '$.{role}.{field}')"
+        for role in ("data", "index")
+        for field in ("sha256", "size_bytes", "chunks")
+    ]
+    op.execute(
+        "CREATE TRIGGER archive_version_fixed_bytes BEFORE UPDATE OF members ON archived_track_versions "
+        "WHEN "
+        + " OR ".join(protected)
+        + " BEGIN SELECT RAISE(ABORT, 'sealed archive members are immutable'); END"
+    )
+    op.execute("""
+        CREATE TRIGGER archive_version_fixed_delete BEFORE DELETE ON archived_track_versions
+        BEGIN SELECT RAISE(ABORT, 'sealed archive version is immutable'); END
+    """)
+
 
 def downgrade() -> None:
     has_versions = (

@@ -27,11 +27,19 @@ class SealedMember:
 
     def __post_init__(self) -> None:
         if (
-            self.size_bytes <= 0
+            type(self.size_bytes) is not int
+            or self.size_bytes <= 0
+            or not isinstance(self.sha256, str)
             or SHA256.fullmatch(self.sha256) is None
+            or not isinstance(self.chunks, tuple)
             or len(self.chunks) != (self.size_bytes + CHUNK_BYTES - 1) // CHUNK_BYTES
-            or any(SHA256.fullmatch(value) is None for value in self.chunks)
+            or any(
+                not isinstance(value, str) or SHA256.fullmatch(value) is None
+                for value in self.chunks
+            )
+            or not isinstance(self.identity, tuple)
             or len(self.identity) != 7
+            or any(type(part) is not int for part in self.identity)
         ):
             raise ArchiveStoreError("archive_integrity")
 

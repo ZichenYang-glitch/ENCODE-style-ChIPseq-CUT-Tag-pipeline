@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from encode_pipeline.persistence.archived_tracks import ArchiveRepository
 from encode_pipeline.persistence.database import (
@@ -12,11 +14,15 @@ from encode_pipeline.persistence.database import (
 )
 from encode_pipeline.persistence.migrations import downgrade_database, upgrade_database
 from encode_pipeline.persistence.models import (
+    ArtifactPublicationRow,
     ExperimentRevisionRow,
     ExperimentRow,
     ProjectRow,
     RegisteredResultRevisionRow,
     RegisteredResultRow,
+    RunExperimentBindingRow,
+    RunProjectBindingRow,
+    RunRow,
     StoragePoolRow,
 )
 from encode_pipeline.platform.archived_tracks import ArchiveStoreError
@@ -27,7 +33,8 @@ from encode_pipeline.platform.registered_results import REVISION_DIGEST_SCHEME
 from encode_pipeline.services.archive_objects import ArchiveObjects
 
 
-def test_concurrent_publication_historical_selection_and_rollback(tmp_path):
+@pytest.fixture
+def archive_case(tmp_path):
     url = f"sqlite:///{tmp_path / 'experiment.db'}"
     upgrade_database(url)
     engine = create_database_engine(url)
@@ -123,6 +130,16 @@ def test_concurrent_publication_historical_selection_and_rollback(tmp_path):
                     members={"data": member},
                 )
             )
+    yield url, sessions, repository, project, experiment, objects, archive, versions
+    engine.dispose()
+
+
+def test_concurrent_publication_historical_selection_and_rollback(
+    tmp_path, archive_case
+):
+    url, sessions, repository, project, experiment, objects, archive, versions = (
+        archive_case
+    )
     with ThreadPoolExecutor(3) as runner:
         first = list(runner.map(lambda _: repository.publish(**versions[0]), range(3)))
     assert len({v.archive_version_id for v in first}) == 1
@@ -177,4 +194,123 @@ def test_concurrent_publication_historical_selection_and_rollback(tmp_path):
         db.get(ProjectRow, project).archived_at = datetime.now(timezone.utc)
     with pytest.raises(ArchiveStoreError, match="archive_version_not_found"):
         repository.get_version(project, experiment, exact.archive_version_id)
-    engine.dispose()
+
+
+def test_published_identity_and_bytes_are_immutable_even_in_sql(archive_case):
+    _, sessions, repository, _, _, _, _, versions = archive_case
+    repository.publish(**versions[0])
+    for statement in (
+        "UPDATE archived_track_versions SET archive_version_id='other'",
+        "UPDATE archived_track_versions SET members=json_set(members, '$.data.sha256', 'wrong')",
+        "DELETE FROM archived_track_versions",
+    ):
+        with pytest.raises(IntegrityError, match="immutable"), sessions.begin() as db:
+            db.execute(text(statement))
+    with pytest.raises(IntegrityError, match="scope mismatch"), sessions.begin() as db:
+        db.execute(
+            text("""
+          INSERT INTO archived_track_versions
+          SELECT 'another-id', project_id, experiment_id, 'wrong-revision', track_key,
+                 3, display_name, assembly, track_type, source_identity, source, members
+          FROM archived_track_versions
+        """)
+        )
+
+
+def test_publish_requires_distinct_members_and_a_consistent_run_binding(archive_case):
+    _, sessions, repo, project, _, _, _, versions = archive_case
+    data = versions[0]
+    src = data["source"]
+    with pytest.raises(ArchiveStoreError, match="archive_invalid"):
+        repo.publish(
+            **(
+                data
+                | {
+                    "track_type": "longrange",
+                    "members": {
+                        "data": data["members"]["data"],
+                        "index": data["members"]["data"],
+                    },
+                    "source": {
+                        **src,
+                        "index_result_id": src["result_id"],
+                        "index_result_revision_id": src["result_revision_id"],
+                    },
+                }
+            )
+        )
+    now = datetime.now(timezone.utc)
+    run_id = "changing-binding"
+    with sessions.begin() as db:
+        db.add(
+            RunRow(
+                run_id=run_id,
+                workflow_id="test",
+                tags={},
+                inputs={},
+                status="succeeded",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.flush()
+        db.add(
+            RunProjectBindingRow(
+                run_id=run_id,
+                project_id=project,
+                binding_mode="bound_v1",
+                provenance="resolved",
+                workflow_inputs_digest="0" * 64,
+                binding_digest_scheme="sha256-framed-project-sample-binding-v1",
+                binding_digest="0" * 64,
+                created_at=now,
+            )
+        )
+        db.add(
+            RunExperimentBindingRow(
+                run_id=run_id,
+                experiment_revision_id=data["experiment_revision_id"],
+                payload_digest="9" * 64,
+            )
+        )
+    with sessions.begin() as db:
+        db.add(
+            ArtifactPublicationRow(
+                run_id=run_id,
+                artifact_id="signal",
+                artifact_generation="artifactgen-" + "a" * 64,
+                artifact_revision="artifactrev-" + "b" * 64,
+                output_type="bigwig",
+                published_at=now,
+            )
+        )
+    with pytest.raises(ArchiveStoreError, match="archive_version_not_found"):
+        repo.publish(
+            **(
+                data
+                | {
+                    "source": dict(
+                        kind="run",
+                        run_id=run_id,
+                        artifact_id="signal",
+                        generation="artifactgen-" + "a" * 64,
+                        revision="artifactrev-" + "b" * 64,
+                    )
+                }
+            )
+        )
+
+
+def test_invalid_operator_inputs_are_reported_without_serialization_or_type_errors(
+    archive_case,
+):
+    _, _, repo, project, experiment, _, _, versions = archive_case
+    for overrides in (
+        {"members": None},
+        {"source": {1: "a", "kind": "run"}},
+        {"track_key": None},
+    ):
+        with pytest.raises(ArchiveStoreError, match="archive_invalid"):
+            repo.publish(**(versions[0] | overrides))
+    with pytest.raises(ArchiveStoreError, match="archive_invalid"):
+        repo.list_versions(project, experiment, limit=True)
