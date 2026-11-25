@@ -1,16 +1,14 @@
-"""Temporary SQLite API for the catalog page browser path.
-
-Slice A is the parent commit. This process seeds one project through the real
-catalog HTTP API, then serves that API until it is stopped.
-"""
+"""Seed one temporary SQLite project and serve its real catalog API."""
 
 from __future__ import annotations
 
 import argparse
 from http.cookiejar import CookieJar
 import json
+import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -26,18 +24,13 @@ from encode_pipeline.services.authentication_service import (
     AuthenticationActor,
 )
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.input_registry import InputRegistryService
 
 
 ADMIN_USERNAME = "catalog-admin"
 ADMIN_PASSWORD = "catalog-browser-admin"
 MEMBER_USERNAME = "catalog-member"
 MEMBER_PASSWORD = "catalog-browser-member"
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _csrf(jar: CookieJar) -> str:
@@ -247,6 +240,142 @@ def _history(
     return {"first": first, "revised": current}
 
 
+def _configure_archive_fixture(root: Path, database_url: str, workspace: Path) -> None:
+    if not all(
+        (root / "pool" / version / "signal.bw").is_file() for version in ("v1", "v2")
+    ):
+        raise RuntimeError(
+            "Generate both bigWigs with archive_track_fixtures.py first."
+        )
+    if (root / "catalog.sqlite").exists():
+        raise RuntimeError(
+            "--archive-work needs a directory without an existing database."
+        )
+    archive = root / "archive"
+    archive.mkdir()
+    config = root / "storage-pools.json"
+    with config.open("x", encoding="utf-8") as stream:
+        json.dump(
+            {
+                "schema_version": "storage-pool-roots-v1",
+                "storage_pool_roots": {"archive-fixture": str(root / "pool")},
+            },
+            stream,
+        )
+    # The API and each separate operator process use the same fresh database.
+    os.environ.update(
+        ENCODE_PIPELINE_ARCHIVE_ROOT=str(archive),
+        ENCODE_PIPELINE_DATABASE_URL=database_url,
+        ENCODE_PIPELINE_STORAGE_POOL_CONFIG=str(config),
+        ENCODE_PIPELINE_WORKSPACE_ROOT=str(workspace),
+    )
+
+
+def _seal_archived_signal(
+    project_id: str, experiment: dict, registered_revision: dict
+) -> dict:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "encode_pipeline",
+            "archive",
+            "seal",
+            "registered",
+            "--project-id",
+            project_id,
+            "--experiment-id",
+            experiment["experiment_id"],
+            "--experiment-revision-id",
+            experiment["experiment_revision_id"],
+            "--track-key",
+            "signal",
+            "--display-name",
+            "signal.bw",
+            "--assembly",
+            "hg38",
+            "--track-type",
+            "bigwig",
+            "--result-id",
+            registered_revision["result_id"],
+            "--result-revision-id",
+            registered_revision["result_revision_id"],
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Operator seal failed: {result.stderr or result.stdout}")
+    return json.loads(result.stdout)
+
+
+def _archive_versions(
+    root: Path, seed: dict, project_id: str, experiments: dict
+) -> list[dict]:
+    post = seed["post"]
+    collection = f"/api/v1/catalog/projects/{project_id}/registered-results"
+    first = post(
+        collection,
+        {
+            "stable_key": "synthetic-archive-signal",
+            "display_name": "signal.bw",
+            "format": "bigwig",
+            "origin": {"kind": "external", "source": {"status": "unknown"}},
+            "method": {"status": "unknown"},
+            "reference": {"status": "unknown"},
+            "pool_relative_path": "v1/signal.bw",
+        },
+        "register-synthetic-signal",
+    )["revision"]
+    first_seal = _seal_archived_signal(project_id, experiments["first"], first)
+    second = post(
+        f"{collection}/{first['result_id']}/revisions",
+        {"expected_revision_number": 1, "pool_relative_path": "v2/signal.bw"},
+        "revise-synthetic-signal",
+    )["revision"]
+    second_seal = _seal_archived_signal(project_id, experiments["revised"], second)
+    replay = _seal_archived_signal(project_id, experiments["first"], first)
+    if replay["archive_version_id"] != first_seal["archive_version_id"]:
+        raise RuntimeError("Re-sealing the first registered revision changed its ID.")
+    # Both registered paths disappear before the browser opens the experiment.
+    (root / "pool").rename(root / "retired-pool")
+    fixtures = []
+    for seal, revision, experiment in (
+        (first_seal, first, experiments["first"]),
+        (second_seal, second, experiments["revised"]),
+    ):
+        if seal["version_number"] != revision["revision_number"]:
+            raise RuntimeError(
+                "The operator seal returned an unexpected result version."
+            )
+        registered_bytes = revision["bytes"]
+        if seal["members"] != {
+            "data": {
+                "size_bytes": registered_bytes["size_bytes"],
+                "sha256": registered_bytes["content_sha256"],
+            }
+        }:
+            raise RuntimeError("The sealed bytes differ from the registered revision.")
+        fixtures.append(
+            {
+                "archive_version_id": seal["archive_version_id"],
+                "version_number": revision["revision_number"],
+                "project_id": project_id,
+                "experiment_id": experiment["experiment_id"],
+                "experiment_revision_id": experiment["experiment_revision_id"],
+                "source": {
+                    "kind": "registered",
+                    "result_id": revision["result_id"],
+                    "result_revision_id": revision["result_revision_id"],
+                },
+                **registered_bytes,
+            }
+        )
+    return fixtures
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
@@ -266,17 +395,41 @@ def main() -> None:
         action="store_true",
         help="Serve the packaged frontend on this origin.",
     )
-    args = parser.parse_args()
-    root = Path(tempfile.mkdtemp(prefix="catalog-page-"))
-    database = root / "catalog.sqlite"
-    app = create_app(
-        database_url=f"sqlite:///{database}",
-        workspace_root=root / "workspaces",
+    parser.add_argument(
+        "--archive-work",
+        type=Path,
+        help="Serve the installed frontend with two sealed tracks from a fresh fixture.",
     )
-    if args.packaged:
+    args = parser.parse_args()
+    if args.archive_work and (
+        args.host != "127.0.0.1" or args.head_revision or args.long_history
+    ):
+        parser.error("--archive-work requires the default host and history options")
+
+    with socket.socket() as listener:
+        listener.bind((args.host, 0))
+        serve(args, listener)
+
+
+def serve(args: argparse.Namespace, listener: socket.socket) -> None:
+    root = (
+        args.archive_work.resolve()
+        if args.archive_work
+        else Path(tempfile.mkdtemp(prefix="catalog-page-"))
+    )
+    database_url = f"sqlite:///{root / 'catalog.sqlite'}"
+    workspace = root / "workspaces"
+    if args.archive_work:
+        _configure_archive_fixture(root, database_url, workspace)
+    app = create_app(
+        database_url=database_url,
+        workspace_root=workspace,
+    )
+    if args.archive_work or args.packaged:
+        assets = load_packaged_frontend_assets()
         app.mount(
             "/",
-            ManifestStaticApplication(load_packaged_frontend_assets()),
+            ManifestStaticApplication(assets),
             name="frontend",
         )
     accounts = AccountAdministrationService(
@@ -298,7 +451,15 @@ def main() -> None:
         display_name="treg",
         attributes={"organism": "human"},
     )
-    port = _free_port()
+    if args.archive_work:
+        inputs = InputRegistryService(
+            repository=app.state.persistence.input_registry_repository
+        )
+        pool = inputs.create_storage_pool(
+            display_name="Synthetic registered tracks", config_key="archive-fixture"
+        )
+        inputs.bind_project_storage_pool(project.project_id, pool.storage_pool_id)
+    port = listener.getsockname()[1]
     import uvicorn
 
     server = uvicorn.Server(
@@ -311,7 +472,9 @@ def main() -> None:
         )
     )
     server.install_signal_handlers = lambda: None
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(
+        target=server.run, kwargs={"sockets": [listener]}, daemon=True
+    )
     thread.start()
     base = f"http://{args.host}:{port}"
     try:
@@ -337,7 +500,11 @@ def main() -> None:
             "catalog-treg",
         )
         sample_revision_id = classified["sample_revision_id"]
-        history_count = args.head_revision or (24 if args.long_history else 0)
+        history_count = (
+            2
+            if args.archive_work
+            else args.head_revision or (24 if args.long_history else 0)
+        )
         if history_count > 0:
             created = _history(
                 seeded,
@@ -353,6 +520,10 @@ def main() -> None:
             current_name = "Treg CUT&Tag v2"
             older_name = "Treg CUT&Tag v1"
             head_revision_number = 2
+        if args.archive_work:
+            archive_versions = _archive_versions(
+                root, seeded, project.project_id, created
+            )
     except Exception:
         server.should_exit = True
         raise
@@ -385,6 +556,9 @@ def main() -> None:
             "replicate_role": _known(seeded["role"]),
         },
     }
+    if args.archive_work:
+        manifest["archive_versions"] = archive_versions
+        manifest["frontend_identity"] = assets.manifest.identity
     print(f"CATALOG_PAGE_READY {json.dumps(manifest)}", flush=True)
     try:
         while thread.is_alive():
