@@ -1,3 +1,6 @@
+// Default proof: two hg38 runs, the undeclared local peak, and an mm10 run that is refused.
+// Mouse: WASHU_OVERLAY_ASSEMBLY=mm10|GRCm38 and optional WASHU_OVERLAY_FOREIGN=hg38|mm39.
+// The local peak then declares mm10. Version, permission, and removal checks stay.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
@@ -13,7 +16,8 @@ const python =
 const work = process.env.WASHU_OVERLAY_DIR
   ? (mkdirSync(process.env.WASHU_OVERLAY_DIR, { recursive: true }), process.env.WASHU_OVERLAY_DIR)
   : mkdtempSync(join(tmpdir(), 'helixweave-washu-overlay-'));
-const localBed = join(root, 'test/fixtures/browser/overlay-peak-local.bed');
+const requestedAssembly = process.env.WASHU_OVERLAY_ASSEMBLY ?? '';
+const requestedForeign = process.env.WASHU_OVERLAY_FOREIGN ?? '';
 const evidencePath = join(work, 'evidence.json');
 const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 const navigatedRegion = 'chr1:5200-6400';
@@ -32,6 +36,7 @@ let workspace = '';
 let stage = 'open';
 
 const evidence = {
+  source: null,
   window: null,
   api: null,
   protection: null,
@@ -41,6 +46,27 @@ const evidence = {
   foreign: null,
   network: null,
 };
+
+function assemblyKey(value) {
+  const key = String(value ?? '').trim().toLowerCase();
+  if (/^(?:hg38|grch38)(?:\.p[0-9]+)?$/.test(key)) return 'hg38';
+  if (key === 'grcm38') return 'mm10';
+  if (key === 'grcm39') return 'mm39';
+  return key;
+}
+
+function localBedPath(record) {
+  if (record.local_bed.startsWith('/')) return record.local_bed;
+  return join(root, 'test/fixtures/browser', record.local_bed);
+}
+
+function bedDeclares(text, declaration) {
+  const escaped = declaration.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return (
+    new RegExp(`^browser genome ${escaped}$`, 'm').test(text) ||
+    new RegExp(`(?:^|\\s)(?:db|genome)=["']?${escaped}(?=$|\\s)`, 'im').test(text)
+  );
+}
 
 function log(line) {
   writeFileSync(join(work, 'proof.log'), `${line}\n`, { flag: 'a' });
@@ -328,11 +354,17 @@ async function protectionChecks() {
   const primary = JSON.parse(primarySession.text);
   const second = JSON.parse(secondSession.text);
   const foreign = JSON.parse(foreignSession.text);
-  if (primary.reference.viewer_scaffold !== 'hg38' || second.reference.viewer_scaffold !== 'hg38') {
-    throw new Error('the two authorized runs are not both on the hg38 scaffold');
+  if (
+    primary.reference.viewer_scaffold !== manifest.scaffold ||
+    second.reference.viewer_scaffold !== manifest.scaffold
+  ) {
+    throw new Error(`the two authorized runs are not both on the ${manifest.scaffold} scaffold`);
   }
-  if (primary.reference.assembly_label !== 'hg38' || second.reference.assembly_label !== 'hg38') {
-    throw new Error('the two authorized runs do not both declare hg38');
+  if (
+    primary.reference.assembly_label !== manifest.assembly ||
+    second.reference.assembly_label !== manifest.assembly
+  ) {
+    throw new Error(`the two authorized runs do not both declare ${manifest.assembly}`);
   }
   if (
     !primary.reference.identity_sha256 ||
@@ -340,8 +372,16 @@ async function protectionChecks() {
   ) {
     throw new Error('the second run does not have its own reference identity');
   }
-  if (foreign.reference.viewer_scaffold !== 'mm10' || foreign.reference.assembly_label !== 'mm10') {
-    throw new Error(`foreign run scaffold was ${foreign.reference.viewer_scaffold}`);
+  if (
+    foreign.reference.viewer_scaffold !== manifest.foreign_scaffold ||
+    foreign.reference.assembly_label !== manifest.foreign_assembly
+  ) {
+    throw new Error(
+      `foreign run was ${foreign.reference.assembly_label}/${foreign.reference.viewer_scaffold}, not ${manifest.foreign_assembly}/${manifest.foreign_scaffold}`,
+    );
+  }
+  if (manifest.foreign_scaffold === manifest.scaffold) {
+    throw new Error(`${manifest.foreign_assembly} shares the ${manifest.scaffold} window`);
   }
   const history = await apiGet('/api/v1/runs?limit=100');
   assertClosed(history, 'run history');
@@ -418,6 +458,11 @@ async function protectionChecks() {
       second: second.reference.viewer_scaffold,
       foreign: foreign.reference.viewer_scaffold,
     },
+    labels: {
+      primary: primary.reference.assembly_label,
+      second: second.reference.assembly_label,
+      foreign: foreign.reference.assembly_label,
+    },
     artifact_id: manifest.artifact_id,
     primary_generation: manifest.primary_generation,
     second_generation: manifest.second_generation,
@@ -455,15 +500,10 @@ function sameOriginRead(runId, generation, revision) {
 }
 
 async function main() {
-  if (!existsSync(localBed)) throw new Error('local BED fixture is missing');
-  const localText = readFileSync(localBed, 'utf8');
-  if (!localText.includes('peak-local') || !localText.includes('5800\t6000')) {
-    throw new Error('local BED fixture is not the synthetic peak-local interval');
-  }
   port = await reserve(18940);
   workspace = join(work, 'workspace');
   mkdirSync(workspace, { recursive: true });
-  const server = start(python, [
+  const serverArgs = [
     'test/browser/washu_overlay_server.py',
     '--port',
     String(port),
@@ -471,12 +511,43 @@ async function main() {
     join(work, 'overlay.sqlite'),
     '--workspace',
     workspace,
-  ]);
+  ];
+  if (requestedAssembly) serverArgs.push('--assembly', requestedAssembly);
+  if (requestedForeign) serverArgs.push('--foreign', requestedForeign);
+  const server = start(python, serverArgs);
   server.stderr.on('data', (chunk) => {
     writeFileSync(join(work, 'server.log'), chunk.toString(), { flag: 'a' });
   });
   const ready = await waitFor(server.stdout, /WASHU_OVERLAY (\{.*\})/, 90_000);
   manifest = JSON.parse(ready[1]);
+  if (requestedAssembly && assemblyKey(manifest.assembly) !== assemblyKey(requestedAssembly)) {
+    throw new Error(`server assembly ${manifest.assembly} does not match ${requestedAssembly}`);
+  }
+  if (requestedForeign && assemblyKey(manifest.foreign_assembly) !== assemblyKey(requestedForeign)) {
+    throw new Error(`server foreign assembly ${manifest.foreign_assembly} does not match ${requestedForeign}`);
+  }
+  const localBed = localBedPath(manifest);
+  if (!existsSync(localBed)) throw new Error(`local BED fixture is missing: ${localBed}`);
+  const localText = readFileSync(localBed, 'utf8');
+  if (!localText.includes('peak-local') || !localText.includes('5800\t6000')) {
+    throw new Error('local BED fixture is not the synthetic peak-local interval');
+  }
+  if (manifest.local_declaration && !bedDeclares(localText, manifest.local_declaration)) {
+    throw new Error(`local peak does not declare ${manifest.local_declaration}`);
+  }
+  if (!manifest.local_declaration && manifest.scaffold !== 'hg38') {
+    throw new Error('a mouse window requires a local peak that declares mm10');
+  }
+  evidence.source = {
+    assembly: manifest.assembly,
+    scaffold: manifest.scaffold,
+    organism: manifest.organism,
+    foreign_assembly: manifest.foreign_assembly,
+    foreign_scaffold: manifest.foreign_scaffold,
+    local_declaration: manifest.local_declaration,
+    local_bed: manifest.local_bed,
+    window: manifest.window,
+  };
   evidence.window = manifest.window;
   await waitUntilListening();
   await protectionChecks();
@@ -588,9 +659,18 @@ async function main() {
   stage = 'select primary';
   await primaryBox.check();
   await viewerFrame.locator('[data-testid="local-track-file-input"]').setInputFiles(localBed);
-  await viewerFrame
-    .locator('[data-testid="local-browser-track"][data-source="local"]')
-    .waitFor({ timeout: 20_000 });
+  const localRow = viewerFrame.locator('[data-testid="local-browser-track"][data-source="local"]');
+  await localRow.waitFor({ timeout: 20_000 });
+  const localAssembly = await localRow.getAttribute('data-assembly');
+  if (localAssembly !== manifest.scaffold) {
+    throw new Error(`local peak was placed on ${localAssembly}, not ${manifest.scaffold}`);
+  }
+  if (manifest.local_declaration) {
+    const signature = await viewerFrame.locator('[data-testid="local-track-assembly"]').innerText();
+    if (!signature.includes(manifest.local_declaration)) {
+      throw new Error(`local assembly signature did not record ${manifest.local_declaration}: ${signature}`);
+    }
+  }
   await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
   const secondArticle = runArticle(viewerFrame, manifest.second_run_id);
@@ -606,6 +686,11 @@ async function main() {
   }
   if (primaryIdentity !== evidence.api.primary_identity || secondIdentity !== evidence.api.second_identity || primaryIdentity === secondIdentity) {
     throw new Error('the open runs do not show two reference identities');
+  }
+  const primaryScaffold = await runArticle(viewerFrame, manifest.primary_run_id).getAttribute('data-scaffold');
+  const secondScaffold = await secondArticle.getAttribute('data-scaffold');
+  if (primaryScaffold !== manifest.scaffold || secondScaffold !== manifest.scaffold) {
+    throw new Error(`open runs are not on ${manifest.scaffold} (${primaryScaffold}, ${secondScaffold})`);
   }
   const secondBox = secondArticle.getByRole('checkbox');
   if (await secondBox.isDisabled()) throw new Error('second run track could not be chosen');
@@ -674,6 +759,8 @@ async function main() {
       read: secondRead.data,
     },
     plotted_features: [...new Set(hub.drawn)],
+    local_assembly: localAssembly,
+    local_declaration: manifest.local_declaration,
     local_drawn: hub.drawn.filter((text) => text.includes('peak-local') || text.includes('5800')).slice(0, 4),
     regions: hub.regions.slice(0, 4),
   };
@@ -807,15 +894,24 @@ async function main() {
   const foreignConflict = (
     await foreignArticle.locator('[data-testid="reference-conflict"]').allInnerTexts()
   ).join('\n');
-  if (!/mm10/.test(foreignConflict)) {
-    throw new Error(`mm10 run was not rejected\n${foreignConflict}`);
+  if (!foreignConflict.includes(manifest.foreign_scaffold)) {
+    throw new Error(`${manifest.foreign_assembly} run was not rejected\n${foreignConflict}`);
+  }
+  const foreignScaffold = await foreignArticle.getAttribute('data-scaffold');
+  if (foreignScaffold !== manifest.foreign_scaffold) {
+    throw new Error(`foreign run scaffold on the page was ${foreignScaffold}`);
   }
   const foreignBox = foreignArticle.getByRole('checkbox');
-  if (await foreignBox.isEnabled()) throw new Error('mm10 track stayed selectable');
+  if (await foreignBox.isEnabled()) {
+    throw new Error(`${manifest.foreign_assembly} track stayed selectable`);
+  }
   await page.waitForTimeout(1000);
   const foreignReads = reads.slice(readsBeforeForeign).filter((read) => read.url.includes(manifest.foreign_run_id));
-  if (foreignReads.length) {
-    throw new Error(`mm10 bytes were read\n${foreignReads.map((read) => read.url).join('\n')}`);
+  const foreignBytes = foreignReads.reduce((sum, read) => sum + read.body.length, 0);
+  if (foreignReads.length || foreignBytes !== 0) {
+    throw new Error(
+      `${manifest.foreign_assembly} bytes were read (${foreignBytes} B)\n${foreignReads.map((read) => read.url).join('\n')}`,
+    );
   }
   const stillThere = await readHub(viewerFrame);
   const stillUrls = stillThere?.models.map((track) => track.url) ?? [];
@@ -823,13 +919,14 @@ async function main() {
     !stillUrls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) ||
     !(stillThere?.models ?? []).some((track) => track.file)
   ) {
-    throw new Error('rejecting mm10 removed the tracks already open');
+    throw new Error(`rejecting ${manifest.foreign_assembly} removed the tracks already open`);
   }
   evidence.foreign = {
     run_id: manifest.foreign_run_id,
-    scaffold: 'mm10',
+    assembly: manifest.foreign_assembly,
+    scaffold: manifest.foreign_scaffold,
     reason: foreignConflict,
-    bytes_read: 0,
+    bytes_read: foreignBytes,
   };
   await page.screenshot({ path: join(work, 'overlay-foreign.png'), fullPage: true });
 
