@@ -6,6 +6,7 @@ declare module 'wuepgg' {
     name?: string;
     url?: string;
     options?: Record<string, unknown>;
+    [key: string]: unknown;
   }
 
   export const GenomeHub: ComponentType<{

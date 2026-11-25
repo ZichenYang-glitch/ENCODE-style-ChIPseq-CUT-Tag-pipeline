@@ -137,4 +137,33 @@ describe('trackReadGuard', () => {
     expect(current.status).toBe(409);
     expect(seen).toEqual(['artifact-pet']);
   });
+
+  it('keeps a rejected read on one run from failing the same artifact id on another run', async () => {
+    const seen: Array<{ artifactId: string; runId: string | null | undefined }> = [];
+    const run1 =
+      'https://helix.example/api/v1/runs/run-1/browser-tracks/artifact-pet/bytes/generation/revision';
+    const run2 =
+      'https://helix.example/api/v1/runs/run-2/browser-tracks/artifact-pet/bytes/generation/revision';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/runs/run-1/')
+          ? new Response('no', { status: 409 })
+          : new Response(new Uint8Array([1]), { status: 206 }),
+      ),
+    );
+    ensureTrackReadGuard();
+    subscribeTrackReadFailure((artifactId, detail) => {
+      seen.push({ artifactId, runId: detail?.runId });
+    });
+    const first = new AbortController();
+    beginTrackRead('artifact-pet', first.signal, 'run-1');
+    const second = new AbortController();
+    beginTrackRead('artifact-pet', second.signal, 'run-2');
+
+    expect((await fetch(run1, { signal: first.signal })).status).toBe(409);
+    expect((await fetch(run2, { signal: second.signal })).status).toBe(206);
+    expect(seen).toEqual([{ artifactId: 'artifact-pet', runId: 'run-1' }]);
+    expect(hasTrackReadFailure('artifact-pet')).toBe(true);
+  });
 });

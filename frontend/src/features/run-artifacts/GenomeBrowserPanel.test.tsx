@@ -39,6 +39,15 @@ vi.mock('../../api/generated/artifacts/artifacts', () => ({
   summarizeRunBrowserTrackRegion: vi.fn(),
 }));
 
+vi.mock('../../api/generated/runs/runs', () => ({
+  listRuns: vi.fn(async () => ({
+    ok: true,
+    runs: [],
+    next_cursor: null,
+    issues: [],
+  })),
+}));
+
 const sessionMock = vi.mocked(getRunBrowserSession);
 const summaryMock = vi.mocked(summarizeRunBrowserTrackRegion);
 vi.mocked(prepareRunBrowserTrack);
