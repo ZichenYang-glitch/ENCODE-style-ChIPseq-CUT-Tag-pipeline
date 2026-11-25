@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -143,3 +144,186 @@ def test_default_fixture_exceeds_both_online_caps(
     assert saved["record_count"] == observation["record_count"]
     assert saved["data_file_bytes"] == observation["data_file_bytes"]
     assert saved["index_file_bytes"] == observation["index_file_bytes"]
+
+
+_MOUSE_GTF = Path("/home/yangzichen/reference/genomes/GRCm38/GRCm38.annotation.gtf")
+_MOUSE_SIZES = Path("/home/yangzichen/reference/genomes/GRCm38/GRCm38.fa.sizes")
+
+
+def test_mm10_consensus_places_fixed_values_inside_egfr_and_trp53() -> None:
+    human = load_consensus()
+    spec = load_consensus("mm10")
+    assert spec["assembly"] == "mm10"
+    assert spec["annotation"]["release"] == "M25"
+    assert spec["annotation"]["assembly"] == "GRCm38"
+    assert spec["annotation"]["assembly_accession"] == "GCA_000001635.2"
+    assert spec["chrom_sizes"] == {"chr11": 122082543}
+    assert spec["filenames"] == human["filenames"]
+    egfr = spec["genes"]["Egfr"]
+    trp53 = spec["genes"]["Trp53"]
+    assert egfr == {
+        "gene_id": "ENSMUSG00000020122.16",
+        "chrom": "chr11",
+        "gtf_start": 16752203,
+        "gtf_end": 16918158,
+        "strand": "+",
+        "mgi_id": "MGI:95294",
+        "hub_region": "chr11:16752203-16918158",
+        "zero_based_half_open": [16752202, 16918158],
+    }
+    assert trp53 == {
+        "gene_id": "ENSMUSG00000059552.13",
+        "chrom": "chr11",
+        "gtf_start": 69580359,
+        "gtf_end": 69591873,
+        "strand": "+",
+        "mgi_id": "MGI:98834",
+        "hub_region": "chr11:69580359-69591873",
+        "zero_based_half_open": [69580358, 69591873],
+    }
+    for gene in (egfr, trp53):
+        assert gene["zero_based_half_open"] == [gene["gtf_start"] - 1, gene["gtf_end"]]
+        assert (
+            gene["hub_region"]
+            == f"{gene['chrom']}:{gene['gtf_start']}-{gene['gtf_end']}"
+        )
+    assert spec["longrange_pairs"]["egfr"] == [
+        {"a": [16780000, 16781000], "b": [16820000, 16821000]}
+    ]
+    assert spec["longrange_pairs"]["trp53"] == [
+        {"a": [69582000, 69583000], "b": [69588000, 69589000]}
+    ]
+    assert spec["signals"] == [
+        {"chrom": "chr11", "start": 16790000, "end": 16791500, "value": 7.5},
+        {"chrom": "chr11", "start": 69584000, "end": 69585500, "value": 3.25},
+    ]
+    assert spec["peaks"] == [
+        {"chrom": "chr11", "start": 16785000, "end": 16786000, "name": "Peak-egfr"},
+        {"chrom": "chr11", "start": 69586000, "end": 69587000, "name": "Peak-trp53"},
+    ]
+    assert spec["signals"][0]["value"] != human["signals"][0]["value"]
+    # 90 kb still places both anchors. A 55 kb window around the same
+    # anchors leaves the longrange track without a placement.
+    assert spec["coordinate_probe"] == {
+        "gene": "Egfr",
+        "region": "chr11:16760001-16850000",
+    }
+    probe_start, probe_end = (
+        int(part)
+        for part in spec["coordinate_probe"]["region"].split(":")[1].split("-")
+    )
+    # Typed text is 1-based and closed. GenomeHub keeps the end and subtracts
+    # one from the start, which still covers the 0-based Egfr anchors.
+    assert probe_start - 1 <= spec["longrange_pairs"]["egfr"][0]["a"][0]
+    assert spec["longrange_pairs"]["egfr"][0]["b"][1] <= probe_end
+    assert probe_start != spec["longrange_pairs"]["egfr"][0]["a"][0]
+    for key, gene in (("egfr", egfr), ("trp53", trp53)):
+        pair = spec["longrange_pairs"][key][0]
+        assert _inside(gene, pair["a"][0], pair["a"][1])
+        assert _inside(gene, pair["b"][0], pair["b"][1])
+    for item in spec["signals"] + spec["peaks"]:
+        owners = [
+            gene for gene in (egfr, trp53) if _inside(gene, item["start"], item["end"])
+        ]
+        assert len(owners) == 1
+
+
+def _build_mouse(dest: Path, interpreter: str, pairs: int | None = None) -> dict:
+    command = [
+        interpreter,
+        str(Path(__file__).with_name("local_overlay_fixtures.py")),
+        "--dest",
+        str(dest),
+        "--assembly",
+        "mm10",
+    ]
+    if pairs is not None:
+        command.extend(["--filler-pairs", str(pairs)])
+    subprocess.run(command, check=True)
+    return json.loads((dest / "observation.json").read_text(encoding="utf-8"))
+
+
+def test_mm10_build_reads_back_both_genes(
+    tmp_path: Path,
+    fixture_python: str,
+) -> None:
+    spec = load_consensus("mm10")
+    first = _build_mouse(tmp_path / "a", fixture_python)
+    second = _build_mouse(tmp_path / "b", fixture_python)
+    assert first["assembly"] == "mm10"
+    assert first["filler_pairs"] == 0
+    assert first["record_count"] == 4
+    assert first["feature_records"] == 4
+    assert first["exceeds_source_bytes"] is False
+    assert first["exceeds_source_records"] is False
+    assert first["data_sha256"] == second["data_sha256"]
+    assert first["index_sha256"] == second["index_sha256"]
+    assert first["window"]["hits"] == pair_lines(
+        "chr11", spec["longrange_pairs"]["egfr"][0]
+    )
+    assert first["trp53_window"]["hits"] == pair_lines(
+        "chr11", spec["longrange_pairs"]["trp53"][0]
+    )
+    assert first["signal_intervals"] == [
+        ["chr11", 16790000, 16791500, 7.5],
+        ["chr11", 69584000, 69585500, 3.25],
+    ]
+    peaks = (tmp_path / "a" / spec["filenames"]["peaks"]).read_text(encoding="ascii")
+    assert peaks == (
+        "chr11\t16785000\t16786000\tPeak-egfr\nchr11\t69586000\t69587000\tPeak-trp53\n"
+    )
+    assert first["wrong_index"]["raised"] is True
+    assert first["wrong_index"]["hits"] == []
+
+
+def test_pinned_mouse_genes_match_the_local_gencode_m25_gtf() -> None:
+    if not _MOUSE_GTF.is_file():
+        pytest.skip("local GRCm38 annotation is not on this machine")
+    spec = load_consensus("mm10")
+    wanted = {gene["gene_id"]: gene for gene in spec["genes"].values()}
+    found: dict[str, dict[str, str]] = {}
+    with _MOUSE_GTF.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line or line[0] == "#":
+                continue
+            gene_id = next((item for item in wanted if item in line), None)
+            if gene_id is None:
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 9 or parts[2] != "gene":
+                continue
+            attrs = dict(re.findall(r'([A-Za-z0-9_]+) "([^"]*)"', parts[8]))
+            if attrs.get("gene_id") != gene_id:
+                continue
+            found[gene_id] = {
+                "chrom": parts[0],
+                "start": parts[3],
+                "end": parts[4],
+                "strand": parts[6],
+                "gene_name": attrs["gene_name"],
+                "gene_type": attrs["gene_type"],
+                "mgi_id": attrs["mgi_id"],
+            }
+            if len(found) == len(wanted):
+                break
+    assert set(found) == set(wanted)
+    for gene_id, gene in wanted.items():
+        row = found[gene_id]
+        assert row["chrom"] == gene["chrom"]
+        assert int(row["start"]) == gene["gtf_start"]
+        assert int(row["end"]) == gene["gtf_end"]
+        assert row["strand"] == gene["strand"]
+        assert row["gene_name"] in spec["genes"]
+        assert spec["genes"][row["gene_name"]] is gene
+        assert row["gene_type"] == "protein_coding"
+        assert row["mgi_id"] == gene["mgi_id"]
+    if _MOUSE_SIZES.is_file():
+        sizes = {
+            chrom: int(length)
+            for chrom, length in (
+                line.split("\t")
+                for line in _MOUSE_SIZES.read_text(encoding="ascii").splitlines()
+                if line
+            )
+        }
+        assert sizes["chr11"] == spec["chrom_sizes"]["chr11"]
