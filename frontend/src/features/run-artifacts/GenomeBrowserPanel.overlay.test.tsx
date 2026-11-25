@@ -229,6 +229,9 @@ describe('GenomeBrowserPanel overlay', () => {
     expect(screen.getByText('当前声明 GRCh38')).toBeInTheDocument();
     expect(screen.getByText('用户指定 GRCh38')).toBeInTheDocument();
     expect(sessionMock).not.toHaveBeenCalled();
+    expect(listRunsMock).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '叠加已授权运行' }));
+    await waitFor(() => expect(listRunsMock).toHaveBeenCalledTimes(1));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'mm10');
     expect(screen.getByTestId('local-track-picker')).toHaveAttribute('data-assembly', 'mm10');
     await userEvent.clear(screen.getByLabelText('Genomic region'));

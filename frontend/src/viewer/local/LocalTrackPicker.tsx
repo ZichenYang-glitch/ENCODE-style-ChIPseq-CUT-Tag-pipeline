@@ -93,6 +93,7 @@ export default function LocalTrackPicker({
 
   return (
     <section className="min-w-0 space-y-3" data-testid="local-track-picker" aria-label="Local tracks">
+      <h2 className="font-medium">打开本地轨道</h2>
       <p data-testid="local-track-assembly">{signature}</p>
       <p className="text-sm">
         请选择文件实际使用的组装。缺少组装声明时以您的选择登记；文件留在此浏览器。

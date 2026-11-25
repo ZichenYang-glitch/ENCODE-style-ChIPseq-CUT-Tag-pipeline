@@ -242,6 +242,8 @@ export default function GenomeBrowserPanel({
   const [addedRunIds, setAddedRunIds] = useState<string[]>([]);
   const [addedSelections, setAddedSelections] = useState<Record<string, RunSelection>>({});
   const [pendingRunId, setPendingRunId] = useState('');
+  const [showRunPicker, setShowRunPicker] = useState(false);
+  const browseRuns = openedRunId !== null || showRunPicker;
   const [runNotice, setRunNotice] = useState<string | null>(null);
   const [localTracks, setLocalTracks] = useState<LocalWashuTrack[]>([]);
   const scope = openedRunId ?? '';
@@ -380,6 +382,7 @@ export default function GenomeBrowserPanel({
 
   const runsQuery = useInfiniteQuery({
     queryKey: ['browser-authorized-runs'],
+    enabled: browseRuns,
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) => {
       const page = await listRuns(
@@ -829,18 +832,27 @@ export default function GenomeBrowserPanel({
           {prepare.isError ? <p role="alert">{messageFromError(prepare.error)}</p> : null}
         </article>
       ) : null}
-      <RunPicker
-        runs={authorizedRuns}
-        pendingRunId={pendingRunId}
-        onPending={setPendingRunId}
-        onAdd={addRun}
-        onMore={() => void runsQuery.fetchNextPage()}
-        hasMore={runsQuery.hasNextPage}
-        loading={runsQuery.isPending}
-        loadingMore={runsQuery.isFetchingNextPage}
-        error={runsQuery.isError}
-        notice={runNotice}
-      />
+      <div data-testid="local-track-slot">
+        <LocalTrackPicker assembly={authority.scaffold} onTracksChange={onLocalTracks} />
+      </div>
+      {browseRuns ? (
+        <RunPicker
+          runs={authorizedRuns}
+          pendingRunId={pendingRunId}
+          onPending={setPendingRunId}
+          onAdd={addRun}
+          onMore={() => void runsQuery.fetchNextPage()}
+          hasMore={runsQuery.hasNextPage}
+          loading={runsQuery.isPending}
+          loadingMore={runsQuery.isFetchingNextPage}
+          error={runsQuery.isError}
+          notice={runNotice}
+        />
+      ) : (
+        <Button type="button" variant="secondary" onClick={() => setShowRunPicker(true)}>
+          叠加已授权运行
+        </Button>
+      )}
       {activeAddedIds.map((id, index) => (
         <AddedRunBlock
           key={id}
@@ -852,9 +864,6 @@ export default function GenomeBrowserPanel({
           onRemove={() => removeRun(id)}
         />
       ))}
-      <div data-testid="local-track-slot">
-        <LocalTrackPicker assembly={authority.scaffold} onTracksChange={onLocalTracks} />
-      </div>
       {localPlaced.length > 0 ? (
         <ul className="space-y-2">
           {localPlaced.map((item) => {
