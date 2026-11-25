@@ -109,10 +109,18 @@ export function isPeakDirective(raw: string): boolean {
 // UCSC track and browser directives can explicitly name an assembly.
 export function directiveAssembly(raw: string): string | undefined {
   const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-  const declaration = /^track\s/i.test(line)
-    ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(line)
-    : /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(line)
-  return declaration?.[1]
+  if (!/^track\s/i.test(line)) {
+    return /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(line)?.[1]
+  }
+  // Consume each complete value so a quoted label can contain text such as "with db=hg38".
+  const attributes = /\s([^\s=]+)=("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\S*)/g
+  for (const [, key, value] of line.matchAll(attributes)) {
+    if (/^(?:db|genome)$/i.test(key)) {
+      const assembly = /^["']?([A-Za-z0-9_.-]+)/.exec(value)
+      if (assembly) return assembly[1]
+    }
+  }
+  return undefined
 }
 
 export interface PlainPeakScan {
