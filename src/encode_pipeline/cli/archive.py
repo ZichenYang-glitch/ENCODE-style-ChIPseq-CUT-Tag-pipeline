@@ -39,6 +39,10 @@ examples:
     --revision artifactrev-...
 
 Bytes are read from that revision or from the published run artifact.
+When the registered path has been retired, its recorded digest selects and
+verifies the corresponding object in the configured archive. For a relocated
+run publication, supply its operator directory with --relocation-root.
+Longrange tracks require both the data revision and its tabix index revision.
 A filename, a relative path, and the latest revision are not arguments.
 ENCODE_PIPELINE_ARCHIVE_ROOT, ENCODE_PIPELINE_DATABASE_URL, and
 ENCODE_PIPELINE_STORAGE_POOL_CONFIG supply the operator locations.
@@ -97,9 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--relocation-root",
         type=Path,
         help=(
-            "Durable relocation directory. Used only when the workspace copy "
-            "is gone and a switched receipt matches this generation, revision, "
-            "size, and digest."
+            "Read a switched copy of this exact publication from the relocation "
+            "directory, including after the run publishes a newer generation."
         ),
     )
     return parser
@@ -255,8 +258,8 @@ def compose_sealer(
                     repository=persistence.repository,
                 ),
                 workspace_root=settings.workspace_root,
-                relocation_root=relocation_root,
             ),
+            relocation_root=relocation_root,
             registered_revisions=SqlAlchemyRegisteredResultRepository(session_factory),
         )
     except ArchiveSealError:
@@ -279,6 +282,7 @@ def _service(
     session_factory: object,
     persistence: object,
     downloads: object,
+    relocation_root: Path | None,
     registered_revisions: object,
 ) -> object:
     from encode_pipeline.services.archive_sealing import (
@@ -286,6 +290,7 @@ def _service(
         CatalogExperimentGate,
         InputRegistryPoolLookup,
         ReferenceAssemblyLookup,
+        SwitchedRunCopies,
     )
 
     return ArchiveSealingService(
@@ -297,6 +302,11 @@ def _service(
             session_factory,
         ),
         downloads=downloads,
+        switched_copies=(
+            SwitchedRunCopies(settings.workspace_root, relocation_root)
+            if relocation_root is not None
+            else None
+        ),
         registered_revisions=registered_revisions,
         pool_lookup=InputRegistryPoolLookup(
             persistence.input_registry_repository  # type: ignore[attr-defined]
