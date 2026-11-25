@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GenomeBrowserPanel from './GenomeBrowserPanel';
@@ -347,6 +347,17 @@ describe('GenomeBrowserPanel', () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it('keeps a region the user chose ahead of the default hop', async () => {
+    sessionMock.mockResolvedValue(session());
+    renderPanel();
+    const box = await screen.findByRole('textbox', { name: 'Genomic region' });
+    await waitFor(() => expect(box).toHaveValue('chr1:200-2400'));
+    fireEvent.change(box, { target: { value: 'chr7:100-200' } });
+    expect(box).toHaveValue('chr7:100-200');
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    expect(screen.getByRole('textbox', { name: 'Genomic region' })).toHaveValue('chr7:100-200');
   });
 
   it('shows a retry when the first session request fails, then an empty selection', async () => {

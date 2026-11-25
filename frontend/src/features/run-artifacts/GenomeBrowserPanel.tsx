@@ -279,7 +279,10 @@ export default function GenomeBrowserPanel({
   const onLocalTracks = useCallback((next: LocalWashuTrack[]) => {
     setLocalTracks((current) => (sameLocal(current, next) ? current : next));
   }, []);
+  const regionHops = useRef<number[]>([]);
   const onNavigate = useCallback((next: string) => {
+    for (const id of regionHops.current) window.clearTimeout(id);
+    regionHops.current = [];
     setRegion(next.trim());
   }, []);
 
@@ -316,7 +319,21 @@ export default function GenomeBrowserPanel({
   }, [sessionQuery.error, sessionQuery.isError]);
 
   useEffect(() => {
-    if (!session || !openedRunId || isGenerationConflict(sessionQuery.error)) return;
+    if (!openedRunId) return;
+    if (sessionQuery.isError) {
+      const current = selectionRef.current;
+      if (
+        current &&
+        current.runId === openedRunId &&
+        (current.chosen.length > 0 || current.stale.length > 0)
+      ) {
+        const next = { runId: openedRunId, generation: current.generation, chosen: [], stale: [] };
+        selectionRef.current = next;
+        setSelection(next);
+      }
+      return;
+    }
+    if (!session) return;
     const generation = session.artifact_generation ?? null;
     const current = selectionRef.current;
     let next: TrackSelection;
@@ -347,7 +364,7 @@ export default function GenomeBrowserPanel({
       referenceStatus,
       artifactIds: next.chosen.map((item) => item.artifactId),
     });
-  }, [openedRunId, session, sessionQuery.error]);
+  }, [openedRunId, session, sessionQuery.error, sessionQuery.isError]);
 
   useEffect(() => {
     if (!session || !openedRunId) return;
@@ -366,7 +383,8 @@ export default function GenomeBrowserPanel({
     if (target === null) return;
     // GenomeHub applies the region it receives on the first mount, then only
     // refetches tracks when that string changes. A short hop makes the mounted
-    // viewer query the intended window.
+    // viewer query the intended window. A later gene or coordinate edit clears
+    // both timers, so they cannot pull the window back.
     const parts = target.match(/^(.*:)(\d+)-(\d+)$/);
     const hop = parts
       ? `${parts[1]}${Math.max(0, Number(parts[2]) - 400)}-${Math.max(1, Number(parts[3]) - 400)}`
@@ -374,9 +392,11 @@ export default function GenomeBrowserPanel({
     setRegion(target);
     const move = window.setTimeout(() => setRegion(hop), 600);
     const settle = window.setTimeout(() => setRegion(target), 1100);
+    regionHops.current = [move, settle];
     return () => {
       window.clearTimeout(move);
       window.clearTimeout(settle);
+      regionHops.current = regionHops.current.filter((id) => id !== move && id !== settle);
     };
   }, [initialRegion, openedRunId, session]);
 
@@ -472,7 +492,9 @@ export default function GenomeBrowserPanel({
   const activeChoice = useMemo(() => {
     if (
       generationConflict ||
+      sessionQuery.isError ||
       session === undefined ||
+      session.ok !== true ||
       selection === null ||
       selection.runId !== openedRunId ||
       selection.generation !== (session.artifact_generation ?? null)
@@ -487,7 +509,7 @@ export default function GenomeBrowserPanel({
           trackCanBeChosen(track),
       ),
     );
-  }, [generationConflict, openedRunId, selection, session]);
+  }, [generationConflict, openedRunId, selection, session, sessionQuery.isError]);
   const selected = useMemo(
     () => activeChoice.map((item) => item.artifactId),
     [activeChoice],
@@ -717,32 +739,15 @@ export default function GenomeBrowserPanel({
     });
   }
 
-  if (openedRunId && generationConflict) {
-    return (
-      <div role="alert">
-        <p>
-          These files changed. Refresh the list and choose the tracks again. New
-          files are not read until you choose them.
-        </p>
-        <Button variant="secondary" onClick={() => void sessionQuery.refetch()}>
-          Refresh list
-        </Button>
-      </div>
-    );
-  }
-  if (openedRunId && (sessionQuery.isError || (session !== undefined && !session.ok))) {
-    return (
-      <div role="alert">
-        <p>{messageFromError(sessionQuery.error)}</p>
-        <Button variant="secondary" onClick={() => void sessionQuery.refetch()}>
-          Retry browser view
-        </Button>
-      </div>
-    );
-  }
-  if (openedRunId && (sessionQuery.isPending || session === undefined)) {
-    return <p role="status">Loading genome browser…</p>;
-  }
+  const primaryView: 'loading' | 'conflict' | 'error' | 'ready' | 'none' = !openedRunId
+    ? 'none'
+    : generationConflict
+      ? 'conflict'
+      : sessionQuery.isError || (session !== undefined && session.ok !== true)
+        ? 'error'
+        : session === undefined
+          ? 'loading'
+          : 'ready';
 
   const localPlaced = activeLocal.map((track) => ({
     track,
@@ -755,8 +760,8 @@ export default function GenomeBrowserPanel({
 
   return (
     <section className="min-w-0 space-y-3" aria-label="Genome browser">
-      {session ? <ReferenceNotice session={session} /> : null}
-      {session ? <InteractionNotice session={session} /> : null}
+      {session && primaryView === 'ready' ? <ReferenceNotice session={session} /> : null}
+      {session && primaryView === 'ready' ? <InteractionNotice session={session} /> : null}
       {showAssembly ? (
         <label className="block text-sm">
           Assembly
@@ -780,56 +785,85 @@ export default function GenomeBrowserPanel({
       {authority.source === 'user' ? (
         <p role="status">{userSpecifiedReference(authority.scaffold)}</p>
       ) : null}
-      {session && openedRunId ? (
+      {openedRunId && primaryView === 'loading' ? (
+        <p role="status">Loading genome browser…</p>
+      ) : null}
+      {openedRunId && primaryView !== 'loading' ? (
         <article
           className="space-y-2"
-          aria-label={`Run ${session.run_id}`}
+          aria-label={`Run ${session?.run_id ?? openedRunId}`}
           data-testid="browser-run"
-          data-run-id={session.run_id}
+          data-run-id={session?.run_id ?? openedRunId}
           data-run-source="platform"
-          data-generation={session.artifact_generation ?? ''}
-          data-reference-identity={session.reference.identity_sha256 ?? ''}
-          data-scaffold={session.reference.viewer_scaffold ?? ''}
+          data-generation={primaryView === 'ready' ? (session?.artifact_generation ?? '') : ''}
+          data-reference-identity={
+            primaryView === 'ready' ? (session?.reference.identity_sha256 ?? '') : ''
+          }
+          data-scaffold={primaryView === 'ready' ? (session?.reference.viewer_scaffold ?? '') : ''}
         >
-          <p>
-            Source {session.workflow_id} · run {session.run_id} · generation{' '}
-            {session.artifact_generation ?? 'unknown'}
-            {session.reference.revision_id
-              ? ` · reference revision ${session.reference.revision_id}`
-              : ''}
-          </p>
-          <TrackChooser
-            runId={session.run_id}
-            generation={session.artifact_generation ?? null}
-            tracks={session.tracks}
-            unavailable={session.unavailable}
-            selected={primaryPlacement?.ok ? selected : []}
-            stale={stale}
-            selectable={primaryPlacement?.ok === true}
-            onToggle={toggleTrack}
-          />
-          <Button type="button" variant="secondary" onClick={() => void sessionQuery.refetch()}>
-            Refresh list
-          </Button>
-          <div className="flex flex-wrap gap-2">
-            {session.tracks
-              .filter(
-                (track) =>
-                  selected.includes(track.artifact_id) && track.preparation === 'needed',
-              )
-              .map((track) => (
-                <Button
-                  key={track.artifact_id}
-                  type="button"
-                  variant="secondary"
-                  onClick={() => prepare.mutate(track)}
-                  disabled={prepare.isPending}
-                >
-                  Prepare {track.label}
-                </Button>
-              ))}
-          </div>
-          {prepare.isError ? <p role="alert">{messageFromError(prepare.error)}</p> : null}
+          {primaryView === 'conflict' ? (
+            <div role="alert">
+              <p>
+                These files changed. Refresh the list and choose the tracks again. New
+                files are not read until you choose them.
+              </p>
+            </div>
+          ) : null}
+          {primaryView === 'error' ? (
+            <div role="alert">
+              <p>{messageFromError(sessionQuery.error)}</p>
+            </div>
+          ) : null}
+          {primaryView === 'ready' && session ? (
+            <>
+              <p>
+                Source {session.workflow_id} · run {session.run_id} · generation{' '}
+                {session.artifact_generation ?? 'unknown'}
+                {session.reference.revision_id
+                  ? ` · reference revision ${session.reference.revision_id}`
+                  : ''}
+              </p>
+              <TrackChooser
+                runId={session.run_id}
+                generation={session.artifact_generation ?? null}
+                tracks={session.tracks}
+                unavailable={session.unavailable}
+                selected={primaryPlacement?.ok ? selected : []}
+                stale={stale}
+                selectable={primaryPlacement?.ok === true}
+                onToggle={toggleTrack}
+              />
+              <div className="flex flex-wrap gap-2">
+                {session.tracks
+                  .filter(
+                    (track) =>
+                      selected.includes(track.artifact_id) && track.preparation === 'needed',
+                  )
+                  .map((track) => (
+                    <Button
+                      key={track.artifact_id}
+                      type="button"
+                      variant="secondary"
+                      onClick={() => prepare.mutate(track)}
+                      disabled={prepare.isPending}
+                    >
+                      Prepare {track.label}
+                    </Button>
+                  ))}
+              </div>
+              {prepare.isError ? <p role="alert">{messageFromError(prepare.error)}</p> : null}
+            </>
+          ) : null}
+          {primaryView === 'conflict' || primaryView === 'ready' ? (
+            <Button type="button" variant="secondary" onClick={() => void sessionQuery.refetch()}>
+              Refresh list
+            </Button>
+          ) : null}
+          {primaryView === 'error' ? (
+            <Button type="button" variant="secondary" onClick={() => void sessionQuery.refetch()}>
+              Retry browser view
+            </Button>
+          ) : null}
         </article>
       ) : null}
       <div data-testid="local-track-slot">
