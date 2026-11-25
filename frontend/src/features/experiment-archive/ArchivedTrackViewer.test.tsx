@@ -89,6 +89,8 @@ describe('ArchivedTrackViewer', () => {
       'data-content-path',
       `/api/v1/catalog/projects/${PROJECT_ID}/experiments/${EXPERIMENT_ID}/archived-tracks/${ARCHIVE_V1}/content`,
     );
+    const initial = await screen.findByTestId('washu-mock-viewer');
+    expect(initial).toHaveAttribute('data-track-url', expect.stringContaining(ARCHIVE_V1));
     await user.type(screen.getByRole('textbox', { name: 'Genomic region' }), 'chr1:100-200');
     const hub = await screen.findByTestId('washu-genome-viewer');
     expect(hub).toBeInTheDocument();

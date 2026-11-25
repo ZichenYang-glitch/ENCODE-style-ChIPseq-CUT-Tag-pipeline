@@ -24,9 +24,8 @@ const GENERATION = /^artifactgen-[0-9a-f]{64}$/;
 const ARTIFACT_REVISION = /^artifactrev-[0-9a-f]{64}$/;
 const RESULT_ID = /^rreg_[0-9a-f]{32}$/;
 const RESULT_REVISION_ID = /^rrev_[0-9a-f]{32}$/;
-const TRACK_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/;
+const PUBLIC_LABEL = /^[^\u0000-\u001f\u007f-\u009f\\/]{1,255}$/u;
 const ASSEMBLY = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-const DISPLAY_NAME = /^[^\u0000-\u001f\\/]{1,200}$/;
 
 const TRACK_FIELDS = new Set([
   'archive_version_id',
@@ -201,8 +200,8 @@ export function parseArchivedTrack(value: unknown, scope: ArchivedTrackScope): A
   const projectId = text(value.project_id, PROJECT_ID);
   const experimentId = text(value.experiment_id, EXPERIMENT_ID);
   const experimentRevisionId = text(value.experiment_revision_id, EXPERIMENT_REVISION_ID);
-  const trackKey = text(value.track_key, TRACK_KEY);
-  const displayName = text(value.display_name, DISPLAY_NAME);
+  const trackKey = text(value.track_key, PUBLIC_LABEL);
+  const displayName = text(value.display_name, PUBLIC_LABEL);
   const assembly = text(value.assembly, ASSEMBLY);
   const trackType = value.track_type;
   const source = parseSource(value.source);

@@ -62,8 +62,8 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     enabled: bytesReady,
     retry: false,
     queryFn: ({ signal }) => {
-      if (contentUrl === null) throw new Error('Archive content URL is missing.');
-      return preflightArchivedBytes(contentUrl, indexUrl, signal);
+      if (contentUrl === null || track === null) throw new Error('Archive content URL is missing.');
+      return preflightArchivedBytes(track, contentUrl, indexUrl, signal);
     },
   });
 
@@ -85,8 +85,8 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     [identity],
   );
   const tracks = useMemo(
-    () => (track !== null && contentUrl !== null ? archivedHubTracks(track, contentUrl) : []),
-    [contentUrl, track],
+    () => (track !== null && contentUrl !== null ? archivedHubTracks(track, contentUrl, bytesQuery.data) : []),
+    [contentUrl, track, bytesQuery.data],
   );
 
   let error = request.kind === 'invalid' ? archiveErrorCopy('archive_invalid') : null;
@@ -104,7 +104,7 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     };
   } else if (bytesQuery.isError) error = archiveErrorFromUnknown(bytesQuery.error);
   const draw =
-    error === null && bytesQuery.isSuccess && scaffold !== null && isDrawableRegion(region);
+    error === null && bytesQuery.isSuccess && scaffold !== null && (region === '' || isDrawableRegion(region));
 
   return (
     <article
@@ -144,7 +144,7 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
             key={JSON.stringify([scaffold, contentUrl, region])}
             storeConfig={storeConfig}
             genomeName={scaffold}
-            viewRegion={region}
+            viewRegion={region || undefined}
             tracks={tracks}
             showGenomeNavigator={false}
             showNavBar={false}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ARCHIVE_V1,
   ARCHIVE_V2,
@@ -14,6 +14,7 @@ import {
   archivedTrackOpenName,
   archivedViewerHref,
   archiveViewerRequest,
+  preflightArchivedBytes,
 } from './archiveView';
 
 describe('archive viewer address', () => {
@@ -79,5 +80,39 @@ describe('archive viewer address', () => {
     expect(archivedSourceText(registered)).toContain(`登记 rreg_${'c'.repeat(32)}`);
     expect(archivedSourceText(registered)).toContain(`索引修订 rrev_${'f'.repeat(32)}`);
     expect(archivedSourceText(registered)).not.toContain('/');
+  });
+});
+
+
+describe('sealed plain BED reader', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function serve(text: string, advertisedSize?: number) {
+    const bytes = new TextEncoder().encode(text);
+    const total = advertisedSize ?? bytes.length;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(bytes, {
+      status: 206, headers: { 'Content-Range': `bytes 0-${bytes.length - 1}/${total}` },
+    })));
+  }
+
+  const peak = sealedTrack(1, { track_type: 'bed', display_name: 'signal.bed' });
+  const url = archivedContentPath(peak);
+  const open = () => preflightArchivedBytes(peak, url, null, new AbortController().signal);
+
+  it('gives the native text reader the intervals from the selected version', async () => {
+    serve('track db=hg38\nchr7\t100\t150\tpeak1\n');
+    const file = await open();
+    expect(file).toBeInstanceOf(File);
+    const [, data] = archivedHubTracks(peak, url, file);
+    expect(data).toMatchObject({ type: 'bed', url: '', fileObj: file, isText: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(url, expect.objectContaining({ credentials: 'same-origin' }));
+  });
+
+  it('rejects a different declared assembly and incomplete transfers', async () => {
+    serve('track db=mm10\nchr7\t100\t150\n');
+    await expect(open()).rejects.toMatchObject({ code: 'archive_version_conflict' });
+    serve('chr7\t100\t150\n', 16 * 1024 * 1024);
+    await expect(open()).rejects.toMatchObject({ code: 'archive_invalid' });
   });
 });

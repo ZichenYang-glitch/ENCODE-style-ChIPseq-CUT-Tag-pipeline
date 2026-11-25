@@ -57,6 +57,12 @@ describe('archived track client', () => {
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes(ARCHIVE_V2))).toBe(false);
   });
 
+  it('keeps valid experiment labels and track keys in the researcher’s language', () => {
+    const original = sealedTrack(1, { display_name: '信号'.repeat(110), track_key: '实验信号一' });
+    expect(parseArchivedTrack(wire(original), { projectId: PROJECT_ID, experimentId: EXPERIMENT_ID }))
+      .toMatchObject({ display_name: original.display_name, track_key: original.track_key });
+  });
+
   it('does not request a path-like id or a descriptor that carries a file path', async () => {
     await expect(
       catalogGetArchivedTrack(PROJECT_ID, EXPERIMENT_ID, '../secret'),
