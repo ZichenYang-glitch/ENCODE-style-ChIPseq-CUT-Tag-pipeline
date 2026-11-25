@@ -1,124 +1,71 @@
-import zlib from 'node:zlib';
-
-export const GENE_WORDS = ['EGFR', 'TP53', 'DDX11L16', 'NO_SUCH_GENE_HELIXWEAVE'];
-
-export function anchorLine(chrom, start, end, mateStart, mateEnd) {
-  return `${chrom}\t${start}\t${end}\t${chrom}:${mateStart}-${mateEnd},1`;
-}
-
-export function pairLines(chrom, pair) {
-  return [
-    anchorLine(chrom, pair.a[0], pair.a[1], pair.b[0], pair.b[1]),
-    anchorLine(chrom, pair.b[0], pair.b[1], pair.a[0], pair.a[1]),
-  ];
-}
-
-export function peakLine(peak) {
-  return `${peak.chrom}\t${peak.start}\t${peak.end}\t${peak.name}\t${peak.score}\t+`;
-}
-
-export function parseRegion(value) {
-  const match = /^([^:]+):(\d+)-(\d+)$/.exec(String(value ?? '').trim());
-  if (!match) return null;
-  const start = Number(match[2]);
-  const end = Number(match[3]);
-  if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return null;
-  return { chrom: match[1], start, end };
-}
-
-export function regionCovers(region, chrom, start, end) {
-  return Boolean(
-    region && region.chrom === chrom && region.start <= start && region.end >= end,
-  );
-}
-
-export function textHasGene(value) {
-  const haystack = String(value ?? '').toLowerCase();
-  return GENE_WORDS.some((word) => haystack.includes(word.toLowerCase()));
-}
-
-export function isExternalUrl(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return true;
-  }
-  if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
-  return parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost';
-}
-
-export function isWashuProxy(url) {
-  return String(url).includes('epigenome.wustl.edu');
-}
-
-export function isLocalUpload(method, body, markers) {
-  if (body == null || body === '') return false;
-  const text = Buffer.isBuffer(body) ? body.toString('utf8') : String(body);
-  if (markers.some((marker) => marker && text.includes(marker))) return true;
-  const verb = String(method ?? '').toUpperCase();
-  return (verb === 'POST' || verb === 'PUT' || verb === 'PATCH') && text.length > 8192;
-}
-
-export function sumSliceBytes(records, filename) {
-  return records.reduce(
-    (total, record) => (record.name === filename ? total + Number(record.bytes) : total),
-    0,
-  );
-}
-
-export function bufferHasFloat(buffer, value) {
-  const needle = Buffer.alloc(4);
-  needle.writeFloatLE(value, 0);
-  if (buffer.includes(needle)) return true;
-  for (let start = 0; start < buffer.length - 2; start += 1) {
-    if (buffer[start] !== 0x78) continue;
-    const flag = buffer[start + 1];
-    if (flag !== 0x01 && flag !== 0x5e && flag !== 0x9c && flag !== 0xda) continue;
-    for (let end = start + 8; end <= buffer.length; end += 1) {
-      try {
-        if (zlib.inflateSync(buffer.subarray(start, end)).includes(needle)) return true;
-      } catch {
-        // This slice is not a complete zlib member yet.
+// Pinned GenomeHub 62.0.2 renders numerical bins to canvas and places BED
+// and PET features in the React drawing components. Read the geometry those
+// components received, after clipping and layout. Names alone cannot pass.
+export function renderedWindow(expected) {
+  const host = document.querySelector('[data-testid="washu-genome-viewer"]');
+  if (!host) return null;
+  const rootKey = Object.keys(host).find(key => key.startsWith('__reactFiber'));
+  const pending = [host[rootKey]];
+  const visited = new Set();
+  const hits = {};
+  while (pending.length) {
+    const fiber = pending.pop();
+    if (!fiber || visited.has(fiber)) continue;
+    visited.add(fiber);
+    if (fiber.child) pending.push(fiber.child);
+    if (fiber.sibling) pending.push(fiber.sibling);
+    const props = fiber.memoizedProps;
+    if (!props) continue;
+    for (const key of ['data', 'features', 'items', 'placements', 'arrangedData']) {
+      const entries = props[key];
+      if (!Array.isArray(entries) || !entries.length) continue;
+      if (props.viewRegion?.getGenomeIntervals && entries.includes(expected.signal.value)) {
+        const interval = props.viewRegion.getGenomeIntervals().find(r => r.chr === expected.chrom);
+        if (interval) {
+          const pixel = (interval.end - interval.start) / entries.length;
+          const first = interval.start + entries.indexOf(expected.signal.value) * pixel;
+          const last = interval.start + (entries.lastIndexOf(expected.signal.value) + 1) * pixel;
+          if (Math.abs(first - expected.signal.start) <= 3 * pixel &&
+              Math.abs(last - expected.signal.end) <= 3 * pixel) {
+            hits.signal = { value: expected.signal.value, first, last, bpPerPixel: pixel };
+          }
+        }
       }
-      if (end - start > 4096) break;
+      for (const item of entries) {
+        if (!item || typeof item !== 'object') continue;
+        const a = item.interaction?.locus1;
+        const b = item.interaction?.locus2;
+        if (item.points?.length && a?.chr === expected.chrom && b?.chr === expected.chrom &&
+            a.start === expected.pet[0] && a.end === expected.pet[1] &&
+            b.start === expected.pet[2] && b.end === expected.pet[3] &&
+            item.xSpan1?.end > item.xSpan1?.start && item.xSpan2?.end > item.xSpan2?.start) {
+          hits.pet = { a, b, score: item.interaction.score };
+        }
+        const feature = item.feature;
+        if (item.placedFeatures?.length && feature?.chr === expected.chrom &&
+            feature.start === expected.peak[0] && feature.end === expected.peak[1] &&
+            item.xSpan?.end > item.xSpan?.start) {
+          hits.peak = { chr: feature.chr, start: feature.start, end: feature.end, name: feature[3] };
+        }
+      }
+    }
+  }
+  return hits.pet && hits.signal && hits.peak ? hits : null;
+}
+
+export function renderedChromosome(chromosome) {
+  const host = document.querySelector('[data-testid="washu-genome-viewer"]');
+  if (!host) return false;
+  const rootKey = Object.keys(host).find(key => key.startsWith('__reactFiber'));
+  const pending = [host[rootKey]];
+  while (pending.length) {
+    const fiber = pending.pop();
+    if (!fiber) continue;
+    if (fiber.child) pending.push(fiber.child);
+    if (fiber.sibling) pending.push(fiber.sibling);
+    if (fiber.memoizedProps?.viewRegion?.getGenomeIntervals?.().some(r => r.chr === chromosome)) {
+      return true;
     }
   }
   return false;
-}
-
-export function inflateBgzf(buffer) {
-  const parts = [];
-  let offset = 0;
-  while (offset + 18 <= buffer.length) {
-    if (buffer[offset] !== 0x1f || buffer[offset + 1] !== 0x8b) break;
-    const extraLength = buffer.readUInt16LE(offset + 10);
-    let blockSize = null;
-    let cursor = offset + 12;
-    const extraEnd = cursor + extraLength;
-    while (cursor + 4 <= extraEnd && cursor + 4 <= buffer.length) {
-      const subfieldLength = buffer.readUInt16LE(cursor + 2);
-      if (buffer[cursor] === 66 && buffer[cursor + 1] === 67 && subfieldLength === 2) {
-        blockSize = buffer.readUInt16LE(cursor + 4);
-      }
-      cursor += 4 + subfieldLength;
-    }
-    if (blockSize == null) break;
-    const blockLength = blockSize + 1;
-    if (offset + blockLength > buffer.length) break;
-    parts.push(zlib.gunzipSync(buffer.subarray(offset, offset + blockLength)));
-    offset += blockLength;
-  }
-  return Buffer.concat(parts);
-}
-
-export function bytesForSlices(file, slices, readAt) {
-  const parts = [];
-  const ordered = [...slices].sort((left, right) => left.start - right.start);
-  for (const slice of ordered) {
-    const length = Number(slice.end) - Number(slice.start);
-    if (length <= 0) continue;
-    parts.push(readAt(file, Number(slice.start), length));
-  }
-  return Buffer.concat(parts);
 }
