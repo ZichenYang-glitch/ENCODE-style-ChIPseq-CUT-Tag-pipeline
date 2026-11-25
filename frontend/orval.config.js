@@ -43,6 +43,30 @@ module.exports = {
               name: 'blobFetcher',
             },
           },
+          catalogReadArchivedTrackContent: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
+          catalogHeadArchivedTrackContent: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
+          catalogReadArchivedTrackIndex: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
+          catalogHeadArchivedTrackIndex: {
+            mutator: {
+              path: './src/api/fetcher.ts',
+              name: 'blobFetcher',
+            },
+          },
           catalogDownloadRegisteredResultRevision: {
             mutator: {
               path: './src/api/fetcher.ts',

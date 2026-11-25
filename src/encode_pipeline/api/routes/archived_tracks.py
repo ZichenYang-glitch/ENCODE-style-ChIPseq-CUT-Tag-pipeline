@@ -17,6 +17,7 @@ from encode_pipeline.api.archived_tracks import (
 )
 from encode_pipeline.api.catalog_models import CatalogErrorResponse
 from encode_pipeline.api.dependencies import AuthApiError, require_principal
+from encode_pipeline.api.models import AuthErrorResponse
 from encode_pipeline.platform.authentication import AuthenticatedPrincipal
 from encode_pipeline.services.archived_tracks import (
     ArchivedByteBody,
@@ -32,7 +33,7 @@ _EXPERIMENT_ID = Path(pattern=r"^exp_[0-9a-f]{32}$")
 _ARCHIVE_VERSION_ID = Path(pattern=r"^aver_[0-9a-f]{32}$")
 _JSON_ERRORS = {
     400: {"model": CatalogErrorResponse},
-    401: {"model": CatalogErrorResponse},
+    401: {"model": AuthErrorResponse},
     404: {"model": CatalogErrorResponse},
     409: {"model": CatalogErrorResponse},
     500: {"model": CatalogErrorResponse},
