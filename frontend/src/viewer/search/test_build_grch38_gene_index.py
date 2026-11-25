@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import subprocess
@@ -94,24 +95,27 @@ def _write_inputs(root: Path, *, readme: str = README, hgnc: str = HGNC) -> dict
     }
 
 
-def _run(paths: dict[str, Path]) -> subprocess.CompletedProcess[str]:
+def _run(
+    paths: dict[str, Path], *, readme: bool = True
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        sys.executable,
+        str(SCRIPT),
+        "--gtf",
+        str(paths["gtf"]),
+        "--assembly-report",
+        str(paths["report"]),
+        "--hgnc",
+        str(paths["hgnc"]),
+        "--output",
+        str(paths["output"]),
+        "--provenance",
+        str(paths["provenance"]),
+    ]
+    if readme:
+        command.extend(["--readme", str(paths["readme"])])
     return subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--gtf",
-            str(paths["gtf"]),
-            "--assembly-report",
-            str(paths["report"]),
-            "--readme",
-            str(paths["readme"]),
-            "--hgnc",
-            str(paths["hgnc"]),
-            "--output",
-            str(paths["output"]),
-            "--provenance",
-            str(paths["provenance"]),
-        ],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -179,6 +183,36 @@ def test_readme_for_a_different_release_is_rejected(tmp_path: Path) -> None:
     result = _run(paths)
     assert result.returncode == 1
     assert "release 49" in result.stderr
+    assert not paths["output"].exists()
+
+
+def test_gzip_annotation_uses_the_compressed_checksum(tmp_path: Path) -> None:
+    paths = _write_inputs(tmp_path)
+    plain = paths["gtf"].read_bytes()
+    gz_path = tmp_path / "annotation.gtf.gz"
+    with gzip.open(gz_path, "wb") as handle:
+        handle.write(plain)
+    paths["gtf"].unlink()
+    paths["gtf"] = gz_path
+    result = _run(paths)
+    assert result.returncode == 0, result.stderr
+    provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
+    annotation = provenance["annotation"]
+    assert annotation["sha256"] == hashlib.sha256(gz_path.read_bytes()).hexdigest()
+    assert annotation["uncompressed_sha256"] == hashlib.sha256(plain).hexdigest()
+    assert provenance["aliases"]["source_url"].endswith(
+        "hgnc_complete_set_2025-10-07.tsv"
+    )
+    assert provenance["viewer_scaffold"]["sequences"][0] == "chr1"
+    index = json.loads(paths["output"].read_text(encoding="utf-8"))
+    assert _loci(index, "EGFR") == [("chr7", 10, 40, "ENSG00000000001.1")]
+
+
+def test_plain_gtf_without_readme_is_rejected(tmp_path: Path) -> None:
+    paths = _write_inputs(tmp_path)
+    result = _run(paths, readme=False)
+    assert result.returncode == 1
+    assert "README" in result.stderr
     assert not paths["output"].exists()
 
 

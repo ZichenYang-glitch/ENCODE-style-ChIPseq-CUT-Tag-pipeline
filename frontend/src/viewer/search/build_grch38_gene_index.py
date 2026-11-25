@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
-"""Build the bundled hg38 gene index from a local GENCODE GTF.
+"""Build the bundled hg38 gene index from public GENCODE and HGNC files.
 
-The browser ships the JSON this script writes. It does not ship the GTF.
-Rebuilding reads the annotation, the assembly report, the genomepy README,
-and an HGNC complete set, then records their checksums in the provenance.
+The browser ships only the JSON this script writes. It does not download
+the annotation or the alias table at runtime.
+
+Pinned inputs:
+
+* GENCODE human release 49 primary-assembly GTF gzip
+  https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.primary_assembly.annotation.gtf.gz
+  SHA-256 5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023
+  93496634 bytes. When ``--gtf`` is this gzip, ``--readme`` is unnecessary.
+
+* HGNC complete set, quarterly TSV dated 2025-10-07
+  https://storage.googleapis.com/public-download-files/hgnc/archive/archive/quarterly/tsv/hgnc_complete_set_2025-10-07.tsv
+  SHA-256 30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5
+  16741286 bytes.
+
+* An assembly report for GCA_000001405.15 with a UCSC-style-name column.
+  NCBI publishes that report for the accession. The shipped index records
+  the SHA-256 of the report file it actually read.
 
 Example:
 
     python3 frontend/src/viewer/search/build_grch38_gene_index.py \\
-        --gtf /path/to/GRCh38.annotation.gtf \\
-        --assembly-report /path/to/assembly_report.txt \\
-        --readme /path/to/README.txt \\
-        --hgnc /path/to/hgnc_complete_set.txt \\
+        --gtf gencode.v49.primary_assembly.annotation.gtf.gz \\
+        --assembly-report GCA_000001405.15_assembly_report.txt \\
+        --hgnc hgnc_complete_set_2025-10-07.tsv \\
         --output frontend/src/viewer/search/hg38-gene-index.json \\
         --provenance frontend/src/viewer/search/hg38-gene-index.provenance.json
 """
@@ -20,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import json
 import re
@@ -32,6 +47,49 @@ FORMAT = "helixweave.gene-index.v1"
 GENCODE_V49_GTF = "gencode.v49.primary_assembly.annotation.gtf"
 ASSEMBLY_MATCH = ["hg38", "GRCh38", "GRCh38.p14", "GCA_000001405.15"]
 SCRIPT = "frontend/src/viewer/search/build_grch38_gene_index.py"
+OFFICIAL_GTF_URL = (
+    "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/"
+    "gencode.v49.primary_assembly.annotation.gtf.gz"
+)
+OFFICIAL_GTF_SHA = (
+    "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
+)
+OFFICIAL_GTF_BYTES = 93496634
+HGNC_URL = (
+    "https://storage.googleapis.com/public-download-files/hgnc/archive/"
+    "archive/quarterly/tsv/hgnc_complete_set_2025-10-07.tsv"
+)
+HGNC_SHA = "30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5"
+HGNC_BYTES = 16741286
+# Sequences constructed for genome "hg38" in the locked viewer 62.0.2.
+# chrM is between chr22 and chrX there. No random, unplaced, or alt names.
+PINNED_HG38_SEQUENCES = [
+    "chr1",
+    "chr2",
+    "chr3",
+    "chr4",
+    "chr5",
+    "chr6",
+    "chr7",
+    "chr8",
+    "chr9",
+    "chr10",
+    "chr11",
+    "chr12",
+    "chr13",
+    "chr14",
+    "chr15",
+    "chr16",
+    "chr17",
+    "chr18",
+    "chr19",
+    "chr20",
+    "chr21",
+    "chr22",
+    "chrM",
+    "chrX",
+    "chrY",
+]
 
 _ATTRIBUTE = re.compile(r'([A-Za-z0-9_]+)\s+"([^"]*)"')
 _GENE_ID = re.compile(r"^ENSG\d+\.\d+$")
@@ -52,13 +110,22 @@ HGNC_LICENSE = (
 )
 COORDINATE_NOTE = (
     "Spans are GENCODE gene-feature coordinates: 1-based and closed, written "
-    "as chrom:start-end. Typed coordinates are passed through unchanged. The "
-    "same span in 0-based half-open BED form uses start-1 and the same end."
+    "as chrom:start-end. Typed coordinates on a pinned sequence are passed "
+    "through unchanged. The pinned viewer subtracts 1 from the start of a "
+    "colon coordinate and keeps the end, so this string is not converted "
+    "again. A sequence outside the pinned genome is not sent to the viewer."
 )
 ATTESTATION = (
     "The GTF has no ##version header. The release is the annotation url in "
     "the local genomepy README, and the file identity is the SHA-256 of the "
     "GTF bytes. Sequence names in that GTF are already UCSC-style."
+)
+OFFICIAL_ATTESTATION = (
+    "The annotation file is the GENCODE human release 49 primary-assembly "
+    "GTF gzip. Its SHA-256 is the checksum of that gzip, and "
+    "uncompressed_sha256 is the checksum of the decompressed bytes. "
+    "Sequence names are already UCSC-style. A README is not required when "
+    "the gzip checksum matches the pinned release."
 )
 
 
@@ -78,17 +145,15 @@ class GeneRow:
 
 
 class _HashedLines:
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    def __init__(self) -> None:
         self.digest = hashlib.sha256()
         self.size = 0
 
-    def __iter__(self):
-        with self.path.open("rb") as handle:
-            for raw in handle:
-                self.size += len(raw)
-                self.digest.update(raw)
-                yield raw
+    def feed(self, handle: object):
+        for raw in handle:  # type: ignore[attr-defined]
+            self.size += len(raw)
+            self.digest.update(raw)
+            yield raw
 
 
 def sha256_file(path: Path) -> tuple[str, int]:
@@ -172,59 +237,74 @@ def _acceptable_symbol(value: str) -> bool:
 
 def read_genes(
     path: Path, admitted: set[str]
-) -> tuple[list[GeneRow], dict[str, int], str, int]:
-    lines = _HashedLines(path)
+) -> tuple[list[GeneRow], dict[str, int], str, int, str, int]:
+    file_sha, file_size = sha256_file(path)
+    compressed = path.suffix == ".gz"
+    lines = _HashedLines()
     rows: list[GeneRow] = []
     dropped_incomplete = 0
     dropped_sequence = 0
-    for raw in lines:
-        if b"\tgene\t" not in raw:
-            continue
-        fields = _decode_line(raw).split("\t")
-        if len(fields) < 9 or fields[2] != "gene":
-            continue
-        try:
-            start = int(fields[3])
-            end = int(fields[4])
-        except ValueError:
-            dropped_incomplete += 1
-            continue
-        attrs = _attributes(fields[8])
-        gene_id = attrs.get("gene_id", "")
-        symbol = attrs.get("gene_name", "")
-        if (
-            start < 1
-            or end < start
-            or _GENE_ID.fullmatch(gene_id) is None
-            or not _acceptable_symbol(symbol)
-        ):
-            dropped_incomplete += 1
-            continue
-        chrom = fields[0]
-        if chrom not in admitted:
-            dropped_sequence += 1
-            continue
-        strand = fields[6] if fields[6] in {"+", "-", "."} else "."
-        rows.append(
-            GeneRow(
-                symbol=symbol,
-                gene_id=gene_id,
-                chrom=chrom,
-                start=start,
-                end=end,
-                strand=strand,
-                gene_type=attrs.get("gene_type") or "unknown",
+    handle_cm = gzip.open(path, "rb") if compressed else path.open("rb")
+    with handle_cm as handle:
+        for raw in lines.feed(handle):
+            if b"\tgene\t" not in raw:
+                continue
+            fields = _decode_line(raw).split("\t")
+            if len(fields) < 9 or fields[2] != "gene":
+                continue
+            try:
+                start = int(fields[3])
+                end = int(fields[4])
+            except ValueError:
+                dropped_incomplete += 1
+                continue
+            attrs = _attributes(fields[8])
+            gene_id = attrs.get("gene_id", "")
+            symbol = attrs.get("gene_name", "")
+            if (
+                start < 1
+                or end < start
+                or _GENE_ID.fullmatch(gene_id) is None
+                or not _acceptable_symbol(symbol)
+            ):
+                dropped_incomplete += 1
+                continue
+            chrom = fields[0]
+            if chrom not in admitted:
+                dropped_sequence += 1
+                continue
+            strand = fields[6] if fields[6] in {"+", "-", "."} else "."
+            rows.append(
+                GeneRow(
+                    symbol=symbol,
+                    gene_id=gene_id,
+                    chrom=chrom,
+                    start=start,
+                    end=end,
+                    strand=strand,
+                    gene_type=attrs.get("gene_type") or "unknown",
+                )
             )
-        )
     if not rows:
         raise IndexBuildError("no gene features were admitted")
-    if lines.size != path.stat().st_size:
+    if not compressed and (
+        lines.size != file_size or lines.digest.hexdigest() != file_sha
+    ):
         raise IndexBuildError("GTF changed while it was read")
+    if compressed and file_size != path.stat().st_size:
+        raise IndexBuildError("GTF gzip changed while it was read")
     counts = {
         "dropped_incomplete": dropped_incomplete,
         "dropped_unknown_sequence": dropped_sequence,
     }
-    return rows, counts, lines.digest.hexdigest(), lines.size
+    return (
+        rows,
+        counts,
+        file_sha,
+        file_size,
+        lines.digest.hexdigest(),
+        lines.size,
+    )
 
 
 def _chrom_key(name: str) -> tuple[int, int, str]:
@@ -294,16 +374,62 @@ def _alias_links(
     ]
 
 
+def _annotation_meta(
+    gtf: Path, file_sha: str, readme: Path | None
+) -> tuple[dict[str, str], str, str, str]:
+    official = gtf.suffix == ".gz" and file_sha == OFFICIAL_GTF_SHA
+    if readme is None:
+        if not official:
+            raise IndexBuildError(
+                "README is required unless --gtf is the pinned GENCODE "
+                "release gzip"
+            )
+        return (
+            {
+                "annotation url": OFFICIAL_GTF_URL,
+                "assembly_accession": "GCA_000001405.15",
+                "genome url": (
+                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/"
+                    "hg38.fa.gz"
+                ),
+            },
+            "",
+            "",
+            OFFICIAL_ATTESTATION,
+        )
+    meta = read_readme(readme)
+    readme_sha, _readme_size = sha256_file(readme)
+    if official:
+        meta["annotation url"] = OFFICIAL_GTF_URL
+    attestation = OFFICIAL_ATTESTATION if official else ATTESTATION
+    return meta, readme.name, readme_sha, attestation
+
+
 def build_index(
     *,
     gtf: Path,
     assembly_report: Path,
-    readme: Path,
+    readme: Path | None,
     hgnc: Path,
 ) -> dict[str, object]:
-    meta = read_readme(readme)
     admitted = ucsc_names(assembly_report)
-    rows, drop_counts, gtf_sha256, gtf_size = read_genes(gtf, admitted)
+    (
+        rows,
+        drop_counts,
+        gtf_sha256,
+        gtf_size,
+        plain_sha256,
+        plain_size,
+    ) = read_genes(gtf, admitted)
+    if (
+        gtf.suffix == ".gz"
+        and gtf_sha256 == OFFICIAL_GTF_SHA
+        and gtf_size != OFFICIAL_GTF_BYTES
+    ):
+        raise IndexBuildError("pinned GENCODE gzip length does not match")
+    meta, readme_name, readme_sha, attestation = _annotation_meta(
+        gtf, gtf_sha256, readme
+    )
     rows.sort(
         key=lambda row: (
             row.symbol.upper(),
@@ -316,7 +442,6 @@ def build_index(
     chromosomes = sorted({row.chrom for row in rows}, key=_chrom_key)
     chrom_index = {name: index for index, name in enumerate(chromosomes)}
     alias_links = _alias_links(rows, read_hgnc_aliases(hgnc))
-    readme_sha, _readme_size = sha256_file(readme)
     report_sha, _report_size = sha256_file(assembly_report)
     hgnc_sha, hgnc_size = sha256_file(hgnc)
     provenance = {
@@ -326,23 +451,35 @@ def build_index(
             "filename": gtf.name,
             "bytes": gtf_size,
             "sha256": gtf_sha256,
+            "uncompressed_bytes": plain_size,
+            "uncompressed_sha256": plain_sha256,
             "feature": "gene",
             "assembly_accession": meta["assembly_accession"],
             "genome_url": meta.get("genome url", ""),
             "genomepy_version": meta.get("genomepy version", ""),
             "readme_date": meta.get("date", ""),
-            "readme_filename": readme.name,
+            "readme_filename": readme_name,
             "readme_sha256": readme_sha,
-            "attestation": ATTESTATION,
+            "attestation": attestation,
             "license": GENCODE_LICENSE,
         },
         "assembly_report": {
             "filename": assembly_report.name,
             "sha256": report_sha,
             "admitted_sequence_names": len(admitted),
+            "source_note": (
+                "UCSC-style-name column of an assembly report for "
+                "GCA_000001405.15. NCBI publishes that report for the "
+                "accession. This record identifies the file by sha256. "
+                "Primary chromosome lengths in the shipped report match "
+                "the pinned viewer genome."
+            ),
         },
         "aliases": {
-            "source": "HGNC complete set",
+            "source": "HGNC complete set 2025-10-07",
+            "source_url": HGNC_URL,
+            "canonical_sha256": HGNC_SHA,
+            "canonical_bytes": HGNC_BYTES,
             "filename": hgnc.name,
             "bytes": hgnc_size,
             "sha256": hgnc_sha,
@@ -350,17 +487,28 @@ def build_index(
             "join": "Ensembl gene id without version",
             "license": HGNC_LICENSE,
         },
+        "viewer_scaffold": {
+            "id": "hg38",
+            "version": "62.0.2",
+            "sequences": list(PINNED_HG38_SEQUENCES),
+            "note": (
+                "These are the only sequences in the pinned viewer genome. "
+                "A region on any other sequence is not sent to the viewer, "
+                "because its region parser throws when the sequence is "
+                "missing and the viewer unmounts."
+            ),
+        },
         "generator": SCRIPT,
         "coordinate_system": "1-based-closed",
         "region_format": "chrom:start-end",
         "coordinate_note": COORDINATE_NOTE,
         "assembly_note": (
-            "assembly_match lists browser scaffolds that use these primary "
-            "chromosome coordinates. GENCODE 49 annotates GRCh38.p14. The "
-            "local README identifies UCSC hg38 and its assembly accession. "
-            "This primary-assembly GTF has no patch or alt loci. Sequences "
-            "are kept only when the assembly report gives them a UCSC-style "
-            "name."
+            "assembly_match lists names that use these primary chromosome "
+            "coordinates. GENCODE 49 annotates GRCh38.p14. The pinned "
+            "viewer genome is the 25 sequences in viewer_scaffold. This "
+            "primary-assembly GTF has no patch or alt loci. Sequences are "
+            "kept when the assembly report gives them a UCSC-style name; "
+            "navigation still refuses a name the viewer genome lacks."
         ),
         "counts": {
             "genes": len(rows),
@@ -416,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gtf", type=Path, required=True)
     parser.add_argument("--assembly-report", type=Path, required=True)
-    parser.add_argument("--readme", type=Path, required=True)
+    parser.add_argument("--readme", type=Path)
     parser.add_argument("--hgnc", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--provenance", type=Path, required=True)

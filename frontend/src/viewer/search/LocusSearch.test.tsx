@@ -24,6 +24,7 @@ function parsedFixture() {
     ['IL9R', 'ENSG00000000003.1', 4, 5, 8, '+', 'protein_coding'],
     ['IL9R', 'ENSG00000000004.1', 5, 9, 12, '+', 'protein_coding'],
     ['TP53', 'ENSG00000000002.1', 3, 100, 110, '-', 'protein_coding'],
+    ['SCAFF', 'ENSG00000000007.1', 6, 1, 4, '+', 'lncRNA'],
   ];
   const aliases = [
     ['DEC1', 0],
@@ -31,7 +32,7 @@ function parsedFixture() {
     ['ERBB1', 2],
     ['p53', 5],
   ];
-  const chromosomes = ['chr3', 'chr7', 'chr9', 'chr17', 'chrX', 'chrY'];
+  const chromosomes = ['chr3', 'chr7', 'chr9', 'chr17', 'chrX', 'chrY', 'chr1_KI270706v1_random'];
   return parseGeneIndex({
     format: 'helixweave.gene-index.v1',
     assembly: 'hg38',
@@ -94,7 +95,7 @@ describe('LocusSearch', () => {
       <LocusSearch assembly="hg38" region="chr1:500-2700" onNavigate={onNavigate} />,
     );
     await settleIndex();
-    expect(screen.getByText('Genomic region')).toBeInTheDocument();
+    expect(screen.getByText(/基因名（如 EGFR）或 chr:start-end/)).toBeInTheDocument();
     expect(input()).toHaveValue('chr1:500-2700');
     expect(onNavigate).not.toHaveBeenCalled();
     view.rerender(<LocusSearch assembly="hg38" region="chr2:3-9" onNavigate={onNavigate} />);
@@ -140,6 +141,15 @@ describe('LocusSearch', () => {
     ]);
     expect(screen.getByRole('status')).toHaveTextContent('IL9R matches 2 locations. Choose one.');
     expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).toHaveBeenCalledWith('chrX:5-8');
+    onNavigate.mockClear();
+    fireEvent.change(input(), { target: { value: 'IL9R' } });
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(input(), { key: 'ArrowDown' });
     fireEvent.keyDown(input(), { key: 'ArrowDown' });
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(onNavigate).toHaveBeenCalledWith('chrY:9-12');
@@ -151,7 +161,9 @@ describe('LocusSearch', () => {
       'DEC1, alias of BHLHE40 · chr3:1-3 · + · protein_coding · ENSG00000000005.1',
       'DEC1, alias of DELEC1 · chr9:4-7 · + · lncRNA · ENSG00000000006.1',
     ]);
-    fireEvent.mouseDown(aliases[0]!);
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.pointerDown(aliases[0]!);
     expect(onNavigate).toHaveBeenCalledWith('chr3:1-3');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -187,6 +199,72 @@ describe('LocusSearch', () => {
     fireEvent.change(input(), { target: { value: 'EGFR' } });
     expect(onNavigate).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    fireEvent.change(input(), { target: { value: 'chr1_KI270706v1_random:1-4' } });
+    expect(onNavigate).toHaveBeenCalledTimes(2);
+    expect(onNavigate).toHaveBeenLastCalledWith('chr1_KI270706v1_random:1-4');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps an Enter that arrives before the index loads, and drops it if the query changes', async () => {
+    let resolveLoad: (index: ReturnType<typeof parsedFixture>) => void = () => {};
+    loadIndex.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'EGFR' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.change(input(), { target: { value: 'TP53' } });
+    await act(async () => {
+      resolveLoad(parsedFixture());
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    fireEvent.change(input(), { target: { value: 'EGFR' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
+  });
+
+  it('fulfills a unique Enter once the annotation finishes loading', async () => {
+    let resolveLoad: (index: ReturnType<typeof parsedFixture>) => void = () => {};
+    loadIndex.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'EGFR' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    await act(async () => {
+      resolveLoad(parsedFixture());
+    });
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
+  });
+
+  it('does not move the viewer onto a sequence the pinned hg38 genome lacks', async () => {
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'SCAFF' } });
+    const option = await screen.findByRole('option', { name: /SCAFF/ });
+    expect(option).toHaveAttribute('data-region', 'chr1_KI270706v1_random:1-4');
+    expect(option).toHaveAttribute('data-navigable', 'false');
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'chr1_KI270706v1_random is not a sequence in the pinned hg38 genome',
+    );
+    fireEvent.pointerDown(option);
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    fireEvent.change(input(), { target: { value: 'chr1_KI270706v1_random:1-4' } });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('The viewer was not moved.');
+    fireEvent.change(input(), { target: { value: 'chr7:10-40' } });
+    expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
   });
 });

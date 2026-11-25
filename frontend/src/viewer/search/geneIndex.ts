@@ -132,6 +132,58 @@ export function formatRegion(locus: Locus): string {
   return `${locus.chrom}:${locus.start}-${locus.end}`;
 }
 
+/**
+ * Sequences in the locked viewer 62.0.2 genome named hg38, in that genome's
+ * order. chrM sits between chr22 and chrX. Random, unplaced, and alt names
+ * are absent; sending one of them to the viewer throws and unmounts it.
+ */
+export const PINNED_HG38_SEQUENCES = [
+  'chr1',
+  'chr2',
+  'chr3',
+  'chr4',
+  'chr5',
+  'chr6',
+  'chr7',
+  'chr8',
+  'chr9',
+  'chr10',
+  'chr11',
+  'chr12',
+  'chr13',
+  'chr14',
+  'chr15',
+  'chr16',
+  'chr17',
+  'chr18',
+  'chr19',
+  'chr20',
+  'chr21',
+  'chr22',
+  'chrM',
+  'chrX',
+  'chrY',
+] as const;
+
+const PINNED_HG38 = new Set<string>(PINNED_HG38_SEQUENCES);
+
+export function pinnedHg38Has(sequence: string): boolean {
+  return PINNED_HG38.has(sequence);
+}
+
+export function coordinateSequence(region: string): string | null {
+  const matched = LEGAL_COORDINATE.exec(region.trim());
+  return matched?.[1] ?? null;
+}
+
+export function missingPinnedSequence(sequence: string): string | null {
+  if (pinnedHg38Has(sequence)) return null;
+  return (
+    `${sequence} is not a sequence in the pinned hg38 genome ` +
+    '(chr1-chr22, chrX, chrY, chrM). The viewer was not moved.'
+  );
+}
+
 export function matchLabel(match: GeneMatch): string {
   const { locus } = match;
   const name =
