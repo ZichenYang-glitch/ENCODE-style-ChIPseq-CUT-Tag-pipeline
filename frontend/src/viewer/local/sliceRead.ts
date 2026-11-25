@@ -91,11 +91,9 @@ async function inflateFirstBgzfBlock(file: Blob): Promise<Uint8Array | null> {
   const block = await readFileSlice(file, 0, blockSize)
   if (block.length < blockSize) return null
   const compressed = block.slice(12 + xlen, block.length - 8)
-  const stream = new DecompressionStream('deflate-raw')
-  const writer = stream.writable.getWriter()
-  await writer.write(compressed)
-  await writer.close()
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer())
+  const source = new Response(compressed).body!
+  const decoded = source.pipeThrough(new DecompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(decoded).arrayBuffer())
 }
 
 export function isBigWigMagic(bytes: Uint8Array): boolean {
