@@ -20,8 +20,9 @@ vi.mock('wuepgg', () => ({
   }: {
     genomeName: string;
     viewRegion?: string;
-    tracks: Array<{ name?: string; url?: string }>;
+    tracks: Array<{ type?: string; name?: string; url?: string; options?: Record<string, unknown> }>;
   }) => {
+    (globalThis as { __hubTracks?: unknown }).__hubTracks = tracks;
     for (const track of tracks) {
       if (track.url) void fetch(track.url);
     }
@@ -178,6 +179,14 @@ describe('GenomeBrowserPanel', () => {
     expect(await screen.findByText(/not a zero-signal measurement/)).toBeInTheDocument();
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('hg38');
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('chr1:200-2400');
+    const hubTracks = (
+      globalThis as {
+        __hubTracks?: Array<{ type?: string; options?: Record<string, unknown> }>;
+      }
+    ).__hubTracks;
+    expect(hubTracks?.find((track) => track.type === 'longrange')?.options).toEqual({
+      clampHeight: true,
+    });
   });
 
   it('shows a failure when a later byte read fails after preflight', async () => {

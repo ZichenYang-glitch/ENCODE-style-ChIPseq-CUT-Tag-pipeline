@@ -1383,6 +1383,20 @@ async function trackReadError(response: Response): Promise<Error> {
   return new Error(status);
 }
 
+function withInteractionTrackOptions(model: WashuTrackConfig): WashuTrackConfig {
+  if (model.type !== 'longrange') return model;
+  return {
+    ...model,
+    // wuepgg3-track HeatmapDisplay defaults clampHeight to false, plotting
+    // inter-anchor gap as unscaled 45-degree y=0.5*gap_px on a 300px canvas;
+    // zooming in pushes pairs with both anchors in view past y>=300.
+    options: {
+      clampHeight: true,
+      ...model.options,
+    },
+  };
+}
+
 function Viewer({
   scaffold,
   region,
@@ -1401,7 +1415,8 @@ function Viewer({
   const dataTracks = useMemo(() => {
     const models: WashuTrackConfig[] = [{ type: 'ruler', name: 'Ruler' }];
     const names = new Map<string, number>();
-    const take = (model: WashuTrackConfig) => {
+    const take = (raw: WashuTrackConfig) => {
+      const model = withInteractionTrackOptions(raw);
       const name = typeof model.name === 'string' ? model.name : '';
       const seen = names.get(name) ?? 0;
       names.set(name, seen + 1);
