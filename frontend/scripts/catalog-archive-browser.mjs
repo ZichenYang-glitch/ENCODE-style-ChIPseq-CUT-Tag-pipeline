@@ -339,6 +339,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
     const evidence = {
       version: fixture.version_number,
       archive_version_id: fixture.archive_version_id,
+      restored_version_id: fixture.restored_version_id,
       experiment_revision_id: fixture.experiment_revision_id,
       source: selected.source,
       size_bytes: fixture.size_bytes,
@@ -406,6 +407,7 @@ try {
   const fixtures = manifest.archive_versions;
   assert.deepEqual(fixtures.map((fixture) => fixture.version_number), [1, 2]);
   assert(fixtures.every((fixture) => fixture.size_bytes === size));
+  assert(fixtures.every((fixture) => fixture.restored_version_id === fixture.archive_version_id));
   assert.notEqual(fixtures[0].content_sha256, fixtures[1].content_sha256);
   assert.notEqual(fixtures[0].archive_version_id, fixtures[1].archive_version_id);
   browser = await chromium.launch({ args: ['--no-proxy-server'] });

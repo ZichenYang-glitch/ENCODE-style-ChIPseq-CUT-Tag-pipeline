@@ -10,6 +10,7 @@ import hashlib
 import os
 from pathlib import Path
 import stat
+from typing import BinaryIO
 from uuid import uuid4
 
 from encode_pipeline.platform.archived_tracks import (
@@ -171,6 +172,21 @@ class ArchiveObjects:
                 os.close(descriptor)
                 raise
 
+    def verify_restored(self, member: SealedMember) -> SealedMember:
+        """Verify a restored digest-named object against its sealed manifest."""
+        with self._directory() as directory:
+            fd = os.open(member.sha256, _file_flags(), dir_fd=directory)
+            try:
+                return _installed_member(
+                    fd,
+                    member.size_bytes,
+                    member.sha256,
+                    member.chunks,
+                    verify_bytes=True,
+                )
+            finally:
+                os.close(fd)
+
     def seal_fd(self, fd: int, expected_sha256: str | None = None) -> SealedMember:
         """Copy a stable source from offset zero. Never replace an existing object."""
         with self._directory() as directory:
@@ -183,7 +199,7 @@ class ArchiveObjects:
             )
             try:
                 with os.fdopen(new_fd, "wb") as target:
-                    size, digest, chunks = _copy(fd, target)
+                    size, digest, chunks = _hash_chunks(fd, target)
                     if expected_sha256 is not None and digest != expected_sha256:
                         raise ArchiveStoreError("archive_integrity")
                     target.flush()
@@ -202,25 +218,9 @@ class ArchiveObjects:
                 finally:
                     fcntl.flock(directory, fcntl.LOCK_UN)
                 try:
-                    info = os.fstat(installed)
-                    if (
-                        not stat.S_ISREG(info.st_mode)
-                        or info.st_size != size
-                        or info.st_nlink != 1
-                        or stat.S_IMODE(info.st_mode) != _OBJECT_MODE
-                    ):
-                        raise ArchiveStoreError("archive_integrity")
-                    member = SealedMember(size, digest, chunks, _file_identity(info))
-                    if not created:
-                        os.lseek(installed, 0, os.SEEK_SET)
-                        with os.fdopen(
-                            installed, "rb", buffering=0, closefd=False
-                        ) as handle:
-                            observed = hashlib.file_digest(handle, "sha256").hexdigest()
-                        if observed != digest:
-                            raise ArchiveStoreError("archive_integrity")
-                    _check_file(installed, member)
-                    return member
+                    return _installed_member(
+                        installed, size, digest, chunks, verify_bytes=not created
+                    )
                 finally:
                     os.close(installed)
             finally:
@@ -228,7 +228,27 @@ class ArchiveObjects:
                     os.unlink(temp, dir_fd=directory)
 
 
-def _copy(fd: int, output) -> tuple[int, str, tuple[str, ...]]:
+def _installed_member(
+    fd: int, size: int, digest: str, chunks: tuple[str, ...], *, verify_bytes: bool
+) -> SealedMember:
+    info = os.fstat(fd)
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_size != size
+        or info.st_nlink != 1
+        or stat.S_IMODE(info.st_mode) != _OBJECT_MODE
+    ):
+        raise ArchiveStoreError("archive_integrity")
+    member = SealedMember(size, digest, chunks, _file_identity(info))
+    if verify_bytes and _hash_chunks(fd) != (size, digest, chunks):
+        raise ArchiveStoreError("archive_integrity")
+    _check_file(fd, member)
+    return member
+
+
+def _hash_chunks(
+    fd: int, output: BinaryIO | None = None
+) -> tuple[int, str, tuple[str, ...]]:
     before = os.fstat(fd)
     if not stat.S_ISREG(before.st_mode) or before.st_size <= 0:
         raise ArchiveStoreError("archive_invalid")
@@ -238,7 +258,8 @@ def _copy(fd: int, output) -> tuple[int, str, tuple[str, ...]]:
     while offset < before.st_size:
         length = min(CHUNK_BYTES, before.st_size - offset)
         block = _read_exact(fd, length, offset)
-        output.write(block)
+        if output is not None:
+            output.write(block)
         digest.update(block)
         chunks.append(hashlib.sha256(block).hexdigest())
         offset += length

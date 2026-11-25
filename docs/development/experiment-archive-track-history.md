@@ -16,7 +16,7 @@ The catalog action opens `/viewer.html?project=…&experiment=…&archive=…` i
 
 ## Storage and operation
 
-Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. After a byte-identical disk restore, an operator can repeat the original seal to verify the restored copy and rebind its physical identity. The result keeps its version and URL. Include both SQLite and the sealed objects in the archive backup. Keep the existing retention procedure for original inputs and scratch.
+Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. Back up SQLite and the sealed objects together. Keep the existing retention procedure for original inputs and scratch.
 
 Use the same track key for successive publications of one signal. For example, for a registered result, run the installed operator command once per verified revision.
 
@@ -29,6 +29,16 @@ helixweave archive seal registered \
 ```
 
 The terminal receipt identifies the exact version. A researcher signs in, opens **Experiments**, selects the experiment, then chooses **在 WashU 查看第 1 版** on the desired track. The viewer opens in the assembly's default window. Use the gene or coordinate field to move to the locus of interest. Sealed bigWig and indexed longrange use byte ranges. Plain BED supports nonempty UTF-8 intervals up to 8 MiB. The archived copy can outlive the scratch file. Changes to inode, link count or permissions require operator verification of the full restored bytes before the old address can serve them again.
+
+After restoring the SQLite backup and archive volume, run the normal database upgrade. It also installs the four immutability and scope triggers on early catalogs stamped `20261125_77`, preserving their stored version IDs. Set `ENCODE_PIPELINE_DATABASE_URL` and `ENCODE_PIPELINE_ARCHIVE_ROOT` to the restored locations. For each version, use the IDs from its seal receipt or experiment link.
+
+```sh
+helixweave archive restore \
+  --project-id "$project_id" --experiment-id "$experiment_id" \
+  --archive-version-id "$archive_version_id"
+```
+
+The operator command reads each member from the archive volume, verifies its mode, size, full SHA-256 and chunk hashes, and rebinds all verified file identities in one database transaction. The original result version and viewer URL then work even after the source pool or run workspace has been retired. A missing or mismatched member leaves the entire version pending recovery. Repeating the command on the same verified copy returns the same receipt.
 
 ## Acceptance
 

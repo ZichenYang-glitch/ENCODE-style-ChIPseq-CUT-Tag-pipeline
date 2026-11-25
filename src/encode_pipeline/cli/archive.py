@@ -1,4 +1,4 @@
-"""Operator command that seals one exact historical track."""
+"""Operator commands for sealing and restoring exact historical tracks."""
 
 from __future__ import annotations
 
@@ -48,14 +48,18 @@ ENCODE_PIPELINE_STORAGE_POOL_CONFIG supply the operator locations.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="helixweave archive",
-        description=(
-            "Seal one exact track version into the operator archive. "
-            "This command does not accept a filename."
-        ),
+        description="Seal a track version or restore its verified archive copy.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=_EXAMPLES,
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    scope = _scope_parser()
+    restore = commands.add_parser(
+        "restore",
+        parents=[scope],
+        help="Verify all members of a restored archive version and recover its original link.",
+    )
+    restore.add_argument("--archive-version-id", required=True)
     seal = commands.add_parser(
         "seal",
         help="Copy one exact source and publish its sealed version.",
@@ -67,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_EXAMPLES,
     )
     kinds = seal.add_subparsers(dest="kind", required=True)
-    common = _common_parser()
+    common = _common_parser(scope)
     registered = kinds.add_parser(
         "registered",
         parents=[common],
@@ -122,7 +126,13 @@ def main(
             )
         else:
             sealer = sealer_factory(settings)
-        if args.kind == "registered":
+        if args.command == "restore":
+            receipt = sealer.restore_version(  # type: ignore[attr-defined]
+                project_id=args.project_id,
+                experiment_id=args.experiment_id,
+                archive_version_id=args.archive_version_id,
+            )
+        elif args.kind == "registered":
             receipt = sealer.seal_registered(  # type: ignore[attr-defined]
                 project_id=args.project_id,
                 experiment_id=args.experiment_id,
@@ -176,9 +186,9 @@ def settings_from_args(args: argparse.Namespace) -> WorkerSettings:
         )
     if args.archive_root is not None:
         environ[ARCHIVE_ROOT_ENV] = str(args.archive_root)
-    if args.storage_pool_config is not None:
+    if getattr(args, "storage_pool_config", None) is not None:
         environ[STORAGE_POOL_CONFIG_ENV] = str(args.storage_pool_config)
-    if args.workspace_root is not None:
+    if getattr(args, "workspace_root", None) is not None:
         environ[WORKSPACE_ROOT_ENV] = str(args.workspace_root)
     try:
         return load_worker_settings(environ)
@@ -306,7 +316,7 @@ def _service(
     )
 
 
-def _common_parser() -> argparse.ArgumentParser:
+def _scope_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "--database-url",
@@ -317,6 +327,13 @@ def _common_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Absolute archive directory. Overrides ENCODE_PIPELINE_ARCHIVE_ROOT.",
     )
+    parser.add_argument("--project-id", required=True)
+    parser.add_argument("--experiment-id", required=True)
+    return parser
+
+
+def _common_parser(scope: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(add_help=False, parents=[scope])
     parser.add_argument(
         "--storage-pool-config",
         type=Path,
@@ -333,8 +350,6 @@ def _common_parser() -> argparse.ArgumentParser:
             "Required when sealing a run artifact."
         ),
     )
-    parser.add_argument("--project-id", required=True)
-    parser.add_argument("--experiment-id", required=True)
     parser.add_argument("--experiment-revision-id", required=True)
     parser.add_argument("--track-key", required=True)
     parser.add_argument("--display-name", required=True)

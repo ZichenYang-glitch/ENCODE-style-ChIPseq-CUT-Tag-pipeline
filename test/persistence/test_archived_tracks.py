@@ -2,11 +2,15 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import json
+import shutil
+import sqlite3
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from encode_pipeline.cli import archive as archive_cli
 from encode_pipeline.persistence.archived_tracks import ArchiveRepository
 from encode_pipeline.persistence.database import (
     create_database_engine,
@@ -215,6 +219,141 @@ def test_published_identity_and_bytes_are_immutable_even_in_sql(archive_case):
           FROM archived_track_versions
         """)
         )
+
+
+@pytest.mark.parametrize(
+    "early_layout", [True, False], ids=["without-guards", "with-guards"]
+)
+def test_upgrade_preserves_both_historical_manifests(archive_case, early_layout):
+    url, sessions, repo, project, experiment, _, _, versions = archive_case
+    downgrade_database(url, "20261125_77")
+    guards = {
+        "archive_version_experiment_insert",
+        "archive_version_fixed_update",
+        "archive_version_fixed_bytes",
+        "archive_version_fixed_delete",
+    }
+    if early_layout:
+        with sessions.begin() as db:
+            for guard in guards:
+                db.execute(text(f"DROP TRIGGER {guard}"))
+    expected = [repo.publish(**version) for version in versions]
+    upgrade_database(url)
+    upgrade_database(url)
+    with sessions() as db:
+        assert (
+            db.scalar(text("SELECT version_num FROM alembic_version")) == "20261125_77b"
+        )
+        assert (
+            set(
+                db.scalars(
+                    text("""
+            SELECT name FROM sqlite_schema WHERE type='trigger' AND tbl_name='archived_track_versions'
+        """)
+                )
+            )
+            == guards
+        )
+    for version in expected:
+        assert (
+            repo.get_version(project, experiment, version.archive_version_id) == version
+        )
+    with pytest.raises(IntegrityError, match="immutable"), sessions.begin() as db:
+        db.execute(text("UPDATE archived_track_versions SET version_number = 3"))
+
+
+def test_operator_restores_indexed_version_from_database_and_volume_backups(
+    tmp_path, archive_case, capsys
+):
+    _, sessions, repo, project, experiment, _, archive, versions = archive_case
+    data, index = versions
+    version = repo.publish(
+        **(
+            data
+            | {
+                "track_type": "longrange",
+                "source": data["source"]
+                | {
+                    "index_result_id": index["source"]["result_id"],
+                    "index_result_revision_id": index["source"]["result_revision_id"],
+                },
+                "members": {
+                    "data": data["members"]["data"],
+                    "index": index["members"]["data"],
+                },
+            }
+        )
+    )
+    (tmp_path / "signal.bw").unlink()
+    restored_db = tmp_path / "restored.db"
+    with (
+        sqlite3.connect(tmp_path / "experiment.db") as original,
+        sqlite3.connect(restored_db) as copy,
+    ):
+        original.backup(copy)
+    url = f"sqlite:///{restored_db}"
+    engine = create_database_engine(url)
+    try:
+        restored_repo = ArchiveRepository(create_session_factory(engine))
+        root = tmp_path / "restored-archive"
+        root.mkdir()
+        store = ArchiveObjects(root)
+        data_member, index_member = version.members["data"], version.members["index"]
+        shutil.copy2(archive / data_member.sha256, root / data_member.sha256)
+        args = [
+            "restore",
+            "--database-url",
+            url,
+            "--archive-root",
+            str(root),
+            "--project-id",
+            project,
+            "--experiment-id",
+            experiment,
+            "--archive-version-id",
+            version.archive_version_id,
+        ]
+
+        assert archive_cli.main(args) == 1
+        assert json.loads(capsys.readouterr().err)["error"]["code"] == "archive_offline"
+        # Equal size but different data at the expected index name.
+        shutil.copy2(archive / data_member.sha256, root / index_member.sha256)
+        assert archive_cli.main(args) == 1
+        assert (
+            json.loads(capsys.readouterr().err)["error"]["code"] == "archive_integrity"
+        )
+        assert (
+            restored_repo.get_version(project, experiment, version.archive_version_id)
+            == version
+        )
+        with pytest.raises(ArchiveStoreError, match="archive_integrity"):
+            store.open_member(data_member)
+
+        (root / index_member.sha256).unlink()
+        shutil.copy2(archive / index_member.sha256, root / index_member.sha256)
+        for _ in range(2):
+            assert archive_cli.main(args) == 0
+            receipt = json.loads(capsys.readouterr().out)
+            assert receipt["archive_version_id"] == version.archive_version_id
+            assert receipt["version_number"] == 1
+            assert receipt["source"] == version.source
+        recovered = restored_repo.get_version(
+            project, experiment, version.archive_version_id
+        )
+        for role, byte in (("data", 1), ("index", 2)):
+            member = recovered.members[role]
+            assert member.same_content(version.members[role])
+            assert member.identity != version.members[role].identity
+            with store.open_member(member) as reader:
+                assert (
+                    reader.read(0, member.size_bytes)
+                    == bytes([byte]) * member.size_bytes
+                )
+        assert (
+            repo.get_version(project, experiment, version.archive_version_id) == version
+        )
+    finally:
+        engine.dispose()
 
 
 def test_publish_requires_distinct_members_and_a_consistent_run_binding(archive_case):

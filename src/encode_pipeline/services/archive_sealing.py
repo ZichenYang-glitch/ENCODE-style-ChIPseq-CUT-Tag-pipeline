@@ -616,6 +616,28 @@ class ArchiveSealingService:
                 "The archive root is unavailable.",
             )
 
+    def restore_version(
+        self, *, project_id: str, experiment_id: str, archive_version_id: str
+    ) -> dict[str, object]:
+        """Recover a sealed version using its catalog and archive volume alone."""
+        self._require_root()
+        try:
+            original = self._repository.get_version(  # type: ignore[attr-defined]
+                _project_id(project_id),
+                _experiment_id(experiment_id),
+                archive_version_id,
+            )
+            members = {
+                role: self._objects.verify_restored(member)  # type: ignore[attr-defined]
+                for role, member in original.members.items()
+            }
+            restored = self._repository.rebind_restored(original, members)  # type: ignore[attr-defined]
+        except ArchiveSealError:
+            raise
+        except Exception as exc:
+            raise _store_failure(exc) from None
+        return require_operator_receipt(_receipt(restored))
+
     def _verified_record(
         self,
         *,

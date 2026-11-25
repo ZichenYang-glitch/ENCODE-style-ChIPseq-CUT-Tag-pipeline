@@ -7,6 +7,7 @@ from http.cookiejar import CookieJar
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -271,44 +272,45 @@ def _configure_archive_fixture(root: Path, database_url: str, workspace: Path) -
     )
 
 
-def _seal_archived_signal(
-    project_id: str, experiment: dict, registered_revision: dict
-) -> dict:
+def _archive_command(*arguments: str) -> dict:
     result = subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-m",
-            "encode_pipeline",
-            "archive",
-            "seal",
-            "registered",
-            "--project-id",
-            project_id,
-            "--experiment-id",
-            experiment["experiment_id"],
-            "--experiment-revision-id",
-            experiment["experiment_revision_id"],
-            "--track-key",
-            "signal",
-            "--display-name",
-            "signal.bw",
-            "--assembly",
-            "hg38",
-            "--track-type",
-            "bigwig",
-            "--result-id",
-            registered_revision["result_id"],
-            "--result-revision-id",
-            registered_revision["result_revision_id"],
-        ],
+        [sys.executable, "-I", "-m", "encode_pipeline", "archive", *arguments],
         capture_output=True,
         text=True,
         timeout=30,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"Operator seal failed: {result.stderr or result.stdout}")
+        raise RuntimeError(
+            f"Archive {arguments[0]} failed: {result.stderr or result.stdout}"
+        )
     return json.loads(result.stdout)
+
+
+def _seal_archived_signal(
+    project_id: str, experiment: dict, registered_revision: dict
+) -> dict:
+    return _archive_command(
+        "seal",
+        "registered",
+        "--project-id",
+        project_id,
+        "--experiment-id",
+        experiment["experiment_id"],
+        "--experiment-revision-id",
+        experiment["experiment_revision_id"],
+        "--track-key",
+        "signal",
+        "--display-name",
+        "signal.bw",
+        "--assembly",
+        "hg38",
+        "--track-type",
+        "bigwig",
+        "--result-id",
+        registered_revision["result_id"],
+        "--result-revision-id",
+        registered_revision["result_revision_id"],
+    )
 
 
 def _archive_versions(
@@ -341,11 +343,26 @@ def _archive_versions(
         raise RuntimeError("Re-sealing the first registered revision changed its ID.")
     # Both registered paths disappear before the browser opens the experiment.
     (root / "pool").rename(root / "retired-pool")
+    backup = (root / "archive").rename(root / "archive-backup")
+    shutil.copytree(backup, root / "archive")
     fixtures = []
     for seal, revision, experiment in (
         (first_seal, first, experiments["first"]),
         (second_seal, second, experiments["revised"]),
     ):
+        restored = _archive_command(
+            "restore",
+            "--project-id",
+            project_id,
+            "--experiment-id",
+            experiment["experiment_id"],
+            "--archive-version-id",
+            seal["archive_version_id"],
+        )
+        if restored != seal:
+            raise RuntimeError(
+                "Restoring the archive changed the original seal receipt."
+            )
         if seal["version_number"] != revision["revision_number"]:
             raise RuntimeError(
                 "The operator seal returned an unexpected result version."
@@ -361,6 +378,7 @@ def _archive_versions(
         fixtures.append(
             {
                 "archive_version_id": seal["archive_version_id"],
+                "restored_version_id": restored["archive_version_id"],
                 "version_number": revision["revision_number"],
                 "project_id": project_id,
                 "experiment_id": experiment["experiment_id"],

@@ -41,6 +41,20 @@ def _scope(session: Session, project_id: str, experiment_id: str) -> ExperimentR
     return experiment
 
 
+def _scoped_row(
+    session: Session, project_id: str, experiment_id: str, archive_version_id: str
+) -> Row:
+    _scope(session, project_id, experiment_id)
+    row = session.get(Row, archive_version_id)
+    if (
+        row is None
+        or row.project_id != project_id
+        or row.experiment_id != experiment_id
+    ):
+        raise ArchiveStoreError("archive_version_not_found")
+    return row
+
+
 def _version(row: Row, *, include_members: bool = True) -> ArchiveVersion:
     members = {}
     if include_members:
@@ -73,6 +87,20 @@ def _version(row: Row, *, include_members: bool = True) -> ArchiveVersion:
         dict(row.source),
         members,
     )
+
+
+def _rebind_members(
+    row: Row, previous: ArchiveVersion, members: dict[str, SealedMember]
+) -> ArchiveVersion:
+    if previous.members.keys() != members.keys() or any(
+        not member.same_content(members[role])
+        for role, member in previous.members.items()
+    ):
+        raise ArchiveStoreError("archive_version_conflict")
+    if previous.members == members:
+        return previous
+    row.members = {role: asdict(member) for role, member in members.items()}
+    return _version(row)
 
 
 def _source_matches(
@@ -192,15 +220,26 @@ class ArchiveRepository:
         self, project_id: str, experiment_id: str, archive_version_id: str
     ) -> ArchiveVersion:
         with self._sessions() as session:
-            _scope(session, project_id, experiment_id)
-            row = session.get(Row, archive_version_id)
-            if (
-                row is None
-                or row.project_id != project_id
-                or row.experiment_id != experiment_id
-            ):
-                raise ArchiveStoreError("archive_version_not_found")
-            return _version(row)
+            return _version(
+                _scoped_row(session, project_id, experiment_id, archive_version_id)
+            )
+
+    def rebind_restored(
+        self, original: ArchiveVersion, verified: dict[str, SealedMember]
+    ) -> ArchiveVersion:
+        """Commit the verified identities together, only on the requested row."""
+        with self._sessions() as session, session.begin():
+            session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            row = _scoped_row(
+                session,
+                original.project_id,
+                original.experiment_id,
+                original.archive_version_id,
+            )
+            current = _version(row)
+            if current.members != original.members and current.members != verified:
+                raise ArchiveStoreError("archive_version_conflict")
+            return _rebind_members(row, current, verified)
 
     def publish(
         self,
@@ -263,20 +302,9 @@ class ArchiveRepository:
                     or previous.assembly != assembly
                     or previous.track_type != track_type
                     or previous.display_name != display_name
-                    or any(
-                        not prev.same_content(members[role])
-                        for role, prev in previous.members.items()
-                    )
                 ):
                     raise ArchiveStoreError("archive_version_conflict")
-                if previous.members == members:
-                    return previous
-                # An operator re-sealed an identical restored copy. Update only
-                # its private file identity; links and logical versions survive.
-                existing.members = {
-                    role: asdict(member) for role, member in members.items()
-                }
-                return _version(existing)
+                return _rebind_members(existing, previous, members)
             number = (
                 session.scalar(select(func.max(Row.version_number)).where(*series)) or 0
             )

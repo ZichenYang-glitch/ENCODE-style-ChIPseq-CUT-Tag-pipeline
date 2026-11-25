@@ -57,7 +57,7 @@ def test_source_revision_upgrades_and_downgrades_around_snapshot_bindings(
     assert "catalog_adoption_receipts" in names
     assert "snapshot_experiment_bindings" in names
     script = ScriptDirectory.from_config(_config(database_url))
-    assert list(script.get_heads()) == ["20261125_77"]
+    assert list(script.get_heads()) == ["20261125_77b"]
     registered = script.get_revision("20261119_39")
     proposals = script.get_revision("20261119_32")
     assert registered is not None and proposals is not None
