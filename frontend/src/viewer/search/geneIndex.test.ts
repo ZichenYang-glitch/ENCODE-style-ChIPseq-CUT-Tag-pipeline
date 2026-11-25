@@ -6,10 +6,13 @@ import {
   DEFAULT_HG38_ASSEMBLIES,
   assemblyUsesHg38,
   classifyQuery,
+  PINNED_HG38_SEQUENCES,
   formatRegion,
   geneIndexRequestUrl,
   loadHg38GeneIndex,
+  missingPinnedSequence,
   parseGeneIndex,
+  pinnedHg38Has,
   resetGeneIndexCacheForTests,
   searchGenes,
 } from './geneIndex';
@@ -88,6 +91,15 @@ describe('coordinate and assembly classification', () => {
     expect(assemblyUsesHg38('mm10')).toBe(false);
     expect(assemblyUsesHg38('hg19')).toBe(false);
     expect(assemblyUsesHg38('')).toBe(false);
+  });
+
+  it('names only the sequences present in the pinned hg38 genome', () => {
+    expect(PINNED_HG38_SEQUENCES).toHaveLength(25);
+    expect(pinnedHg38Has('chr7')).toBe(true);
+    expect(pinnedHg38Has('chrM')).toBe(true);
+    expect(missingPinnedSequence('chrY')).toBeNull();
+    expect(missingPinnedSequence('chr1_KI270706v1_random')).toMatch(/viewer was not moved/);
+    expect(missingPinnedSequence('CHR7')).toMatch(/viewer was not moved/);
   });
 
   it('refuses a gene index URL on another origin', () => {
@@ -169,23 +181,26 @@ describe('shipped GRCh38 index', () => {
     expect(index.provenance).toEqual(provenance);
     expect(index.release).toBe('GENCODE human 49');
     expect(index.assemblyMatch).toEqual([...DEFAULT_HG38_ASSEMBLIES]);
-    expect(index.provenance.annotation.sha256).toBe(
-      '9578f079f35e9e550245db9ed7ad3181ccd60414df4e87e60c1e8617c0529d2d',
+    expect(provenance.annotation.sha256).toBe(
+      '5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023',
     );
-    expect(index.provenance.annotation.bytes).toBe(3327017727);
-    expect(index.provenance.annotation.source_url).toContain(
+    expect(provenance.annotation.bytes).toBe(93496634);
+    expect(provenance.annotation.source_url).toContain(
       'gencode.v49.primary_assembly.annotation.gtf',
     );
+    expect(provenance.aliases.source_url).toContain('hgnc_complete_set_2025-10-07.tsv');
+    expect(provenance.viewer_scaffold.sequences).toEqual([...PINNED_HG38_SEQUENCES]);
+    expect(index.chromosomes.every((name) => pinnedHg38Has(name))).toBe(true);
     expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.15');
     expect(index.provenance.assembly_report.sha256).toBe(
       'f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12',
     );
     expect(index.provenance.aliases.sha256).toBe(
-      '69bb5722d5a42bb355580deb2c9f197ce3d7f7d13807173b9674a7db65e52191',
+      '30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5',
     );
     expect(index.provenance.counts.genes).toBe(index.rows.length);
     expect(index.provenance.counts.genes).toBeGreaterThan(70000);
-    expect(index.provenance.counts.dropped_unknown_sequence).toBe(0);
+    expect(index.provenance.counts.dropped_unknown_sequence).toBe(208);
     for (const name of ['LocusSearch.tsx', 'geneIndex.ts', 'build_grch38_gene_index.py']) {
       const source = readFileSync(join(directory, name), 'utf8');
       expect(source).not.toContain('55018820');
