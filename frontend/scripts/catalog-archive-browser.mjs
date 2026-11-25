@@ -275,6 +275,15 @@ async function openVersion(browser, manifest, fixture, out, work) {
       catalog.locator(`[data-archive-version-id="${fixture.archive_version_id}"]`),
     );
     await checkTrackFacts(row, fixture);
+    if (fixture.version_number === 1) {
+      const choices = catalog.getByTestId('archived-track-list');
+      for (const number of [1, 2]) {
+        await expect(choices.getByRole('link', {
+          name: `在 WashU 查看 ${trackName} 第 ${number} 版`, exact: true,
+        })).toBeVisible();
+      }
+      await choices.screenshot({ path: join(out, 'experiment-versions.png') });
+    }
     const action = row.getByRole('link', {
       name: `在 WashU 查看 ${trackName} 第 ${fixture.version_number} 版`,
       exact: true,
