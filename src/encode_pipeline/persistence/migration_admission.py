@@ -24,9 +24,9 @@ MIGRATION_EXECUTION_INVENTORY_SCHEME = (
 # This source constant is the trust anchor for the committed inventory bytes.
 # Updating the inventory is a two-file review action: regenerate the JSON, then
 # deliberately synchronize these exact coordinates.
-MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = 5449
+MIGRATION_EXECUTION_INVENTORY_SIZE_BYTES = 5702
 MIGRATION_EXECUTION_INVENTORY_SHA256 = (
-    "c01c501c01d65691ed08b2bfe8449dc15224f6d50df168a11e5694237be35b6b"
+    "3a744061cc2c950a8e805c5e3d283fe1b426a5501ce44dad886a9e0218ebf4de"
 )
 
 _MAXIMUM_INVENTORY_BYTES = 512 * 1024

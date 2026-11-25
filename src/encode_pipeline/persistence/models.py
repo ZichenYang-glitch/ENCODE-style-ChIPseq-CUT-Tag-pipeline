@@ -3423,3 +3423,38 @@ class CatalogAdoptionReceiptRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class ArchivedTrackVersionRow(Base):
+    """A sealed member manifest bound to one stable experiment and exact source."""
+
+    __tablename__ = "archived_track_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["experiment_id", "project_id"],
+            ["experiments.experiment_id", "experiments.project_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["experiment_revision_id"],
+            ["experiment_revisions.experiment_revision_id"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("experiment_id", "track_key", "version_number"),
+        UniqueConstraint("experiment_id", "track_key", "source_identity"),
+        CheckConstraint("version_number >= 1"),
+        CheckConstraint("track_type IN ('bigwig','bed','longrange')"),
+    )
+
+    archive_version_id: Mapped[str] = mapped_column(String(37), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    experiment_id: Mapped[str] = mapped_column(String(36))
+    experiment_revision_id: Mapped[str] = mapped_column(String(37))
+    track_key: Mapped[str] = mapped_column(String(255))
+    version_number: Mapped[int] = mapped_column(Integer)
+    display_name: Mapped[str] = mapped_column(String(255))
+    assembly: Mapped[str] = mapped_column(String(64))
+    track_type: Mapped[str] = mapped_column(String(16))
+    source_identity: Mapped[str] = mapped_column(String(64))
+    source: Mapped[dict] = mapped_column(JSON)
+    members: Mapped[dict] = mapped_column(JSON)
