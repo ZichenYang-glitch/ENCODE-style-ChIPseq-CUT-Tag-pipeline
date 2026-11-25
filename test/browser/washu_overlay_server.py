@@ -12,8 +12,8 @@ so its previous generation and revision no longer read.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import secrets
@@ -54,7 +54,6 @@ WINDOW = "chr1:4500-6700"
 PRIMARY_PEAK = b"chr1\t5500\t5700\tpeak-primary\t61\t+\n"
 SECOND_PEAK = b"chr1\t6000\t6200\tpeak-second\t73\t+\n"
 FOREIGN_PEAK = b"chr1\t5500\t5700\tpeak-foreign\t11\t+\n"
-LOCAL_PEAK = "chr1\t5800\t6000\tpeak-local\n"
 PRIMARY_NAME = "primary_peaks.narrowPeak"
 SECOND_NAME = "second_peaks.narrowPeak"
 FOREIGN_NAME = "foreign_peaks.narrowPeak"
@@ -128,14 +127,12 @@ def assembly_plan(assembly: str = "hg38", foreign: str | None = None) -> Assembl
     )
 
 
-def _write_declared_bed(workspace: Path, declaration: str) -> str:
-    workspace.mkdir(parents=True, exist_ok=True)
-    path = workspace / "overlay-peak-local-mm10.bed"
-    path.write_text(
-        f"browser genome {declaration}\n{LOCAL_PEAK}",
-        encoding="utf-8",
-    )
-    return str(path)
+def _write_declared_bed(directory: Path, declaration: str) -> str:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"overlay-peak-local-{declaration}.bed"
+    source = ROOT / "test" / "fixtures" / "browser" / DEFAULT_LOCAL_BED
+    path.write_bytes(f"browser genome {declaration}\n".encode() + source.read_bytes())
+    return str(path.resolve())
 
 
 class _Client:
@@ -321,16 +318,13 @@ def build_app(
     _prepare(app, client, primary_run_id, primary)
 
     second_run_id = _create_run(client)
-    second_name = "Overlay second hg38" if plan.label == "hg38" else (
-        f"Overlay second {plan.label}"
-    )
     _bind_distinct(
         client,
         second_run_id,
         assembly=plan.label,
         organism=plan.organism,
         marker="12" * 16,
-        display_name=second_name,
+        display_name=f"Overlay second {plan.label}",
     )
     second = _peak(client, second_run_id, SECOND_NAME, SECOND_PEAK, plan.label)
     _prepare(app, client, second_run_id, second)
@@ -361,7 +355,9 @@ def build_app(
     if plan.local_declaration is None:
         local_bed = DEFAULT_LOCAL_BED
     else:
-        local_bed = _write_declared_bed(workspace, plan.local_declaration)
+        local_bed = _write_declared_bed(
+            database.parent / "local-files", plan.local_declaration
+        )
     token = secrets.token_hex(24)
     _install_invalidate(app, client, second_run_id, token, plan.label)
     app.mount(

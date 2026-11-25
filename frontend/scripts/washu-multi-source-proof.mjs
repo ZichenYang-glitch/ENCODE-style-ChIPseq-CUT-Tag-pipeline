@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { chromium } from '@playwright/test';
@@ -14,17 +14,22 @@ const root = fileURLToPath(new URL('../..', import.meta.url));
 const python =
   process.env.HELIXWEAVE_PYTHON ?? join(root, '.local/envs/ci-fast/bin/python');
 const work = process.env.WASHU_OVERLAY_DIR
-  ? (mkdirSync(process.env.WASHU_OVERLAY_DIR, { recursive: true }), process.env.WASHU_OVERLAY_DIR)
+  ? resolve(process.env.WASHU_OVERLAY_DIR)
   : mkdtempSync(join(tmpdir(), 'helixweave-washu-overlay-'));
-const requestedAssembly = process.env.WASHU_OVERLAY_ASSEMBLY ?? '';
+mkdirSync(work, { recursive: true });
+const requestedAssembly = process.env.WASHU_OVERLAY_ASSEMBLY || 'hg38';
 const requestedForeign = process.env.WASHU_OVERLAY_FOREIGN ?? '';
 const evidencePath = join(work, 'evidence.json');
 const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 const navigatedRegion = 'chr1:5200-6400';
+const primaryPeak = 'chr1:5500-5700 peak-primary';
+const localPeak = 'chr1:5800-6000 peak-local';
+const secondPeak = 'chr1:6000-6200 peak-second';
 const sessionCookie = 'a'.repeat(43);
 const csrfCookie = 'b'.repeat(43);
 const children = [];
 const reads = [];
+const foreignTrackRequests = [];
 const posts = [];
 const external = [];
 const consoleMessages = [];
@@ -55,19 +60,6 @@ function assemblyKey(value) {
   return key;
 }
 
-function localBedPath(record) {
-  if (record.local_bed.startsWith('/')) return record.local_bed;
-  return join(root, 'test/fixtures/browser', record.local_bed);
-}
-
-function bedDeclares(text, declaration) {
-  const escaped = declaration.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return (
-    new RegExp(`^browser genome ${escaped}$`, 'm').test(text) ||
-    new RegExp(`(?:^|\\s)(?:db|genome)=["']?${escaped}(?=$|\\s)`, 'im').test(text)
-  );
-}
-
 function log(line) {
   writeFileSync(join(work, 'proof.log'), `${line}\n`, { flag: 'a' });
 }
@@ -93,6 +85,10 @@ function waitFor(stream, pattern, timeoutMs) {
     const timer = setTimeout(() => {
       reject(new Error(`timed out waiting for ${pattern}\n${text.slice(-2000)}`));
     }, timeoutMs);
+    stream.once('end', () => {
+      clearTimeout(timer);
+      reject(new Error(`fixture server exited before it was ready; see ${join(work, 'server.log')}`));
+    });
     stream.on('data', (chunk) => {
       text += chunk.toString();
       const match = text.match(pattern);
@@ -236,7 +232,7 @@ function parseTrackUrl(url) {
 function isExternal(url) {
   const parsed = new URL(url);
   if (parsed.protocol === 'blob:' || parsed.protocol === 'data:') return false;
-  return parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost';
+  return parsed.origin !== `http://127.0.0.1:${port}`;
 }
 
 function runArticle(frame, runId) {
@@ -270,17 +266,11 @@ async function readHub(frame) {
         }
       }
       const region = props?.viewRegion;
-      if (region && typeof region.getWidth === 'function') {
-        let start = null;
-        let end = null;
-        try {
-          const coords = region.getContextCoordinates();
-          start = coords.start;
-          end = coords.end;
-        } catch {
-          start = null;
+      if (typeof region?.getGenomeIntervals === 'function') {
+        const scaffold = region.getNavigationContext().getName();
+        for (const { chr, start, end } of region.getGenomeIntervals()) {
+          regions.push({ scaffold, chr, start, end });
         }
-        regions.push({ start, end });
       }
       if (props) {
         for (const bucket of [props.data, props.items, props.features, props.placements, props.arrangedData]) {
@@ -305,23 +295,33 @@ async function readHub(frame) {
   });
 }
 
-function showsRegion(regions, displayRegion) {
-  const [, start, end] = displayRegion.match(/^chr1:(\d+)-(\d+)$/);
-  return regions.some(
-    (region) =>
+function displayedWindow(regions, displayRegion) {
+  const [, chromosome, start, end] = displayRegion.match(/^([^:]+):(\d+)-(\d+)$/);
+  return regions.find(
+    (region) => region.scaffold === manifest.scaffold && region.chr === chromosome &&
       region.start === Number(start) - 1 && region.end === Number(end),
   );
 }
 
-async function waitForHub(frame, ready, timeoutMs) {
+async function waitForOverlay(frame, displayRegion, { secondRun }) {
   const started = Date.now();
   let last = null;
-  while (Date.now() - started < timeoutMs) {
+  while (Date.now() - started < 25_000) {
     last = await readHub(frame);
-    if (last && ready(last)) return last;
+    if (last && displayedWindow(last.regions, displayRegion)) {
+      const runIds = last.models.filter(track => track.url).map(track => parseTrackUrl(track.url)?.runId);
+      if (
+        last.viewers === 1 &&
+        last.models.some(track => track.file && track.url === '') &&
+        runIds.includes(manifest.primary_run_id) && runIds.includes(manifest.second_run_id) === secondRun &&
+        !runIds.includes(manifest.foreign_run_id) &&
+        last.drawn.includes(primaryPeak) && last.drawn.includes(localPeak) &&
+        last.drawn.includes(secondPeak) === secondRun
+      ) return last;
+    }
     await page.waitForTimeout(200);
   }
-  throw new Error(`genome hub did not reach the expected tracks\n${JSON.stringify(last)}`);
+  throw new Error(`expected ${manifest.scaffold} ${displayRegion} with second run ${secondRun}\n${JSON.stringify(last)}`);
 }
 
 function dataReads(runId, since = 0) {
@@ -368,6 +368,7 @@ async function protectionChecks() {
   }
   if (
     !primary.reference.identity_sha256 ||
+    !second.reference.identity_sha256 ||
     primary.reference.identity_sha256 === second.reference.identity_sha256
   ) {
     throw new Error('the second run does not have its own reference identity');
@@ -486,7 +487,7 @@ function sameOriginRead(runId, generation, revision) {
     if (!parsed || parsed.runId !== runId) return false;
     const url = new URL(read.url);
     return (
-      url.hostname === '127.0.0.1' &&
+      !isExternal(read.url) &&
       url.pathname.startsWith('/api/') &&
       parsed.generation === generation &&
       parsed.revision === revision &&
@@ -501,18 +502,19 @@ function sameOriginRead(runId, generation, revision) {
 
 async function main() {
   port = await reserve(18940);
-  workspace = join(work, 'workspace');
+  const fixtureDir = mkdtempSync(join(work, 'fixture-'));
+  workspace = join(fixtureDir, 'workspace');
   mkdirSync(workspace, { recursive: true });
   const serverArgs = [
     'test/browser/washu_overlay_server.py',
     '--port',
     String(port),
     '--database',
-    join(work, 'overlay.sqlite'),
+    join(fixtureDir, 'overlay.sqlite'),
     '--workspace',
     workspace,
   ];
-  if (requestedAssembly) serverArgs.push('--assembly', requestedAssembly);
+  serverArgs.push('--assembly', requestedAssembly);
   if (requestedForeign) serverArgs.push('--foreign', requestedForeign);
   const server = start(python, serverArgs);
   server.stderr.on('data', (chunk) => {
@@ -520,22 +522,21 @@ async function main() {
   });
   const ready = await waitFor(server.stdout, /WASHU_OVERLAY (\{.*\})/, 90_000);
   manifest = JSON.parse(ready[1]);
-  if (requestedAssembly && assemblyKey(manifest.assembly) !== assemblyKey(requestedAssembly)) {
+  if (manifest.assembly.toLowerCase() !== requestedAssembly.trim().toLowerCase()) {
     throw new Error(`server assembly ${manifest.assembly} does not match ${requestedAssembly}`);
   }
-  if (requestedForeign && assemblyKey(manifest.foreign_assembly) !== assemblyKey(requestedForeign)) {
+  if (requestedForeign && manifest.foreign_assembly.toLowerCase() !== requestedForeign.trim().toLowerCase()) {
     throw new Error(`server foreign assembly ${manifest.foreign_assembly} does not match ${requestedForeign}`);
   }
-  const localBed = localBedPath(manifest);
+  const localBed = resolve(root, 'test/fixtures/browser', manifest.local_bed);
   if (!existsSync(localBed)) throw new Error(`local BED fixture is missing: ${localBed}`);
   const localText = readFileSync(localBed, 'utf8');
   if (!localText.includes('peak-local') || !localText.includes('5800\t6000')) {
     throw new Error('local BED fixture is not the synthetic peak-local interval');
   }
-  if (manifest.local_declaration && !bedDeclares(localText, manifest.local_declaration)) {
-    throw new Error(`local peak does not declare ${manifest.local_declaration}`);
-  }
-  if (!manifest.local_declaration && manifest.scaffold !== 'hg38') {
+  if (manifest.scaffold === 'mm10' && (
+    manifest.local_declaration !== 'mm10' || !localText.startsWith('browser genome mm10\n')
+  )) {
     throw new Error('a mouse window requires a local peak that declares mm10');
   }
   evidence.source = {
@@ -545,7 +546,7 @@ async function main() {
     foreign_assembly: manifest.foreign_assembly,
     foreign_scaffold: manifest.foreign_scaffold,
     local_declaration: manifest.local_declaration,
-    local_bed: manifest.local_bed,
+    local_bed: basename(localBed),
     window: manifest.window,
   };
   evidence.window = manifest.window;
@@ -580,14 +581,18 @@ async function main() {
   page.on('pageerror', (error) => {
     consoleMessages.push(`pageerror: ${error.message}`);
   });
-  page.on('request', (request) => {
+  context.on('request', (request) => {
     const url = request.url();
+    const path = new URL(url).pathname;
+    if (path.startsWith(`/api/v1/runs/${manifest.foreign_run_id}/browser-tracks/`)) {
+      foreignTrackRequests.push(`${request.method()} ${path}`);
+    }
     if (isExternal(url)) external.push(`${request.method()} ${url}`);
     if (request.method() !== 'GET' && request.method() !== 'HEAD') {
       posts.push({ method: request.method(), url, body: request.postData() ?? '' });
     }
   });
-  page.on('response', (response) => {
+  context.on('response', (response) => {
     const url = response.url();
     if (!url.includes('/bytes/')) return;
     const range = response.request().headers().range ?? '';
@@ -662,14 +667,13 @@ async function main() {
   const localRow = viewerFrame.locator('[data-testid="local-browser-track"][data-source="local"]');
   await localRow.waitFor({ timeout: 20_000 });
   const localAssembly = await localRow.getAttribute('data-assembly');
-  if (localAssembly !== manifest.scaffold) {
+  if (assemblyKey(localAssembly) !== manifest.scaffold) {
     throw new Error(`local peak was placed on ${localAssembly}, not ${manifest.scaffold}`);
   }
-  if (manifest.local_declaration) {
-    const signature = await viewerFrame.locator('[data-testid="local-track-assembly"]').innerText();
-    if (!signature.includes(manifest.local_declaration)) {
-      throw new Error(`local assembly signature did not record ${manifest.local_declaration}: ${signature}`);
-    }
+  const signature = await viewerFrame.getByTestId('local-track').getByText(/^用户指定\s+/).innerText();
+  const recordedLabel = signature.match(/^用户指定\s+(\w+)/)?.[1];
+  if (assemblyKey(recordedLabel) !== manifest.scaffold) {
+    throw new Error(`local track shows ${signature} in the ${manifest.scaffold} window`);
   }
   await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
@@ -723,26 +727,11 @@ async function main() {
   if (!primaryRead || !secondRead) {
     throw new Error('platform tracks were not read from their own generation and revision');
   }
-  const hub = await waitForHub(
-    viewerFrame,
-    (state) => {
-      const urls = state.models.map((track) => track.url);
-      return (
-        state.viewers === 1 &&
-        urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-        urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
-        state.models.some((track) => track.file && track.url === '') &&
-        showsRegion(state.regions, manifest.window) &&
-        ['chr1:5500-5700', 'chr1:5800-6000', 'chr1:6000-6200'].every(locus => state.drawn.some(text => text.includes(locus)))
-      );
-    },
-    25_000,
-  );
-  if (!hub.drawn.some((text) => text.includes('5800') || text.includes('peak-local'))) {
-    throw new Error('local peak was not drawn in the shared window');
-  }
+  const hub = await waitForOverlay(viewerFrame, manifest.window, { secondRun: true });
+  const drawing = viewerFrame.getByTestId('washu-genome-viewer');
   evidence.tracks = {
     viewers: hub.viewers,
+    displayed_window: displayedWindow(hub.regions, manifest.window),
     models: hub.models.map((track) => ({ type: track.type, name: track.name, file: track.file, same_origin: track.url.startsWith(`http://127.0.0.1:${port}/api/`) || track.url === '' })),
     primary: {
       run_id: manifest.primary_run_id,
@@ -761,14 +750,42 @@ async function main() {
     plotted_features: [...new Set(hub.drawn)],
     local_assembly: localAssembly,
     local_declaration: manifest.local_declaration,
-    local_drawn: hub.drawn.filter((text) => text.includes('peak-local') || text.includes('5800')).slice(0, 4),
+    local_signature: signature,
+    local_drawn: hub.drawn.filter(text => text === localPeak).slice(0, 4),
     regions: hub.regions.slice(0, 4),
   };
+  await drawing.scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(work, 'overlay-three.png'), fullPage: true });
+
+  stage = 'add incompatible source';
+  await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.foreign_run_id);
+  await viewerFrame.getByRole('button', { name: 'Add run' }).click();
+  const foreignArticle = runArticle(viewerFrame, manifest.foreign_run_id);
+  const foreignConflict = await foreignArticle.getByTestId('reference-conflict').innerText();
+  if (
+    !foreignConflict.includes(manifest.foreign_scaffold) ||
+    await foreignArticle.getAttribute('data-scaffold') !== manifest.foreign_scaffold ||
+    await foreignArticle.getByRole('checkbox').isEnabled()
+  ) {
+    throw new Error(`${manifest.foreign_assembly} was not refused: ${foreignConflict}`);
+  }
+  const regionBox = viewerFrame.getByRole('textbox', { name: 'Genomic region' });
+  const conflictRegion = 'chr1:5000-6500';
+  await regionBox.fill(conflictRegion);
+  const afterConflict = await waitForOverlay(viewerFrame, conflictRegion, { secondRun: true });
+  evidence.foreign = {
+    run_id: manifest.foreign_run_id,
+    assembly: manifest.foreign_assembly,
+    scaffold: manifest.foreign_scaffold,
+    reason: foreignConflict,
+    displayed_window: displayedWindow(afterConflict.regions, conflictRegion),
+    remaining_features: [...new Set(afterConflict.drawn)],
+  };
+  await page.screenshot({ path: join(work, 'overlay-foreign.png'), fullPage: true });
+  await drawing.screenshot({ path: join(work, 'overlay-foreign-tracks.png') });
 
   await viewerFrame.getByRole('button', { name: `Remove run ${manifest.second_run_id}` }).click();
   await secondArticle.waitFor({ state: 'detached', timeout: 10_000 });
-  const regionBox = viewerFrame.getByRole('textbox', { name: 'Genomic region' });
   stage = 'navigate after removal';
   await regionBox.fill(navigatedRegion);
   await viewerFrame.waitForFunction(
@@ -779,26 +796,16 @@ async function main() {
     navigatedRegion,
     { timeout: 10_000 },
   );
-  const afterRemoval = await waitForHub(
-    viewerFrame,
-    (state) => {
-      const urls = state.models.map((track) => track.url);
-      return (
-        state.viewers === 1 &&
-        urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-        !urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
-        state.models.some((track) => track.file && track.url === '') &&
-        showsRegion(state.regions, navigatedRegion)
-      );
-    },
-    20_000,
-  );
+  const afterRemoval = await waitForOverlay(viewerFrame, navigatedRegion, { secondRun: false });
   evidence.removal = {
     removed: manifest.second_run_id,
     region: navigatedRegion,
     remaining: afterRemoval.models.map((track) => track.name),
     regions: afterRemoval.regions.slice(0, 4),
+    displayed_window: displayedWindow(afterRemoval.regions, navigatedRegion),
+    remaining_features: [...new Set(afterRemoval.drawn)],
   };
+  await drawing.scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(work, 'overlay-after-remove.png'), fullPage: true });
 
   await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
@@ -806,8 +813,8 @@ async function main() {
   const restored = runArticle(viewerFrame, manifest.second_run_id);
   await restored.waitFor({ timeout: 20_000 });
   stage = 'restore second';
-  await restored.getByRole('checkbox').check();
   const beforeExpiry = reads.length;
+  await restored.getByRole('checkbox').check();
   const restoredAt = Date.now();
   while (Date.now() - restoredAt < 20_000) {
     if (dataReads(manifest.second_run_id, beforeExpiry).length) break;
@@ -848,12 +855,7 @@ async function main() {
   const expiredNotice = viewerFrame.getByRole('alert').filter({ hasText: manifest.second_run_id });
   await expiredNotice.getByText(/generation_changed|revision_changed/).waitFor({ timeout: 20_000 });
   const notice = await expiredNotice.innerText();
-  const afterExpiry = await waitForHub(viewerFrame, state =>
-    state.models.some(track => track.url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-    state.models.some(track => track.file && track.url === '') &&
-    !state.models.some(track => track.url.includes(`/runs/${manifest.second_run_id}/`)) &&
-    state.drawn.some(item => item.startsWith('chr1:5500-5700')) &&
-    state.drawn.some(item => item.startsWith('chr1:5800-6000')), 20_000);
+  const afterExpiry = await waitForOverlay(viewerFrame, expiredWindow, { secondRun: false });
   const newGenerationRead = reads.some((read) => {
     const parsed = parseTrackUrl(read.url);
     return (
@@ -864,13 +866,6 @@ async function main() {
     );
   });
   if (newGenerationRead) throw new Error('the replacement generation was read without a new choice');
-  const expiredUrls = afterExpiry?.models.map((track) => track.url) ?? [];
-  if (
-    !expiredUrls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) ||
-    !(afterExpiry?.models ?? []).some((track) => track.file && track.url === '')
-  ) {
-    throw new Error(`primary or local track left the hub\n${JSON.stringify(afterExpiry?.models)}`);
-  }
   evidence.expiry = {
     run_id: manifest.second_run_id,
     old_generation: manifest.second_generation,
@@ -880,55 +875,18 @@ async function main() {
     rejected_status: rejected.status,
     rejected_reason: rejected.text.includes('generation_changed') ? 'generation_changed' : 'revision_changed',
     visible_failure: notice,
+    displayed_window: displayedWindow(afterExpiry.regions, expiredWindow),
     remaining_features: [...new Set(afterExpiry.drawn)],
     primary_still_readable: primaryStill.status,
     new_generation_read: false,
   };
 
-  const readsBeforeForeign = reads.length;
-  await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.foreign_run_id);
-  await viewerFrame.getByRole('button', { name: 'Add run' }).click();
-  const foreignArticle = runArticle(viewerFrame, manifest.foreign_run_id);
-  stage = 'add incompatible source';
-  await foreignArticle.getByTestId('reference-conflict').waitFor({ timeout: 20_000 });
-  const foreignConflict = (
-    await foreignArticle.locator('[data-testid="reference-conflict"]').allInnerTexts()
-  ).join('\n');
-  if (!foreignConflict.includes(manifest.foreign_scaffold)) {
-    throw new Error(`${manifest.foreign_assembly} run was not rejected\n${foreignConflict}`);
+  const foreignReads = reads.filter(read => parseTrackUrl(read.url)?.runId === manifest.foreign_run_id);
+  evidence.foreign.track_requests = foreignTrackRequests.length;
+  evidence.foreign.bytes_read = foreignReads.reduce((sum, read) => sum + read.body.length, 0);
+  if (foreignTrackRequests.length || foreignReads.length) {
+    throw new Error(`${manifest.foreign_assembly} track was accessed\n${foreignTrackRequests.join('\n')}`);
   }
-  const foreignScaffold = await foreignArticle.getAttribute('data-scaffold');
-  if (foreignScaffold !== manifest.foreign_scaffold) {
-    throw new Error(`foreign run scaffold on the page was ${foreignScaffold}`);
-  }
-  const foreignBox = foreignArticle.getByRole('checkbox');
-  if (await foreignBox.isEnabled()) {
-    throw new Error(`${manifest.foreign_assembly} track stayed selectable`);
-  }
-  await page.waitForTimeout(1000);
-  const foreignReads = reads.slice(readsBeforeForeign).filter((read) => read.url.includes(manifest.foreign_run_id));
-  const foreignBytes = foreignReads.reduce((sum, read) => sum + read.body.length, 0);
-  if (foreignReads.length || foreignBytes !== 0) {
-    throw new Error(
-      `${manifest.foreign_assembly} bytes were read (${foreignBytes} B)\n${foreignReads.map((read) => read.url).join('\n')}`,
-    );
-  }
-  const stillThere = await readHub(viewerFrame);
-  const stillUrls = stillThere?.models.map((track) => track.url) ?? [];
-  if (
-    !stillUrls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) ||
-    !(stillThere?.models ?? []).some((track) => track.file)
-  ) {
-    throw new Error(`rejecting ${manifest.foreign_assembly} removed the tracks already open`);
-  }
-  evidence.foreign = {
-    run_id: manifest.foreign_run_id,
-    assembly: manifest.foreign_assembly,
-    scaffold: manifest.foreign_scaffold,
-    reason: foreignConflict,
-    bytes_read: foreignBytes,
-  };
-  await page.screenshot({ path: join(work, 'overlay-foreign.png'), fullPage: true });
 
   const uploaded = posts.filter(
     (post) => post.body.includes('peak-local') || post.body.includes('5800\t6000'),

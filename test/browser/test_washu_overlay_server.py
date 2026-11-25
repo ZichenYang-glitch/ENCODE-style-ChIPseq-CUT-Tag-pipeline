@@ -109,7 +109,10 @@ def test_default_fixture_keeps_hg38_evidence(tmp_path: Path) -> None:
     assert second["reference"]["assembly_label"] == "hg38"
     assert primary["reference"]["viewer_scaffold"] == "hg38"
     assert second["reference"]["viewer_scaffold"] == "hg38"
-    assert primary["reference"]["identity_sha256"] != second["reference"]["identity_sha256"]
+    assert (
+        primary["reference"]["identity_sha256"]
+        != second["reference"]["identity_sha256"]
+    )
     assert foreign["reference"]["assembly_label"] == "mm10"
     assert foreign["reference"]["viewer_scaffold"] == "mm10"
     assert _organism(app, primary["reference"]["revision_id"]) == "Homo sapiens"
@@ -122,7 +125,11 @@ def test_default_fixture_keeps_hg38_evidence(tmp_path: Path) -> None:
         (primary, manifest["primary_generation"]),
         (second, manifest["second_generation"]),
     ):
-        track = next(item for item in body["tracks"] if item["artifact_id"] == manifest["artifact_id"])
+        track = next(
+            item
+            for item in body["tracks"]
+            if item["artifact_id"] == manifest["artifact_id"]
+        )
         assert track["preparation"] == "ready"
         assert body["artifact_generation"] == generation
     anonymous = _anonymous_status(
@@ -138,18 +145,18 @@ def test_default_fixture_keeps_hg38_evidence(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("assembly", "foreign", "label", "foreign_label"),
+    ("assembly", "foreign", "foreign_label", "foreign_organism"),
     [
-        ("mm10", None, "mm10", "hg38"),
-        ("GRCm38", "mm39", "GRCm38", "mm39"),
+        ("mm10", None, "hg38", "Homo sapiens"),
+        ("GRCm38", "mm39", "mm39", "Mus musculus"),
     ],
 )
 def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
     tmp_path: Path,
     assembly: str,
     foreign: str | None,
-    label: str,
     foreign_label: str,
+    foreign_organism: str,
 ) -> None:
     workspace = tmp_path / "workspace"
     app, manifest = build_app(
@@ -158,14 +165,16 @@ def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
         assembly=assembly,
         foreign=foreign,
     )
-    assert manifest["assembly"] == label
+    assert manifest["assembly"] == assembly
     assert manifest["scaffold"] == "mm10"
     assert manifest["organism"] == "Mus musculus"
     assert manifest["local_declaration"] == "mm10"
     assert manifest["foreign_assembly"] == foreign_label
+    assert manifest["foreign_organism"] == foreign_organism
     assert manifest["foreign_scaffold"] == foreign_label
     bed = Path(manifest["local_bed"])
     assert bed.is_file()
+    assert not bed.is_relative_to(workspace)
     text = bed.read_text(encoding="utf-8")
     assert text.startswith("browser genome mm10\n")
     assert "chr1\t5800\t6000\tpeak-local\n" in text
@@ -174,20 +183,28 @@ def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
     primary = _session(client, manifest["primary_run_id"])
     second = _session(client, manifest["second_run_id"])
     foreign_body = _session(client, manifest["foreign_run_id"])
-    assert primary["reference"]["assembly_label"] == label
-    assert second["reference"]["assembly_label"] == label
+    assert primary["reference"]["assembly_label"] == assembly
+    assert second["reference"]["assembly_label"] == assembly
     assert primary["reference"]["viewer_scaffold"] == "mm10"
     assert second["reference"]["viewer_scaffold"] == "mm10"
-    assert primary["reference"]["identity_sha256"] != second["reference"]["identity_sha256"]
+    assert (
+        primary["reference"]["identity_sha256"]
+        != second["reference"]["identity_sha256"]
+    )
     assert _organism(app, primary["reference"]["revision_id"]) == "Mus musculus"
     assert _organism(app, second["reference"]["revision_id"]) == "Mus musculus"
-    assert _artifact_assembly(app, manifest["primary_run_id"]) == label
-    assert _artifact_assembly(app, manifest["second_run_id"]) == label
+    assert _artifact_assembly(app, manifest["primary_run_id"]) == assembly
+    assert _artifact_assembly(app, manifest["second_run_id"]) == assembly
     assert foreign_body["reference"]["assembly_label"] == foreign_label
     assert foreign_body["reference"]["viewer_scaffold"] == foreign_label
+    assert _organism(app, foreign_body["reference"]["revision_id"]) == foreign_organism
     assert _artifact_assembly(app, manifest["foreign_run_id"]) == foreign_label
     for body in (primary, second):
-        track = next(item for item in body["tracks"] if item["artifact_id"] == manifest["artifact_id"])
+        track = next(
+            item
+            for item in body["tracks"]
+            if item["artifact_id"] == manifest["artifact_id"]
+        )
         assert track["preparation"] == "ready"
 
     replaced = client.post(
@@ -199,7 +216,7 @@ def test_mouse_runs_share_mm10_and_the_local_peak_declares_it(
     payload = replaced.json()
     assert payload["ok"] is True
     assert payload["generation"] != manifest["second_generation"]
-    assert _artifact_assembly(app, manifest["second_run_id"]) == label
+    assert _artifact_assembly(app, manifest["second_run_id"]) == assembly
     refreshed = _session(client, manifest["second_run_id"])
     assert refreshed["artifact_generation"] == payload["generation"]
-    assert refreshed["reference"]["assembly_label"] == label
+    assert refreshed["reference"]["assembly_label"] == assembly
