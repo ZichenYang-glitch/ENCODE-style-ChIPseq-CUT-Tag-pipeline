@@ -30,6 +30,7 @@
   - 文档中的 `customGenome` 和 `indexUrl` 没有接到这个组件
   - 基因组名必须是包内染色体表的键，例如 `hg38`、`mm10`
   - 轨道模型不接收单独的索引 URL；tabix 索引请求是数据 URL 再加 `.tbi`
+- 同一固定版本也有独立的浏览器文件读取路径。在 Chromium 中，`GenomeHub` 收到 `url: ""` 和真实的 `fileObj: File` 后，把本地轨道交给 worker。索引互作轨道再给出 `files: [data, index]`，普通 BED 使用文本模式。真实绘制可核对双方锚点、峰的区间和 bigWig 的信号。窗口读量应统计 worker 里已完成的读取，单独统计主线程或只计算 `Blob.slice()` 创建的视图会漏算或误算。
 - 文件字节用 XHR。同域请求默认携带 Cookie；组件没有把
   `withCredentials` 打开，因此不能靠跨域或查询参数令牌
 - 轨道地址必须是同域绝对 URL。相对地址失败时，组件会把路径改写到
