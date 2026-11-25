@@ -15,7 +15,12 @@ import {
   readFileSlice,
   scanPlainPeak,
 } from './sliceRead'
-import { indexedHeaderAssembly, tabixPairProblem, type IndexedLocalFormat } from './tabixPair'
+import {
+  drawableIndexedData,
+  indexedHeaderAssembly,
+  tabixPairProblem,
+  type IndexedLocalFormat,
+} from './tabixPair'
 
 export interface LocalSelectionIssue {
   id: string
@@ -123,7 +128,7 @@ export async function classifyLocalFiles(
     if (exact.length === 1 && formats.length === 1 && indexedNames.get(indexName) === 1) {
       const problem = await checkIndex(item.file, exact[0], formats[0], assembly)
       if (problem) issues.push(problem)
-      else ready.push(optionFor(item, exact[0], formats[0]).prepared)
+      else ready.push(await withDrawableData(optionFor(item, exact[0], formats[0]).prepared))
       continue
     }
     const options = candidates.flatMap(index => formats.map(format => ({
@@ -330,6 +335,20 @@ function fixedIndexedFormat(kind: FileKind): IndexedLocalFormat {
   if (kind === 'indexed-narrow') return 'narrowPeak'
   if (kind === 'indexed-broad') return 'broadPeak'
   return 'bed'
+}
+
+export async function withDrawableData(prepared: PreparedLocalFile): Promise<PreparedLocalFile> {
+  const files = prepared.files
+  if (!files || files.length < 2) return prepared
+  const index = files[0].name.length >= files[1].name.length ? files[0] : files[1]
+  const data = index === files[0] ? files[1] : files[0]
+  const view = await drawableIndexedData(data, index)
+  if (view === data) return prepared
+  return {
+    ...prepared,
+    dataFile: view,
+    files: nativeTabixFiles(view, index),
+  }
 }
 
 function optionFor(

@@ -8,6 +8,7 @@ import {
 } from './contract'
 import {
   classifyLocalFiles,
+  withDrawableData,
   type LocalSelectionChoice,
   type LocalSelectionIssue,
 } from './classifyLocalFiles'
@@ -78,10 +79,11 @@ export default function LocalTrackPicker({
       setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: false, problem } : item))
       return
     }
+    const prepared = await withDrawableData(option.prepared)
     setChoices((current) => current.filter((item) => item.id !== choice.id))
     setTracks((current) => [
       ...current,
-      buildLocalTrack(option.prepared, choice.assembly),
+      buildLocalTrack(prepared, choice.assembly),
     ])
   }
 

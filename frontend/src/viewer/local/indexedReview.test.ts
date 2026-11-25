@@ -1,12 +1,16 @@
 /**
  * @vitest-environment node
  */
+import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
+import { Buffer } from 'node:buffer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PLAIN_PEAK_MAX_BYTES } from './contract'
 import { classifyLocalFiles } from './classifyLocalFiles'
 import { indexedRecords } from './indexFixture'
 import { tabixPairProblem } from './tabixPair'
+
+const require = createRequire(import.meta.url)
 
 const reviewBytes = JSON.parse(
   readFileSync(new URL('./indexed-review-bytes.json', import.meta.url), 'utf8'),
@@ -25,6 +29,52 @@ function fileNamed(name: string, bytes: Uint8Array): File {
 afterEach(() => {
   vi.restoreAllMocks()
 })
+
+class WindowHandle {
+  whole = 0
+  reads: Array<[number, number]> = []
+
+  constructor(private readonly bytes: Uint8Array) {}
+
+  async read(
+    buffer: Buffer,
+    offset = 0,
+    length = 0,
+    position = 0,
+  ): Promise<{ bytesRead: number; buffer: Buffer }> {
+    const start = position
+    const end = Math.min(this.bytes.byteLength, start + length)
+    this.reads.push([start, end])
+    const sliced = this.bytes.subarray(start, end)
+    return { bytesRead: Buffer.from(sliced).copy(buffer, offset), buffer }
+  }
+
+  async readFile(): Promise<Buffer> {
+    this.whole += this.bytes.byteLength
+    return Buffer.from(this.bytes)
+  }
+}
+
+async function workerLines(data: File, index: File, chrom: string, start: number, end: number) {
+  const { TabixIndexedFile } = require('@gmod/tabix') as {
+    TabixIndexedFile: new (args: {
+      filehandle: WindowHandle
+      tbiFilehandle: WindowHandle
+    }) => {
+      getLines: (ref: string, from: number, to: number, callback: (line: string) => void) => Promise<void>
+    }
+  }
+  const dataBytes = new Uint8Array(await data.arrayBuffer())
+  const indexBytes = new Uint8Array(await index.arrayBuffer())
+  const dataHandle = new WindowHandle(dataBytes)
+  const tabix = new TabixIndexedFile({
+    filehandle: dataHandle,
+    tbiFilehandle: new WindowHandle(indexBytes),
+  })
+  const lines: string[] = []
+  await tabix.getLines(chrom, start, end, (line) => lines.push(line))
+  return { lines, dataHandle, dataBytes }
+}
 
 describe('htslib indexed files from the WashU review', () => {
   it('reads a complete final record whether or not it ends in LF', async () => {
@@ -49,6 +99,36 @@ describe('htslib indexed files from the WashU review', () => {
     )
     expect(swapped.ok).toBe(false)
     if (!swapped.ok) expect(swapped.reason).toBe('index-mismatch')
+  })
+
+  it('makes a final record without LF visible to the pinned tabix reader', async () => {
+    const data = reviewFile('final-line.bed.gz')
+    const index = reviewFile('final-line.bed.gz.tbi')
+    const original = await workerLines(data, index, 'chr7', 55_100_000, 55_110_000)
+    expect(original.lines).toEqual([])
+    for (const assembly of ['hg38', 'mm10']) {
+      const result = await classifyLocalFiles([data, index], assembly)
+      expect(result.issues, assembly).toEqual([])
+      const ready = result.ready[0]
+      expect(ready?.dataFile.size).toBe(data.size + 29)
+      expect(ready?.files?.[1]).toBe(index)
+      expect(ready?.files?.[0]).toBe(ready?.dataFile)
+      const drawn = await workerLines(ready!.dataFile, index, 'chr7', 55_100_000, 55_110_000)
+      expect(drawn.lines).toEqual(['chr7\t55100900\t55101900\tFinalPeak'])
+      expect(drawn.dataHandle.whole).toBe(0)
+      const prefix = new Uint8Array(await ready!.dataFile.slice(0, data.size - 28).arrayBuffer())
+      expect(prefix).toEqual(original.dataBytes.subarray(0, data.size - 28))
+      const suffix = new Uint8Array(await ready!.dataFile.slice(data.size - 28 + 29).arrayBuffer())
+      expect(suffix).toEqual(original.dataBytes.subarray(data.size - 28))
+    }
+    const newline = reviewFile('newline.bed.gz')
+    const newlineIndex = reviewFile('newline.bed.gz.tbi')
+    const kept = await classifyLocalFiles([newline, newlineIndex], 'hg38')
+    expect(kept.ready[0]?.dataFile).toBe(newline)
+    expect(kept.ready[0]?.files?.[0]).toBe(newline)
+    expect(kept.ready[0]?.files?.[1]).toBe(newlineIndex)
+    const drawnNewline = await workerLines(newline, newlineIndex, 'chr7', 55_100_000, 55_110_000)
+    expect(drawnNewline.lines).toEqual(['chr7\t55100900\t55101900\tFinalPeak'])
   })
 
   it.each(['hg38', 'mm10'])(
@@ -294,15 +374,17 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     )
     expect(blocked.ready).toEqual([])
     expect(blocked.issues.map((item) => item.reason)).toEqual(['assembly-conflict'])
+    const paddedFile = fileNamed('pairs.longrange.gz', padded)
     const allowed = await classifyLocalFiles(
       [
-        fileNamed('pairs.longrange.gz', padded),
+        paddedFile,
         fileNamed('pairs.longrange.gz.tbi', built.tabix),
       ],
       'GRCh38',
     )
     expect(allowed.issues).toEqual([])
     expect(allowed.ready.map((item) => item.label)).toEqual(['pairs.longrange.gz'])
+    expect(allowed.ready[0]?.dataFile).toBe(paddedFile)
     const ends = slice.mock.calls.map((call) => Number(call[1]))
     expect(Math.max(...ends)).toBeLessThan(padded.byteLength / 2)
     expect(fetchSpy).not.toHaveBeenCalled()
