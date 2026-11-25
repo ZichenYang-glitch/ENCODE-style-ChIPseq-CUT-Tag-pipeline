@@ -93,6 +93,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--index-artifact-id")
     run.add_argument("--index-generation")
     run.add_argument("--index-revision")
+    run.add_argument(
+        "--relocation-root",
+        type=Path,
+        help=(
+            "Durable relocation directory. Used only when the workspace copy "
+            "is gone and a switched receipt matches this generation, revision, "
+            "size, and digest."
+        ),
+    )
     return parser
 
 
@@ -107,7 +116,10 @@ def main(
     try:
         settings = settings_from_args(args)
         if sealer_factory is None:
-            sealer, persistence = compose_sealer(settings)
+            sealer, persistence = compose_sealer(
+                settings,
+                relocation_root=getattr(args, "relocation_root", None),
+            )
         else:
             sealer = sealer_factory(settings)
         if args.kind == "registered":
@@ -177,7 +189,11 @@ def settings_from_args(args: argparse.Namespace) -> WorkerSettings:
         raise ArchiveSealError("archive_invalid", message) from None
 
 
-def compose_sealer(settings: WorkerSettings) -> tuple[object, object]:
+def compose_sealer(
+    settings: WorkerSettings,
+    *,
+    relocation_root: Path | None = None,
+) -> tuple[object, object]:
     """Open the archive store from WorkerSettings.archive_root."""
 
     if settings.archive_root is None:
@@ -189,6 +205,15 @@ def compose_sealer(settings: WorkerSettings) -> tuple[object, object]:
         raise ArchiveSealError(
             "archive_offline",
             "The archive root is unavailable.",
+        )
+    if relocation_root is not None and (
+        not isinstance(relocation_root, Path)
+        or not relocation_root.is_absolute()
+        or any(part in {"", ".", ".."} for part in relocation_root.parts[1:])
+    ):
+        raise ArchiveSealError(
+            "archive_invalid",
+            "The relocation root is not a canonical absolute path.",
         )
     try:
         from encode_pipeline.persistence.archived_tracks import ArchiveRepository
@@ -230,6 +255,7 @@ def compose_sealer(settings: WorkerSettings) -> tuple[object, object]:
                     repository=persistence.repository,
                 ),
                 workspace_root=settings.workspace_root,
+                relocation_root=relocation_root,
             ),
             registered_revisions=SqlAlchemyRegisteredResultRepository(
                 session_factory
@@ -261,6 +287,7 @@ def _service(
         ArchiveSealingService,
         CatalogExperimentGate,
         InputRegistryPoolLookup,
+        ReferenceAssemblyLookup,
     )
 
     return ArchiveSealingService(
@@ -277,6 +304,7 @@ def _service(
             persistence.input_registry_repository  # type: ignore[attr-defined]
         ),
         pool_config_path=settings.storage_pool_config,
+        assemblies=ReferenceAssemblyLookup(session_factory),
     )
 
 

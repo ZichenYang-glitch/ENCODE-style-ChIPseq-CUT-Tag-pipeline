@@ -166,6 +166,7 @@ def _record(
     relative_path: str,
     content: bytes,
     head_result_revision_id: str,
+    reference: dict[str, object] | None = None,
 ) -> RevisionRecord:
     payload = parse_metadata(
         {
@@ -173,7 +174,7 @@ def _record(
             "format": "bigwig",
             "origin": {"kind": "external", "source": {"status": "unknown"}},
             "method": {"status": "unknown"},
-            "reference": {"status": "unknown"},
+            "reference": reference or {"status": "unknown"},
         }
     ).canonical_json()
     digest = hashlib.sha256(content).hexdigest()
@@ -235,6 +236,7 @@ def _service(
     *,
     records: tuple[RevisionRecord, ...],
     experiments: object | None = None,
+    assemblies: object | None = None,
 ) -> tuple[ArchiveSealingService, _Objects, _Repository, Path]:
     root, config = _pool(tmp_path)
     archive = tmp_path / "archive"
@@ -250,6 +252,7 @@ def _service(
         pool_lookup=_Pools(),
         pool_config_path=config,
         scratch_root=tmp_path / "scratch",
+        assemblies=assemblies,
     )
     (tmp_path / "scratch").mkdir()
     return service, objects, repository, root
@@ -318,6 +321,46 @@ def test_registered_seal_reads_the_revision_path_not_the_display_name(
     assert created
     assert all(not Path(path).exists() for path in created)
     assert (root / "tracks" / "signal-v1.bw").read_bytes() == content
+
+
+def test_bound_reference_assembly_is_kept_and_a_conflict_is_refused(
+    tmp_path: Path,
+) -> None:
+    content = b"bound-signal"
+    record = _record(
+        result_id=RESULT,
+        result_revision_id=RESULT_REVISION,
+        relative_path="tracks/signal-v1.bw",
+        content=content,
+        head_result_revision_id=RESULT_REVISION,
+        reference={
+            "status": "known",
+            "kind": "reference_profile_revision",
+            "reference_profile_revision_id": "refpr_" + "a" * 32,
+            "public_identity_sha256": "ab" * 32,
+        },
+    )
+
+    class _Bound:
+        def registered_assembly(self, reference: dict[str, object]) -> str:
+            assert reference["kind"] == "reference_profile_revision"
+            return "GRCh38"
+
+    service, objects, _repository, root = _service(
+        tmp_path,
+        records=(record,),
+        assemblies=_Bound(),
+    )
+    _write_pool(root, "tracks/signal-v1.bw", content)
+
+    receipt = _seal_registered(service)
+
+    assert receipt["assembly"] == "hg38"
+    assert objects.payloads == [content]
+    with pytest.raises(ArchiveSealError) as captured:
+        _seal_registered(service, assembly="mm10")
+    assert captured.value.code == "archive_invalid"
+    assert objects.payloads == [content]
 
 
 def test_registered_retry_returns_the_repository_identity_for_the_old_revision(
@@ -727,9 +770,71 @@ def test_run_seal_reads_the_artifact_descriptor_not_a_filename(tmp_path: Path) -
 
     assert objects.payloads == [content]
     assert receipt["source"]["generation"] == generation
+    assert receipt["assembly"] == "hg38"
     assert receipt["source"]["revision"] == stored["signal"].revision
     assert gate.publications[0]["generation"] == generation
     assert (workspace / "run-1" / "results" / "tracked-signal.bw").read_bytes() == content
+
+
+def test_run_assembly_conflict_does_not_open_the_artifact(tmp_path: Path) -> None:
+    downloads, runs, workspace = _runtime(tmp_path)
+    content = b"run-signal"
+    generation, stored = _publish_run(
+        runs,
+        workspace,
+        (("signal", "results/tracked-signal.bw", content),),
+    )
+    opened = {"count": 0}
+
+    class _Downloads:
+        def prepare(self, *args: object, **kwargs: object) -> object:
+            opened["count"] += 1
+            return downloads.prepare(*args, **kwargs)  # type: ignore[arg-type]
+
+    class _Bound:
+        def __init__(self) -> None:
+            self.assembly = "mm10"
+
+        def run_assembly(self, run_id: str) -> str:
+            assert run_id == "run-1"
+            return self.assembly
+
+    bound = _Bound()
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    objects = _Objects()
+    service = ArchiveSealingService(
+        archive_root=archive,
+        objects=objects,
+        repository=_Repository(),
+        experiments=_Allow(),
+        downloads=_Downloads(),
+        assemblies=bound,
+    )
+    arguments = {
+        "project_id": PROJECT,
+        "experiment_id": EXPERIMENT,
+        "experiment_revision_id": REVISION,
+        "track_key": "signal",
+        "display_name": "signal.bw",
+        "assembly": "hg38",
+        "track_type": "bigwig",
+        "run_id": "run-1",
+        "artifact_id": "signal",
+        "generation": generation,
+        "revision": stored["signal"].revision,
+    }
+    with pytest.raises(ArchiveSealError) as captured:
+        service.seal_run(**arguments)
+    assert captured.value.code == "archive_invalid"
+    assert opened["count"] == 0
+    assert objects.payloads == []
+
+    bound.assembly = "GRCh38"
+    receipt = service.seal_run(**arguments)
+    assert receipt["assembly"] == "hg38"
+    assert objects.payloads == [content]
+    assert opened["count"] == 1
 
 
 def test_run_index_uses_its_own_artifact(tmp_path: Path) -> None:

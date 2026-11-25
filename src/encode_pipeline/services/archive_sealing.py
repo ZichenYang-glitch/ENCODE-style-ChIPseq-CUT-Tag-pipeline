@@ -15,9 +15,15 @@ from pathlib import Path
 import re
 import stat
 import tempfile
+from types import SimpleNamespace
 
 from encode_pipeline.adapters.browser.scaffolds import viewer_scaffold
-from encode_pipeline.persistence.models import ExperimentRevisionRow, ProjectRow
+from encode_pipeline.persistence.models import (
+    ExperimentRevisionRow,
+    ProjectRow,
+    ReferenceProfileRevisionRow,
+    RunReferenceBindingRow,
+)
 from encode_pipeline.platform.experiment_catalog import CatalogError
 from encode_pipeline.platform.registered_results import (
     ParentEdge,
@@ -145,6 +151,82 @@ class InputRegistryPoolLookup:
         return key
 
 
+class ReferenceAssemblyLookup:
+    """Read the assembly already pinned to a reference-profile revision."""
+
+    def __init__(self, session_factory: object) -> None:
+        self._sessions = session_factory
+
+    def registered_assembly(self, reference: Mapping[str, object]) -> str | None:
+        if reference.get("kind") != "reference_profile_revision":
+            return None
+        revision_id = reference.get("reference_profile_revision_id")
+        expected = reference.get("public_identity_sha256")
+        if not isinstance(revision_id, str) or not isinstance(expected, str):
+            raise ArchiveSealError(
+                "archive_integrity",
+                "The bound reference is not intact.",
+            )
+        row = self._revision(revision_id)
+        if (
+            row is None
+            or row.public_identity_sha256 != expected
+            or not isinstance(row.assembly, str)
+            or not row.assembly.strip()
+        ):
+            raise ArchiveSealError(
+                "archive_integrity",
+                "The bound reference is not intact.",
+            )
+        return row.assembly
+
+    def run_assembly(self, run_id: str) -> str | None:
+        try:
+            with self._sessions() as session:  # type: ignore[operator]
+                binding = session.get(RunReferenceBindingRow, run_id)
+                if binding is None:
+                    return None
+                row = session.get(ReferenceProfileRevisionRow, binding.revision_id)
+                if (
+                    row is None
+                    or row.profile_id != binding.profile_id
+                    or row.public_identity_sha256
+                    != binding.revision_public_identity_sha256
+                    or not isinstance(row.assembly, str)
+                    or not row.assembly.strip()
+                ):
+                    raise ArchiveSealError(
+                        "archive_integrity",
+                        "The bound reference is not intact.",
+                    )
+                return row.assembly
+        except ArchiveSealError:
+            raise
+        except Exception:
+            raise ArchiveSealError(
+                "archive_offline",
+                "The platform database is unavailable.",
+            ) from None
+
+    def _revision(self, revision_id: str) -> SimpleNamespace | None:
+        try:
+            with self._sessions() as session:  # type: ignore[operator]
+                row = session.get(ReferenceProfileRevisionRow, revision_id)
+                if row is None:
+                    return None
+                return SimpleNamespace(
+                    public_identity_sha256=row.public_identity_sha256,
+                    assembly=row.assembly,
+                )
+        except ArchiveSealError:
+            raise
+        except Exception:
+            raise ArchiveSealError(
+                "archive_offline",
+                "The platform database is unavailable.",
+            ) from None
+
+
 class CatalogExperimentGate:
     """Confirm the named experiment revision, not the current head."""
 
@@ -264,6 +346,7 @@ class ArchiveSealingService:
         pool_lookup: object | None = None,
         pool_config_path: Path | None = None,
         scratch_root: Path | None = None,
+        assemblies: object | None = None,
     ) -> None:
         self._archive_root = archive_root
         self._objects = objects
@@ -274,6 +357,7 @@ class ArchiveSealingService:
         self._pool_lookup = pool_lookup
         self._pool_config_path = pool_config_path
         self._scratch_root = scratch_root
+        self._assemblies = assemblies
 
     def seal_registered(
         self,
@@ -326,6 +410,11 @@ class ArchiveSealingService:
                 result_id=index_result_id,
                 result_revision_id=index_result_revision_id,
             )
+        self._require_source_assembly(
+            assembly,
+            self._registered_bound_assembly(record),
+            self._registered_bound_assembly(index_record),
+        )
         self._experiments.require_selected_revision(  # type: ignore[attr-defined]
             project_id=project_id,
             experiment_id=experiment_id,
@@ -411,6 +500,11 @@ class ArchiveSealingService:
                 artifact_id=index[0],
                 generation=index[1],
             )
+        if self._assemblies is not None:
+            self._require_source_assembly(
+                assembly,
+                self._assemblies.run_assembly(run_id),  # type: ignore[attr-defined]
+            )
         source = {
             "kind": "run",
             "run_id": run_id,
@@ -445,6 +539,28 @@ class ArchiveSealingService:
             if index_plan is not None:
                 index_plan.close()
             data_plan.close()
+
+    def _registered_bound_assembly(self, record: object | None) -> str | None:
+        if record is None or self._assemblies is None:
+            return None
+        metadata = metadata_from_canonical_json(
+            record.canonical_payload  # type: ignore[attr-defined]
+        )
+        return self._assemblies.registered_assembly(  # type: ignore[attr-defined]
+            metadata.reference
+        )
+
+    def _require_source_assembly(self, operator: str, *bound: str | None) -> None:
+        """Keep a verifiable reference assembly and refuse a conflicting label."""
+
+        for value in bound:
+            if value is None:
+                continue
+            if viewer_scaffold(value) != operator:
+                raise ArchiveSealError(
+                    "archive_invalid",
+                    "The assembly does not match the bound reference.",
+                )
 
     def _require_root(self) -> None:
         root = self._archive_root

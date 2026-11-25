@@ -289,6 +289,7 @@ def test_compose_passes_worker_settings_archive_root(
             relocation_root: Path | None = None,
         ) -> None:
             seen["workspace"] = workspace_root
+            seen["relocation"] = relocation_root
 
     monkeypatch.setattr("encode_pipeline.services.runs.RunService", _RunService)
     monkeypatch.setattr(
@@ -304,6 +305,7 @@ def test_compose_passes_worker_settings_archive_root(
 
     assert seen["root"] is settings.archive_root
     assert seen["workspace"] == workspace
+    assert seen["relocation"] is None
     assert seen["session_factory"] is sentinel
     assert seen["run_repository"] is persistence.repository
     assert opened is persistence
