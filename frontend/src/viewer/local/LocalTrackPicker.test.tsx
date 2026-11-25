@@ -70,6 +70,7 @@ describe('LocalTrackPicker', () => {
     const longrange = latest.find((track) => track.model.type === 'longrange')
     expect(longrange?.model.files).toHaveLength(2)
     expect(longrange?.model.isText).toBe(false)
+    expect(longrange?.model.options).toEqual({ clampHeight: true })
     expect(fetchSpy).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Remove local track signal.bw' }))

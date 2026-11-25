@@ -23,6 +23,7 @@ export interface LocalWashuTrackModel {
   fileObj: File
   files?: File[]
   isText: boolean
+  options?: Record<string, unknown>
   metadata: {
     genome: string
     assemblySignature: string
@@ -96,6 +97,7 @@ export function buildLocalTrack(
     fileObj: prepared.dataFile,
     isText: prepared.isText,
     ...(prepared.isText && { textConfig: {} }),
+    ...(prepared.washUType === 'longrange' && { options: { clampHeight: true } }),
     metadata: {
       genome: assembly,
       assemblySignature: signature,
