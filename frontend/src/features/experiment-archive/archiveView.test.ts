@@ -1,3 +1,4 @@
+import { preflightArchivedBytes } from './archivedBytes';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ARCHIVE_V1,
@@ -14,7 +15,6 @@ import {
   archivedTrackOpenName,
   archivedViewerHref,
   archiveViewerRequest,
-  preflightArchivedBytes,
 } from './archiveView';
 
 describe('archive viewer address', () => {
@@ -85,7 +85,9 @@ describe('archive viewer address', () => {
 
 
 describe('sealed plain BED reader', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   function serve(text: string, advertisedSize?: number) {
     const bytes = new TextEncoder().encode(text);

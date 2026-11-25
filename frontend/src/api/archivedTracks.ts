@@ -1,19 +1,9 @@
-/**
- * Read sealed track versions for one experiment.
- *
- * OpenAPI 0.4.1 does not generate catalogListArchivedTracks or
- * catalogGetArchivedTrack. These helpers keep those names and call the
- * routes in docs/development/experiment-archive-track-history.md through
- * the shared fetcher. When central regeneration adds the generated
- * exports, delegate these two bodies to them and keep the parsers.
- *
- * Expected generated signatures:
- * catalogListArchivedTracks(projectId, experimentId, params?, options?)
- * catalogGetArchivedTrack(projectId, experimentId, archiveVersionId, options?)
- */
-import { archivedTrackCollectionPath, archivedTrackResourcePath } from './archivedTrackPaths';
-import { ApiError, fetcher } from './fetcher';
-
+/** Validate catalog responses against the selected experiment and version before opening any bytes. */
+import { ApiError } from './fetcher';
+import {
+  catalogGetArchivedTrack as readVersion,
+  catalogListArchivedTracks as listVersions,
+} from './generated/catalog/catalog';
 const PROJECT_ID = /^prj_[0-9a-f]{32}$/;
 const EXPERIMENT_ID = /^exp_[0-9a-f]{32}$/;
 const EXPERIMENT_REVISION_ID = /^expr_[0-9a-f]{32}$/;
@@ -262,22 +252,6 @@ function requireScope(projectId: string, experimentId: string, archiveVersionId?
   if (archiveVersionId !== undefined && !ARCHIVE_VERSION_ID.test(archiveVersionId)) rejected();
 }
 
-function listQuery(params?: { limit?: number; offset?: number }): { suffix: string; offset: number } {
-  const search = new URLSearchParams();
-  let offset = 0;
-  if (params?.limit !== undefined) {
-    if (!Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > 100) rejected(400);
-    search.set('limit', String(params.limit));
-  }
-  if (params?.offset !== undefined) {
-    if (!Number.isSafeInteger(params.offset) || params.offset < 0) rejected(400);
-    offset = params.offset;
-    search.set('offset', String(params.offset));
-  }
-  const query = search.toString();
-  return { suffix: query === '' ? '' : `?${query}`, offset };
-}
-
 export const catalogListArchivedTracks = async (
   projectId: string,
   experimentId: string,
@@ -285,16 +259,11 @@ export const catalogListArchivedTracks = async (
   options?: RequestInit,
 ): Promise<ArchivedTrackList> => {
   requireScope(projectId, experimentId);
-  const query = listQuery(params);
-  const body = await fetcher<unknown>(
-    `${archivedTrackCollectionPath(projectId, experimentId)}${query.suffix}`,
-    { ...options, method: 'GET' },
-  );
-  const parsed = parseArchivedTrackList(body, {
-    projectId,
-    experimentId,
-    offset: query.offset,
-  });
+  const { limit, offset = 0 } = params ?? {};
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)) rejected(400);
+  if (!Number.isSafeInteger(offset) || offset < 0) rejected(400);
+  const body = await listVersions(projectId, experimentId, params, options);
+  const parsed = parseArchivedTrackList(body, { projectId, experimentId, offset });
   if (parsed === null) rejected();
   return parsed;
 };
@@ -306,10 +275,7 @@ export const catalogGetArchivedTrack = async (
   options?: RequestInit,
 ): Promise<ArchivedTrack> => {
   requireScope(projectId, experimentId, archiveVersionId);
-  const body = await fetcher<unknown>(
-    archivedTrackResourcePath(projectId, experimentId, archiveVersionId),
-    { ...options, method: 'GET' },
-  );
+  const body = await readVersion(projectId, experimentId, archiveVersionId, options);
   const parsed = parseArchivedTrack(body, { projectId, experimentId, archiveVersionId });
   if (parsed === null) rejected();
   return parsed;

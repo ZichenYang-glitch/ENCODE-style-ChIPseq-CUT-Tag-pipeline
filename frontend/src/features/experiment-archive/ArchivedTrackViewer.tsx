@@ -1,3 +1,4 @@
+import { preflightArchivedBytes } from './archivedBytes';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { GenomeHub } from 'wuepgg';
@@ -14,7 +15,6 @@ import {
   archiveErrorCopy,
   archiveErrorFromUnknown,
   isDrawableRegion,
-  preflightArchivedBytes,
   sameOriginApiUrl,
   type ArchiveViewerRequest,
 } from './archiveView';
