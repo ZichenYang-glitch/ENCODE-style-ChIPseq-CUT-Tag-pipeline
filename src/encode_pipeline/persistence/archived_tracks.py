@@ -246,10 +246,20 @@ class ArchiveRepository:
                     or previous.assembly != assembly
                     or previous.track_type != track_type
                     or previous.display_name != display_name
-                    or previous.members != members
+                    or any(
+                        not prev.same_content(members[role])
+                        for role, prev in previous.members.items()
+                    )
                 ):
                     raise ArchiveStoreError("archive_version_conflict")
-                return previous
+                if previous.members == members:
+                    return previous
+                # An operator re-sealed an identical restored copy. Update only
+                # its private file identity; links and logical versions survive.
+                existing.members = {
+                    role: asdict(member) for role, member in members.items()
+                }
+                return _version(existing)
             number = (
                 session.scalar(select(func.max(Row.version_number)).where(*series)) or 0
             )

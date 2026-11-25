@@ -35,6 +35,13 @@ class SealedMember:
         ):
             raise ArchiveStoreError("archive_integrity")
 
+    def same_content(self, candidate: SealedMember) -> bool:
+        return (
+            self.sha256 == candidate.sha256
+            and self.size_bytes == candidate.size_bytes
+            and self.chunks == candidate.chunks
+        )
+
 
 @dataclass(frozen=True)
 class ArchiveVersion:

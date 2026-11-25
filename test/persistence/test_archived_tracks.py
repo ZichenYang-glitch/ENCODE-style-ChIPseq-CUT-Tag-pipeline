@@ -147,6 +147,24 @@ def test_concurrent_publication_historical_selection_and_rollback(tmp_path):
         repository.publish(**(versions[0] | {"members": versions[1]["members"]}))
     with pytest.raises(ArchiveStoreError, match="archive_version_not_found"):
         repository.get_version(project, "exp_" + "9" * 32, first[0].archive_version_id)
+    # A disk restore is a new filesystem identity, even for the same bytes.
+    # An operator re-verifies the complete restored member before republishing.
+    restored = tmp_path / "restored"
+    restored.write_bytes(bytes([1]) * 32)
+    restored.chmod(0o440)
+    restored.replace(archive / exact.members["data"].sha256)
+    with pytest.raises(ArchiveStoreError, match="archive_integrity"):
+        objects.open_member(exact.members["data"])
+    with (archive / exact.members["data"].sha256).open("rb") as f:
+        proof = objects.seal_fd(f.fileno(), exact.members["data"].sha256)
+    rebound = repository.publish(**(versions[0] | {"members": {"data": proof}}))
+    assert rebound.archive_version_id == exact.archive_version_id
+    with objects.open_member(
+        repository.get_version(project, experiment, exact.archive_version_id).members[
+            "data"
+        ]
+    ) as reader:
+        assert reader.read(0, 1) == bytes([1])
     with pytest.raises(RuntimeError, match="sealed track versions"):
         downgrade_database(url, "20261119_39")
     assert (

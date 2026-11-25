@@ -16,7 +16,7 @@ The catalog action opens `/viewer.html?project=…&experiment=…&archive=…` i
 
 ## Storage and operation
 
-Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. Include both SQLite and the sealed objects in the archive backup. Keep the existing retention procedure for original inputs and scratch.
+Configure the same absolute `ENCODE_PIPELINE_ARCHIVE_ROOT` on the operator command and the API serving the experiment page. Create the directory on the long-term volume first. The operator needs create access and the API process needs read/traverse access. The sealed objects use SHA-256 names and mode 0440. The catalog supplies project, experiment, track and version names. If a file already exists with the same digest, sealing verifies its bytes before reuse. A directory that is missing, unmounted or resolves through a symlink fails closed. A changed object is withheld from the viewer. After a byte-identical disk restore, an operator can repeat the original seal to verify the restored copy and rebind its physical identity. The result keeps its version and URL. Include both SQLite and the sealed objects in the archive backup. Keep the existing retention procedure for original inputs and scratch.
 
 ## Acceptance
 

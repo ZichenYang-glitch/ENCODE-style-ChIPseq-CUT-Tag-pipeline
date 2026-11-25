@@ -80,3 +80,41 @@ def test_retry_and_parallel_publish_reuse_complete_object(tmp_path):
     ):
         store.seal_fd(fd.fileno(), "0" * 64)
     assert [p.name for p in root.iterdir()] == [items[0].sha256]
+
+
+def test_partial_failure_and_unsafe_storage_never_return_a_different_member(tmp_path):
+    root = tmp_path / "archive"
+    root.mkdir()
+    source = tmp_path / "fixed"
+    source.write_bytes(b"genuine bytes")
+    store = ArchiveObjects(root)
+    with source.open("rb") as fd:
+        with pytest.raises(ArchiveStoreError, match="archive_integrity"):
+            store.seal_fd(fd.fileno(), "c" * 64)
+        assert not list(root.iterdir())
+        pinned = store.seal_fd(fd.fileno())
+    with store.open_member(pinned) as opened:
+        with pytest.raises(ArchiveStoreError, match="archive_invalid"):
+            opened.read(-1, 1)
+    payload = root / pinned.sha256
+    payload.rename(root / "previous")
+    payload.symlink_to(source)
+    with pytest.raises(ArchiveStoreError, match="archive_integrity"):
+        store.open_member(pinned)
+    with pytest.raises(ArchiveStoreError, match="archive_offline"):
+        ArchiveObjects(None).open_member(pinned)
+
+
+def test_detect_inconsistent_content_hash_before_returning_requested_slice(tmp_path):
+    from dataclasses import replace
+
+    root = tmp_path / "archive"
+    root.mkdir()
+    source = tmp_path / "data"
+    source.write_bytes(b"abcd")
+    store = ArchiveObjects(root)
+    with source.open("rb") as fd:
+        pinned = store.seal_fd(fd.fileno())
+    with store.open_member(replace(pinned, chunks=("0" * 64,))) as handle:
+        with pytest.raises(ArchiveStoreError, match="archive_integrity"):
+            handle.read(0, 1)
