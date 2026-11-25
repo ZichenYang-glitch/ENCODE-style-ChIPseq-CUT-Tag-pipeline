@@ -18,8 +18,9 @@ vi.mock('wuepgg', () => ({
   }: {
     genomeName: string;
     viewRegion?: string;
-    tracks: Array<{ type?: string; name?: string; url?: string; options?: unknown }>;
+    tracks: Array<{ type?: string; name?: string; url?: string; fileObj?: unknown; options?: unknown }>;
   }) => {
+    (globalThis as { __hubTracks?: unknown }).__hubTracks = tracks;
     for (const track of tracks) {
       if (track.url) void fetch(track.url);
     }
@@ -65,7 +66,14 @@ vi.mock('../../viewer/local/LocalTrackPicker', () => ({
               id: 'local-signal',
               label: 'Local signal',
               assembly: 'GRCh38',
-              model: { type: 'bigwig', name: 'Local signal', options: { local: true } },
+              model: {
+                type: 'bigwig',
+                name: 'Local signal',
+                url: '',
+                fileObj: new File(['a'], 'signal.bw'),
+                metadata: { genome: 'hg38' },
+                options: { local: true },
+              },
             },
             {
               id: 'local-foreign',
@@ -214,6 +222,11 @@ describe('GenomeBrowserPanel overlay', () => {
   it('opens with no run on hg38 and draws a local model without calling a run session', async () => {
     renderPanel(<GenomeBrowserPanel />);
     expect(await screen.findByRole('combobox', { name: 'Assembly' })).toHaveValue('hg38');
+    expect(
+      (screen.getByRole('combobox', { name: 'Assembly' }) as HTMLSelectElement).selectedOptions[0]
+        ?.textContent,
+    ).toBe('hg38 · GRCh38');
+    expect(screen.getByText('当前声明 GRCh38')).toBeInTheDocument();
     expect(screen.getByText('用户指定 GRCh38')).toBeInTheDocument();
     expect(sessionMock).not.toHaveBeenCalled();
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'mm10');
@@ -225,9 +238,22 @@ describe('GenomeBrowserPanel overlay', () => {
     await waitFor(() => expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument());
     const drawn = models();
     expect(drawn.map((track) => track.name)).toEqual(['Ruler', 'Local signal']);
+    const hubTracks = (globalThis as { __hubTracks?: Array<{ name?: string; url?: string; fileObj?: unknown }> })
+      .__hubTracks;
+    const local = hubTracks?.find((track) => track.name === 'Local signal');
+    expect(local?.url).toBe('');
+    expect(local?.fileObj).toBeInstanceOf(File);
     expect(drawn.some((track) => String(track.url).includes('epigenome.wustl.edu'))).toBe(false);
     expect(screen.getByTestId('reference-conflict')).toHaveTextContent(/another website/i);
     expect(screen.getByTestId('local-browser-track')).toHaveAttribute('data-source', 'local');
+    expect(screen.getByTestId('local-browser-track')).toHaveAttribute('data-assembly', 'GRCh38');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'mm10');
+    expect(screen.getByText('当前声明 GRCm38')).toBeInTheDocument();
+    const kept = screen.getAllByTestId('reference-conflict').find((node) =>
+      node.getAttribute('data-assembly') === 'GRCh38' && /not relabeled/i.test(node.textContent ?? ''),
+    );
+    expect(kept).toBeTruthy();
+    expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
   });
 
   it('adds an authorized run by name and leaves its tracks unread until one is chosen', async () => {
@@ -265,7 +291,9 @@ describe('GenomeBrowserPanel overlay', () => {
       return new Response(new Uint8Array([1]), { status: 206 });
     });
     vi.stubGlobal('fetch', fetchMock);
-    sessionMock.mockImplementation(async (id: string) => session(id, 'e'.repeat(64)));
+    sessionMock.mockImplementation(async (id: string) =>
+      session(id, id === 'run-1' ? 'e'.repeat(64) : 'f'.repeat(64)),
+    );
     renderPanel(<GenomeBrowserPanel runId="run-1" />);
     const opened = await screen.findByRole('article', { name: 'Run run-1' });
     await userEvent.click(within(opened).getByRole('checkbox', { name: /Signal: A/ }));
@@ -292,12 +320,17 @@ describe('GenomeBrowserPanel overlay', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Authorized runs' }), 'run-2');
     await userEvent.click(screen.getByRole('button', { name: 'Add run' }));
     const added = await screen.findByRole('article', { name: 'Run run-2' });
-    expect(within(added).getByTestId('reference-conflict')).toHaveTextContent(
-      /chromosome names do not prove/i,
+    expect(within(added).getByTestId('reference-note')).toHaveTextContent(
+      /different reference revisions/i,
     );
-    expect(within(added).getByRole('checkbox', { name: /Signal: A/ })).toBeDisabled();
-    expect(byteUrls(fetchMock).some((url) => url.includes('/runs/run-2/'))).toBe(false);
+    const addedBox = within(added).getByRole('checkbox', { name: /Signal: A/ });
+    expect(addedBox).toBeEnabled();
+    await userEvent.click(addedBox);
+    await waitFor(() =>
+      expect(byteUrls(fetchMock).some((url) => url.includes('/runs/run-2/'))).toBe(true),
+    );
     expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
+    expect(models().some((track) => track.url?.includes('/runs/run-2/'))).toBe(true);
     await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
     expect(await screen.findByTestId('local-browser-track')).toHaveTextContent('用户指定 GRCh38');
     expect(models().some((track) => track.name === 'Local signal')).toBe(true);

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  declaredAssembly,
   localTrackHasForeignUrl,
   placeLocalTrack,
   placePlatformRun,
+  seenWindow,
   userSpecifiedReference,
   viewerScaffold,
   windowAuthority,
@@ -26,33 +28,29 @@ describe('browser window authority', () => {
     expect(viewerScaffold('mm10')).toBe('mm10');
     expect(viewerScaffold('not-a-genome')).toBeNull();
     expect(userSpecifiedReference('hg38')).toBe('用户指定 GRCh38');
+    expect(declaredAssembly('hg38')).toBe('GRCh38');
+    expect(seenWindow('chr7:100-200')).toEqual({ chrom: 'chr7', start: 99, end: 200 });
+    expect(seenWindow('chr1:1-2')).toEqual({ chrom: 'chr1', start: 0, end: 2 });
   });
 
-  it('refuses a second run with the same scaffold name and a different reference identity', () => {
-    const authority = windowAuthority(
-      { runId: 'run-1', reference: binding() },
-      [{ runId: 'run-2', reference: binding({ identity: 'b'.repeat(64), assemblyLabel: 'hg38' }) }],
-      'hg38',
-    );
-    expect(authority.identity).toBe('a'.repeat(64));
+  it('keeps two runs on one assembly when their public identities differ', () => {
+    const authority = windowAuthority({ runId: 'run-1', reference: binding() }, 'mm10');
+    expect(authority).toMatchObject({ scaffold: 'hg38', identity: 'a'.repeat(64) });
     const differentIdentity = placePlatformRun(
       authority,
       'run-2',
-      binding({ identity: 'b'.repeat(64), assemblyLabel: 'hg38' }),
+      binding({ identity: 'b'.repeat(64), assemblyLabel: 'GRCh38' }),
     );
-    expect(differentIdentity.ok).toBe(false);
-    if (!differentIdentity.ok) {
-      expect(differentIdentity.reason).toMatch(/chromosome names do not prove/i);
+    expect(differentIdentity.ok).toBe(true);
+    if (differentIdentity.ok) {
+      expect(differentIdentity.warning).toMatch(/different reference revisions/i);
+      expect(differentIdentity.warning).toMatch(/do not prove/i);
     }
-    expect(placePlatformRun(authority, 'run-1', binding())).toMatchObject({ ok: true });
+    expect(placePlatformRun(authority, 'run-1', binding())).toMatchObject({ ok: true, warning: null });
   });
 
   it('keeps an unbound run off a guessed assembly and rejects a different scaffold', () => {
-    const authority = windowAuthority(
-      { runId: 'run-1', reference: binding() },
-      [],
-      'mm10',
-    );
+    const authority = windowAuthority({ runId: 'run-1', reference: binding() }, 'mm10');
     expect(
       placePlatformRun(authority, 'run-2', binding({ status: 'unbound', identity: null, scaffold: null })).ok,
     ).toBe(false);
@@ -65,23 +63,18 @@ describe('browser window authority', () => {
     if (!otherScaffold.ok) expect(otherScaffold.reason).toMatch(/not this window's hg38/i);
   });
 
-  it('lets the first bound run supply identity when the window scaffold was chosen by the user', () => {
-    const first = binding({ identity: 'c'.repeat(64) });
-    const authority = windowAuthority(
-      null,
-      [
-        { runId: 'run-a', reference: first },
-        { runId: 'run-b', reference: binding({ identity: 'd'.repeat(64) }) },
-      ],
-      'hg38',
-    );
-    expect(authority).toMatchObject({ source: 'user', runId: 'run-a', identity: 'c'.repeat(64) });
-    expect(placePlatformRun(authority, 'run-a', first).ok).toBe(true);
-    expect(placePlatformRun(authority, 'run-b', binding({ identity: 'd'.repeat(64) })).ok).toBe(false);
+  it('allows every same-assembly run on a user-declared window and blocks a different assembly', () => {
+    const authority = windowAuthority(null, 'hg38');
+    expect(authority).toMatchObject({ source: 'user', scaffold: 'hg38', identity: null });
+    expect(placePlatformRun(authority, 'run-a', binding({ identity: 'c'.repeat(64) })).ok).toBe(true);
+    expect(placePlatformRun(authority, 'run-b', binding({ identity: 'd'.repeat(64) })).ok).toBe(true);
+    expect(
+      placePlatformRun(authority, 'run-c', binding({ scaffold: 'mm10', assemblyLabel: 'mm10' })).ok,
+    ).toBe(false);
   });
 
   it('does not relabel a local file onto another scaffold', () => {
-    const authority = windowAuthority({ runId: 'run-1', reference: binding() }, [], 'hg38');
+    const authority = windowAuthority({ runId: 'run-1', reference: binding() }, 'hg38');
     const mismatch = placeLocalTrack(authority, { label: 'Mouse signal', assembly: 'mm10' });
     expect(mismatch.ok).toBe(false);
     if (!mismatch.ok) expect(mismatch.reason).toMatch(/not relabeled/i);

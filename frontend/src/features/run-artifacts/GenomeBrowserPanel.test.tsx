@@ -325,6 +325,30 @@ describe('GenomeBrowserPanel', () => {
     expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
   });
 
+  it('requests the half-open window WashU draws for a colon coordinate', async () => {
+    const value = session();
+    value.tracks[0] = {
+      ...value.tracks[0],
+      provenance: { suggested_region: 'chr7:100-200' },
+    };
+    sessionMock.mockResolvedValue(value);
+    renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /PET records/ }));
+    await waitFor(
+      () => {
+        expect(summaryMock).toHaveBeenCalledWith(
+          'run-1',
+          'artifact-pet',
+          expect.any(String),
+          expect.any(String),
+          expect.objectContaining({ chrom: 'chr7', start: 99, end: 200 }),
+          expect.anything(),
+        );
+      },
+      { timeout: 3000 },
+    );
+  });
+
   it('shows a retry when the first session request fails, then an empty selection', async () => {
     sessionMock.mockRejectedValue(
       new ApiError(
