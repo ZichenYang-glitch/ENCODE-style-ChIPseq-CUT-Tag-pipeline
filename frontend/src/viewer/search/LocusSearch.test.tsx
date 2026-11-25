@@ -9,12 +9,12 @@ vi.mock('./geneIndex', async () => {
   const actual = await vi.importActual<typeof import('./geneIndex')>('./geneIndex');
   return {
     ...actual,
-    loadHg38GeneIndex: vi.fn(),
+    loadGeneIndex: vi.fn(),
   };
 });
 
-const { loadHg38GeneIndex } = await import('./geneIndex');
-const loadIndex = vi.mocked(loadHg38GeneIndex);
+const { loadGeneIndex } = await import('./geneIndex');
+const loadIndex = vi.mocked(loadGeneIndex);
 
 function parsedFixture() {
   const rows = [
@@ -66,7 +66,7 @@ function parsedFixture() {
       aliases: { sha256: SHA, license: 'CC0', source: 'HGNC complete set' },
       assembly_report: { sha256: SHA, filename: 'assembly_report.txt' },
     },
-  });
+  }, 'hg38');
 }
 
 function input() {
@@ -97,6 +97,7 @@ describe('LocusSearch', () => {
     await settleIndex();
     expect(screen.getByText(/基因名（如 EGFR）或 chr:start-end/)).toBeInTheDocument();
     expect(input()).toHaveValue('chr1:500-2700');
+    expect(loadIndex).not.toHaveBeenCalled();
     expect(onNavigate).not.toHaveBeenCalled();
     view.rerender(<LocusSearch assembly="hg38" region="chr2:3-9" onNavigate={onNavigate} />);
     expect(input()).toHaveValue('chr2:3-9');
@@ -178,7 +179,8 @@ describe('LocusSearch', () => {
     expect(screen.queryByRole('option')).not.toBeInTheDocument();
 
     loadIndex.mockRejectedValueOnce(new Error('offline'));
-    rerender(<LocusSearch assembly="GRCh38" region="" onNavigate={onNavigate} />);
+    rerender(<LocusSearch assembly="mm10" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'Trp53' } });
     expect(await screen.findByRole('status')).toHaveTextContent(
       'Gene annotation did not load. Coordinates still work.',
     );
@@ -189,9 +191,9 @@ describe('LocusSearch', () => {
 
   it('keeps coordinates usable when this assembly has no bundled annotation', () => {
     const onNavigate = vi.fn();
-    render(<LocusSearch assembly="mm10" region="" onNavigate={onNavigate} />);
+    render(<LocusSearch assembly="mm39" region="" onNavigate={onNavigate} />);
     expect(screen.getByRole('status')).toHaveTextContent(
-      'No bundled gene annotation for mm10. Coordinates still work.',
+      'No bundled gene annotation for mm39. Coordinates still work.',
     );
     expect(loadIndex).not.toHaveBeenCalled();
     fireEvent.change(input(), { target: { value: 'chr1:1-5' } });
@@ -203,6 +205,27 @@ describe('LocusSearch', () => {
     expect(onNavigate).toHaveBeenCalledTimes(2);
     expect(onNavigate).toHaveBeenLastCalledWith('chr1_KI270706v1_random:1-4');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('discards a pending human search when the user switches to mouse', async () => {
+    let finishHuman!: (value: ReturnType<typeof parsedFixture>) => void;
+    loadIndex.mockReturnValueOnce(new Promise((resolve) => { finishHuman = resolve; }));
+    const onNavigate = vi.fn();
+    const view = render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'EGFR' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    view.rerender(<LocusSearch assembly="GRCm38" region="" onNavigate={onNavigate} />);
+    expect(input()).toHaveValue('');
+    expect(loadIndex.mock.calls.map(([assembly]) => assembly)).toEqual(['hg38']);
+    fireEvent.change(input(), { target: { value: 'Trp53' } });
+    expect(loadIndex.mock.calls.map(([assembly]) => assembly)).toEqual(['hg38', 'mm10']);
+    await act(async () => finishHuman(parsedFixture()));
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.change(input(), { target: { value: 'chr20:1-5' } });
+    expect(screen.getByRole('status')).toHaveTextContent('pinned mm10 genome');
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.change(input(), { target: { value: 'chr19:1-5' } });
+    expect(onNavigate).toHaveBeenCalledWith('chr19:1-5');
   });
 
   it('keeps an Enter that arrives before the index loads, and drops it if the query changes', async () => {

@@ -40,7 +40,8 @@ describe('assemblySignature', () => {
     expect(assemblySignature('hg38')).toBe('用户指定 GRCh38')
     expect(assemblySignature('GRCh38')).toBe('用户指定 GRCh38')
     expect(assemblySignature('GRCh38.p14')).toBe('用户指定 GRCh38')
-    expect(assemblySignature('mm10')).toBe('用户指定 mm10')
+    expect(assemblySignature('mm10')).toBe('用户指定 GRCm38')
+    expect(assemblySignature('GRCm38.p6')).toBe('用户指定 GRCm38')
   })
 })
 

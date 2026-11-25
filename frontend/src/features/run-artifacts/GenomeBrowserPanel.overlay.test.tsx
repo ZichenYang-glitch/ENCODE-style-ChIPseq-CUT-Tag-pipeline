@@ -238,6 +238,8 @@ describe('GenomeBrowserPanel overlay', () => {
     await userEvent.type(screen.getByLabelText('Genomic region'), 'chr1:1-2000');
     await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'hg38');
+    expect(screen.getByLabelText('Genomic region')).toHaveValue('');
+    await userEvent.type(screen.getByLabelText('Genomic region'), 'chr22:5-2500');
     await waitFor(() => expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument());
     const drawn = models();
     expect(drawn.map((track) => track.name)).toEqual(['Ruler', 'Local signal']);
@@ -252,6 +254,8 @@ describe('GenomeBrowserPanel overlay', () => {
     expect(screen.getByTestId('local-browser-track')).toHaveAttribute('data-assembly', 'GRCh38');
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Assembly' }), 'mm10');
     expect(screen.getByText('当前声明 GRCm38')).toBeInTheDocument();
+    expect(screen.getByText('用户指定 GRCm38')).toBeInTheDocument();
+    expect(screen.getByLabelText('Genomic region')).toHaveValue('chr1:1-2000');
     const kept = screen.getAllByTestId('reference-conflict').find((node) =>
       node.getAttribute('data-assembly') === 'GRCh38' && /not relabeled/i.test(node.textContent ?? ''),
     );

@@ -4,15 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_HG38_ASSEMBLIES,
-  assemblyUsesHg38,
+  annotationAssembly,
+  PINNED_MM10_SEQUENCES,
   classifyQuery,
   PINNED_HG38_SEQUENCES,
   formatRegion,
   geneIndexRequestUrl,
-  loadHg38GeneIndex,
+  loadGeneIndex,
   missingPinnedSequence,
   parseGeneIndex,
-  pinnedHg38Has,
   resetGeneIndexCacheForTests,
   searchGenes,
 } from './geneIndex';
@@ -85,21 +85,32 @@ describe('coordinate and assembly classification', () => {
   });
 
   it('recognizes hg38 names and refuses another assembly', () => {
-    expect(assemblyUsesHg38(' hg38 ')).toBe(true);
-    expect(assemblyUsesHg38('GRCh38.p14')).toBe(true);
-    expect(assemblyUsesHg38('GCA_000001405.15')).toBe(true);
-    expect(assemblyUsesHg38('mm10')).toBe(false);
-    expect(assemblyUsesHg38('hg19')).toBe(false);
-    expect(assemblyUsesHg38('')).toBe(false);
+    expect(annotationAssembly(' hg38 ')).toBe('hg38');
+    expect(annotationAssembly('GRCh38.p14')).toBe('hg38');
+    expect(annotationAssembly('GCA_000001405.15')).toBe('hg38');
+    expect(annotationAssembly('mm10')).toBe('mm10');
+    expect(annotationAssembly('hg19')).toBe(null);
+    expect(annotationAssembly('')).toBe(null);
+    expect(annotationAssembly(' GRCm38.p6 ')).toBe('mm10');
+    expect(annotationAssembly('GRCm39')).toBeNull();
   });
 
   it('names only the sequences present in the pinned hg38 genome', () => {
     expect(PINNED_HG38_SEQUENCES).toHaveLength(25);
-    expect(pinnedHg38Has('chr7')).toBe(true);
-    expect(pinnedHg38Has('chrM')).toBe(true);
-    expect(missingPinnedSequence('chrY')).toBeNull();
-    expect(missingPinnedSequence('chr1_KI270706v1_random')).toMatch(/viewer was not moved/);
-    expect(missingPinnedSequence('CHR7')).toMatch(/viewer was not moved/);
+    expect(missingPinnedSequence('chr7', 'hg38')).toBeNull();
+    expect(missingPinnedSequence('chrM', 'hg38')).toBeNull();
+    expect(missingPinnedSequence('chrY', 'hg38')).toBeNull();
+    expect(missingPinnedSequence('chr1_KI270706v1_random', 'hg38')).toMatch(/viewer was not moved/);
+    expect(missingPinnedSequence('CHR7', 'hg38')).toMatch(/viewer was not moved/);
+  });
+
+  it('checks mouse windows against the pinned mouse genome', () => {
+    expect(PINNED_MM10_SEQUENCES).toHaveLength(22);
+    for (const chrom of ['chr19', 'chrX', 'chrY', 'chrM']) {
+      expect(missingPinnedSequence(chrom, 'mm10')).toBeNull();
+    }
+    expect(missingPinnedSequence('chr20', 'mm10')).toContain('pinned mm10 genome');
+    expect(missingPinnedSequence('chr20', 'hg38')).toBeNull();
   });
 
   it('refuses a gene index URL on another origin', () => {
@@ -125,7 +136,7 @@ describe('bundled index request', () => {
       void init;
       return new Response(JSON.stringify(fixtureIndex()), { status: 200 });
     });
-    const loaded = await loadHg38GeneIndex(fetcher);
+    const loaded = await loadGeneIndex('hg38', fetcher);
     expect(fetcher).toHaveBeenCalledTimes(1);
     const call = fetcher.mock.calls[0];
     if (!call) throw new Error('missing gene index request');
@@ -133,20 +144,28 @@ describe('bundled index request', () => {
     const requested = String(url);
     expect(requested.toLowerCase()).not.toContain('egfr');
     expect(new URL(requested).origin).toBe(window.location.origin);
-    expect(init).toEqual({ credentials: 'same-origin' });
+    expect(init).toEqual({ credentials: 'same-origin', mode: 'same-origin' });
     expect(searchGenes(loaded, 'ERBB1').matches.map((match) => match.locus.symbol)).toEqual([
       'EGFR',
     ]);
   });
 
+  it('rejects a human index or human IDs served for a mouse search', async () => {
+    const human = fixtureIndex();
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(human)));
+    await expect(loadGeneIndex('mm10', fetcher)).rejects.toThrow(/mm10 1-based/);
+    expect(() => parseGeneIndex({ ...human, assembly: 'mm10', assembly_match: ['mm10'] }, 'mm10'))
+      .toThrow(/row is malformed/);
+  });
+
   it('leaves a failed index request for the caller to keep coordinates usable', async () => {
     const fetcher = vi.fn(async () => new Response('missing', { status: 404 }));
-    await expect(loadHg38GeneIndex(fetcher)).rejects.toThrow(/failed \(404\)/);
+    await expect(loadGeneIndex('hg38', fetcher)).rejects.toThrow(/failed \(404\)/);
   });
 });
 
 describe('fixture search', () => {
-  const index = parseGeneIndex(fixtureIndex());
+  const index = parseGeneIndex(fixtureIndex(), 'hg38');
 
   it('resolves one symbol, an alias, a versionless id, and two same-name loci', () => {
     expect(formatRegion(searchGenes(index, 'egfr').matches[0]?.locus ?? fail())).toBe('chr7:10-40');
@@ -171,7 +190,7 @@ describe('fixture search', () => {
 
 describe('shipped GRCh38 index', () => {
   const index = parseGeneIndex(
-    JSON.parse(readFileSync(join(directory, 'hg38-gene-index.json'), 'utf8')),
+    JSON.parse(readFileSync(join(directory, 'hg38-gene-index.json'), 'utf8')), 'hg38',
   );
   const provenance = JSON.parse(
     readFileSync(join(directory, 'hg38-gene-index.provenance.json'), 'utf8'),
@@ -190,7 +209,7 @@ describe('shipped GRCh38 index', () => {
     );
     expect(provenance.aliases.source_url).toContain('hgnc_complete_set_2025-10-07.tsv');
     expect(provenance.viewer_scaffold.sequences).toEqual([...PINNED_HG38_SEQUENCES]);
-    expect(index.chromosomes.every((name) => pinnedHg38Has(name))).toBe(true);
+    expect(index.chromosomes.every((name) => missingPinnedSequence(name, 'hg38') === null)).toBe(true);
     expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.15');
     expect(index.provenance.assembly_report.sha256).toBe(
       'f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12',
@@ -257,6 +276,52 @@ describe('shipped GRCh38 index', () => {
       'gene-id',
     ]);
     expect(searchGenes(index, 'chr7:55018820-55211628').matches).toEqual([]);
+  });
+});
+
+describe('shipped GRCm38 annotation', () => {
+  const raw = readFileSync(join(directory, 'mm10-gene-index.json'), 'utf8');
+  const index = parseGeneIndex(JSON.parse(raw), 'mm10');
+
+  it('resolves the mouse gene and its Ensembl ID on the M25 reference chromosomes', () => {
+    expect(index.provenance).toEqual(JSON.parse(
+      readFileSync(join(directory, 'mm10-gene-index.provenance.json'), 'utf8'),
+    ));
+    expect(index.release).toContain('M25');
+    expect(index.chromosomes.filter(chrom => missingPinnedSequence(chrom, 'mm10') === null))
+      .toEqual(PINNED_MM10_SEQUENCES);
+    expect(index.rows.filter(row => PINNED_MM10_SEQUENCES.includes(index.chromosomes[row[2]]!)))
+      .toHaveLength(55401);
+    const spans = (query: string) => searchGenes(index, query).matches.map(
+      ({ locus }) => [locus.symbol, locus.geneId, formatRegion(locus)],
+    );
+    expect(spans('EGFR')).toEqual([['Egfr', 'ENSMUSG00000020122.16', 'chr11:16752203-16918158']]);
+    expect(spans('ENSMUSG00000020122')).toEqual(spans('Egfr'));
+    expect(spans('Trp53')).toEqual([['Trp53', 'ENSMUSG00000059552.13', 'chr11:69580359-69591873']]);
+    expect(spans('ENSG00000146648')).toEqual([]);
+    expect(spans('Wa5')).toEqual(spans('Egfr'));
+    expect(searchGenes(index, 'Abeta').matches.map(match => match.locus.symbol)).toEqual(['App', 'H2-Ab1']);
+    const offScaffold = searchGenes(index, '4933409K07Rik').matches[0]!.locus;
+    expect(missingPinnedSequence(offScaffold.chrom, 'mm10')).toContain('chr4_JH584293_random');
+  });
+
+  it('fetches and caches the two same-origin assets independently', async () => {
+    resetGeneIndexCacheForTests();
+    const requests = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(window.location.origin);
+      return new Response(url.pathname.includes('mm10-gene-index') ? raw : JSON.stringify(fixtureIndex()));
+    });
+    try {
+      const [human, mouse] = await Promise.all([loadGeneIndex('hg38'), loadGeneIndex('mm10')]);
+      expect(human.release).not.toBe(mouse.release);
+      expect(await loadGeneIndex('mm10')).toBe(mouse);
+      expect(await loadGeneIndex('hg38')).toBe(human);
+      expect(requests).toHaveBeenCalledTimes(2);
+    } finally {
+      requests.mockRestore();
+      resetGeneIndexCacheForTests();
+    }
   });
 });
 

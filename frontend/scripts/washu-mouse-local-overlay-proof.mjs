@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -148,6 +148,7 @@ try {
   await page.getByLabel('Assembly', { exact: true }).selectOption('mm10');
   await page.getByText('当前声明 GRCm38', { exact: true }).waitFor();
   const mark = meter.mark();
+  const started = performance.now();
   await page.getByLabel('Local track files').setInputFiles([data, index, signal, peak]);
   const rows = page.getByTestId('local-track');
   await rows.nth(2).waitFor();
@@ -173,6 +174,19 @@ try {
 
   await chooseGene(page, 'Egfr', egfr);
   const egfrDrawing = await drawn(page, egfr);
+  const elapsedMs = Math.round(performance.now() - started);
+  const firstWindow = {
+    elapsedMs,
+    bytesByFile: bytesByFile(meter.since(mark)),
+    dataFileBytes: (await stat(data)).size,
+    indexFileBytes: (await stat(index)).size,
+  };
+  const petReads = firstWindow.bytesByFile[basename(data)];
+  assert.ok(petReads?.worker > 0 && firstWindow.bytesByFile[basename(index)]?.worker > 0);
+  if (firstWindow.dataFileBytes > 32 * 1024 ** 2) {
+    assert.ok(observation.record_count > 2_000_000);
+    assert.ok(petReads.document + petReads.worker < firstWindow.dataFileBytes / 10);
+  }
   assert.equal(await field.inputValue(), egfr.region);
   assert.equal(egfrDrawing.pet.a.start, egfr.pet[0]);
   assert.equal(egfrDrawing.peak.start, egfr.peak[0]);
@@ -196,6 +210,8 @@ try {
   assert.ok(byteCounts[basename(index)]?.worker > 0, 'TBI bytes were not read in the worker');
   assert.deepEqual(await page.evaluate(() => window.__localViewerCsp), []);
   assert.deepEqual(forbidden, []);
+  assert.deepEqual([...routes].filter(path => path.includes('gene-index')).map(path =>
+    path.includes('mm10-gene-index') ? 'mm10' : path), ['mm10']);
   assert.deepEqual(errors, []);
   const result = {
     source: 'synthetic',
@@ -203,6 +219,7 @@ try {
     assembly: 'mm10',
     coordinateConvention: '1-based closed for search; BED half-open',
     records: observation.record_count,
+    firstWindow,
     egfr: egfr.region,
     trp53: trp53.region,
     coordinate: probe,

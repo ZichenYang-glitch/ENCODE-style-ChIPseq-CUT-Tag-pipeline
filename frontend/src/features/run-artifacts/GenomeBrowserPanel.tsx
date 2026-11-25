@@ -239,6 +239,7 @@ export default function GenomeBrowserPanel({
   const [region, setRegion] = useState('');
   const [loadFailures, setLoadFailures] = useState<Record<string, string>>({});
   const [userAssembly, setUserAssembly] = useState('hg38');
+  const [assemblyRegions, setAssemblyRegions] = useState<Record<string, string>>({});
   const [addedRunIds, setAddedRunIds] = useState<string[]>([]);
   const [addedSelections, setAddedSelections] = useState<Record<string, RunSelection>>({});
   const [pendingRunId, setPendingRunId] = useState('');
@@ -250,6 +251,8 @@ export default function GenomeBrowserPanel({
   const [scopeKey, setScopeKey] = useState(scope);
   if (scopeKey !== scope) {
     setScopeKey(scope);
+    setRegion('');
+    setAssemblyRegions({});
     setLocalTracks([]);
     setAddedRunIds([]);
     setAddedSelections({});
@@ -770,7 +773,12 @@ export default function GenomeBrowserPanel({
             className="mt-1 block border border-[var(--color-border)] px-2 py-1"
             aria-label="Assembly"
             value={userAssembly}
-            onChange={(event) => setUserAssembly(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setAssemblyRegions(current => ({ ...current, [userAssembly]: region }));
+              setUserAssembly(next);
+              onNavigate(assemblyRegions[next] ?? '');
+            }}
           >
             {USER_ASSEMBLIES.map((item) => (
               <option key={item.scaffold} value={item.scaffold}>

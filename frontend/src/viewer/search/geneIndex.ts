@@ -1,4 +1,5 @@
-import bundledIndexUrl from './hg38-gene-index.json?url';
+import humanIndexUrl from './hg38-gene-index.json?url';
+import mouseIndexUrl from './mm10-gene-index.json?url';
 
 /**
  * Gene spans in the bundled index are 1-based and closed, the GTF's own
@@ -8,7 +9,6 @@ import bundledIndexUrl from './hg38-gene-index.json?url';
  */
 
 const LEGAL_COORDINATE = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
-const GENE_ID = /^ENSG\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
 export const DEFAULT_HG38_ASSEMBLIES = [
@@ -17,6 +17,9 @@ export const DEFAULT_HG38_ASSEMBLIES = [
   'GRCh38.p14',
   'GCA_000001405.15',
 ] as const;
+
+export const MM10_ASSEMBLIES = ['mm10', 'GRCm38', 'GRCm38.p6', 'GCA_000001635.2', 'GCA_000001635.8'] as const;
+export type AnnotationAssembly = 'hg38' | 'mm10';
 
 const PREFIX_MIN = 2;
 const PREFIX_LIMIT = 12;
@@ -119,13 +122,15 @@ export function classifyQuery(value: string): QueryPlan {
   return { kind: 'gene', query: trimmed };
 }
 
-export function assemblyUsesHg38(
-  assembly: string,
-  accepted: readonly string[] = DEFAULT_HG38_ASSEMBLIES,
-): boolean {
+function matchesAssembly(assembly: string, accepted: readonly string[]): boolean {
   const key = assembly.trim().toLowerCase();
-  if (!key) return false;
   return accepted.some((item) => item.toLowerCase() === key);
+}
+
+export function annotationAssembly(assembly: string): AnnotationAssembly | null {
+  if (matchesAssembly(assembly, DEFAULT_HG38_ASSEMBLIES)) return 'hg38';
+  if (matchesAssembly(assembly, MM10_ASSEMBLIES)) return 'mm10';
+  return null;
 }
 
 export function formatRegion(locus: Locus): string {
@@ -165,22 +170,38 @@ export const PINNED_HG38_SEQUENCES = [
   'chrY',
 ] as const;
 
-const PINNED_HG38 = new Set<string>(PINNED_HG38_SEQUENCES);
+// mm10 in wuepgg 62.0.2 has 19 autosomes, followed by X, Y, M.
+export const PINNED_MM10_SEQUENCES = [
+  ...Array.from({ length: 19 }, (_, index) => `chr${index + 1}`),
+  'chrX', 'chrY', 'chrM',
+];
 
-export function pinnedHg38Has(sequence: string): boolean {
-  return PINNED_HG38.has(sequence);
-}
+const annotations = {
+  hg38: {
+    url: humanIndexUrl,
+    geneId: /^ENSG\d+\.\d+$/,
+    sequences: new Set<string>(PINNED_HG38_SEQUENCES),
+    lastAutosome: 22,
+  },
+  mm10: {
+    url: mouseIndexUrl,
+    geneId: /^ENSMUSG\d+\.\d+$/,
+    sequences: new Set<string>(PINNED_MM10_SEQUENCES),
+    lastAutosome: 19,
+  },
+};
 
 export function coordinateSequence(region: string): string | null {
   const matched = LEGAL_COORDINATE.exec(region.trim());
   return matched?.[1] ?? null;
 }
 
-export function missingPinnedSequence(sequence: string): string | null {
-  if (pinnedHg38Has(sequence)) return null;
+export function missingPinnedSequence(sequence: string, assembly: AnnotationAssembly): string | null {
+  const { sequences, lastAutosome } = annotations[assembly];
+  if (sequences.has(sequence)) return null;
   return (
-    `${sequence} is not a sequence in the pinned hg38 genome ` +
-    '(chr1-chr22, chrX, chrY, chrM). The viewer was not moved.'
+    `${sequence} is not a sequence in the pinned ${assembly} genome ` +
+    `(chr1-chr${lastAutosome}, chrX, chrY, chrM). The viewer was not moved.`
   );
 }
 
@@ -267,7 +288,7 @@ function parseProvenance(value: unknown): GeneProvenance {
   return value as unknown as GeneProvenance;
 }
 
-function parseRow(value: unknown, chromosomes: readonly string[]): GeneRow {
+function parseRow(value: unknown, chromosomes: readonly string[], geneIdPattern: RegExp): GeneRow {
   if (!Array.isArray(value) || value.length !== 7) {
     throw new Error('gene index row is malformed');
   }
@@ -276,7 +297,7 @@ function parseRow(value: unknown, chromosomes: readonly string[]): GeneRow {
     typeof symbol !== 'string' ||
     symbol.trim() === '' ||
     typeof geneId !== 'string' ||
-    !GENE_ID.test(geneId) ||
+    !geneIdPattern.test(geneId) ||
     typeof chromIndex !== 'number' ||
     !Number.isSafeInteger(chromIndex) ||
     chromIndex < 0 ||
@@ -305,13 +326,13 @@ function pushRow(map: Map<string, number[]>, key: string, row: number): void {
   if (!list.includes(row)) list.push(row);
 }
 
-export function parseGeneIndex(value: unknown): ParsedGeneIndex {
+export function parseGeneIndex(value: unknown, assembly: AnnotationAssembly): ParsedGeneIndex {
   if (!isRecord(value)) throw new Error('gene index is not an object');
   if (value.format !== 'helixweave.gene-index.v1') {
     throw new Error('unsupported gene index');
   }
-  if (value.assembly !== 'hg38' || value.coordinate_system !== '1-based-closed') {
-    throw new Error('gene index is not the hg38 1-based annotation');
+  if (value.assembly !== assembly || value.coordinate_system !== '1-based-closed') {
+    throw new Error(`gene index is not the ${assembly} 1-based annotation`);
   }
   const release = requiredString(value, 'release');
   const provenance = parseProvenance(value.provenance);
@@ -330,8 +351,8 @@ export function parseGeneIndex(value: unknown): ParsedGeneIndex {
     }
     return item;
   });
-  if (!assemblyUsesHg38('hg38', assemblyMatch)) {
-    throw new Error('gene index does not apply to hg38');
+  if (!matchesAssembly(assembly, assemblyMatch)) {
+    throw new Error(`gene index does not apply to ${assembly}`);
   }
   if (!Array.isArray(value.chromosomes) || value.chromosomes.length === 0) {
     throw new Error('gene index chromosomes are missing');
@@ -343,7 +364,7 @@ export function parseGeneIndex(value: unknown): ParsedGeneIndex {
     return item;
   });
   if (!Array.isArray(value.rows)) throw new Error('gene index rows are missing');
-  const rows = value.rows.map((row) => parseRow(row, chromosomes));
+  const rows = value.rows.map((row) => parseRow(row, chromosomes, annotations[assembly].geneId));
   if (!Array.isArray(value.aliases)) throw new Error('gene index aliases are missing');
   const bySymbol = new Map<string, number[]>();
   const byAlias = new Map<string, number[]>();
@@ -510,28 +531,35 @@ export function searchGenes(index: ParsedGeneIndex, query: string): GeneSearch {
   };
 }
 
-let cached: Promise<ParsedGeneIndex> | null = null;
+const cached = new Map<AnnotationAssembly, Promise<ParsedGeneIndex>>();
 
 export function resetGeneIndexCacheForTests(): void {
-  cached = null;
+  cached.clear();
 }
 
-async function requestGeneIndex(fetcher: typeof fetch): Promise<ParsedGeneIndex> {
-  const url = geneIndexRequestUrl(bundledIndexUrl, window.location.origin);
-  const response = await fetcher(url, { credentials: 'same-origin' });
+async function requestGeneIndex(
+  assembly: AnnotationAssembly,
+  fetcher: typeof fetch,
+): Promise<ParsedGeneIndex> {
+  const url = geneIndexRequestUrl(annotations[assembly].url, window.location.origin);
+  const response = await fetcher(url, { credentials: 'same-origin', mode: 'same-origin' });
   if (!response.ok) {
     throw new Error(`gene index request failed (${response.status})`);
   }
-  return parseGeneIndex(await response.json());
+  return parseGeneIndex(await response.json(), assembly);
 }
 
-export function loadHg38GeneIndex(fetcher: typeof fetch = fetch): Promise<ParsedGeneIndex> {
-  if (fetcher !== fetch) return requestGeneIndex(fetcher);
-  if (!cached) {
-    cached = requestGeneIndex(fetch).catch((error: unknown) => {
-      cached = null;
-      throw error;
-    });
-  }
-  return cached;
+export function loadGeneIndex(
+  assembly: AnnotationAssembly,
+  fetcher: typeof fetch = fetch,
+): Promise<ParsedGeneIndex> {
+  if (fetcher !== fetch) return requestGeneIndex(assembly, fetcher);
+  const existing = cached.get(assembly);
+  if (existing) return existing;
+  const pending = requestGeneIndex(assembly, fetch).catch((error: unknown) => {
+    cached.delete(assembly);
+    throw error;
+  });
+  cached.set(assembly, pending);
+  return pending;
 }

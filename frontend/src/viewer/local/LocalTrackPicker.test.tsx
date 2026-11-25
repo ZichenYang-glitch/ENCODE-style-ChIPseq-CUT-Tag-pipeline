@@ -95,7 +95,7 @@ describe('LocalTrackPicker', () => {
     const row = screen.getByTestId('local-track')
     expect(row).toHaveAttribute('data-assembly', 'hg38')
     expect(within(row).getByText('用户指定 GRCh38')).toBeInTheDocument()
-    expect(screen.getByTestId('local-track-assembly')).toHaveTextContent('用户指定 mm10')
+    expect(screen.getByTestId('local-track-assembly')).toHaveTextContent('用户指定 GRCm38')
     expect(screen.getByRole('status')).toHaveAttribute('data-reason', 'assembly-not-relabeled')
     expect(screen.getByRole('status')).toHaveTextContent('未改标')
     const after = onTracksChange.mock.calls.at(-1)?.[0] as LocalWashuTrack[]

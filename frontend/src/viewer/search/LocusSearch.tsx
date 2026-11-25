@@ -1,17 +1,16 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
 import {
-  DEFAULT_HG38_ASSEMBLIES,
-  assemblyUsesHg38,
+  annotationAssembly,
   classifyQuery,
   coordinateSequence,
   formatRegion,
-  loadHg38GeneIndex,
+  loadGeneIndex,
   matchLabel,
   missingPinnedSequence,
   searchGenes,
 } from './geneIndex';
-import type { GeneMatch, GeneSearch, ParsedGeneIndex, QueryPlan } from './geneIndex';
+import type { AnnotationAssembly, GeneMatch, GeneSearch, ParsedGeneIndex, QueryPlan } from './geneIndex';
 
 export interface LocusSearchProps {
   assembly: string;
@@ -20,9 +19,6 @@ export interface LocusSearchProps {
 }
 
 type Phase = 'loading' | 'ready' | 'failed' | 'unsupported';
-
-const HINT =
-  '基因名（如 EGFR）或 chr:start-end。多个位置请点选，或用方向键选中后再按 Enter；唯一结果可直接按 Enter。';
 
 function statusMessage(
   phase: Phase,
@@ -40,7 +36,7 @@ function statusMessage(
   }
   if (plan.kind === 'empty' || plan.kind === 'coordinate') return null;
   if (plan.kind === 'coordinate-draft') return 'Coordinates use chrom:start-end.';
-  if (phase === 'loading') return 'Loading hg38 gene annotation…';
+  if (phase === 'loading') return `Loading ${assembly} gene annotation…`;
   if (!result || result.relation === 'none') {
     return `No genes match "${plan.query}" in ${release}. Coordinates still work.`;
   }
@@ -51,7 +47,14 @@ function statusMessage(
   return `${plan.query} matches ${result.total} locations. Choose one. Arrow keys, then Enter.`;
 }
 
-export default function LocusSearch({ assembly, region, onNavigate }: LocusSearchProps) {
+export default function LocusSearch(props: LocusSearchProps) {
+  const annotation = annotationAssembly(props.assembly);
+  return <AssemblySearch key={annotation ?? props.assembly} {...props} annotation={annotation} />;
+}
+
+function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearchProps & {
+  annotation: AnnotationAssembly | null;
+}) {
   const listId = useId();
   const pendingEnter = useRef<string | null>(null);
   const [draft, setDraft] = useState(() => region.trim());
@@ -72,28 +75,16 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     setArmedIndex(null);
     setDismissedQuery(null);
   }
-  const [phase, setPhase] = useState<Phase>(() =>
-    assemblyUsesHg38(assembly) ? 'loading' : 'unsupported',
-  );
+  const [requested, setRequested] = useState(false);
+  const [phase, setPhase] = useState<Phase>(annotation ? 'loading' : 'unsupported');
   const [index, setIndex] = useState<ParsedGeneIndex | null>(null);
 
   useEffect(() => {
-    pendingEnter.current = null;
-    if (!assemblyUsesHg38(assembly, DEFAULT_HG38_ASSEMBLIES)) {
-      setIndex(null);
-      setPhase('unsupported');
-      return;
-    }
+    if (!annotation || !requested) return;
     let cancelled = false;
-    setPhase((current) => (current === 'ready' ? current : 'loading'));
-    loadHg38GeneIndex()
+    loadGeneIndex(annotation)
       .then((loaded) => {
         if (cancelled) return;
-        if (!assemblyUsesHg38(assembly, loaded.assemblyMatch)) {
-          setIndex(null);
-          setPhase('unsupported');
-          return;
-        }
         setIndex(loaded);
         setPhase('ready');
       })
@@ -105,10 +96,10 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     return () => {
       cancelled = true;
     };
-  }, [assembly]);
+  }, [annotation, requested]);
 
   function deliver(match: GeneMatch) {
-    const absent = assemblyUsesHg38(assembly) ? missingPinnedSequence(match.locus.chrom) : null;
+    const absent = annotation ? missingPinnedSequence(match.locus.chrom, annotation) : null;
     if (absent) {
       setBlocked(absent);
       return;
@@ -130,7 +121,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     if (found.relation !== 'exact' || found.matches.length !== 1) return;
     const match = found.matches[0];
     if (!match) return;
-    const absent = assemblyUsesHg38(assembly) ? missingPinnedSequence(match.locus.chrom) : null;
+    const absent = annotation ? missingPinnedSequence(match.locus.chrom, annotation) : null;
     if (absent) {
       setBlocked(absent);
       return;
@@ -139,7 +130,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     setBlocked(null);
     setDraft(next);
     onNavigate(next);
-  }, [phase, index, draft, assembly, onNavigate]);
+  }, [phase, index, draft, annotation, onNavigate]);
 
   const plan = classifyQuery(draft);
   const result =
@@ -150,13 +141,14 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     armedIndex !== null && matches.length > 0 ? Math.min(armedIndex, matches.length - 1) : null;
   const status =
     blocked ??
-    statusMessage(phase, assembly, plan, result, index?.release ?? 'this hg38 annotation');
+    statusMessage(phase, annotation ?? assembly, plan, result, index?.release ?? assembly);
 
   function onChange(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.value.trim();
     setDraft(next);
     if (pendingEnter.current && pendingEnter.current !== next) pendingEnter.current = null;
     const nextPlan = classifyQuery(next);
+    if (annotation && nextPlan.kind === 'gene') setRequested(true);
     if (nextPlan.kind !== 'coordinate') {
       setBlocked(null);
       return;
@@ -164,7 +156,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     pendingEnter.current = null;
     const sequence = coordinateSequence(nextPlan.region);
     const absent =
-      assemblyUsesHg38(assembly) && sequence ? missingPinnedSequence(sequence) : null;
+      annotation && sequence ? missingPinnedSequence(sequence, annotation) : null;
     if (absent) {
       setBlocked(absent);
       return;
@@ -222,7 +214,11 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
   return (
     <div className="block text-sm">
       <label className="block">
-        <span className="block max-w-md">{HINT}</span>
+        <span className="block max-w-md">
+          {annotation
+            ? `基因名（如 ${annotation === 'mm10' ? 'Egfr' : 'EGFR'}）或 chr:start-end。多个位置请点选，或用方向键选中后再按 Enter；唯一结果可直接按 Enter。`
+            : '输入坐标 chr:start-end。'}
+        </span>
         <input
           className="mt-1 w-full max-w-md border border-[var(--color-border)] px-2 py-1"
           value={draft}
@@ -252,11 +248,11 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
           className="mt-1 max-h-60 w-full max-w-md overflow-auto border border-[var(--color-border)]"
         >
           {matches.map((match, option) => {
-            const absent = assemblyUsesHg38(assembly)
-              ? missingPinnedSequence(match.locus.chrom)
+            const absent = annotation
+              ? missingPinnedSequence(match.locus.chrom, annotation)
               : null;
             const label = absent
-              ? `${matchLabel(match)} · not in pinned hg38`
+              ? `${matchLabel(match)} · not in pinned ${annotation}`
               : matchLabel(match);
             const selected = option === active;
             return (

@@ -665,12 +665,9 @@ async function main() {
   if (localAssembly !== manifest.scaffold) {
     throw new Error(`local peak was placed on ${localAssembly}, not ${manifest.scaffold}`);
   }
-  if (manifest.local_declaration) {
-    const signature = await viewerFrame.locator('[data-testid="local-track-assembly"]').innerText();
-    if (!signature.includes(manifest.local_declaration)) {
-      throw new Error(`local assembly signature did not record ${manifest.local_declaration}: ${signature}`);
-    }
-  }
+  const expectedSignature = manifest.scaffold === 'mm10' ? '用户指定 GRCm38' : '用户指定 GRCh38';
+  const localFile = viewerFrame.getByTestId('local-track');
+  const signature = await localFile.getByText(expectedSignature, { exact: true }).innerText();
   await viewerFrame.getByRole('combobox', { name: 'Authorized runs' }).selectOption(manifest.second_run_id);
   await viewerFrame.getByRole('button', { name: 'Add run' }).click();
   const secondArticle = runArticle(viewerFrame, manifest.second_run_id);
@@ -761,6 +758,7 @@ async function main() {
     plotted_features: [...new Set(hub.drawn)],
     local_assembly: localAssembly,
     local_declaration: manifest.local_declaration,
+    local_reference_label: signature,
     local_drawn: hub.drawn.filter((text) => text.includes('peak-local') || text.includes('5800')).slice(0, 4),
     regions: hub.regions.slice(0, 4),
   };

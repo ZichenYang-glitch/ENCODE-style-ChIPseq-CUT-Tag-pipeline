@@ -14,13 +14,16 @@ describe('recovering one local selection while retaining its neighbours', () => 
     expect(await choice.options[0].checkPair?.()).toBeTruthy()
   })
 
-  it('rejects an explicitly conflicting BED reference and keeps the compatible file', async () => {
-    const wrong = new File(['track name="peaks" db=hg19\nchr7\t5\t10\n'], 'other.bed')
-    const good = new File(['browser genome GRCh38.p14\nchr7\t5\t10\n'], 'peaks.bed')
-    const result = await classifyLocalFiles([wrong, good], 'hg38')
+  it.each([
+    ['hg38', 'GRCh38.p14', 'hg19'],
+    ['mm10', 'GRCm38.p6', 'mm39'],
+  ])('rejects a conflicting BED and retains the compatible %s file', async (window, same, other) => {
+    const wrong = new File([`track name="peaks" db=${other}\nchr7\t5\t10\n`], 'other.bed')
+    const good = new File([`browser genome ${same}\nchr7\t5\t10\n`], 'peaks.bed')
+    const result = await classifyLocalFiles([wrong, good], window)
     expect(result.ready.map(item => item.label)).toEqual(['peaks.bed'])
     expect(result.issues[0]).toMatchObject({ reason: 'assembly-conflict' })
-    expect(result.issues[0].message).toContain('hg19')
+    expect(result.issues[0].message).toContain(other)
   })
 
   it('reports a file that disappeared from disk without discarding the readable selection', async () => {

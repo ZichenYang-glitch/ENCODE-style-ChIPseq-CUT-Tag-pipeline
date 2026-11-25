@@ -56,7 +56,7 @@ export function viewerScaffold(assembly: string | null | undefined): string | nu
 }
 
 export function userSpecifiedReference(scaffold: string | null | undefined): string | null {
-  if (scaffold === 'hg38') return '用户指定 GRCh38';
+  if (scaffold === 'hg38' || scaffold === 'mm10') return `用户指定 ${declaredAssembly(scaffold)}`;
   if (scaffold) return `User-specified ${scaffold}`;
   return null;
 }

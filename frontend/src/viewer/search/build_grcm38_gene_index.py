@@ -13,8 +13,8 @@ Pinned annotation:
   SHA-256 b3ceeef170048fc86c5dead33ba7af61d71e50c9a19ca5b4b9784b830802f5cd
   28556861 bytes. When ``--gtf`` is this gzip, ``--readme`` is unnecessary.
 
-* The shipped index was built from the local genomepy plain GTF at
-  ``/home/yangzichen/reference/genomes/GRCm38/GRCm38.annotation.gtf``.
+* The shipped index was built from the genomepy plain GTF
+  ``GRCm38.annotation.gtf``.
   SHA-256 dbd5e0488a5994cc5e9379e13ecaceb0d2affcb0c6c9f7584def7f1be01769b6
   888182176 bytes. After the official gzip's five header lines, the first
   1872052 records match that plain file. The other 1019 records differ only

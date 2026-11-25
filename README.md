@@ -64,7 +64,7 @@ workflow.
 | Local execution | Redis/RQ hands a durable run identity to an independent worker that executes the adapter-selected Snakemake or Nextflow process. |
 | Run control | Preflight, explicit start, progress, live persisted logs, and acknowledged process-group cancellation. |
 | Evidence | Filterable run history, indexed artifacts, fail-closed downloads, and a QC workbench with source-artifact navigation. |
-| Genome browser | Open **打开本地轨道** from the home page to view an indexed WashU longrange file, bigWig and BED peaks together. Search for a human gene or enter coordinates, and overlay tracks from authorized runs in the same assembly. [Viewer guide](docs/development/washu-browser-read-contract.md) |
+| Genome browser | Open **打开本地轨道** from the home page to view an indexed WashU longrange file, bigWig and BED peaks together. Choose human GRCh38/hg38 or mouse GRCm38/mm10 and search by gene name (EGFR or Egfr), or enter coordinates, and overlay tracks from authorized runs in the same assembly. [Viewer guide](docs/development/washu-browser-read-contract.md) |
 | Laboratory access | Administrator-managed member accounts, trusted-LAN sessions, CSRF protection, and per-user terminal notification preferences. |
 | Operations | Reference Profiles, artifact publication, exact-identity run recovery, and offline systemd deployment install/verify/upgrade/rollback. |
 

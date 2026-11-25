@@ -29,6 +29,8 @@ describe('browser window authority', () => {
     expect(viewerScaffold('not-a-genome')).toBeNull();
     expect(userSpecifiedReference('hg38')).toBe('用户指定 GRCh38');
     expect(declaredAssembly('hg38')).toBe('GRCh38');
+    expect(viewerScaffold('GRCm38')).toBe('mm10');
+    expect(userSpecifiedReference('mm10')).toBe('用户指定 GRCm38');
     expect(seenWindow('chr7:100-200')).toEqual({ chrom: 'chr7', start: 99, end: 200 });
     expect(seenWindow('chr1:1-2')).toEqual({ chrom: 'chr1', start: 0, end: 2 });
   });

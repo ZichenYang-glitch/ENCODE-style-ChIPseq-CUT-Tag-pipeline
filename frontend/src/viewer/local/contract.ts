@@ -61,13 +61,16 @@ export function assemblyKey(value: string): string {
   const key = value.trim().toLowerCase()
   if (/^(?:hg38|grch38)(?:\.p[0-9]+)?$/.test(key)) return 'hg38'
   if (/^(?:hg19|grch37)(?:\.p[0-9]+)?$/.test(key)) return 'hg19'
-  if (key === 'grcm38') return 'mm10'
+  if (key === 'grcm38' || key === 'grcm38.p6') return 'mm10'
   if (key === 'grcm39') return 'mm39'
   return key
 }
 
 export function assemblySignature(assembly: string): string {
-  return `用户指定 ${assemblyKey(assembly) === 'hg38' ? 'GRCh38' : assembly.trim()}`
+  const key = assemblyKey(assembly)
+  if (key === 'hg38') return '用户指定 GRCh38'
+  if (key === 'mm10') return '用户指定 GRCm38'
+  return `用户指定 ${assembly.trim()}`
 }
 
 export function nativeTabixFiles(data: File, index: File): File[] {
