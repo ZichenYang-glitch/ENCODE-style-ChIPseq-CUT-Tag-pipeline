@@ -220,6 +220,9 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     ['plain-bed', 'track db=mm39', 'mm10', false],
     ['plain-bed', 'track db=hg38', 'mm10', false],
     ['plain-bed', 'browser genome mm39', 'mm10', false],
+    ['plain-bed', 'track description="comparison with db=hg38" db=mm10', 'hg38', false],
+    ['plain-bed', 'track description="comparison with db=mm10" db=hg38', 'hg38', true],
+    ['plain-bed', 'track db=hg38 description="comparison with db=mm10"', 'hg38', true],
     ['bgzf-bed', undefined, 'hg38', true],
     ['bgzf-bed', undefined, 'mm10', true],
     ['bgzf-bed', 'track db=hg38', 'hg38', true],
@@ -231,6 +234,9 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     ['bgzf-bed', 'track db=mm39', 'mm10', false],
     ['bgzf-bed', 'track db=mm39', 'hg38', false],
     ['bgzf-bed', 'track db=hg38', 'mm10', false],
+    ['bgzf-bed', 'track description="comparison with db=hg38" db=mm10', 'hg38', false],
+    ['bgzf-bed', 'track description="comparison with db=mm10" db=hg38', 'hg38', true],
+    ['bgzf-bed', 'track db=mm10 description="comparison with db=hg38"', 'hg38', false],
     ['bgzf-longrange', undefined, 'hg38', true],
     ['bgzf-longrange', undefined, 'mm10', true],
     ['bgzf-longrange', 'track db=hg38', 'hg38', true],
@@ -239,6 +245,8 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     ['bgzf-longrange', 'track db=mm10', 'hg38', false],
     ['bgzf-longrange', 'track db=mm39', 'mm10', false],
     ['bgzf-longrange', 'browser genome hg38', 'mm10', false],
+    ['bgzf-longrange', "track name='PET control genome=hg38' GENOME='GRCm38'", 'mm10', true],
+    ['bgzf-longrange', 'track description="compared with db=mm39 only"', 'hg38', true],
   ] as const)(
     '%s header %s on %s is drawable=%s',
     async (format, header, assembly, drawable) => {
