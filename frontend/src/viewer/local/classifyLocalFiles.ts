@@ -311,6 +311,10 @@ async function assemblyConflict(
   if (!assembly) return null
   const header = await indexedHeaderAssembly(data)
   const name = browserFileName(data)
+  if (header.status === 'incomplete') {
+    return issue('unreadable-header',
+      `${name} 的 BGZF 文件头未能完整核对。请检查文件是否完整；较长的注释可精简后重新生成配套 .tbi。`)
+  }
   if (header.status === 'conflict') {
     return issue(
       'assembly-conflict',

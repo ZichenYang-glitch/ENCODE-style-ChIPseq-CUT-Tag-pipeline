@@ -339,6 +339,22 @@ describe('declared assemblies on plain BED, BGZF BED, and BGZF longrange', () =>
     expect(split.issues[0]?.message).toContain('mm10')
   })
 
+  it('checks assembly directives beyond one BGZF block and signals an unfinished header', async () => {
+    // Real htslib pairs with 3,300 or 25,000 leading comment lines and a track directive.
+    const verify = (name: string) => classifyLocalFiles(
+      [reviewFile(name), reviewFile(name + '.tbi')], 'hg38',
+    )
+    const matching = await verify('long-header-to-hg38.bed.gz')
+    expect(matching.ready).toHaveLength(1)
+    expect(matching.issues).toEqual([])
+    const foreign = await verify('long-header-to-mm10.bed.gz')
+    expect(foreign.ready).toEqual([])
+    expect(foreign.issues.map(item => item.reason)).toEqual(['assembly-conflict'])
+    const incomplete = await verify('over-limit-header.bed.gz')
+    expect(incomplete.ready).toEqual([])
+    expect(incomplete.issues.map(item => item.reason)).toEqual(['unreadable-header'])
+  })
+
   it('does not read the padded tail or call the network while checking a declaration', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'))
     const slice = vi.spyOn(File.prototype, 'slice')
