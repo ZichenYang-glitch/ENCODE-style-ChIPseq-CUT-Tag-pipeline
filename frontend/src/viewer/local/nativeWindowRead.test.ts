@@ -217,11 +217,13 @@ describe('wuepgg local slice readers', () => {
       metadata: { genome: 'hg38' },
     }
     expect(() => cloneDeep({ trackModelArr: [model] })).not.toThrow()
+    // Node 22 structuredClone turns File into Blob. The packaged Chromium
+    // worker is where a local track still arrives as a File.
     const posted = structuredClone(model)
-    expect(posted.fileObj).toBeInstanceOf(File)
     expect(posted.url).toBe('')
-    expect(posted.files[0]).toBeInstanceOf(File)
-    expect(posted.files[1]).toBeInstanceOf(File)
+    expect(posted.fileObj).toBeInstanceOf(Blob)
+    expect(posted.files[0]).toBeInstanceOf(Blob)
+    expect(posted.files[1]).toBeInstanceOf(Blob)
     fetchSpy.mockRestore()
   })
 })
