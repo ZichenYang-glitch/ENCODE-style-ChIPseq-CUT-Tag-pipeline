@@ -93,6 +93,28 @@ export async function hasBigWigIndexes(file: File, header: Uint8Array): Promise<
     new DataView(indexMagic.buffer, indexMagic.byteOffset, 4).getUint32(0, little) === 0x2468ace0
 }
 
+export function isPeakDirective(raw: string): boolean {
+  const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+  if (line === '') return true
+  const head = line.split('\t', 1)[0] ?? ''
+  return (
+    line.startsWith('#') ||
+    head === 'track' ||
+    head.startsWith('track ') ||
+    head === 'browser' ||
+    head.startsWith('browser ')
+  )
+}
+
+// UCSC track and browser directives can explicitly name an assembly.
+export function directiveAssembly(raw: string): string | undefined {
+  const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+  const declaration = /^track\s/i.test(line)
+    ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(line)
+    : /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(line)
+  return declaration?.[1]
+}
+
 export interface PlainPeakScan {
   format: 'BED3' | 'BED4' | 'narrowPeak' | 'broadPeak'
   dataRows: number
@@ -128,11 +150,7 @@ export async function scanPlainPeak(
     if (typeof verdict === 'object') return verdict
     if (verdict === 'skip') {
       skippedLines = true
-      // UCSC track and browser directives can explicitly name an assembly.
-      const declaration = /^track\s/i.test(raw)
-        ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(raw)
-        : /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(raw)
-      const value = declaration?.[1]
+      const value = directiveAssembly(raw)
       if (value && declaredAssembly && assemblyKey(value) !== assemblyKey(declaredAssembly)) {
         return { error: `${file.name} 的文件头分别声明 ${declaredAssembly} 和 ${value}。请核对参考组装。` }
       }
@@ -202,17 +220,7 @@ function inspectPeakLine(
   fileName: string,
 ): 'skip' | 'data' | { error: string } {
   const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
-  if (line === '') return 'skip'
-  const head = line.split('\t', 1)[0] ?? ''
-  if (
-    line.startsWith('#') ||
-    head === 'track' ||
-    head.startsWith('track ') ||
-    head === 'browser' ||
-    head.startsWith('browser ')
-  ) {
-    return 'skip'
-  }
+  if (isPeakDirective(line)) return 'skip'
   const columns = line.split('\t')
   const invalid = `${fileName} 第 ${lineNumber} 行不是支持的 BED3/BED4 峰行。需要制表符分隔、至少三列，以及半开整数坐标。`
   if (columns.length < 3) return { error: invalid }

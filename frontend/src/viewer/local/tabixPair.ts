@@ -5,11 +5,18 @@
  * index built for a different track, are not enough. The index is parsed in
  * full because it is the small file. The data file is only touched at the
  * header and at most two indexed virtual offsets, each limited to two BGZF
- * blocks.
+ * blocks. A complete final record is valid with or without a trailing LF;
+ * htslib still points the chunk end at the following BGZF block.
  */
 
-import { browserFileName } from './contract'
-import { isBgzfHeader, isTabixMagic, readFileSlice } from './sliceRead'
+import { assemblyKey, browserFileName } from './contract'
+import {
+  directiveAssembly,
+  isBgzfHeader,
+  isPeakDirective,
+  isTabixMagic,
+  readFileSlice,
+} from './sliceRead'
 
 const MAX_BGZF_BLOCK = 65536
 const DATA_READ_CAP = 512 * 1024
@@ -309,29 +316,77 @@ async function endsAtRecordBoundary(read: SliceReader, fileSize: number, end: Vi
   return next === fileSize || (await readBgzfBlock(read, fileSize, next))?.raw.length === 0
 }
 
+const HEADER_SCAN_BYTES = 64 * 1024
+
+export type IndexedHeaderAssembly =
+  | { status: 'none' }
+  | { status: 'declared'; name: string }
+  | { status: 'conflict'; left: string; right: string }
+
+// Only the leading track/browser/comment lines can name an assembly.
+// Stop at the first data row so a large BGZF file stays a windowed read.
+export async function indexedHeaderAssembly(data: File): Promise<IndexedHeaderAssembly> {
+  const read: SliceReader = (start, length) => readFileSlice(data, start, length)
+  let offset = 0
+  let seen = 0
+  let pending: Uint8Array = new Uint8Array()
+  let declared: string | undefined
+  const finish = (): IndexedHeaderAssembly =>
+    declared ? { status: 'declared', name: declared } : { status: 'none' }
+  const note = (line: Uint8Array): IndexedHeaderAssembly | 'data' | 'continue' => {
+    let text: string
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(line)
+    } catch {
+      return 'data'
+    }
+    if (!isPeakDirective(text)) return 'data'
+    const value = directiveAssembly(text)
+    if (value && declared && assemblyKey(value) !== assemblyKey(declared)) {
+      return { status: 'conflict', left: declared, right: value }
+    }
+    if (value) declared = value
+    return 'continue'
+  }
+  while (offset < data.size && seen < HEADER_SCAN_BYTES) {
+    const block = await readBgzfBlock(read, data.size, offset)
+    if (!block) return finish()
+    offset += block.size
+    if (block.raw.length === 0) break
+    const room = HEADER_SCAN_BYTES - seen
+    const chunk = room < block.raw.length ? block.raw.subarray(0, room) : block.raw
+    seen += chunk.byteLength
+    pending = concatBytes([pending, chunk])
+    let start = 0
+    for (let index = 0; index < pending.length; index += 1) {
+      if (pending[index] !== 0x0a) continue
+      const verdict = note(pending.subarray(start, index))
+      if (verdict === 'data') return finish()
+      if (verdict !== 'continue') return verdict
+      start = index + 1
+    }
+    pending = pending.subarray(start)
+    if (pending.length > MAX_LINE_BYTES) return finish()
+    if (chunk.byteLength < block.raw.length) break
+  }
+  if (pending.length > 0 && pending.length <= MAX_LINE_BYTES) {
+    const verdict = note(pending)
+    if (verdict !== 'continue' && verdict !== 'data') return verdict
+  }
+  return finish()
+}
+
 async function readIndexedRecord(
   read: SliceReader,
   fileSize: number,
   at: VirtualOffset,
   columns: ParsedTabix['columns'],
 ): Promise<{ chrom: string; start: number; end: number; fourthField?: string } | null> {
-  const first = await readBgzfBlock(read, fileSize, at.block)
-  if (!first || at.data > first.raw.byteLength) return null
-  let raw = first.raw
-  if (!hasNewline(raw.subarray(at.data))) {
-    const next = await readBgzfBlock(read, fileSize, at.block + first.size)
-    if (!next) return null
-    const joined = new Uint8Array(raw.byteLength + next.raw.byteLength)
-    joined.set(raw)
-    joined.set(next.raw, raw.byteLength)
-    raw = joined
-  }
-  const line = raw.subarray(at.data)
-  const newline = line.indexOf(0x0a)
-  if (newline <= 0 || newline > MAX_LINE_BYTES) return null
+  const bytes = await readRecordBytes(read, fileSize, at)
+  if (!bytes) return null
   let text: string
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(line.subarray(0, newline))
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   } catch {
     return null
   }
@@ -342,6 +397,42 @@ async function readIndexedRecord(
   const end = parseCoordinate(fields[columns.end - 1])
   if (!chrom || start === null || end === null) return null
   return { chrom, start, end, fourthField: fields[3] }
+}
+
+// Join BGZF blocks until a newline. A record that reaches EOF without a
+// newline is complete; htslib indexes that byte sequence and its own TBI.
+async function readRecordBytes(
+  read: SliceReader,
+  fileSize: number,
+  at: VirtualOffset,
+): Promise<Uint8Array | null> {
+  let offset = at.block
+  let skip = at.data
+  const parts: Uint8Array[] = []
+  let total = 0
+  while (offset < fileSize && total <= MAX_LINE_BYTES) {
+    const block = await readBgzfBlock(read, fileSize, offset)
+    if (!block || block.size <= 0) return null
+    if (block.raw.length === 0) break
+    if (skip > block.raw.length) return null
+    const slice = block.raw.subarray(skip)
+    const newline = slice.indexOf(0x0a)
+    if (newline >= 0) {
+      if (total + newline > MAX_LINE_BYTES) return null
+      if (newline === 0 && total === 0) return null
+      if (newline > 0) parts.push(slice.subarray(0, newline))
+      return concatBytes(parts)
+    }
+    if (slice.length > 0) {
+      if (total + slice.length > MAX_LINE_BYTES) return null
+      parts.push(slice)
+      total += slice.length
+    }
+    skip = 0
+    offset += block.size
+  }
+  if (total === 0) return null
+  return concatBytes(parts)
 }
 
 function validLongrangeMate(field: string | undefined): boolean {
@@ -466,8 +557,15 @@ function parseCoordinate(value: string | undefined): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null
 }
 
-function hasNewline(bytes: Uint8Array): boolean {
-  return bytes.indexOf(0x0a) !== -1
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.byteLength, 0)
+  const out = new Uint8Array(total)
+  let cursor = 0
+  for (const part of parts) {
+    out.set(part, cursor)
+    cursor += part.byteLength
+  }
+  return out
 }
 
 function crc32(bytes: Uint8Array): number {
