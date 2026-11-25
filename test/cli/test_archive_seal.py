@@ -505,8 +505,9 @@ def test_public_cli_reseals_the_registered_revision_by_digest(tmp_path: Path, ca
     engine.dispose()
 
     def invoke(revision_id: str, track_type: str = "bigwig") -> tuple[int, str, str]:
-        code = archive_cli.main(
+        code = app.main(
             [
+                "archive",
                 "seal",
                 "registered",
                 "--database-url",
@@ -575,7 +576,19 @@ def test_public_cli_reseals_the_registered_revision_by_digest(tmp_path: Path, ca
     assert json.loads(out)["archive_version_id"] == first["archive_version_id"]
 
     original.unlink()
+    digest = first["members"]["data"]["sha256"]
+    archived = archive / digest
+    restored = archive / "restored"
+    restored.write_bytes(archived.read_bytes())
+    restored.chmod(0o440)
+    restored.replace(archived)
+    code, out, err = invoke(old_revision)
+    assert code == 0, err
+    assert json.loads(out)["archive_version_id"] == first["archive_version_id"]
+
+    archived.unlink()
     code, _out, err = invoke(old_revision)
     assert code == 1
+    assert json.loads(err)["error"]["code"] == "archive_offline"
     assert (pool_root / "switched" / "signal.bw").read_bytes() == old_bytes
     original.write_bytes(old_bytes)

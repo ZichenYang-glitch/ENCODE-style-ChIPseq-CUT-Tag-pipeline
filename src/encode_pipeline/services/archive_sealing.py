@@ -9,14 +9,15 @@ the original scratch or pool file be removed under a later retention step.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import suppress
 import os
-from pathlib import Path
+from hashlib import sha256
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
 from types import SimpleNamespace
 
+from encode_pipeline.adapters.browser.catalog import describe_browser_artifact
 from encode_pipeline.adapters.browser.scaffolds import viewer_scaffold
 from encode_pipeline.persistence.models import (
     ExperimentRevisionRow,
@@ -24,10 +25,13 @@ from encode_pipeline.persistence.models import (
     ReferenceProfileRevisionRow,
     RunReferenceBindingRow,
 )
+from encode_pipeline.platform.archived_tracks import SealedMember
 from encode_pipeline.platform.experiment_catalog import CatalogError
+from encode_pipeline.platform.input_registry import validate_input_file_relative_path
 from encode_pipeline.platform.registered_results import (
     ParentEdge,
     RegisteredResultPayloadError,
+    RevisionRecord,
     build_revision_digest,
     metadata_from_canonical_json,
     validate_project_id,
@@ -38,14 +42,22 @@ from encode_pipeline.platform.result_generations import (
     validate_artifact_generation,
     validate_artifact_revision,
 )
-from encode_pipeline.services.artifact_downloads import ArtifactDownloadStreamError
-from encode_pipeline.services.private_storage_pools import PrivateStoragePoolConfig
-from encode_pipeline.services.registered_result_bytes import (
-    RegisteredResultBytesError,
-    discard_private_copy,
-    seal_private_copy,
+from encode_pipeline.services.archive_track_index import verify_longrange_index
+from encode_pipeline.services.artifact_disk_relocation import (
+    PUBLIC_UNAVAILABLE,
+    ArtifactDiskRelocation,
+    ArtifactDiskRelocationError,
+    lookup_switched_download,
 )
-from encode_pipeline.services.registered_results import open_verified_copy
+from encode_pipeline.services.artifact_downloads import (
+    ArtifactDownloadPlan,
+    ArtifactDownloadStreamError,
+)
+from encode_pipeline.services.input_file_access import (
+    _file_flags,
+    _open_absolute_directory,
+)
+from encode_pipeline.services.private_storage_pools import PrivateStoragePoolConfig
 
 
 _CODES = frozenset(
@@ -271,7 +283,8 @@ class CatalogExperimentGate:
         run_id: str,
         artifact_id: str,
         generation: str,
-    ) -> None:
+        revision: str,
+    ) -> str | None:
         self.require_selected_revision(
             project_id=project_id,
             experiment_id=experiment_id,
@@ -301,6 +314,19 @@ class CatalogExperimentGate:
                 "archive_invalid",
                 "The run publication is not bound to this experiment revision.",
             )
+        publication = trace.get("result")
+        if (
+            not isinstance(publication, Mapping)
+            or publication.get("artifact_revision") != revision
+        ):
+            raise ArchiveSealError(
+                "archive_version_conflict", "The publication revision does not match."
+            )
+        output = publication.get("output_type", "")
+        description = describe_browser_artifact(
+            workflow_id=publication.get("workflow_id", ""), output_type=output, name=""
+        )
+        return description.wash_u_type if description else _source_format(output)
 
     def _require_row(
         self,
@@ -331,6 +357,60 @@ class CatalogExperimentGate:
             )
 
 
+class SwitchedRunCopies:
+    """Read the operator's switched copy even after the public index advances."""
+
+    def __init__(self, workspace: Path, durable: Path) -> None:
+        self._journals = ArtifactDiskRelocation(
+            source_root=workspace, durable_root=durable
+        )
+        self._root = durable
+
+    def open(
+        self, run_id: str, artifact_id: str, generation: str, revision: str
+    ) -> ArtifactDownloadPlan | None:
+        try:
+            journal = self._journals.load(run_id, artifact_id)
+        except ArtifactDiskRelocationError as exc:
+            if exc.reason_code == "relocation_journal_missing":
+                return None
+            raise ArchiveSealError(
+                "archive_integrity", "The relocation receipt is invalid."
+            ) from None
+        if journal.stage != "switched" or (journal.generation, journal.revision) != (
+            generation,
+            revision,
+        ):
+            return None
+        copy = lookup_switched_download(
+            self._root,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            generation=generation,
+            revision=revision,
+            relative_path=journal.relative_path,
+            size_bytes=journal.size_bytes,
+        )
+        if copy.reason_code == PUBLIC_UNAVAILABLE:
+            raise ArchiveSealError(
+                "archive_offline", "The switched copy is unavailable."
+            )
+        if (
+            copy.kind != "serve"
+            or sha256(copy.content).hexdigest() != journal.content_sha256
+        ):
+            raise ArchiveSealError(
+                "archive_integrity", "The switched copy does not match its receipt."
+            )
+        return ArtifactDownloadPlan(
+            content=copy.content,
+            size_bytes=journal.size_bytes,
+            filename=PurePosixPath(journal.relative_path).name,
+            media_type="application/octet-stream",
+            content_disposition="attachment",
+        )
+
+
 class ArchiveSealingService:
     """Copy exact source bytes once and publish the sealed version."""
 
@@ -345,7 +425,7 @@ class ArchiveSealingService:
         registered_revisions: object | None = None,
         pool_lookup: object | None = None,
         pool_config_path: Path | None = None,
-        scratch_root: Path | None = None,
+        switched_copies: SwitchedRunCopies | None = None,
         assemblies: object | None = None,
     ) -> None:
         self._archive_root = archive_root
@@ -356,7 +436,7 @@ class ArchiveSealingService:
         self._registered = registered_revisions
         self._pool_lookup = pool_lookup
         self._pool_config_path = pool_config_path
-        self._scratch_root = scratch_root
+        self._switched_copies = switched_copies
         self._assemblies = assemblies
 
     def seal_registered(
@@ -391,6 +471,7 @@ class ArchiveSealingService:
             index_result_revision_id,
             "The index source is incomplete.",
         )
+        _require_index(track_type, index_result_id is not None)
         record = self._verified_record(
             project_id=project_id,
             result_id=result_id,
@@ -484,22 +565,26 @@ class ArchiveSealingService:
             index_generation,
             index_revision,
         )
-        self._experiments.require_run_publication(  # type: ignore[attr-defined]
+        _require_index(track_type, index is not None)
+        data_format = self._experiments.require_run_publication(  # type: ignore[attr-defined]
             project_id=project_id,
             experiment_id=experiment_id,
             experiment_revision_id=experiment_revision_id,
             run_id=run_id,
             artifact_id=artifact_id,
             generation=generation,
+            revision=revision,
         )
+        index_format = None
         if index is not None:
-            self._experiments.require_run_publication(  # type: ignore[attr-defined]
+            index_format = self._experiments.require_run_publication(  # type: ignore[attr-defined]
                 project_id=project_id,
                 experiment_id=experiment_id,
                 experiment_revision_id=experiment_revision_id,
                 run_id=run_id,
                 artifact_id=index[0],
                 generation=index[1],
+                revision=index[2],
             )
         if self._assemblies is not None:
             self._require_source_assembly(
@@ -523,17 +608,19 @@ class ArchiveSealingService:
             if index is not None:
                 index_plan = self._open_run(run_id, index[0], index[1], index[2])
             _require_declared_format(
-                getattr(data_plan, "filename", ""),
+                data_format or "",
                 track_type,
-                index_present=index_plan is not None,
+                filename=data_plan.filename,
                 role="data",
+                native=True,
             )
             if index_plan is not None:
                 _require_declared_format(
-                    getattr(index_plan, "filename", ""),
+                    index_format or "",
                     track_type,
-                    index_present=True,
+                    filename=index_plan.filename,
                     role="index",
+                    native=True,
                 )
             members = {"data": self._seal_download(data_plan)}
             if index_plan is not None:
@@ -556,8 +643,8 @@ class ArchiveSealingService:
 
     def _require_registered_formats(
         self,
-        record: object,
-        index_record: object | None,
+        record: RevisionRecord,
+        index_record: RevisionRecord | None,
         track_type: str,
     ) -> None:
         data_format = metadata_from_canonical_json(
@@ -566,7 +653,7 @@ class ArchiveSealingService:
         _require_declared_format(
             data_format,
             track_type,
-            index_present=index_record is not None,
+            filename=record.relative_path,
             role="data",
         )
         if index_record is None:
@@ -577,11 +664,11 @@ class ArchiveSealingService:
         _require_declared_format(
             index_format,
             track_type,
-            index_present=True,
+            filename=index_record.relative_path,
             role="index",
         )
 
-    def _registered_bound_assembly(self, record: object | None) -> str | None:
+    def _registered_bound_assembly(self, record: RevisionRecord | None) -> str | None:
         if record is None or self._assemblies is None:
             return None
         metadata = metadata_from_canonical_json(
@@ -644,7 +731,7 @@ class ArchiveSealingService:
         project_id: str,
         result_id: str,
         result_revision_id: str,
-    ) -> object:
+    ) -> RevisionRecord:
         if self._registered is None:
             raise ArchiveSealError(
                 "archive_offline",
@@ -728,53 +815,36 @@ class ArchiveSealingService:
                 "The registered storage pool is unavailable.",
             ) from None
 
-    def _seal_registered_member(self, record: object) -> object:
-        root = self._pool_root(record.storage_pool_id)  # type: ignore[attr-defined]
-        response_root = self._scratch_root
-        if response_root is None:
-            response_root = Path(tempfile.gettempdir())
-        copy_path: Path | None = None
-        directory: Path | None = None
-        descriptor: int | None = None
+    def _seal_registered_member(self, record: RevisionRecord) -> SealedMember:
+        root = self._pool_root(record.storage_pool_id)
         try:
-            copy_path, directory = seal_private_copy(
-                root=root,
-                relative_path=record.relative_path,  # type: ignore[attr-defined]
-                expected_size=record.size_bytes,  # type: ignore[attr-defined]
-                expected_sha256=record.content_sha256,  # type: ignore[attr-defined]
-                response_root=response_root,
-            )
-            descriptor = open_verified_copy(copy_path)
-            info = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(info.st_mode) or info.st_size != record.size_bytes  # type: ignore[attr-defined]
-            ):
-                raise ArchiveSealError(
-                    "archive_integrity",
-                    "The registered bytes do not match the stored digest.",
-                )
-            return self._seal_descriptor(
-                descriptor,
-                record.content_sha256,  # type: ignore[attr-defined]
-            )
-        except ArchiveSealError:
-            raise
-        except RegisteredResultBytesError:
+            relative = validate_input_file_relative_path(record.relative_path)
+        except ValueError:
             raise ArchiveSealError(
-                "archive_integrity",
-                "The registered bytes do not match the stored digest.",
+                "archive_integrity", "The registered location is invalid."
             ) from None
+        try:
+            try:
+                descriptor = _open_leaf(root / relative)
+            except FileNotFoundError:
+                # A retired source can only be recovered from the operator archive
+                # at the exact address attested by this registered revision.
+                assert self._archive_root is not None
+                descriptor = _open_leaf(self._archive_root / record.content_sha256)
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_size != record.size_bytes:
+                    raise ArchiveSealError(
+                        "archive_integrity",
+                        "The registered member does not match its revision.",
+                    )
+                return self._seal_descriptor(descriptor, record.content_sha256)
+            finally:
+                os.close(descriptor)
         except OSError:
             raise ArchiveSealError(
-                "archive_offline",
-                "The registered bytes are unavailable.",
+                "archive_offline", "The registered bytes are unavailable."
             ) from None
-        finally:
-            if descriptor is not None:
-                with suppress(OSError):
-                    os.close(descriptor)
-            if copy_path is not None and directory is not None:
-                discard_private_copy(copy_path, directory)
 
     def _open_run(
         self,
@@ -782,7 +852,11 @@ class ArchiveSealingService:
         artifact_id: str,
         generation: str,
         revision: str,
-    ) -> object:
+    ) -> ArtifactDownloadPlan:
+        if self._switched_copies is not None:
+            plan = self._switched_copies.open(run_id, artifact_id, generation, revision)
+            if plan is not None:
+                return plan
         if self._downloads is None:
             raise ArchiveSealError(
                 "archive_offline",
@@ -798,53 +872,37 @@ class ArchiveSealingService:
             raise _download_failure(result)
         return result.value
 
-    def _seal_download(self, plan: object) -> object:
-        handle = tempfile.TemporaryFile()
+    def _seal_download(self, plan: ArtifactDownloadPlan) -> SealedMember:
         try:
-            written = 0
-            try:
-                for chunk in plan.iter_bytes():  # type: ignore[attr-defined]
-                    if not isinstance(chunk, bytes):
-                        raise ArchiveSealError(
-                            "archive_integrity",
-                            "The run artifact bytes do not match the indexed revision.",
-                        )
+            with tempfile.TemporaryFile() as handle:
+                for chunk in plan.iter_bytes():
                     handle.write(chunk)
-                    written += len(chunk)
-            except ArchiveSealError:
-                raise
-            except ArtifactDownloadStreamError:
-                raise ArchiveSealError(
-                    "archive_integrity",
-                    "The run artifact bytes do not match the indexed revision.",
-                ) from None
-            except OSError:
-                raise ArchiveSealError(
-                    "archive_offline",
-                    "The run artifact is unavailable.",
-                ) from None
-            if written != plan.size_bytes:  # type: ignore[attr-defined]
-                raise ArchiveSealError(
-                    "archive_integrity",
-                    "The run artifact bytes do not match the indexed revision.",
-                )
-            handle.flush()
-            os.lseek(handle.fileno(), 0, os.SEEK_SET)
-            member = self._seal_descriptor(handle.fileno(), None)
-            if getattr(member, "size_bytes", None) != plan.size_bytes:  # type: ignore[attr-defined]
-                raise ArchiveSealError(
-                    "archive_integrity",
-                    "The sealed member is incomplete.",
-                )
-            return member
-        finally:
-            handle.close()
+                if handle.tell() != plan.size_bytes:
+                    raise ArchiveSealError(
+                        "archive_integrity", "The run artifact is incomplete."
+                    )
+                handle.seek(0)
+                member = self._seal_descriptor(handle.fileno(), None)
+                if member.size_bytes != plan.size_bytes:
+                    raise ArchiveSealError(
+                        "archive_integrity", "The sealed member is incomplete."
+                    )
+                return member
+        except ArtifactDownloadStreamError:
+            raise ArchiveSealError(
+                "archive_integrity",
+                "The run artifact bytes do not match the indexed revision.",
+            ) from None
+        except OSError:
+            raise ArchiveSealError(
+                "archive_offline", "The run artifact is unavailable."
+            ) from None
 
     def _seal_descriptor(
         self,
         descriptor: int,
         expected_sha256: str | None,
-    ) -> object:
+    ) -> SealedMember:
         try:
             member = self._objects.seal_fd(  # type: ignore[attr-defined]
                 descriptor,
@@ -857,14 +915,25 @@ class ArchiveSealingService:
         _require_member(member, expected_sha256)
         return member
 
-    def _publish(self, **kwargs: object) -> dict[str, object]:
+    def _publish(
+        self, *, members: dict[str, SealedMember], **kwargs: object
+    ) -> dict[str, object]:
         try:
-            version = self._repository.publish(**kwargs)  # type: ignore[attr-defined]
+            if "index" in members:
+                data, index = members["data"], members["index"]
+                with (
+                    self._objects.open_member(data) as data_reader,
+                    self._objects.open_member(index) as index_reader,
+                ):
+                    verify_longrange_index(
+                        data_reader, data.size_bytes, index_reader, index.size_bytes
+                    )
+            version = self._repository.publish(members=members, **kwargs)  # type: ignore[attr-defined]
         except ArchiveSealError:
             raise
         except Exception as exc:
             raise _store_failure(exc) from None
-        _require_version(version, **kwargs)
+        _require_version(version, members=members, **kwargs)
         return require_operator_receipt(_receipt(version))
 
 
@@ -1166,56 +1235,99 @@ def _download_failure(result: object) -> ArchiveSealError:
     )
 
 
-def _explicit_track(value: str) -> str | None:
-    """Return a track type only when the source name states one."""
+def _open_leaf(path: Path) -> int:
+    directory = _open_absolute_directory(path.parent)
+    try:
+        return os.open(path.name, _file_flags(), dir_fd=directory)
+    finally:
+        os.close(directory)
 
-    lower = value.lower()
-    if lower.endswith((".tbi", ".idx", ".bai")):
-        return None
-    if lower.endswith((".bw", ".bigwig")) or lower in {"bigwig", "bw"}:
-        return "bigwig"
-    if lower.endswith(".bed") or lower == "bed":
-        return "bed"
-    token = "".join(character for character in lower if character.isalnum())
-    if "longrange" in token or lower.endswith((".pairs", ".hic", ".bedpe")):
-        return "longrange"
+
+def _require_index(track_type: str, present: bool) -> None:
+    if present != (track_type == "longrange"):
+        raise ArchiveSealError(
+            "archive_invalid", "Only longrange requires a separate tabix index."
+        )
+
+
+_FORMATS = {
+    "bigwig": ("bw", "bigwig"),
+    "bed": ("bed", "narrowpeak", "broadpeak"),
+    "longrange": (
+        "longrange",
+        "longrange.gz",
+        "longrange.bgz",
+        "indexed-longrange",
+        "pairs",
+        "pairs.gz",
+        "bedpe",
+        "bedpe.gz",
+    ),
+    "tbi": ("tbi", "tabix", "tabix-index"),
+    "unsupported": (
+        "bai",
+        "bam",
+        "csi",
+        "hic",
+        "cool",
+        "mcool",
+        "bigbed",
+        "bb",
+        "vcf",
+        "vcf.gz",
+        "json",
+        "cram",
+        "idx",
+    ),
+}
+
+
+def _source_format(value: str) -> str | None:
+    name = value.casefold().replace("_", "-")
+    for kind, suffixes in _FORMATS.items():
+        if any(name == suffix or name.endswith("." + suffix) for suffix in suffixes):
+            return kind
     return None
 
 
-def _format_requires_index(value: str) -> bool:
-    token = "".join(character for character in value.lower() if character.isalnum())
-    return "longrange" in token and "index" in token
-
-
 def _require_declared_format(
-    declared: object,
+    declared: str,
     track_type: str,
     *,
-    index_present: bool,
     role: str,
+    filename: str,
+    native: bool = False,
 ) -> None:
-    if not isinstance(declared, str) or not declared:
+    # Registered formats are explicit. An unspecified format can still use
+    # the private name recorded by that revision or the native publication.
+    expected = "tbi" if role == "index" else track_type
+    if declared.casefold() in {
+        "",
+        "unknown",
+        "other",
+        "unspecified",
+        "file",
+        "binary",
+        "bgzf",
+        "bgzip",
+        "gzip",
+        "gz",
+    }:
+        observed = _source_format(filename)
+        if (
+            observed is None
+            and expected == "longrange"
+            and filename.casefold().endswith((".gz", ".bgz", ".bgzf"))
+        ):
+            # A generic BGZF name also requires a successful indexed read.
+            return
+    else:
+        observed = _source_format(declared)
+    if observed != expected or (
+        native and _source_format(filename) not in (None, expected)
+    ):
         raise ArchiveSealError(
-            "archive_invalid",
-            "The source format does not match the track type.",
-        )
-    explicit = _explicit_track(declared)
-    if role == "index":
-        if explicit is not None:
-            raise ArchiveSealError(
-                "archive_invalid",
-                "The index source does not match the track.",
-            )
-        return
-    if explicit is not None and explicit != track_type:
-        raise ArchiveSealError(
-            "archive_invalid",
-            "The source format does not match the track type.",
-        )
-    if _format_requires_index(declared) and not index_present:
-        raise ArchiveSealError(
-            "archive_invalid",
-            "The index source is incomplete.",
+            "archive_invalid", "The source format does not match the track member."
         )
 
 
