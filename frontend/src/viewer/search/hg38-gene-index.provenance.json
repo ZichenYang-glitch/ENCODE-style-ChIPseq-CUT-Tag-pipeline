@@ -1,0 +1,48 @@
+{
+  "annotation": {
+    "release": "GENCODE human 49",
+    "source_url": "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.primary_assembly.annotation.gtf.gz",
+    "filename": "GRCh38.annotation.gtf",
+    "bytes": 3327017727,
+    "sha256": "9578f079f35e9e550245db9ed7ad3181ccd60414df4e87e60c1e8617c0529d2d",
+    "feature": "gene",
+    "assembly_accession": "GCA_000001405.15",
+    "genome_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz",
+    "genomepy_version": "0.16.3",
+    "readme_date": "2025-12-19 16:30:21",
+    "readme_filename": "README.txt",
+    "readme_sha256": "70fd2c2c66a603225565ef754e4f3601dfda216b74a641939774ca4d98fd52c6",
+    "attestation": "The GTF has no ##version header. The release is the annotation url in the local genomepy README, and the file identity is the SHA-256 of the GTF bytes. Sequence names in that GTF are already UCSC-style.",
+    "license": "GENCODE project data is open access (https://www.gencodegenes.org/pages/data_access.html). Reuse follows the EMBL-EBI Terms of Use: EMBL-EBI expects attribution and does not add restrictions beyond the data owner's terms. This index redistributes gene id, symbol, type, strand, and span for browser search. It is not the GTF."
+  },
+  "assembly_report": {
+    "filename": "assembly_report.txt",
+    "sha256": "f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12",
+    "admitted_sequence_names": 455
+  },
+  "aliases": {
+    "source": "HGNC complete set",
+    "filename": "hgnc_complete_set.txt",
+    "bytes": 16940274,
+    "sha256": "69bb5722d5a42bb355580deb2c9f197ce3d7f7d13807173b9674a7db65e52191",
+    "fields": [
+      "symbol",
+      "alias_symbol",
+      "prev_symbol"
+    ],
+    "join": "Ensembl gene id without version",
+    "license": "HGNC alias_symbol and prev_symbol are taken from the HGNC complete set, which HGNC releases under CC0. Attribution is requested: Seal et al., Nucleic Acids Research (2023); HGNC RRID:SCR_002827."
+  },
+  "generator": "frontend/src/viewer/search/build_grch38_gene_index.py",
+  "coordinate_system": "1-based-closed",
+  "region_format": "chrom:start-end",
+  "coordinate_note": "Spans are GENCODE gene-feature coordinates: 1-based and closed, written as chrom:start-end. Typed coordinates are passed through unchanged. The same span in 0-based half-open BED form uses start-1 and the same end.",
+  "assembly_note": "assembly_match lists browser scaffolds that use these primary chromosome coordinates. GENCODE 49 annotates GRCh38.p14. The local README identifies UCSC hg38 and its assembly accession. This primary-assembly GTF has no patch or alt loci. Sequences are kept only when the assembly report gives them a UCSC-style name.",
+  "counts": {
+    "genes": 78899,
+    "aliases": 58682,
+    "chromosomes": 70,
+    "dropped_incomplete": 0,
+    "dropped_unknown_sequence": 0
+  }
+}
