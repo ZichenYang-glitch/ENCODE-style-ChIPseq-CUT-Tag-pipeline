@@ -1,15 +1,19 @@
 """Serve three synthetic runs and the packaged page on one origin.
 
-The opened run and a second run are both hg38, with different reference
-profile identities. A third run is mm10. Track bytes stay on the existing
-session and artifact routes. POST /__washu_overlay__/invalidate replaces the
-second run's peak so its previous generation and revision no longer read.
+By default the opened run and a second run are both hg38, with different
+reference profile identities, and a third run is mm10. ``--assembly mm10``
+or ``GRCm38`` makes those two runs the mouse target instead. The local peak
+then declares mm10, and the third run is a different assembly (hg38 by
+default, or mm39). Track bytes stay on the existing session and artifact
+routes. POST /__washu_overlay__/invalidate replaces the second run's peak
+so its previous generation and revision no longer read.
 """
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import secrets
@@ -50,9 +54,88 @@ WINDOW = "chr1:4500-6700"
 PRIMARY_PEAK = b"chr1\t5500\t5700\tpeak-primary\t61\t+\n"
 SECOND_PEAK = b"chr1\t6000\t6200\tpeak-second\t73\t+\n"
 FOREIGN_PEAK = b"chr1\t5500\t5700\tpeak-foreign\t11\t+\n"
+LOCAL_PEAK = "chr1\t5800\t6000\tpeak-local\n"
 PRIMARY_NAME = "primary_peaks.narrowPeak"
 SECOND_NAME = "second_peaks.narrowPeak"
 FOREIGN_NAME = "foreign_peaks.narrowPeak"
+DEFAULT_LOCAL_BED = "overlay-peak-local.bed"
+
+
+@dataclass(frozen=True)
+class _Assembly:
+    label: str
+    scaffold: str
+    organism: str
+
+
+@dataclass(frozen=True)
+class AssemblyPlan:
+    """Target the proof asked for, plus the one assembly that must be refused."""
+
+    label: str
+    scaffold: str
+    organism: str
+    local_declaration: str | None
+    foreign_label: str
+    foreign_scaffold: str
+    foreign_organism: str
+
+
+_TARGETS = {
+    "hg38": _Assembly("hg38", "hg38", "Homo sapiens"),
+    "mm10": _Assembly("mm10", "mm10", "Mus musculus"),
+    "grcm38": _Assembly("GRCm38", "mm10", "Mus musculus"),
+}
+_FOREIGN = {
+    "hg38": _Assembly("hg38", "hg38", "Homo sapiens"),
+    "mm10": _Assembly("mm10", "mm10", "Mus musculus"),
+    "mm39": _Assembly("mm39", "mm39", "Mus musculus"),
+}
+
+
+def assembly_plan(assembly: str = "hg38", foreign: str | None = None) -> AssemblyPlan:
+    """Resolve a target label and a scaffold that cannot share its window.
+
+    hg38 keeps the undeclared local fixture. mm10 and GRCm38 both navigate
+    on the mm10 scaffold, and the synthetic local peak declares mm10 either way.
+    """
+
+    target = _TARGETS.get(assembly.strip().lower())
+    if target is None:
+        known = ", ".join(item.label for item in _TARGETS.values())
+        raise ValueError(f"assembly must be one of {known}")
+    if foreign is None:
+        foreign_name = "mm10" if target.scaffold == "hg38" else "hg38"
+    else:
+        foreign_name = foreign
+    other = _FOREIGN.get(foreign_name.strip().lower())
+    if other is None:
+        known = ", ".join(item.label for item in _FOREIGN.values())
+        raise ValueError(f"foreign assembly must be one of {known}")
+    if other.scaffold == target.scaffold:
+        raise ValueError(
+            f"{other.label} uses the same {target.scaffold} scaffold as {target.label}"
+        )
+    declaration = None if target.scaffold == "hg38" else "mm10"
+    return AssemblyPlan(
+        label=target.label,
+        scaffold=target.scaffold,
+        organism=target.organism,
+        local_declaration=declaration,
+        foreign_label=other.label,
+        foreign_scaffold=other.scaffold,
+        foreign_organism=other.organism,
+    )
+
+
+def _write_declared_bed(workspace: Path, declaration: str) -> str:
+    workspace.mkdir(parents=True, exist_ok=True)
+    path = workspace / "overlay-peak-local-mm10.bed"
+    path.write_text(
+        f"browser genome {declaration}\n{LOCAL_PEAK}",
+        encoding="utf-8",
+    )
+    return str(path)
 
 
 class _Client:
@@ -159,7 +242,13 @@ def _prepare(app, client: _Client, run_id: str, artifact) -> None:
     )
 
 
-def _install_invalidate(app, client: _Client, second_run_id: str, token: str) -> None:
+def _install_invalidate(
+    app,
+    client: _Client,
+    second_run_id: str,
+    token: str,
+    assembly: str,
+) -> None:
     bumps = {"count": 0}
 
     async def invalidate(request: Request):
@@ -179,7 +268,7 @@ def _install_invalidate(app, client: _Client, second_run_id: str, token: str) ->
         score = 80 + bumps["count"]
         content = f"chr1\t6000\t6200\tpeak-second\t{score}\t+\n".encode()
         try:
-            artifact = _peak(client, second_run_id, SECOND_NAME, content, "hg38")
+            artifact = _peak(client, second_run_id, SECOND_NAME, content, assembly)
             generation = _generation(client, second_run_id)
         except Exception:
             return JSONResponse(
@@ -201,7 +290,13 @@ def _install_invalidate(app, client: _Client, second_run_id: str, token: str) ->
     )
 
 
-def build_app(database: Path, workspace: Path):
+def build_app(
+    database: Path,
+    workspace: Path,
+    assembly: str = "hg38",
+    foreign: str | None = None,
+):
+    plan = assembly_plan(assembly, foreign)
     app = create_app(
         database_url=f"sqlite:///{database}",
         workspace_root=workspace,
@@ -209,36 +304,66 @@ def build_app(database: Path, workspace: Path):
     seed_test_authentication(app)
     client = _Client(app)
     primary_run_id = _create_run(client)
-    _bind_reference(client, primary_run_id, assembly="hg38")
-    primary = _peak(client, primary_run_id, PRIMARY_NAME, PRIMARY_PEAK, "hg38")
+    if plan.label == "hg38":
+        # The default primary profile is the shared browser fixture, so the
+        # hg38 evidence keeps that identity, organism, and display name.
+        _bind_reference(client, primary_run_id, assembly="hg38")
+    else:
+        _bind_distinct(
+            client,
+            primary_run_id,
+            assembly=plan.label,
+            organism=plan.organism,
+            marker="56" * 16,
+            display_name=f"Overlay primary {plan.label}",
+        )
+    primary = _peak(client, primary_run_id, PRIMARY_NAME, PRIMARY_PEAK, plan.label)
     _prepare(app, client, primary_run_id, primary)
 
     second_run_id = _create_run(client)
+    second_name = "Overlay second hg38" if plan.label == "hg38" else (
+        f"Overlay second {plan.label}"
+    )
     _bind_distinct(
         client,
         second_run_id,
-        assembly="hg38",
-        organism="Homo sapiens",
+        assembly=plan.label,
+        organism=plan.organism,
         marker="12" * 16,
-        display_name="Overlay second hg38",
+        display_name=second_name,
     )
-    second = _peak(client, second_run_id, SECOND_NAME, SECOND_PEAK, "hg38")
+    second = _peak(client, second_run_id, SECOND_NAME, SECOND_PEAK, plan.label)
     _prepare(app, client, second_run_id, second)
 
     foreign_run_id = _create_run(client)
+    foreign_name = (
+        "Overlay mouse mm10"
+        if plan.foreign_label == "mm10"
+        else f"Overlay foreign {plan.foreign_label}"
+    )
     _bind_distinct(
         client,
         foreign_run_id,
-        assembly="mm10",
-        organism="Mus musculus",
+        assembly=plan.foreign_label,
+        organism=plan.foreign_organism,
         marker="34" * 16,
-        display_name="Overlay mouse mm10",
+        display_name=foreign_name,
     )
-    foreign = _peak(client, foreign_run_id, FOREIGN_NAME, FOREIGN_PEAK, "mm10")
+    foreign = _peak(
+        client,
+        foreign_run_id,
+        FOREIGN_NAME,
+        FOREIGN_PEAK,
+        plan.foreign_label,
+    )
     _prepare(app, client, foreign_run_id, foreign)
 
+    if plan.local_declaration is None:
+        local_bed = DEFAULT_LOCAL_BED
+    else:
+        local_bed = _write_declared_bed(workspace, plan.local_declaration)
     token = secrets.token_hex(24)
-    _install_invalidate(app, client, second_run_id, token)
+    _install_invalidate(app, client, second_run_id, token, plan.label)
     app.mount(
         "/",
         ManifestStaticApplication(load_packaged_frontend_assets()),
@@ -254,7 +379,14 @@ def build_app(database: Path, workspace: Path):
         "second_generation": _generation(client, second_run_id),
         "second_revision": second.revision,
         "window": WINDOW,
-        "local_bed": "overlay-peak-local.bed",
+        "assembly": plan.label,
+        "scaffold": plan.scaffold,
+        "organism": plan.organism,
+        "foreign_assembly": plan.foreign_label,
+        "foreign_scaffold": plan.foreign_scaffold,
+        "foreign_organism": plan.foreign_organism,
+        "local_declaration": plan.local_declaration,
+        "local_bed": local_bed,
         "local_peak": "peak-local",
         "token": token,
     }
@@ -266,8 +398,18 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--assembly", default="hg38")
+    parser.add_argument("--foreign", default=None)
     args = parser.parse_args()
-    _app, manifest = build_app(args.database, args.workspace)
+    try:
+        _app, manifest = build_app(
+            args.database,
+            args.workspace,
+            assembly=args.assembly,
+            foreign=args.foreign,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     print(
         "WASHU_OVERLAY " + json.dumps(manifest, separators=(",", ":")),
         flush=True,
