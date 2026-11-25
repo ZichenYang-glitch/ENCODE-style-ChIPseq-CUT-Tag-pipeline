@@ -410,6 +410,7 @@ class ArchiveSealingService:
                 result_id=index_result_id,
                 result_revision_id=index_result_revision_id,
             )
+        self._require_registered_formats(record, index_record, track_type)
         self._require_source_assembly(
             assembly,
             self._registered_bound_assembly(record),
@@ -521,6 +522,19 @@ class ArchiveSealingService:
         try:
             if index is not None:
                 index_plan = self._open_run(run_id, index[0], index[1], index[2])
+            _require_declared_format(
+                getattr(data_plan, "filename", ""),
+                track_type,
+                index_present=index_plan is not None,
+                role="data",
+            )
+            if index_plan is not None:
+                _require_declared_format(
+                    getattr(index_plan, "filename", ""),
+                    track_type,
+                    index_present=True,
+                    role="index",
+                )
             members = {"data": self._seal_download(data_plan)}
             if index_plan is not None:
                 members["index"] = self._seal_download(index_plan)
@@ -539,6 +553,33 @@ class ArchiveSealingService:
             if index_plan is not None:
                 index_plan.close()
             data_plan.close()
+
+    def _require_registered_formats(
+        self,
+        record: object,
+        index_record: object | None,
+        track_type: str,
+    ) -> None:
+        data_format = metadata_from_canonical_json(
+            record.canonical_payload  # type: ignore[attr-defined]
+        ).format
+        _require_declared_format(
+            data_format,
+            track_type,
+            index_present=index_record is not None,
+            role="data",
+        )
+        if index_record is None:
+            return
+        index_format = metadata_from_canonical_json(
+            index_record.canonical_payload  # type: ignore[attr-defined]
+        ).format
+        _require_declared_format(
+            index_format,
+            track_type,
+            index_present=True,
+            role="index",
+        )
 
     def _registered_bound_assembly(self, record: object | None) -> str | None:
         if record is None or self._assemblies is None:
@@ -1100,6 +1141,59 @@ def _download_failure(result: object) -> ArchiveSealError:
         "archive_integrity",
         "The run artifact bytes do not match the indexed revision.",
     )
+
+
+def _explicit_track(value: str) -> str | None:
+    """Return a track type only when the source name states one."""
+
+    lower = value.lower()
+    if lower.endswith((".tbi", ".idx", ".bai")):
+        return None
+    if lower.endswith((".bw", ".bigwig")) or lower in {"bigwig", "bw"}:
+        return "bigwig"
+    if lower.endswith(".bed") or lower == "bed":
+        return "bed"
+    token = "".join(character for character in lower if character.isalnum())
+    if "longrange" in token or lower.endswith((".pairs", ".hic", ".bedpe")):
+        return "longrange"
+    return None
+
+
+def _format_requires_index(value: str) -> bool:
+    token = "".join(character for character in value.lower() if character.isalnum())
+    return "longrange" in token and "index" in token
+
+
+def _require_declared_format(
+    declared: object,
+    track_type: str,
+    *,
+    index_present: bool,
+    role: str,
+) -> None:
+    if not isinstance(declared, str) or not declared:
+        raise ArchiveSealError(
+            "archive_invalid",
+            "The source format does not match the track type.",
+        )
+    explicit = _explicit_track(declared)
+    if role == "index":
+        if explicit is not None:
+            raise ArchiveSealError(
+                "archive_invalid",
+                "The index source does not match the track.",
+            )
+        return
+    if explicit is not None and explicit != track_type:
+        raise ArchiveSealError(
+            "archive_invalid",
+            "The source format does not match the track type.",
+        )
+    if _format_requires_index(declared) and not index_present:
+        raise ArchiveSealError(
+            "archive_invalid",
+            "The index source is incomplete.",
+        )
 
 
 def _labels(

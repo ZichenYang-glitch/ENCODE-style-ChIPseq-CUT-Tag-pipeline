@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -310,3 +312,266 @@ def test_compose_passes_worker_settings_archive_root(
     assert seen["run_repository"] is persistence.repository
     assert opened is persistence
     opened.close()
+
+
+def test_public_cli_reseals_the_registered_revision_by_digest(tmp_path: Path, capsys):
+    """The installed command reads the registered path and sha, not another copy."""
+
+    from encode_pipeline.persistence.database import (
+        create_database_engine,
+        create_session_factory,
+    )
+    from encode_pipeline.persistence.migrations import upgrade_database
+    from encode_pipeline.persistence.models import (
+        ExperimentRevisionRow,
+        ExperimentRow,
+        ProjectRow,
+        RegisteredResultRevisionHeadRow,
+        RegisteredResultRevisionRow,
+        RegisteredResultRow,
+        StoragePoolRow,
+    )
+    from encode_pipeline.platform.experiment_catalog import (
+        EXPERIMENT_REVISION_PAYLOAD_DIGEST_SCHEME,
+        build_experiment_revision_payload_digest,
+        interpret_stored_experiment_payload,
+    )
+    from encode_pipeline.platform.registered_results import (
+        REVISION_DIGEST_SCHEME,
+        build_revision_digest,
+        parse_metadata,
+    )
+    from encode_pipeline.services.private_storage_pools import (
+        PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+    )
+
+    database = tmp_path / "platform.db"
+    url = f"sqlite:///{database}"
+    upgrade_database(url)
+    project = "prj_" + "a" * 32
+    experiment = "exp_" + "b" * 32
+    revision = "expr_" + "c" * 32
+    result = "rreg_" + "1" * 32
+    old_revision = "rrev_" + "2" * 32
+    new_revision = "rrev_" + "3" * 32
+    pool = "stgp_" + "6" * 32
+    now = datetime.now(timezone.utc)
+    payload = parse_metadata(
+        {
+            "display_name": "signal.bw",
+            "format": "bigwig",
+            "origin": {"kind": "external", "source": {"status": "unknown"}},
+            "method": {"status": "unknown"},
+            "reference": {"status": "unknown"},
+        }
+    ).canonical_json()
+    experiment_body = interpret_stored_experiment_payload(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "display_name": "Pilot",
+                "assay": {"status": "unknown"},
+                "target": {"status": "unknown"},
+                "batch": {"status": "unknown"},
+                "samples": [
+                    {
+                        "ordinal": 0,
+                        "sample_revision_id": "smpr_" + "a" * 32,
+                        "payload_digest": "f" * 64,
+                        "replicate_role": {"status": "unknown"},
+                    }
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    ).canonical_json()
+    pool_root = tmp_path / "pool"
+    archive = tmp_path / "archive"
+    workspace = tmp_path / "workspaces"
+    pool_root.mkdir()
+    archive.mkdir()
+    workspace.mkdir()
+    old_bytes = b"v1-signal-bytes"
+    new_bytes = b"v2-signal-bytes"
+    (pool_root / "v1").mkdir()
+    (pool_root / "v2").mkdir()
+    (pool_root / "v1" / "signal.bw").write_bytes(old_bytes)
+    (pool_root / "v2" / "signal.bw").write_bytes(new_bytes)
+    (pool_root / "switched").mkdir()
+    (pool_root / "switched" / "signal.bw").write_bytes(old_bytes)
+    config = tmp_path / "pools.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema_version": PRIVATE_STORAGE_POOL_SCHEMA_VERSION,
+                "storage_pool_roots": {"primary-inputs": str(pool_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def revision_row(revision_id: str, number: int, relative: str, content: bytes):
+        return RegisteredResultRevisionRow(
+            result_revision_id=revision_id,
+            result_id=result,
+            revision_number=number,
+            canonical_payload=payload,
+            digest_scheme=REVISION_DIGEST_SCHEME,
+            revision_digest=build_revision_digest(
+                project_id=project,
+                result_id=result,
+                result_revision_id=revision_id,
+                revision_number=number,
+                canonical_payload=payload,
+                storage_pool_id=pool,
+                relative_path=relative,
+                size_bytes=len(content),
+                content_sha256=hashlib.sha256(content).hexdigest(),
+                parents=(),
+            ),
+            created_at=now,
+            storage_pool_id=pool,
+            relative_path=relative,
+            size_bytes=len(content),
+            content_sha256=hashlib.sha256(content).hexdigest(),
+        )
+
+    engine = create_database_engine(url)
+    sessions = create_session_factory(engine)
+    with sessions.begin() as db:
+        db.add(
+            ProjectRow(
+                project_id=project,
+                display_name="Project",
+                kind="user",
+                created_at=now,
+            )
+        )
+        db.add(
+            StoragePoolRow(
+                storage_pool_id=pool,
+                display_name="Pool",
+                config_key="primary-inputs",
+                created_at=now,
+            )
+        )
+        db.flush()
+        db.add(
+            ExperimentRow(
+                experiment_id=experiment,
+                project_id=project,
+                stable_key="exp",
+                created_at=now,
+            )
+        )
+        db.add(
+            RegisteredResultRow(
+                result_id=result,
+                project_id=project,
+                stable_key="signal",
+                created_at=now,
+            )
+        )
+        db.flush()
+        db.add(
+            ExperimentRevisionRow(
+                experiment_revision_id=revision,
+                experiment_id=experiment,
+                project_id=project,
+                revision_number=1,
+                canonical_payload=experiment_body,
+                payload_digest_scheme=EXPERIMENT_REVISION_PAYLOAD_DIGEST_SCHEME,
+                payload_digest=build_experiment_revision_payload_digest(
+                    experiment_body
+                ),
+                created_at=now,
+            )
+        )
+        db.add(revision_row(old_revision, 1, "v1/signal.bw", old_bytes))
+        db.add(revision_row(new_revision, 2, "v2/signal.bw", new_bytes))
+        db.flush()
+        db.add(
+            RegisteredResultRevisionHeadRow(
+                result_id=result,
+                result_revision_id=new_revision,
+                revision_number=2,
+            )
+        )
+    engine.dispose()
+
+    def invoke(revision_id: str, track_type: str = "bigwig") -> tuple[int, str, str]:
+        code = archive_cli.main(
+            [
+                "seal",
+                "registered",
+                "--database-url",
+                url,
+                "--archive-root",
+                str(archive),
+                "--storage-pool-config",
+                str(config),
+                "--workspace-root",
+                str(workspace),
+                "--project-id",
+                project,
+                "--experiment-id",
+                experiment,
+                "--experiment-revision-id",
+                revision,
+                "--track-key",
+                "signal",
+                "--display-name",
+                "signal.bw",
+                "--assembly",
+                "GRCh38",
+                "--track-type",
+                track_type,
+                "--result-id",
+                result,
+                "--result-revision-id",
+                revision_id,
+            ]
+        )
+        captured = capsys.readouterr()
+        return code, captured.out, captured.err
+
+    code, out, err = invoke(old_revision)
+    assert code == 0, err
+    first = json.loads(out)
+    assert first["assembly"] == "hg38"
+    assert first["source"]["result_revision_id"] == old_revision
+    assert first["version_number"] == 1
+    assert first["members"]["data"]["sha256"] == hashlib.sha256(old_bytes).hexdigest()
+    assert "v1/signal.bw" not in out
+
+    code, out, err = invoke(old_revision)
+    assert code == 0, err
+    assert json.loads(out)["archive_version_id"] == first["archive_version_id"]
+
+    code, out, err = invoke(new_revision)
+    assert code == 0, err
+    second = json.loads(out)
+    assert second["archive_version_id"] != first["archive_version_id"]
+    assert second["version_number"] == 2
+    assert second["source"]["result_revision_id"] == new_revision
+
+    code, _out, err = invoke(old_revision, "bed")
+    assert code == 1
+    assert json.loads(err)["error"]["code"] == "archive_invalid"
+
+    original = pool_root / "v1" / "signal.bw"
+    original.write_bytes(b"v1-signal-OTHER")
+    code, _out, err = invoke(old_revision)
+    assert code == 1
+    assert json.loads(err)["error"]["code"] == "archive_integrity"
+    original.write_bytes(old_bytes)
+    code, out, err = invoke(old_revision)
+    assert code == 0, err
+    assert json.loads(out)["archive_version_id"] == first["archive_version_id"]
+
+    original.unlink()
+    code, _out, err = invoke(old_revision)
+    assert code == 1
+    assert (pool_root / "switched" / "signal.bw").read_bytes() == old_bytes
+    original.write_bytes(old_bytes)
