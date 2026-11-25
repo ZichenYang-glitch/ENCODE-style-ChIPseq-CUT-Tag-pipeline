@@ -4,8 +4,8 @@ export const PROJECT_ID = `prj_${'1'.repeat(32)}`;
 export const EXPERIMENT_ID = `exp_${'4'.repeat(32)}`;
 export const REVISION_V1 = `expr_${'5'.repeat(32)}`;
 export const REVISION_V2 = `expr_${'6'.repeat(32)}`;
-export const ARCHIVE_V1 = `arv_${'a'.repeat(32)}`;
-export const ARCHIVE_V2 = `arv_${'b'.repeat(32)}`;
+export const ARCHIVE_V1 = `aver_${'a'.repeat(32)}`;
+export const ARCHIVE_V2 = `aver_${'b'.repeat(32)}`;
 
 export function sealedTrack(
   version: 1 | 2,

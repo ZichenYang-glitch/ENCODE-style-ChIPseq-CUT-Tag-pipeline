@@ -92,4 +92,14 @@ describe('ArchivedTrackList', () => {
       expect.any(Object),
     );
   });
+
+  it('keeps the older result reachable across a page filtered out by the API', async () => {
+    listMock.mockResolvedValueOnce({ items: [], next_offset: 50 })
+      .mockResolvedValueOnce({ items: [sealedTrack(1)], next_offset: null });
+    renderList();
+    expect(await screen.findByText('这一页没有可读取的封存版本。')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByRole('link', { name: '在 WashU 查看 signal.bw 第 1 版' }))
+      .toHaveAttribute('href', archivedViewerHref(sealedTrack(1)));
+  });
 });
