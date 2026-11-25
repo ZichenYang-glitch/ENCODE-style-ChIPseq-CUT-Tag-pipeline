@@ -33,10 +33,12 @@ _EXPERIMENT_ID = Path(pattern=r"^exp_[0-9a-f]{32}$")
 _ARCHIVE_VERSION_ID = Path(pattern=r"^aver_[0-9a-f]{32}$")
 _JSON_ERRORS = {
     400: {"model": CatalogErrorResponse},
+    "4XX": {"model": CatalogErrorResponse},
     401: {"model": AuthErrorResponse},
     404: {"model": CatalogErrorResponse},
     409: {"model": CatalogErrorResponse},
     500: {"model": CatalogErrorResponse},
+    503: {"model": AuthErrorResponse},
 }
 _BYTE_ERRORS = {
     **_JSON_ERRORS,
@@ -58,7 +60,7 @@ _BYTE_SUCCESS = {
     "description": (
         "Bytes of the requested sealed member. One Range returns 206 with "
         "Content-Range. An unsatisfiable range returns 416. Responses use "
-        "private, no-store caching."
+        "private, no-store caching. HEAD returns the same headers without a body."
     ),
     "content": {
         "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
@@ -66,7 +68,9 @@ _BYTE_SUCCESS = {
     "headers": {
         "Accept-Ranges": {"schema": {"type": "string"}},
         "Cache-Control": {"schema": {"type": "string"}},
+        "Content-Length": {"schema": {"type": "integer", "minimum": 0}},
         "Content-Range": {"schema": {"type": "string"}},
+        "X-Content-Type-Options": {"schema": {"type": "string"}},
     },
 }
 
@@ -110,7 +114,7 @@ def _dump_track(payload: dict) -> dict:
     operation_id="catalogListArchivedTracks",
     responses=_JSON_ERRORS,
 )
-async def catalog_list_archived_tracks(
+def catalog_list_archived_tracks(
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,
     limit: int = Query(default=50, ge=1, le=100),
@@ -154,7 +158,7 @@ async def catalog_list_archived_tracks(
     operation_id="catalogGetArchivedTrack",
     responses=_JSON_ERRORS,
 )
-async def catalog_get_archived_track(
+def catalog_get_archived_track(
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,
     archive_version_id: str = _ARCHIVE_VERSION_ID,
@@ -197,6 +201,7 @@ def _read_bytes(
     index: bool,
     head: bool,
 ) -> Response:
+    ranges = request.headers.getlist("range")
     try:
         body = service.open_bytes(
             principal,
@@ -204,7 +209,7 @@ def _read_bytes(
             experiment_id,
             archive_version_id,
             index=index,
-            range_header=request.headers.get("range"),
+            range_header=",".join(ranges) if ranges else None,
             head=head,
         )
     except ArchivedTrackError as exc:
@@ -219,7 +224,7 @@ def _read_bytes(
     operation_id="catalogReadArchivedTrackContent",
     responses={200: _BYTE_SUCCESS, 206: _BYTE_SUCCESS, **_BYTE_ERRORS},
 )
-async def catalog_read_archived_track_content(
+def catalog_read_archived_track_content(
     request: Request,
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,
@@ -248,7 +253,7 @@ async def catalog_read_archived_track_content(
     operation_id="catalogHeadArchivedTrackContent",
     responses={200: _BYTE_SUCCESS, 206: _BYTE_SUCCESS, **_BYTE_ERRORS},
 )
-async def catalog_head_archived_track_content(
+def catalog_head_archived_track_content(
     request: Request,
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,
@@ -277,7 +282,7 @@ async def catalog_head_archived_track_content(
     operation_id="catalogReadArchivedTrackIndex",
     responses={200: _BYTE_SUCCESS, 206: _BYTE_SUCCESS, **_BYTE_ERRORS},
 )
-async def catalog_read_archived_track_index(
+def catalog_read_archived_track_index(
     request: Request,
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,
@@ -306,7 +311,7 @@ async def catalog_read_archived_track_index(
     operation_id="catalogHeadArchivedTrackIndex",
     responses={200: _BYTE_SUCCESS, 206: _BYTE_SUCCESS, **_BYTE_ERRORS},
 )
-async def catalog_head_archived_track_index(
+def catalog_head_archived_track_index(
     request: Request,
     project_id: str = _PROJECT_ID,
     experiment_id: str = _EXPERIMENT_ID,

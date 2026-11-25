@@ -8,10 +8,12 @@ the native or registered source, then copies one byte window from that version.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from typing import Any
+from tempfile import SpooledTemporaryFile
+from typing import Any, BinaryIO
 
 from encode_pipeline.adapters.browser.scaffolds import viewer_scaffold
 from encode_pipeline.persistence.archived_tracks import ArchiveRepository
@@ -24,9 +26,14 @@ from encode_pipeline.persistence.models import (
     RunExperimentBindingRow,
     RunProjectBindingRow,
 )
+from encode_pipeline.platform.archived_tracks import ArchiveStoreError, CHUNK_BYTES
 from encode_pipeline.platform.authentication import (
     AuthenticatedPrincipal,
     UserRole,
+)
+from encode_pipeline.platform.result_generations import (
+    validate_artifact_generation,
+    validate_artifact_revision,
 )
 from encode_pipeline.platform.security_audit import (
     AuditAction,
@@ -37,8 +44,12 @@ from encode_pipeline.platform.security_audit import (
     build_audit_resource,
     new_audit_event_id,
 )
-from encode_pipeline.services.archive_objects import ArchiveObjects
-from encode_pipeline.services.browser_bytes import BrowserByteError, parse_byte_range
+from encode_pipeline.services.archive_objects import ArchiveObjects, ArchiveReader
+from encode_pipeline.services.browser_bytes import (
+    BrowserByteError,
+    ByteRange,
+    parse_byte_range,
+)
 
 
 _PROJECT_ID = re.compile(r"^prj_[0-9a-f]{32}$")
@@ -50,7 +61,6 @@ _ARCHIVE_VERSION_ID = re.compile(r"^aver_[0-9a-f]{32}$")
 _TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _ARTIFACT_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _LABEL = re.compile(r"^[^\x00-\x1f\x7f\\/]{1,255}$")
-_CHUNK = 64 * 1024
 _STORE_CODES = frozenset(
     {
         "archive_version_not_found",
@@ -110,8 +120,14 @@ class SqlArchiveReadGate:
         project_id = _text(getattr(version, "project_id", None))
         experiment_id = _text(getattr(version, "experiment_id", None))
         revision_id = _text(getattr(version, "experiment_revision_id", None))
-        source = getattr(version, "source", None)
-        if not isinstance(source, dict):
+        try:
+            source = _public_source(version.source)
+        except ArchivedTrackError:
+            return False
+        index_fields = (
+            _RUN_INDEX_FIELDS if source["kind"] == "run" else _REGISTERED_INDEX_FIELDS
+        )
+        if (index_fields[0] in source) != (version.track_type == "longrange"):
             return False
         with self._session_factory() as session:
             if not _project_visible(session, project_id):
@@ -166,6 +182,9 @@ class ArchivedTrackService:
         self._require_store()
         if not self._experiment_visible(project_id, experiment_id):
             raise _not_found()
+        # Any offset beyond SQLite's largest row count is an empty page.
+        if offset > 2**63 - 1:
+            return {"items": [], "next_offset": None}
         try:
             rows, next_offset = self._repository.list_versions(
                 project_id,
@@ -226,45 +245,41 @@ class ArchivedTrackService:
         member = _member(version, index=index)
         if self._objects is None:
             raise _offline()
-        reader, close = _open_reader(self._objects, member)
         try:
-            size = _member_size(member)
-            try:
-                selected = parse_byte_range(range_header, size)
-            except BrowserByteError:
-                close()
-                return _range_error(size)
-            if head:
-                close()
-                status, headers = _byte_headers(size, selected)
-                return ArchivedByteBody(status, headers, None, close)
-            start, end = _window(size, selected)
-            first = b""
-            if end > start:
-                first = _read_exact(reader, start, min(end, start + _CHUNK))
-            self._audit_registered_bytes(principal, version, index=index)
-        except ArchivedTrackError:
-            close()
-            raise
+            with ExitStack() as response_files:
+                with ExitStack() as sources:
+                    reader = sources.enter_context(self._objects.open_member(member))
+                    companion = None
+                    if "index" in version.members:
+                        other = version.members["data" if index else "index"]
+                        companion = sources.enter_context(
+                            self._objects.open_member(other)
+                        )
+                    size = _member_size(member)
+                    try:
+                        selected = parse_byte_range(range_header, size)
+                    except BrowserByteError:
+                        return _range_error(size)
+                    status, headers = _byte_headers(size, selected)
+                    if head:
+                        return ArchivedByteBody(status, headers, None, lambda: None)
+
+                    # Keep small windows in memory. For a large range or full GET,
+                    # spill only the requested bytes to a private temporary file.
+                    body = response_files.enter_context(
+                        SpooledTemporaryFile(max_size=CHUNK_BYTES)
+                    )
+                    _copy_window(reader, body, selected, size)
+                    if companion is not None:
+                        # The empty read rechecks the pinned companion's identity.
+                        companion.read(0, 0)
+                self._audit_registered_bytes(principal, version, index=index)
+                chunks = iter(lambda: body.read(CHUNK_BYTES), b"")
+                return ArchivedByteBody(
+                    status, headers, chunks, response_files.pop_all().close
+                )
         except Exception as exc:
-            close()
             raise _from_store(exc) from None
-
-        status, headers = _byte_headers(size, selected)
-
-        def chunks() -> Iterator[bytes]:
-            try:
-                if first:
-                    yield first
-                offset = start + len(first)
-                while offset < end:
-                    nxt = min(end, offset + _CHUNK)
-                    yield _read_exact(reader, offset, nxt)
-                    offset = nxt
-            finally:
-                close()
-
-        return ArchivedByteBody(status, headers, chunks(), close)
 
     def _authorized_version(
         self,
@@ -540,10 +555,15 @@ def _public_source(source: object) -> dict[str, str]:
     if _has_any(source, index_fields):
         for name in index_fields:
             public[name] = _require_id(source.get(name), patterns[name])
-    elif any(
-        name in source and source[name] not in (None, "") for name in index_fields
-    ):
-        raise _invalid()
+    if kind == "run":
+        try:
+            validate_artifact_generation(public["generation"])
+            validate_artifact_revision(public["revision"])
+            if "index_artifact_id" in public:
+                validate_artifact_generation(public["index_generation"])
+                validate_artifact_revision(public["index_revision"])
+        except ValueError:
+            raise _invalid() from None
     return public
 
 
@@ -585,61 +605,23 @@ def _member_size(member: Any) -> int:
     return size
 
 
-def _open_reader(objects: Any, member: Any) -> tuple[Any, Callable[[], None]]:
-    try:
-        opened = objects.open_member(member)
-    except Exception as exc:
-        raise _from_store(exc) from None
-    if hasattr(opened, "__enter__") and hasattr(opened, "__exit__"):
-        try:
-            reader = opened.__enter__()
-        except Exception as exc:
-            raise _from_store(exc) from None
-
-        def close() -> None:
-            opened.__exit__(None, None, None)
-
-        return reader, _once(close)
-    return opened, _once(lambda: _close_reader(opened))
+def _copy_window(
+    reader: ArchiveReader, body: BinaryIO, selected: ByteRange | None, size: int
+) -> None:
+    start, end = (0, size) if selected is None else (selected.start, selected.end + 1)
+    while start < end:
+        remaining_in_chunk = CHUNK_BYTES - start % CHUNK_BYTES
+        stop = min(end, start + remaining_in_chunk)
+        block = reader.read(start, stop)
+        if not isinstance(block, (bytes, bytearray)) or len(block) != stop - start:
+            raise _integrity()
+        if body.write(block) != len(block):
+            raise _unavailable()
+        start = stop
+    body.seek(0)
 
 
-def _close_reader(reader: Any) -> None:
-    close = getattr(reader, "close", None)
-    if callable(close):
-        close()
-
-
-def _once(callback: Callable[[], None]) -> Callable[[], None]:
-    state = {"closed": False}
-
-    def close() -> None:
-        if state["closed"]:
-            return
-        state["closed"] = True
-        callback()
-
-    return close
-
-
-def _read_exact(reader: Any, start: int, end: int) -> bytes:
-    try:
-        chunk = reader.read(start, end)
-    except Exception as exc:
-        raise _from_store(exc) from None
-    if isinstance(chunk, bytearray):
-        chunk = bytes(chunk)
-    if not isinstance(chunk, bytes) or len(chunk) != end - start:
-        raise _integrity()
-    return chunk
-
-
-def _window(size: int, selected: Any) -> tuple[int, int]:
-    if selected is None:
-        return 0, size
-    return selected.start, selected.end + 1
-
-
-def _byte_headers(size: int, selected: Any) -> tuple[int, dict[str, str]]:
+def _byte_headers(size: int, selected: ByteRange | None) -> tuple[int, dict[str, str]]:
     if selected is None:
         length = size
         status = 200
@@ -678,7 +660,7 @@ def _from_store(exc: Exception) -> ArchivedTrackError:
     if isinstance(exc, ArchivedTrackError):
         return exc
     code = getattr(exc, "code", None)
-    if type(exc).__name__ == "ArchiveStoreError" and code in _STORE_CODES:
+    if isinstance(exc, ArchiveStoreError) and code in _STORE_CODES:
         return _mapped(str(code))
     if isinstance(exc, BrowserByteError):
         return _invalid()

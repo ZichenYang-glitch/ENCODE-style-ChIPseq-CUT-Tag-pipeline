@@ -86,10 +86,7 @@ def archived_track_operation(request: Request) -> bool:
     """Return whether the matched route is an archived-track read."""
 
     route = request.scope.get("route")
-    operation_id = getattr(route, "operation_id", None)
-    if operation_id in ARCHIVED_TRACK_OPERATIONS:
-        return True
-    return "/archived-tracks" in request.url.path
+    return getattr(route, "operation_id", None) in ARCHIVED_TRACK_OPERATIONS
 
 
 def archived_track_json(status_code: int, code: str, message: str) -> JSONResponse:

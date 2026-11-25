@@ -29,7 +29,8 @@ async def _application_response(app, request: httpx.Request) -> httpx.Response:
     """Read the status and body the ASGI app actually produced."""
 
     body_parts: list[bytes] = []
-    status_code = 500
+    status_code = None
+    complete = False
     headers: list[tuple[bytes, bytes]] = []
 
     async def receive() -> dict[str, object]:
@@ -41,30 +42,34 @@ async def _application_response(app, request: httpx.Request) -> httpx.Response:
     receive.sent = False
 
     async def send(message: dict[str, object]) -> None:
-        nonlocal status_code, headers
+        nonlocal status_code, headers, complete
         if message["type"] == "http.response.start":
             status_code = int(message["status"])
             headers = list(message.get("headers", []))
         elif message["type"] == "http.response.body":
             body_parts.append(message.get("body", b""))
+            complete = not message.get("more_body", False)
 
-    await app(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": request.method,
-            "headers": [(key.lower(), value) for key, value in request.headers.raw],
-            "scheme": request.url.scheme,
-            "path": request.url.path,
-            "raw_path": request.url.raw_path.split(b"?")[0],
-            "query_string": request.url.query,
-            "server": (request.url.host, request.url.port or 80),
-            "client": ("127.0.0.1", 123),
-        },
-        receive,
-        send,
-    )
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": request.method,
+        "headers": [(key.lower(), value) for key, value in request.headers.raw],
+        "scheme": request.url.scheme,
+        "path": request.url.path,
+        "raw_path": request.url.raw_path.split(b"?")[0],
+        "query_string": request.url.query,
+        "server": (request.url.host, request.url.port or 80),
+        "client": ("127.0.0.1", 123),
+    }
+    try:
+        await app(scope, receive, send)
+    except RuntimeError:
+        # Starlette re-raises the injected fault after delivering its 500.
+        if status_code != 500 or not complete:
+            raise
+    assert status_code is not None and complete
     return httpx.Response(status_code, headers=headers, content=b"".join(body_parts))
 
 
@@ -81,7 +86,16 @@ PRIVATE = (
 
 # Service calls are interrupted before writes, queue, preflight or agent execution.
 # The real router, authentication, error handlers and SQLite stay in place.
+ARCHIVED_TRACK_FAULTS = {
+    "catalogListArchivedTracks": ("archived_track_service", "list_versions"),
+    "catalogGetArchivedTrack": ("archived_track_service", "get_version"),
+    "catalogReadArchivedTrackContent": ("archived_track_service", "open_bytes"),
+    "catalogHeadArchivedTrackContent": ("archived_track_service", "open_bytes"),
+    "catalogReadArchivedTrackIndex": ("archived_track_service", "open_bytes"),
+    "catalogHeadArchivedTrackIndex": ("archived_track_service", "open_bytes"),
+}
 FAULTS = {
+    **ARCHIVED_TRACK_FAULTS,
     "login": ("authentication_service", "login"),
     "logout": ("authentication_service", "logout"),
     "session_state": ("authentication_service", "setup_complete"),
@@ -234,6 +248,7 @@ FAULTS = {
     ),
 }
 SPECIAL_MODELS = {
+    **dict.fromkeys(ARCHIVED_TRACK_FAULTS, "CatalogErrorResponse"),
     "readPublishedResultContext": "PublishedResultContextErrorResponse",
     "createRun": "RunResponse",
     "listRuns": "RunHistoryResponse",
@@ -321,6 +336,7 @@ def error_api(tmp_path):
             sample_revision_id="smpr_" + "1" * 32,
             experiment_id="exp_" + "1" * 32,
             experiment_revision_id="expr_" + "1" * 32,
+            archive_version_id="aver_" + "1" * 32,
             term_id="term_" + "1" * 32,
             sid="aas_" + "ab" * 16,
             turn_id="atr_" + "cd" * 16,
@@ -490,7 +506,12 @@ def error_api(tmp_path):
 def assert_declared_response(api, operation, response, *, explicit=False):
     assert response.status_code == 500
     body = response.json()
-    assert body["ok"] is False
+    if operation in ARCHIVED_TRACK_FAULTS:
+        assert set(body) == {"issues", "conflicts"}
+        assert body["conflicts"] is None
+        assert response.headers["cache-control"] == "private, no-store"
+    else:
+        assert body["ok"] is False
     for marker in (*PRIVATE, "private-payload-marker", "Traceback"):
         assert marker not in response.text
     if operation == "readPublishedResultContext":

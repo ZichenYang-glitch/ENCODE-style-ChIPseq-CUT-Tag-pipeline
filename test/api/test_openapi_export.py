@@ -40,6 +40,11 @@ from encode_pipeline.workers.settings import (
 from conftest import seed_test_authentication
 
 
+ARCHIVED_TRACKS_PATH = (
+    "/api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/archived-tracks"
+)
+ARCHIVED_VERSION_PATH = ARCHIVED_TRACKS_PATH + "/{archive_version_id}"
+
 EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/workflows/"): "listWorkflows",
     ("GET", "/api/v1/workflows/{workflow_id}"): "getWorkflow",
@@ -183,6 +188,12 @@ EXPECTED_OPERATIONS = {
         "GET",
         "/api/v1/catalog/projects/{project_id}/experiments",
     ): "catalogListExperiments",
+    ("GET", ARCHIVED_TRACKS_PATH): "catalogListArchivedTracks",
+    ("GET", ARCHIVED_VERSION_PATH): "catalogGetArchivedTrack",
+    ("GET", ARCHIVED_VERSION_PATH + "/content"): "catalogReadArchivedTrackContent",
+    ("HEAD", ARCHIVED_VERSION_PATH + "/content"): "catalogHeadArchivedTrackContent",
+    ("GET", ARCHIVED_VERSION_PATH + "/content.tbi"): "catalogReadArchivedTrackIndex",
+    ("HEAD", ARCHIVED_VERSION_PATH + "/content.tbi"): "catalogHeadArchivedTrackIndex",
     (
         "GET",
         "/api/v1/catalog/projects/{project_id}/samples",
