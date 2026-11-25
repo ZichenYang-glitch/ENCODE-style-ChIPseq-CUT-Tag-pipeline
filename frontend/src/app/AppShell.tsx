@@ -6,6 +6,7 @@ import {
   History,
   Library,
   ListTree,
+  PanelsTopLeft,
 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -128,6 +129,10 @@ export function AppShell() {
               <Library className="hidden sm:block" aria-hidden="true" size={16} />
               Catalog
             </Link>
+            <a className="primary-nav-link" href="/viewer.html" lang="zh-CN">
+              <PanelsTopLeft className="hidden sm:block" aria-hidden="true" size={16} />
+              打开本地轨道
+            </a>
             {workflowId && (
               <Link
                 className="primary-nav-link"
