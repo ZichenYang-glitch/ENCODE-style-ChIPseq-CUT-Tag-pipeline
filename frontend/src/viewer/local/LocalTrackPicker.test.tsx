@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { indexedPair } from './indexFixture'
+import { indexedPair, signalBigWig } from './indexFixture'
 import LocalTrackPicker, { type LocalWashuTrack } from './LocalTrackPicker'
 
 function fileBytes(bytes: Uint8Array): ArrayBuffer {
@@ -41,7 +41,7 @@ describe('LocalTrackPicker', () => {
     await user.upload(screen.getByLabelText('Local track files'), [
       localFile('pet.longrange.gz', built.bgzf),
       localFile('pet.longrange.gz.tbi', built.tabix),
-      localFile('signal.bw', new Uint8Array([0x26, 0xfc, 0x8f, 0x88])),
+      localFile('signal.bw', signalBigWig()),
       localFile('egfr.bed', new TextEncoder().encode('chr7\t55019017\t55019117\tEGFR\n')),
     ])
     await waitFor(() => expect(screen.getAllByTestId('local-track')).toHaveLength(3))
@@ -111,7 +111,7 @@ describe('LocalTrackPicker', () => {
     const user = userEvent.setup()
     const onTracksChange = vi.fn()
     render(<LocalTrackPicker assembly="hg38" onTracksChange={onTracksChange} />)
-    const ambiguous = indexedPair(['chr1\t10\t20\tpeak'])
+    const ambiguous = indexedPair(['chr1\t10\t20\tchr1:30-40,1'])
     await user.upload(screen.getByLabelText('Local track files'), [
       localFile('sample.gz', ambiguous.bgzf),
       localFile('sample.gz.tbi', ambiguous.tabix),
@@ -132,6 +132,25 @@ describe('LocalTrackPicker', () => {
     await user.click(within(second).getByRole('button', { name: '不添加' }))
     await waitFor(() => expect(screen.queryByTestId('local-track-choice')).not.toBeInTheDocument())
     expect(screen.getAllByTestId('local-track')).toHaveLength(1)
+  })
+
+  it('lets a peak misidentified as longrange be retried as indexed BED', async () => {
+    const user = userEvent.setup()
+    render(<LocalTrackPicker assembly="hg38" onTracksChange={() => undefined} />)
+    const peaks = indexedPair(['chr1\t10\t20\tpeak'])
+    await user.upload(screen.getByLabelText('Local track files'), [
+      localFile('sample.gz', peaks.bgzf),
+      localFile('sample.gz.tbi', peaks.tabix),
+      localFile('signal.bw', signalBigWig()),
+    ])
+    const choice = await screen.findByTestId('local-track-choice')
+    await user.click(within(choice).getByRole('button', { name: /作为 longrange/ }))
+    expect(await within(choice).findByRole('alert')).toHaveAttribute('data-reason', 'invalid-longrange')
+    expect(screen.getByTestId('local-track')).toHaveTextContent('signal.bw')
+    await user.click(within(choice).getByRole('button', { name: /作为索引 BED/ }))
+    await waitFor(() => expect(screen.getAllByTestId('local-track')).toHaveLength(2))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('local-track-choice')).not.toBeInTheDocument()
   })
 
   it('shows a recoverable error for a missing index and keeps a valid peak', async () => {

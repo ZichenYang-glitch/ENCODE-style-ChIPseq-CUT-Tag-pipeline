@@ -21,7 +21,8 @@ const MAX_CHUNKS = 1_000_000
 const MAX_INTERVALS = 1_000_000
 const PSEUDO_BIN = 37450
 
-export type TabixPairReason = 'wrong-index' | 'not-bgzf' | 'index-mismatch'
+export type IndexedLocalFormat = 'longrange' | 'bed' | 'narrowPeak' | 'broadPeak'
+export type TabixPairReason = 'wrong-index' | 'not-bgzf' | 'index-mismatch' | 'invalid-longrange'
 
 export type TabixPairVerdict =
   | { ok: true; dataBytesRead: number; maxDataOffset: number }
@@ -55,6 +56,7 @@ interface ParsedTabix {
 type SliceReader = (start: number, length: number) => Promise<Uint8Array>
 
 class DataReadCap extends Error {}
+class IndexSizeLimit extends Error {}
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -68,7 +70,9 @@ const CRC_TABLE = (() => {
   return table
 })()
 
-export async function tabixPairProblem(data: File, index: File): Promise<TabixPairVerdict> {
+export async function tabixPairProblem(
+  data: File, index: File, format: IndexedLocalFormat = 'bed',
+): Promise<TabixPairVerdict> {
   let dataBytesRead = 0
   let maxDataOffset = 0
   const readData: SliceReader = async (start, length) => {
@@ -88,6 +92,9 @@ export async function tabixPairProblem(data: File, index: File): Promise<TabixPa
         dataBytesRead,
         maxDataOffset,
       }
+    }
+    if (isTabixMagic(await readFileSlice(index, 0, 4)) && index.size >= 36) {
+      return wrongIndex(index, dataBytesRead, maxDataOffset, '是未压缩的 TBI。请选择 tabix 生成的 BGZF 压缩 .tbi。')
     }
     const payload = await readIndexPayload(index)
     const parsed = payload ? parseTabix(payload) : null
@@ -109,21 +116,38 @@ export async function tabixPairProblem(data: File, index: File): Promise<TabixPa
       if (bin === null || !containsBin(chunk.bin, bin)) {
         return indexMismatch(data, index, dataBytesRead, maxDataOffset)
       }
+      if (format === 'longrange' && !validLongrangeMate(record.fourthField)) {
+        return {
+          ok: false,
+          reason: 'invalid-longrange',
+          message: `${browserFileName(data)} 的第 4 列缺少可绘制的配对区间和分值。示例为 chr1:100-200,1。请选择预建 longrange，或将峰文件按索引 BED 打开。`,
+          dataBytesRead,
+          maxDataOffset,
+        }
+      }
     }
     return { ok: true, dataBytesRead, maxDataOffset }
   } catch (error) {
     if (error instanceof DataReadCap) {
       return indexMismatch(data, index, dataBytesRead, maxDataOffset)
     }
+    if (error instanceof IndexSizeLimit) {
+      return wrongIndex(index, dataBytesRead, maxDataOffset, '解压后超过 32 MiB。请按染色体拆分数据，并为每份数据重新生成匹配的 .tbi。')
+    }
     return wrongIndex(index, dataBytesRead, maxDataOffset)
   }
 }
 
-function wrongIndex(index: File, dataBytesRead: number, maxDataOffset: number): TabixPairVerdict {
+function wrongIndex(
+  index: File,
+  dataBytesRead: number,
+  maxDataOffset: number,
+  detail = '不是完整的 tabix 索引。请重新选择数据自带的 .tbi。TBI 不含数据文件的整份摘要。',
+): TabixPairVerdict {
   return {
     ok: false,
     reason: 'wrong-index',
-    message: `${browserFileName(index)} 不是完整的 tabix 索引。TBI 不含数据文件的整份摘要，只看文件头不能证明它属于这一份数据。`,
+    message: `${browserFileName(index)} ${detail}`,
     dataBytesRead,
     maxDataOffset,
   }
@@ -145,12 +169,6 @@ function indexMismatch(
 }
 
 async function readIndexPayload(index: File): Promise<Uint8Array | null> {
-  const head = await readFileSlice(index, 0, 4)
-  if (isTabixMagic(head)) {
-    if (index.size > MAX_INDEX_UNCOMPRESSED) return null
-    const all = await readFileSlice(index, 0, index.size)
-    return all.byteLength === index.size ? all : null
-  }
   const readIndex: SliceReader = (start, length) => readFileSlice(index, start, length)
   const parts: Uint8Array[] = []
   let offset = 0
@@ -164,7 +182,7 @@ async function readIndexPayload(index: File): Promise<Uint8Array | null> {
       break
     }
     total += block.raw.length
-    if (total > MAX_INDEX_UNCOMPRESSED) return null
+    if (total > MAX_INDEX_UNCOMPRESSED) throw new IndexSizeLimit()
     parts.push(block.raw)
   }
   if (parts.length === 0 || !isTabixMagic(parts[0] ?? new Uint8Array())) return null
@@ -296,7 +314,7 @@ async function readIndexedRecord(
   fileSize: number,
   at: VirtualOffset,
   columns: ParsedTabix['columns'],
-): Promise<{ chrom: string; start: number; end: number } | null> {
+): Promise<{ chrom: string; start: number; end: number; fourthField?: string } | null> {
   const first = await readBgzfBlock(read, fileSize, at.block)
   if (!first || at.data > first.raw.byteLength) return null
   let raw = first.raw
@@ -323,7 +341,16 @@ async function readIndexedRecord(
   const start = parseCoordinate(fields[columns.start - 1])
   const end = parseCoordinate(fields[columns.end - 1])
   if (!chrom || start === null || end === null) return null
-  return { chrom, start, end }
+  return { chrom, start, end, fourthField: fields[3] }
+}
+
+function validLongrangeMate(field: string | undefined): boolean {
+  if (!field) return false
+  const match = /^[\w.]+:(\d+)-(\d+),([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)$/i.exec(field)
+  if (!match) return false
+  const start = Number(match[1])
+  const end = Number(match[2])
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start < end && Number.isFinite(Number(match[3]))
 }
 
 async function readBgzfBlock(

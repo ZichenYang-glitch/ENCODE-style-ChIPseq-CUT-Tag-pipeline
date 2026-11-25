@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, expect, it, vi } from 'vitest'
-import { indexedPair } from './indexFixture'
+import { bgzfIndex, indexedPair } from './indexFixture'
 import { tabixPairProblem } from './tabixPair'
 
 function fileNamed(name: string, bytes: Uint8Array): File {
@@ -20,7 +20,7 @@ function manyChr1(count: number): string[] {
 }
 
 describe('tabixPairProblem', () => {
-  it('accepts a matching index from a bounded window and a raw TBI', async () => {
+  it('accepts a matching BGZF index from a bounded window', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'))
     const built = indexedPair(manyChr1(12_000))
     const data = fileNamed('wide.longrange.gz', built.bgzf)
@@ -31,10 +31,14 @@ describe('tabixPairProblem', () => {
       expect(verdict.dataBytesRead).toBeLessThan(data.size / 2)
       expect(verdict.maxDataOffset).toBeLessThanOrEqual(data.size)
     }
-    const raw = await tabixPairProblem(data, fileNamed('wide.longrange.gz.tbi', built.rawTabix))
-    expect(raw.ok).toBe(true)
     expect(fetchSpy).not.toHaveBeenCalled()
     fetchSpy.mockRestore()
+  })
+
+  it('explains how to replace a raw TBI that the native worker cannot open', async () => {
+    const built = indexedPair([chr1Line(1_000_000)])
+    const verdict = await tabixPairProblem(fileNamed('wide.gz', built.bgzf), fileNamed('raw.tbi', built.rawTabix))
+    expect(verdict).toMatchObject({ ok: false, reason: 'wrong-index', message: expect.stringContaining('BGZF 压缩 .tbi') })
   })
 
   it('accepts the optional uint64 unplaced-record count emitted by htslib', async () => {
@@ -43,8 +47,8 @@ describe('tabixPairProblem', () => {
     raw.set(built.rawTabix)
     new DataView(raw.buffer).setBigUint64(built.rawTabix.length, 42n, true)
     const data = fileNamed('htslib.longrange.gz', built.bgzf)
-    expect((await tabixPairProblem(data, fileNamed('htslib.tbi', raw))).ok).toBe(true)
-    expect((await tabixPairProblem(data, fileNamed('cut.tbi', raw.subarray(0, -1)))).ok).toBe(false)
+    expect((await tabixPairProblem(data, fileNamed('htslib.tbi', bgzfIndex(raw)))).ok).toBe(true)
+    expect((await tabixPairProblem(data, fileNamed('cut.tbi', bgzfIndex(raw.subarray(0, -1))))).ok).toBe(false)
   })
 
   it('accepts a sparse tabix chunk promoted into a parent bin by htslib', async () => {
@@ -57,7 +61,7 @@ describe('tabixPairProblem', () => {
     view.setUint32(firstBin, (leafBin - 1) >>> 3, true)
     const result = await tabixPairProblem(
       fileNamed('sparse.longrange.gz', built.bgzf),
-      fileNamed('sparse.longrange.gz.tbi', raw),
+      fileNamed('sparse.longrange.gz.tbi', bgzfIndex(raw)),
     )
     expect(result.ok).toBe(true)
   })
@@ -84,7 +88,7 @@ describe('tabixPairProblem', () => {
     const view = new DataView(raw.buffer)
     const firstChunkEnd = 36 + view.getUint32(32, true) + 4 + 8 + 8
     view.setBigUint64(firstChunkEnd, 5n << 16n, true)
-    const result = await tabixPairProblem(fileNamed('near.gz', built.bgzf), fileNamed('other.tbi', raw))
+    const result = await tabixPairProblem(fileNamed('near.gz', built.bgzf), fileNamed('other.tbi', bgzfIndex(raw)))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toBe('index-mismatch')
   })
