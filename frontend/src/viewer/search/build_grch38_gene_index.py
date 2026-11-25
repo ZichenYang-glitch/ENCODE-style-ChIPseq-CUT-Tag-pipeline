@@ -16,15 +16,15 @@ Pinned inputs:
   SHA-256 30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5
   16741286 bytes.
 
-* An assembly report for GCA_000001405.15 with a UCSC-style-name column.
-  NCBI publishes that report for the accession. The shipped index records
-  the SHA-256 of the report file it actually read.
+* NCBI GCA_000001405.15 assembly report
+  https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/GCA_000001405.15_GRCh38_assembly_report.txt
+  SHA-256 aa733ce92719f6339b3a4540137d4322894434363314c4b7704ba6691e9eab66.
 
 Example:
 
     python3 frontend/src/viewer/search/build_grch38_gene_index.py \\
         --gtf gencode.v49.primary_assembly.annotation.gtf.gz \\
-        --assembly-report GCA_000001405.15_assembly_report.txt \\
+        --assembly-report GCA_000001405.15_GRCh38_assembly_report.txt \\
         --hgnc hgnc_complete_set_2025-10-07.tsv \\
         --output frontend/src/viewer/search/hg38-gene-index.json \\
         --provenance frontend/src/viewer/search/hg38-gene-index.provenance.json
@@ -51,9 +51,7 @@ OFFICIAL_GTF_URL = (
     "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/"
     "gencode.v49.primary_assembly.annotation.gtf.gz"
 )
-OFFICIAL_GTF_SHA = (
-    "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
-)
+OFFICIAL_GTF_SHA = "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023"
 OFFICIAL_GTF_BYTES = 93496634
 HGNC_URL = (
     "https://storage.googleapis.com/public-download-files/hgnc/archive/"
@@ -61,6 +59,11 @@ HGNC_URL = (
 )
 HGNC_SHA = "30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5"
 HGNC_BYTES = 16741286
+REPORT_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/"
+    "GCA_000001405.15_GRCh38_assembly_report.txt"
+)
+REPORT_SHA = "aa733ce92719f6339b3a4540137d4322894434363314c4b7704ba6691e9eab66"
 # Sequences constructed for genome "hg38" in the locked viewer 62.0.2.
 # chrM is between chr22 and chrX there. No random, unplaced, or alt names.
 PINNED_HG38_SEQUENCES = [
@@ -93,7 +96,6 @@ PINNED_HG38_SEQUENCES = [
 
 _ATTRIBUTE = re.compile(r'([A-Za-z0-9_]+)\s+"([^"]*)"')
 _GENE_ID = re.compile(r"^ENSG\d+\.\d+$")
-_ALIAS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{1,63}$")
 
 GENCODE_LICENSE = (
     "GENCODE project data is open access "
@@ -124,8 +126,7 @@ OFFICIAL_ATTESTATION = (
     "The annotation file is the GENCODE human release 49 primary-assembly "
     "GTF gzip. Its SHA-256 is the checksum of that gzip, and "
     "uncompressed_sha256 is the checksum of the decompressed bytes. "
-    "Sequence names are already UCSC-style. A README is not required when "
-    "the gzip checksum matches the pinned release."
+    "The NCBI assembly report maps GenBank scaffold accessions to UCSC names."
 )
 
 
@@ -142,6 +143,7 @@ class GeneRow:
     end: int
     strand: str
     gene_type: str
+    hgnc_id: str
 
 
 class _HashedLines:
@@ -179,8 +181,7 @@ def read_readme(path: Path) -> dict[str, str]:
     url = found.get("annotation url", "")
     if GENCODE_V49_GTF not in url:
         raise IndexBuildError(
-            "README annotation url is not GENCODE human release 49 "
-            "primary assembly"
+            "README annotation url is not GENCODE human release 49 primary assembly"
         )
     if found.get("original name") != "hg38":
         raise IndexBuildError("README original name is not hg38")
@@ -189,16 +190,21 @@ def read_readme(path: Path) -> dict[str, str]:
     return found
 
 
-def ucsc_names(path: Path) -> set[str]:
+def ucsc_names(path: Path) -> dict[str, str]:
     with path.open(encoding="utf-8", newline="") as handle:
-        header = handle.readline().rstrip("\r\n").split("\t")
-        try:
-            column = header.index("UCSC-style-name")
-        except ValueError as error:
-            raise IndexBuildError(
-                "assembly report has no UCSC-style-name column"
-            ) from error
-        names: set[str] = set()
+        for line in handle:
+            header = line.removeprefix("# ").rstrip("\r\n").split("\t")
+            if "UCSC-style-name" in header:
+                column = header.index("UCSC-style-name")
+                break
+        else:
+            raise IndexBuildError("assembly report has no UCSC-style-name column")
+        alias_columns = [
+            header.index(name)
+            for name in ("Sequence-Name", "GenBank-Accn", "RefSeq-Accn")
+            if name in header
+        ]
+        names: dict[str, str] = {}
         for line in handle:
             if not line or line.startswith("#"):
                 continue
@@ -207,7 +213,11 @@ def ucsc_names(path: Path) -> set[str]:
                 continue
             name = parts[column].strip()
             if name and name != "na":
-                names.add(name)
+                names[name] = name
+                for index in alias_columns:
+                    alias = parts[index].strip()
+                    if alias and alias != "na":
+                        names[alias] = name
     if not names:
         raise IndexBuildError("assembly report lists no UCSC sequence names")
     return names
@@ -236,7 +246,7 @@ def _acceptable_symbol(value: str) -> bool:
 
 
 def read_genes(
-    path: Path, admitted: set[str]
+    path: Path, admitted: dict[str, str]
 ) -> tuple[list[GeneRow], dict[str, int], str, int, str, int]:
     file_sha, file_size = sha256_file(path)
     compressed = path.suffix == ".gz"
@@ -269,8 +279,8 @@ def read_genes(
             ):
                 dropped_incomplete += 1
                 continue
-            chrom = fields[0]
-            if chrom not in admitted:
+            chrom = admitted.get(fields[0])
+            if chrom is None:
                 dropped_sequence += 1
                 continue
             strand = fields[6] if fields[6] in {"+", "-", "."} else "."
@@ -283,6 +293,7 @@ def read_genes(
                     end=end,
                     strand=strand,
                     gene_type=attrs.get("gene_type") or "unknown",
+                    hgnc_id=attrs.get("hgnc_id", ""),
                 )
             )
     if not rows:
@@ -296,6 +307,9 @@ def read_genes(
     counts = {
         "dropped_incomplete": dropped_incomplete,
         "dropped_unknown_sequence": dropped_sequence,
+        "outside_viewer_scaffold": sum(
+            row.chrom not in PINNED_HG38_SEQUENCES for row in rows
+        ),
     }
     return (
         rows,
@@ -329,45 +343,42 @@ def read_hgnc_aliases(path: Path) -> dict[str, set[str]]:
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         fieldnames = set(reader.fieldnames or [])
-        required = {"ensembl_gene_id", "symbol", "alias_symbol", "prev_symbol"}
+        required = {
+            "hgnc_id",
+            "ensembl_gene_id",
+            "symbol",
+            "alias_symbol",
+            "prev_symbol",
+        }
         missing = required - fieldnames
         if missing:
             raise IndexBuildError(
                 "HGNC file is missing columns: " + ", ".join(sorted(missing))
             )
         for record in reader:
-            ensembl = (record.get("ensembl_gene_id") or "").strip()
-            base = ensembl.split(".", 1)[0]
-            if not base.startswith("ENSG"):
+            hgnc_id = (record.get("hgnc_id") or "").strip()
+            if not hgnc_id:
                 continue
-            found = aliases.setdefault(base, set())
-            symbol = (record.get("symbol") or "").strip()
-            if symbol:
-                found.add(symbol)
+            spellings = {(record.get("symbol") or "").strip()}
             for column in ("alias_symbol", "prev_symbol"):
-                found.update(_split_hgnc_list(record.get(column) or ""))
+                spellings.update(_split_hgnc_list(record.get(column) or ""))
+            aliases.setdefault(hgnc_id, set()).update(spellings)
+            ensembl = (record.get("ensembl_gene_id") or "").strip().split(".", 1)[0]
+            if ensembl:
+                aliases.setdefault(ensembl, set()).update(spellings)
     return aliases
 
 
-def _alias_links(
-    rows: list[GeneRow], hgnc: dict[str, set[str]]
-) -> list[list[object]]:
-    by_ensembl: dict[str, list[int]] = {}
-    for index, row in enumerate(rows):
-        by_ensembl.setdefault(row.gene_id.split(".", 1)[0], []).append(index)
+def _alias_links(rows: list[GeneRow], hgnc: dict[str, set[str]]) -> list[list[object]]:
     links: dict[tuple[str, int], str] = {}
-    for base, spellings in hgnc.items():
-        row_indexes = by_ensembl.get(base)
-        if not row_indexes:
-            continue
-        for row_index in row_indexes:
-            symbol = rows[row_index].symbol
-            for alias in spellings:
-                if _ALIAS.fullmatch(alias) is None:
-                    continue
-                if alias.upper() == symbol.upper():
-                    continue
-                links.setdefault((alias.upper(), row_index), alias)
+    for index, row in enumerate(rows):
+        # A pseudoautosomal gene can have one HGNC ID and distinct X/Y Ensembl IDs.
+        join_id = row.hgnc_id or row.gene_id.split(".", 1)[0]
+        for alias in sorted(hgnc.get(join_id, ())):
+            if not alias or len(alias) > 80 or not alias.isprintable():
+                continue
+            if alias.upper() != row.symbol.upper():
+                links.setdefault((alias.upper(), index), alias)
     return [
         [links[key], key[1]]
         for key in sorted(links, key=lambda item: (item[0], item[1]))
@@ -381,16 +392,14 @@ def _annotation_meta(
     if readme is None:
         if not official:
             raise IndexBuildError(
-                "README is required unless --gtf is the pinned GENCODE "
-                "release gzip"
+                "README is required unless --gtf is the pinned GENCODE release gzip"
             )
         return (
             {
                 "annotation url": OFFICIAL_GTF_URL,
-                "assembly_accession": "GCA_000001405.15",
+                "assembly_accession": "GCA_000001405.29",
                 "genome url": (
-                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/"
-                    "hg38.fa.gz"
+                    "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz"
                 ),
             },
             "",
@@ -430,6 +439,15 @@ def build_index(
     meta, readme_name, readme_sha, attestation = _annotation_meta(
         gtf, gtf_sha256, readme
     )
+    report_sha, _ = sha256_file(assembly_report)
+    hgnc_sha, hgnc_size = sha256_file(hgnc)
+    if readme is None:
+        if report_sha != REPORT_SHA:
+            raise IndexBuildError(
+                "NCBI assembly report SHA-256 differs from pinned source"
+            )
+        if hgnc_sha != HGNC_SHA:
+            raise IndexBuildError("HGNC TSV SHA-256 differs from pinned source")
     rows.sort(
         key=lambda row: (
             row.symbol.upper(),
@@ -442,13 +460,11 @@ def build_index(
     chromosomes = sorted({row.chrom for row in rows}, key=_chrom_key)
     chrom_index = {name: index for index, name in enumerate(chromosomes)}
     alias_links = _alias_links(rows, read_hgnc_aliases(hgnc))
-    report_sha, _report_size = sha256_file(assembly_report)
-    hgnc_sha, hgnc_size = sha256_file(hgnc)
     provenance = {
         "annotation": {
             "release": RELEASE,
             "source_url": meta["annotation url"],
-            "filename": gtf.name,
+            "filename": gtf.name if readme else OFFICIAL_GTF_URL.rsplit("/", 1)[-1],
             "bytes": gtf_size,
             "sha256": gtf_sha256,
             "uncompressed_bytes": plain_size,
@@ -464,9 +480,13 @@ def build_index(
             "license": GENCODE_LICENSE,
         },
         "assembly_report": {
-            "filename": assembly_report.name,
+            "filename": assembly_report.name
+            if readme
+            else REPORT_URL.rsplit("/", 1)[-1],
             "sha256": report_sha,
-            "admitted_sequence_names": len(admitted),
+            "source_url": REPORT_URL,
+            "assembly_accession": "GCA_000001405.15",
+            "admitted_sequence_names": len(set(admitted.values())),
             "source_note": (
                 "UCSC-style-name column of an assembly report for "
                 "GCA_000001405.15. NCBI publishes that report for the "
@@ -476,15 +496,17 @@ def build_index(
             ),
         },
         "aliases": {
-            "source": "HGNC complete set 2025-10-07",
-            "source_url": HGNC_URL,
+            "source": "HGNC complete set 2025-10-07"
+            if hgnc_sha == HGNC_SHA
+            else "HGNC complete set (local mirror)",
+            **({"source_url": HGNC_URL} if hgnc_sha == HGNC_SHA else {}),
             "canonical_sha256": HGNC_SHA,
             "canonical_bytes": HGNC_BYTES,
-            "filename": hgnc.name,
+            "filename": hgnc.name if readme else HGNC_URL.rsplit("/", 1)[-1],
             "bytes": hgnc_size,
             "sha256": hgnc_sha,
             "fields": ["symbol", "alias_symbol", "prev_symbol"],
-            "join": "Ensembl gene id without version",
+            "join": "GENCODE hgnc_id, with versionless Ensembl ID for rows without an HGNC ID",
             "license": HGNC_LICENSE,
         },
         "viewer_scaffold": {
@@ -514,8 +536,7 @@ def build_index(
             "genes": len(rows),
             "aliases": len(alias_links),
             "chromosomes": len(chromosomes),
-            "dropped_incomplete": drop_counts["dropped_incomplete"],
-            "dropped_unknown_sequence": drop_counts["dropped_unknown_sequence"],
+            **drop_counts,
         },
     }
     return {

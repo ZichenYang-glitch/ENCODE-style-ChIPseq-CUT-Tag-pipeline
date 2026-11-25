@@ -163,7 +163,7 @@ describe('LocusSearch', () => {
     ]);
     fireEvent.keyDown(input(), { key: 'Enter' });
     expect(onNavigate).not.toHaveBeenCalled();
-    fireEvent.pointerDown(aliases[0]!);
+    fireEvent.click(aliases[0]!);
     expect(onNavigate).toHaveBeenCalledWith('chr3:1-3');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -246,6 +246,19 @@ describe('LocusSearch', () => {
     expect(onNavigate).toHaveBeenCalledWith('chr7:10-40');
   });
 
+  it.each(['coordinate', 'Escape'])('cancels a pending gene on %s', async (edit) => {
+    let finish!: (value: ReturnType<typeof parsedFixture>) => void;
+    loadIndex.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'EGFR' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    if (edit === 'coordinate') fireEvent.change(input(), { target: { value: 'chr7:1-3' } });
+    else fireEvent.keyDown(input(), { key: 'Escape' });
+    await act(async () => finish(parsedFixture()));
+    expect(onNavigate.mock.calls).toEqual(edit === 'coordinate' ? [['chr7:1-3']] : []);
+  });
+
   it('does not move the viewer onto a sequence the pinned hg38 genome lacks', async () => {
     const onNavigate = vi.fn();
     render(<LocusSearch assembly="hg38" region="" onNavigate={onNavigate} />);
@@ -258,7 +271,7 @@ describe('LocusSearch', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       'chr1_KI270706v1_random is not a sequence in the pinned hg38 genome',
     );
-    fireEvent.pointerDown(option);
+    fireEvent.click(option);
     expect(onNavigate).not.toHaveBeenCalled();
 
     fireEvent.change(input(), { target: { value: 'chr1_KI270706v1_random:1-4' } });

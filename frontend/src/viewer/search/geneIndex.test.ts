@@ -133,7 +133,7 @@ describe('bundled index request', () => {
     const requested = String(url);
     expect(requested.toLowerCase()).not.toContain('egfr');
     expect(new URL(requested).origin).toBe(window.location.origin);
-    expect(init).toEqual({ credentials: 'same-origin' });
+    expect(init).toEqual({ mode: 'same-origin', credentials: 'same-origin' });
     expect(searchGenes(loaded, 'ERBB1').matches.map((match) => match.locus.symbol)).toEqual([
       'EGFR',
     ]);
@@ -190,17 +190,18 @@ describe('shipped GRCh38 index', () => {
     );
     expect(provenance.aliases.source_url).toContain('hgnc_complete_set_2025-10-07.tsv');
     expect(provenance.viewer_scaffold.sequences).toEqual([...PINNED_HG38_SEQUENCES]);
-    expect(index.chromosomes.every((name) => pinnedHg38Has(name))).toBe(true);
-    expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.15');
+    expect(index.chromosomes.filter(pinnedHg38Has).sort()).toEqual([...PINNED_HG38_SEQUENCES].sort());
+    expect(index.provenance.annotation.assembly_accession).toBe('GCA_000001405.29');
     expect(index.provenance.assembly_report.sha256).toBe(
-      'f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12',
+      'aa733ce92719f6339b3a4540137d4322894434363314c4b7704ba6691e9eab66',
     );
     expect(index.provenance.aliases.sha256).toBe(
       '30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5',
     );
     expect(index.provenance.counts.genes).toBe(index.rows.length);
     expect(index.provenance.counts.genes).toBeGreaterThan(70000);
-    expect(index.provenance.counts.dropped_unknown_sequence).toBe(208);
+    expect(index.provenance.counts.dropped_unknown_sequence).toBe(0);
+    expect(provenance.counts.outside_viewer_scaffold).toBe(208);
     for (const name of ['LocusSearch.tsx', 'geneIndex.ts', 'build_grch38_gene_index.py']) {
       const source = readFileSync(join(directory, name), 'utf8');
       expect(source).not.toContain('55018820');
@@ -257,6 +258,18 @@ describe('shipped GRCh38 index', () => {
       'gene-id',
     ]);
     expect(searchGenes(index, 'chr7:55018820-55211628').matches).toEqual([]);
+  });
+
+  it('preserves both pseudoautosomal locations for HGNC synonyms and names unavailable sequences', () => {
+    for (const term of ['SHOX', 'PHOG', 'SHOXY']) {
+      expect(searchGenes(index, term).matches.map(({locus}) => formatRegion(locus))).toEqual([
+        'chrX:624344-659411', 'chrY:624344-659411',
+      ]);
+    }
+    const [offScaffold] = searchGenes(index, 'ENSG00000278457.1').matches;
+    expect(offScaffold?.locus.chrom).toBe('chrUn_KI270442v1');
+    expect(pinnedHg38Has(offScaffold!.locus.chrom)).toBe(false);
+    expect(searchGenes(index, 'IMAGE:4942737').matches.map(({locus}) => locus.symbol)).toEqual(['FAM20C']);
   });
 });
 

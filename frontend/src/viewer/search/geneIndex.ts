@@ -8,6 +8,7 @@ import bundledIndexUrl from './hg38-gene-index.json?url';
  */
 
 const LEGAL_COORDINATE = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
+const CHROMOSOME_PREFIX = /^(?:chr[\w.-]*|\d+|X|Y|MT?):/i;
 const GENE_ID = /^ENSG\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -115,7 +116,7 @@ export function classifyQuery(value: string): QueryPlan {
   if (!trimmed) return { kind: 'empty' };
   const region = legalCoordinate(trimmed);
   if (region) return { kind: 'coordinate', region };
-  if (trimmed.includes(':')) return { kind: 'coordinate-draft' };
+  if (CHROMOSOME_PREFIX.test(trimmed)) return { kind: 'coordinate-draft' };
   return { kind: 'gene', query: trimmed };
 }
 
@@ -518,7 +519,7 @@ export function resetGeneIndexCacheForTests(): void {
 
 async function requestGeneIndex(fetcher: typeof fetch): Promise<ParsedGeneIndex> {
   const url = geneIndexRequestUrl(bundledIndexUrl, window.location.origin);
-  const response = await fetcher(url, { credentials: 'same-origin' });
+  const response = await fetcher(url, { mode: 'same-origin', credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`gene index request failed (${response.status})`);
   }

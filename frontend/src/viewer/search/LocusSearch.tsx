@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
+import type { ChangeEvent, KeyboardEvent } from 'react';
 import {
   DEFAULT_HG38_ASSEMBLIES,
   assemblyUsesHg38,
@@ -53,6 +53,7 @@ function statusMessage(
 
 export default function LocusSearch({ assembly, region, onNavigate }: LocusSearchProps) {
   const listId = useId();
+  const hintId = useId();
   const pendingEnter = useRef<string | null>(null);
   const [draft, setDraft] = useState(() => region.trim());
   const [blocked, setBlocked] = useState<string | null>(null);
@@ -175,6 +176,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
+      pendingEnter.current = null;
       setDismissedQuery(draft);
       setArmedIndex(null);
       return;
@@ -182,6 +184,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     if (event.key !== 'Enter' && event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     if (classifyQuery(draft).kind !== 'gene') return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      pendingEnter.current = null;
       event.preventDefault();
       if (matches.length === 0) return;
       setDismissedQuery(null);
@@ -195,10 +198,11 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
       return;
     }
     event.preventDefault();
-    if (phase !== 'ready' || !index) {
+    if (phase === 'loading') {
       pendingEnter.current = draft;
       return;
     }
+    if (phase !== 'ready' || !index) return;
     const found = searchGenes(index, draft);
     if (found.relation === 'exact' && found.matches.length === 1) {
       const match = found.matches[0];
@@ -214,21 +218,17 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
     if (match) deliver(match);
   }
 
-  function choose(match: GeneMatch, event: PointerEvent<HTMLButtonElement> | KeyboardEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    deliver(match);
-  }
-
   return (
     <div className="block text-sm">
       <label className="block">
-        <span className="block max-w-md">{HINT}</span>
+        <span id={hintId} className="block max-w-md">{HINT}</span>
         <input
           className="mt-1 w-full max-w-md border border-[var(--color-border)] px-2 py-1"
           value={draft}
           onChange={onChange}
           onKeyDown={onKeyDown}
           aria-label="Genomic region"
+          aria-describedby={hintId}
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
@@ -275,10 +275,7 @@ export default function LocusSearch({ assembly, region, onNavigate }: LocusSearc
                     ? 'block w-full cursor-pointer bg-[var(--color-border)] px-2 py-2 text-left'
                     : 'block w-full cursor-pointer px-2 py-2 text-left hover:bg-[var(--color-border)]'
                 }
-                onPointerDown={(event) => choose(match, event)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') choose(match, event);
-                }}
+                onClick={() => deliver(match)}
               >
                 {label}
               </button>

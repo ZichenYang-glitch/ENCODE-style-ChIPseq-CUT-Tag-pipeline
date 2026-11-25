@@ -52,9 +52,7 @@ def _gene(
 ) -> str:
     name_attr = f' gene_name "{name}";' if include_name else ""
     attrs = f'gene_id "{gene_id}"; gene_type "protein_coding";{name_attr}'
-    return (
-        f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
-    )
+    return f"{chrom}\tHAVANA\t{feature}\t{start}\t{end}\t.\t+\t.\t{attrs}\n"
 
 
 def _fixture_gtf() -> str:
@@ -76,7 +74,9 @@ def _fixture_gtf() -> str:
     )
 
 
-def _write_inputs(root: Path, *, readme: str = README, hgnc: str = HGNC) -> dict[str, Path]:
+def _write_inputs(
+    root: Path, *, readme: str = README, hgnc: str = HGNC
+) -> dict[str, Path]:
     gtf = root / "annotation.gtf"
     gtf.write_text(_fixture_gtf(), encoding="utf-8")
     report = root / "assembly_report.txt"
@@ -139,9 +139,10 @@ def test_index_uses_gtf_spans_and_hgnc_aliases(tmp_path: Path) -> None:
     provenance = json.loads(paths["provenance"].read_text(encoding="utf-8"))
     assert index["provenance"] == provenance
     assert index["coordinate_system"] == "1-based-closed"
-    assert index["provenance"]["annotation"]["sha256"] == hashlib.sha256(
-        paths["gtf"].read_bytes()
-    ).hexdigest()
+    assert (
+        index["provenance"]["annotation"]["sha256"]
+        == hashlib.sha256(paths["gtf"].read_bytes()).hexdigest()
+    )
     assert _loci(index, "EGFR") == [("chr7", 10, 40, "ENSG00000000001.1")]
     assert _loci(index, "IL9R") == [
         ("chrX", 5, 8, "ENSG00000000003.1"),
@@ -200,9 +201,8 @@ def test_gzip_annotation_uses_the_compressed_checksum(tmp_path: Path) -> None:
     annotation = provenance["annotation"]
     assert annotation["sha256"] == hashlib.sha256(gz_path.read_bytes()).hexdigest()
     assert annotation["uncompressed_sha256"] == hashlib.sha256(plain).hexdigest()
-    assert provenance["aliases"]["source_url"].endswith(
-        "hgnc_complete_set_2025-10-07.tsv"
-    )
+    assert provenance["aliases"]["source"] == "HGNC complete set (local mirror)"
+    assert "source_url" not in provenance["aliases"]
     assert provenance["viewer_scaffold"]["sequences"][0] == "chr1"
     index = json.loads(paths["output"].read_text(encoding="utf-8"))
     assert _loci(index, "EGFR") == [("chr7", 10, 40, "ENSG00000000001.1")]
@@ -214,6 +214,20 @@ def test_plain_gtf_without_readme_is_rejected(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "README" in result.stderr
     assert not paths["output"].exists()
+
+
+def test_ncbi_preamble_and_genbank_contig_are_read(tmp_path: Path) -> None:
+    paths = _write_inputs(tmp_path)
+    paths["report"].write_text(
+        "# Assembly name: GRCh38\n# " + REPORT + "KI270442.1\tchrUn_KI270442v1\n"
+    )
+    with paths["gtf"].open("a") as handle:
+        handle.write(_gene("KI270442.1", 1, 2, "ENSG00000000010.1", "SCAFF"))
+    result = _run(paths)
+    assert result.returncode == 0, result.stderr
+    index = json.loads(paths["output"].read_bytes())
+    assert _loci(index, "SCAFF") == [("chrUn_KI270442v1", 1, 2, "ENSG00000000010.1")]
+    assert index["provenance"]["counts"]["outside_viewer_scaffold"] == 1
 
 
 def test_hgnc_without_alias_columns_is_rejected(tmp_path: Path) -> None:
