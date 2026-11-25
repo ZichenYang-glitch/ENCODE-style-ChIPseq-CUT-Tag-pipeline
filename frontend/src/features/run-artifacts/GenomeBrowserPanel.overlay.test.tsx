@@ -349,6 +349,69 @@ describe('GenomeBrowserPanel overlay', () => {
     expect(models().some((track) => track.url?.includes('/runs/run-1/'))).toBe(true);
   });
 
+  it('keeps the second run and local files when the opened run fails', async () => {
+    sessionMock.mockImplementation(async (id: string) => session(id, 'e'.repeat(64)));
+    renderPanel(<GenomeBrowserPanel runId="run-1" />);
+    const opened = await screen.findByRole('article', { name: 'Run run-1' });
+    await userEvent.click(within(opened).getByRole('checkbox', { name: /Signal: A/ }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Authorized runs' }), 'run-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Add run' }));
+    const added = await screen.findByRole('article', { name: 'Run run-2' });
+    await userEvent.click(within(added).getByRole('checkbox', { name: /Signal: A/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Use local signal' }));
+    await waitFor(() => {
+      expect(models().some((track) => track.url?.includes('/runs/run-1/'))).toBe(true);
+      expect(models().some((track) => track.url?.includes('/runs/run-2/'))).toBe(true);
+      expect(models().some((track) => track.name === 'Local signal')).toBe(true);
+    });
+
+    sessionMock.mockImplementation(async (id: string) => {
+      if (id === 'run-1') {
+        throw new ApiError(
+          409,
+          'BROWSER_TRACK_READ_CONFLICT',
+          'Artifact generation changed. Reload the browser view.',
+          [
+            {
+              code: 'BROWSER_TRACK_READ_CONFLICT',
+              message: 'Artifact generation changed. Reload the browser view.',
+              path: 'generation',
+            },
+          ],
+        );
+      }
+      return session(id, 'f'.repeat(64));
+    });
+    await userEvent.click(within(opened).getByRole('button', { name: 'Refresh list' }));
+    expect(await screen.findByText(/not read until you choose them/i)).toBeInTheDocument();
+    await waitFor(() => {
+      const drawn = models();
+      expect(drawn.some((track) => track.url?.includes('/runs/run-2/'))).toBe(true);
+      expect(drawn.some((track) => track.name === 'Local signal')).toBe(true);
+      expect(drawn.some((track) => String(track.url).includes('/runs/run-1/'))).toBe(false);
+    });
+    expect(screen.getByTestId('local-track-picker')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Authorized runs' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('article', { name: 'Run run-1' })).queryByRole('checkbox'),
+    ).not.toBeInTheDocument();
+
+    sessionMock.mockImplementation(async (id: string) => {
+      if (id === 'run-1') {
+        throw new ApiError(403, 'FORBIDDEN', 'This run is no longer authorized.');
+      }
+      return session(id, 'f'.repeat(64));
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }));
+    expect(await screen.findByRole('button', { name: 'Retry browser view' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer authorized/i);
+    const drawn = models();
+    expect(drawn.some((track) => track.url?.includes('/runs/run-2/'))).toBe(true);
+    expect(drawn.some((track) => track.name === 'Local signal')).toBe(true);
+    expect(drawn.some((track) => String(track.url).includes('/runs/run-1/'))).toBe(false);
+    expect(screen.getByRole('article', { name: 'Run run-2' })).toBeInTheDocument();
+  });
+
   it('leaves the open run drawn when another authorized run is refused', async () => {
     sessionMock.mockImplementation(async (id: string) => {
       if (id === 'run-2') {
