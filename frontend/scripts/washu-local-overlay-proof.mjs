@@ -133,8 +133,13 @@ try {
 
   await chooseGene(page, 'TP53', 'TP53', 'chr17:7661779-7687546');
   const tp53Drawing = await drawn(page, expectedDrawing('TP53'));
-  await field.fill('chr7:55100000-55110000');
-  await drawn(page, egfr);
+  const zoomWindows = [];
+  for (const region of ['chr7:55100000-55110000', 'chr7:55100000-55108000', 'chr7:55100000-55110000']) {
+    await field.fill(region);
+    // Both anchors fit in each window. Collect the laid-out PET at that ruler.
+    const drawing = await drawn(page, { ...egfr, region });
+    zoomWindows.push({ region, viewport: drawing.viewport, pet: drawing.pet });
+  }
   await page.getByTestId('washu-genome-viewer').screenshot({ path: join(work, 'coordinate.png') });
   await field.fill('SHOX');
   const matches = page.getByRole('listbox', { name: 'Gene matches' });
@@ -182,7 +187,7 @@ try {
   const result = {
     source: 'synthetic', annotation: 'GENCODE v49', coordinateConvention: '1-based closed for search; BED half-open',
     records: observation.record_count, dataFileBytes: dataSize, indexFileBytes: (await stat(index)).size,
-    elapsedMs, byteCounts, visible, tp53Drawing, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
+    elapsedMs, byteCounts, visible, tp53Drawing, zoomWindows, secondGene: 'chr17:7661779-7687546', coordinate: 'chr7:55100000-55110000',
     tested: ['SHOX chrX/chrY', 'ERBB1 alias', 'missing gene', 'missing TBI', 'wrong valid TBI',
       'renamed TBI', 'explicit BED assembly conflict', 'switch assembly', 'remove and reopen'],
     networkPaths: [...routes], forbidden, errors,
