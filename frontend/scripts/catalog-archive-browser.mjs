@@ -282,6 +282,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
     const href = await action.getAttribute('href');
     assert(viewerIdentity(new URL(href, origin), origin, fixture), 'wrong catalog viewer link');
     assert.equal(requests.length, 0, 'the catalog loaded bytes before a version was opened');
+    const openedAt = performance.now();
     const [document, descriptor] = await Promise.all([
       context.waitForEvent('response', {
         predicate: (response) => response.request().isNavigationRequest() &&
@@ -315,6 +316,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
     phase = 'target-window';
     await region.press('Enter');
     const rendered = await viewer.waitForFunction(renderedSignal, targetWindow, { timeout: 30_000 });
+    const elapsedMs = Math.round(performance.now() - openedAt);
     const geometry = await rendered.jsonValue();
     const expectedValue = values[fixture.version_number];
     assert.equal(geometry.value, expectedValue);
@@ -333,6 +335,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
       size_bytes: fixture.size_bytes,
       sha256: fixture.content_sha256,
       expected_value: expectedValue,
+      open_to_render_ms: elapsedMs,
       geometry,
       transferred_bytes: transcript.bytes,
       ranges: transcript.reads,
@@ -342,7 +345,7 @@ async function openVersion(browser, manifest, fixture, out, work) {
       const offlineRoot = join(work, 'offline-archive');
       await rename(archiveRoot, offlineRoot);
       try {
-        evidence.offline = await readDenial(viewer, contentPath, 503, 'archive_offline');
+        evidence.offline = await readDenial(viewer, contentPath, 409, 'archive_offline');
         assert.equal(evidence.offline.issue, 'archive_offline');
       } finally {
         await rename(offlineRoot, archiveRoot);

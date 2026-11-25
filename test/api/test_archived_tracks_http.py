@@ -216,7 +216,9 @@ def seeded_app(app):
 
 
 def _registry(app) -> DataRegistryService:
-    return DataRegistryService(repository=app.state.persistence.data_registry_repository)
+    return DataRegistryService(
+        repository=app.state.persistence.data_registry_repository
+    )
 
 
 def _now() -> datetime:
@@ -524,8 +526,7 @@ def test_unconfigured_store_and_missing_session_fail_closed(seeded_app) -> None:
         f"{project.project_id}/experiments/{experiment}/archived-tracks"
     )
     absent = (
-        "/api/v1/catalog/projects/"
-        f"{missing}/experiments/{experiment}/archived-tracks"
+        f"/api/v1/catalog/projects/{missing}/experiments/{experiment}/archived-tracks"
     )
     factory = create_session_factory(seeded_app.state.persistence.engine)
     seeded_app.state.archived_track_service = ArchivedTrackService(
@@ -842,29 +843,36 @@ def test_published_repository_serves_the_sealed_copy(seeded_app, tmp_path) -> No
             )
         session.commit()
     repository = ArchiveRepository(factory)
-    published = [
-        repository.publish(
-            project_id=project.project_id,
-            experiment_id=experiment,
-            experiment_revision_id="expr_" + str(number) * 32,
-            track_key="signal",
-            display_name="signal.bw",
-            assembly="hg38",
-            track_type="bigwig",
-            source={
-                "kind": "registered",
-                "result_id": result,
-                "result_revision_id": "rrev_" + str(number) * 32,
-            },
-            members={"data": member},
-        )
-        for number, member in enumerate(members, start=1)
-    ]
-    with factory() as session:
-        session.get(ArchivedTrackVersionRow, published[0].archive_version_id).assembly = (
-            "GRCh38"
-        )
-        session.commit()
+    # Seed a source using its assembly alias at insertion time. A sealed
+    # catalog version cannot be renamed or reclassified by a later UPDATE.
+    from sqlalchemy import event
+
+    def seed_alias(_mapper, _connection, row):
+        if row.version_number == 1:
+            row.assembly = "GRCh38"
+
+    event.listen(ArchivedTrackVersionRow, "before_insert", seed_alias)
+    try:
+        published = [
+            repository.publish(
+                project_id=project.project_id,
+                experiment_id=experiment,
+                experiment_revision_id="expr_" + str(number) * 32,
+                track_key="signal",
+                display_name="signal.bw",
+                assembly="hg38",
+                track_type="bigwig",
+                source={
+                    "kind": "registered",
+                    "result_id": result,
+                    "result_revision_id": "rrev_" + str(number) * 32,
+                },
+                members={"data": member},
+            )
+            for number, member in enumerate(members, start=1)
+        ]
+    finally:
+        event.remove(ArchivedTrackVersionRow, "before_insert", seed_alias)
     seeded_app.state.archived_track_service = ArchivedTrackService(
         repository=repository,
         objects=objects,
