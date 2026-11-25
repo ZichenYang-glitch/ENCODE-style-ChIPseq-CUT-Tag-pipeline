@@ -38,15 +38,15 @@ const observation = JSON.parse(await readFile(join(fixtures, 'observation.json')
 assert.equal(observation.assembly, 'mm10');
 if (!process.env.WASHU_MOUSE_FIXTURES) assert.equal(observation.record_count, 4);
 
-function inside(gene, start, end) {
+function inside(gene, interval) {
   const [low, high] = gene.zero_based_half_open;
-  return gene.chrom && start >= low && end <= high;
+  return interval.chrom === gene.chrom && interval.start >= low && interval.end <= high;
 }
 function expectedDrawing(geneName) {
   const gene = planted.genes[geneName];
   const pair = planted.longrange_pairs[geneName.toLowerCase()][0];
-  const peakRow = planted.peaks.find(item => inside(gene, item.start, item.end));
-  const signalRow = planted.signals.find(item => inside(gene, item.start, item.end));
+  const peakRow = planted.peaks.find(item => inside(gene, item));
+  const signalRow = planted.signals.find(item => inside(gene, item));
   assert.equal(gene.hub_region, `${gene.chrom}:${gene.gtf_start}-${gene.gtf_end}`);
   assert.equal(gene.zero_based_half_open[0], gene.gtf_start - 1);
   return {
@@ -129,7 +129,7 @@ try {
       forbidden.push([request.method(), url.href]);
       await route.abort();
     } else {
-      routes.add(url.pathname);
+      routes.add(url.pathname + url.search);
       await route.continue();
     }
   });
@@ -201,7 +201,9 @@ try {
   const probe = planted.coordinate_probe.region;
   await field.fill(probe);
   assert.equal(await field.inputValue(), probe);
-  const coordinateDrawing = await drawn(page, egfr);
+  const coordinateDrawing = await drawn(page, { ...egfr, region: probe });
+  assert.equal(await page.evaluate(renderedWindow, egfr), null,
+    'the ruler still matches the wider Egfr gene window');
   await page.getByTestId('washu-genome-viewer').screenshot({ path: join(work, 'coordinate.png') });
 
   const byteCounts = bytesByFile(meter.since(mark));

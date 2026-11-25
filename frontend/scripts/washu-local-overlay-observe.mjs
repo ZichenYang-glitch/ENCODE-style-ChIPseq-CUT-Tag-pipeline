@@ -5,17 +5,34 @@ export function renderedWindow(expected) {
   const host = document.querySelector('[data-testid="washu-genome-viewer"]');
   if (!host) return null;
   const rootKey = Object.keys(host).find(key => key.startsWith('__reactFiber'));
-  const pending = [host[rootKey]];
-  const visited = new Set();
+  let root = host[rootKey];
+  if (!root) return null;
+  while (root.return) root = root.return;
+  function* subtree(node) {
+    if (!node) return;
+    yield node;
+    for (let child = node.child; child; child = child.sibling) yield* subtree(child);
+  }
+  // The DOM's fiber can point to the previous render after navigation.
+  let viewer;
+  for (const node of subtree(root.stateNode.current)) {
+    if (node.stateNode === host) {
+      viewer = node;
+      break;
+    }
+  }
   const hits = {};
-  while (pending.length) {
-    const fiber = pending.pop();
-    if (!fiber || visited.has(fiber)) continue;
-    visited.add(fiber);
-    if (fiber.child) pending.push(fiber.child);
-    if (fiber.sibling) pending.push(fiber.sibling);
+  for (const fiber of subtree(viewer)) {
     const props = fiber.memoizedProps;
     if (!props) continue;
+    // The visible ruler uses a half-open interval. Search uses a 1-based start.
+    if (expected.region && props.trackModel?.type === 'ruler' && props.windowWidth > 0) {
+      const intervals = props.selectedRegion?.getGenomeIntervals?.();
+      if (intervals?.length === 1) {
+        const { chr, start, end } = intervals[0];
+        if (`${chr}:${start + 1}-${end}` === expected.region) hits.viewport = { chr, start, end };
+      }
+    }
     for (const key of ['data', 'features', 'items', 'placements', 'arrangedData']) {
       const entries = props[key];
       if (!Array.isArray(entries) || !entries.length) continue;
@@ -50,6 +67,7 @@ export function renderedWindow(expected) {
       }
     }
   }
+  if (expected.region && !hits.viewport) return null;
   return hits.pet && hits.signal && hits.peak ? hits : null;
 }
 
