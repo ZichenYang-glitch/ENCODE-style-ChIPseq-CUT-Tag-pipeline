@@ -24,6 +24,7 @@ QUEUE_NAME_ENV = "ENCODE_PIPELINE_QUEUE_NAME"
 WORKSPACE_ROOT_ENV = "ENCODE_PIPELINE_WORKSPACE_ROOT"
 STORAGE_POOL_CONFIG_ENV = "ENCODE_PIPELINE_STORAGE_POOL_CONFIG"
 REFERENCE_PROFILE_CONFIG_ENV = "ENCODE_PIPELINE_REFERENCE_PROFILE_CONFIG"
+ARCHIVE_ROOT_ENV = "ENCODE_PIPELINE_ARCHIVE_ROOT"
 JOB_TIMEOUT_SECONDS_ENV = "ENCODE_PIPELINE_JOB_TIMEOUT_SECONDS"
 MANAGED_DOCKER_EXECUTABLE_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_EXECUTABLE"
 MANAGED_DOCKER_SOCKET_ENV = "ENCODE_PIPELINE_MANAGED_DOCKER_SOCKET"
@@ -61,6 +62,7 @@ class WorkerSettings:
         default=DEFAULT_MANAGED_DOCKER_SOCKET,
         repr=False,
     )
+    archive_root: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         database_url = resolve_database_url(self.database_url)
@@ -161,6 +163,9 @@ class WorkerSettings:
             self.managed_docker_socket,
             "managed_docker_socket",
         )
+        archive_root = self.archive_root
+        if archive_root is not None:
+            archive_root = _absolute_path(archive_root, "archive_root")
 
         object.__setattr__(self, "database_url", database_url)
         object.__setattr__(self, "redis_url", redis_url)
@@ -181,6 +186,7 @@ class WorkerSettings:
             managed_docker_executable,
         )
         object.__setattr__(self, "managed_docker_socket", managed_docker_socket)
+        object.__setattr__(self, "archive_root", archive_root)
         object.__setattr__(self, "job_timeout_seconds", job_timeout_seconds)
         object.__setattr__(
             self,
@@ -272,6 +278,7 @@ def load_worker_settings(
                 str(DEFAULT_MANAGED_DOCKER_SOCKET),
             )
         ),
+        archive_root=_optional_path(source.get(ARCHIVE_ROOT_ENV), "archive_root"),
     )
 
 
@@ -303,6 +310,14 @@ def _positive_float(value: object, field_name: str) -> float:
     if normalized <= 0 or not math.isfinite(normalized):
         raise ValueError(f"{field_name} must be a positive finite number")
     return normalized
+
+
+def _optional_path(value: object, field_name: str) -> Path | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a canonical absolute path")
+    return Path(value.strip())
 
 
 def _absolute_path(value: object, field_name: str) -> Path:
