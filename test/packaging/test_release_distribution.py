@@ -399,7 +399,7 @@ def test_wheel_metadata_entrypoints_and_runtime_resources(
                 "/persistence/alembic/versions/" in name and name.endswith(".py")
                 for name in names
             )
-            == 21
+            == 22
         )
         assert not any(name.startswith("test/") for name in names)
 
