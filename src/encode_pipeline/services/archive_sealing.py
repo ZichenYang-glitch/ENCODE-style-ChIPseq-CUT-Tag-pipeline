@@ -725,8 +725,7 @@ class ArchiveSealingService:
             descriptor = open_verified_copy(copy_path)
             info = os.fstat(descriptor)
             if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_size != record.size_bytes  # type: ignore[attr-defined]
+                not stat.S_ISREG(info.st_mode) or info.st_size != record.size_bytes  # type: ignore[attr-defined]
             ):
                 raise ArchiveSealError(
                     "archive_integrity",
@@ -906,7 +905,10 @@ def require_operator_receipt(receipt: object) -> dict[str, object]:
             "archive_integrity",
             "The archive record does not match the seal.",
         )
-    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in source.items()):
+    if any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in source.items()
+    ):
         raise ArchiveSealError(
             "archive_integrity",
             "The archive record does not match the seal.",
@@ -1025,10 +1027,9 @@ def _require_version(version: object, **kwargs: object) -> None:
     assert isinstance(members, Mapping)
     for role, member in members.items():
         stored = observed_members[role]
-        if (
-            getattr(stored, "size_bytes", None) != getattr(member, "size_bytes", None)
-            or getattr(stored, "sha256", None) != getattr(member, "sha256", None)
-        ):
+        if getattr(stored, "size_bytes", None) != getattr(
+            member, "size_bytes", None
+        ) or getattr(stored, "sha256", None) != getattr(member, "sha256", None):
             raise ArchiveSealError(
                 "archive_integrity",
                 "The archive record does not match the seal.",
@@ -1301,10 +1302,7 @@ def _experiment_id(value: object) -> str:
 
 
 def _experiment_revision_id(value: object) -> str:
-    if (
-        not isinstance(value, str)
-        or _EXPERIMENT_REVISION_ID.fullmatch(value) is None
-    ):
+    if not isinstance(value, str) or _EXPERIMENT_REVISION_ID.fullmatch(value) is None:
         raise _invalid()
     return value
 

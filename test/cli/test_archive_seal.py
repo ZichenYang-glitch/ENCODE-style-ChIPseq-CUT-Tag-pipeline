@@ -69,7 +69,9 @@ def _args(tmp_path: Path, *extra: str) -> list[str]:
     ]
 
 
-def test_help_states_that_a_filename_is_not_accepted(capsys: pytest.CaptureFixture[str]) -> None:
+def test_help_states_that_a_filename_is_not_accepted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     with pytest.raises(SystemExit) as captured:
         archive_cli.main(["seal", "--help"])
 
@@ -279,7 +281,9 @@ def test_compose_passes_worker_settings_archive_root(
     )
 
     class _RunService:
-        def __init__(self, registry: object, repository: object = None, **kwargs: object) -> None:
+        def __init__(
+            self, registry: object, repository: object = None, **kwargs: object
+        ) -> None:
             seen["run_repository"] = repository
 
     class _Downloads:

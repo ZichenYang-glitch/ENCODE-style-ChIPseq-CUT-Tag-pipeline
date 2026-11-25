@@ -90,10 +90,7 @@ class _Repository:
             kwargs["experiment_id"],
             kwargs["track_key"],
             tuple(sorted(kwargs["source"].items())),  # type: ignore[attr-defined]
-            tuple(
-                (role, member.sha256)
-                for role, member in sorted(members.items())
-            ),
+            tuple((role, member.sha256) for role, member in sorted(members.items())),
         )
         version = self._versions.get(identity)
         if version is None:
@@ -259,7 +256,9 @@ def _service(
     return service, objects, repository, root
 
 
-def _seal_registered(service: ArchiveSealingService, **overrides: str) -> dict[str, object]:
+def _seal_registered(
+    service: ArchiveSealingService, **overrides: str
+) -> dict[str, object]:
     arguments = {
         "project_id": PROJECT,
         "experiment_id": EXPERIMENT,
@@ -762,7 +761,9 @@ def _publish_run(
 ) -> tuple[str, dict[str, RunArtifactRef]]:
     artifacts = []
     for artifact_id, relative_path, content in files:
-        artifacts.append(_bind(_artifact(relative_path, content, artifact_id), workspace, content))
+        artifacts.append(
+            _bind(_artifact(relative_path, content, artifact_id), workspace, content)
+        )
     run_service.replace_artifacts("run-1", tuple(artifacts))
     generation = run_service.get_result_state("run-1").artifact_generation
     assert generation is not None
@@ -815,7 +816,9 @@ def test_run_seal_reads_the_artifact_descriptor_not_a_filename(tmp_path: Path) -
     assert receipt["assembly"] == "hg38"
     assert receipt["source"]["revision"] == stored["signal"].revision
     assert gate.publications[0]["generation"] == generation
-    assert (workspace / "run-1" / "results" / "tracked-signal.bw").read_bytes() == content
+    assert (
+        workspace / "run-1" / "results" / "tracked-signal.bw"
+    ).read_bytes() == content
     with pytest.raises(ArchiveSealError) as captured:
         service.seal_run(
             project_id=PROJECT,

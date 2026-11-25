@@ -61,9 +61,7 @@ _BYTE_SUCCESS = {
         "private, no-store caching."
     ),
     "content": {
-        "application/octet-stream": {
-            "schema": {"type": "string", "format": "binary"}
-        }
+        "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
     },
     "headers": {
         "Accept-Ranges": {"schema": {"type": "string"}},

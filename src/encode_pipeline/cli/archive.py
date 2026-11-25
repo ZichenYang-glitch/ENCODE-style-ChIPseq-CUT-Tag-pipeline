@@ -257,9 +257,7 @@ def compose_sealer(
                 workspace_root=settings.workspace_root,
                 relocation_root=relocation_root,
             ),
-            registered_revisions=SqlAlchemyRegisteredResultRepository(
-                session_factory
-            ),
+            registered_revisions=SqlAlchemyRegisteredResultRepository(session_factory),
         )
     except ArchiveSealError:
         persistence.close()
