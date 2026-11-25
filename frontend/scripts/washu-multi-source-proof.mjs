@@ -1,6 +1,9 @@
 // Default proof: two hg38 runs, the undeclared local peak, and an mm10 run that is refused.
 // Mouse: WASHU_OVERLAY_ASSEMBLY=mm10|GRCm38 and optional WASHU_OVERLAY_FOREIGN=hg38|mm39.
 // The local peak then declares mm10. Version, permission, and removal checks stay.
+// After removal the default path types chr1:5200-6400 immediately. The ruler's
+// selected interval and the remaining 200 bp SVG peaks must follow that window.
+// --wait-for-removal-draw waits for those peaks to redraw at the old window first.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
@@ -21,6 +24,11 @@ const requestedForeign = process.env.WASHU_OVERLAY_FOREIGN ?? '';
 const evidencePath = join(work, 'evidence.json');
 const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 const navigatedRegion = 'chr1:5200-6400';
+const waitForRemovalDraw = process.argv.includes('--wait-for-removal-draw');
+const remainingPeaks = [
+  ['peak-primary', 5500, 5700, 61],
+  ['peak-local', 5800, 6000, null],
+];
 const sessionCookie = 'a'.repeat(43);
 const csrfCookie = 'b'.repeat(43);
 const children = [];
@@ -252,6 +260,10 @@ async function readHub(frame) {
     let models = [];
     const regions = [];
     const drawn = [];
+    const rects = [...root.querySelectorAll('svg rect')];
+    let ruler = null;
+    let modelWindow = null;
+    const peaks = {};
     const stack = fiber ? [fiber] : [];
     let guard = 0;
     while (stack.length && guard < 12000) {
@@ -282,6 +294,23 @@ async function readHub(frame) {
         }
         regions.push({ start, end });
       }
+      if (props?.trackModel?.type === 'ruler' && props.windowWidth > 0) {
+        const selected = props.selectedRegion?.getGenomeIntervals?.();
+        if (selected?.length === 1) {
+          const interval = selected[0];
+          ruler = {
+            chr: interval.chr,
+            start: interval.start,
+            end: interval.end,
+            pixels: props.windowWidth,
+          };
+        }
+      }
+      const intervals = props?.userViewRegion?.getGenomeIntervals?.();
+      if (intervals?.length === 1) {
+        const interval = intervals[0];
+        modelWindow = { chr: interval.chr, start: interval.start, end: interval.end };
+      }
       if (props) {
         for (const bucket of [props.data, props.items, props.features, props.placements, props.arrangedData]) {
           if (!Array.isArray(bucket)) continue;
@@ -290,6 +319,33 @@ async function readHub(frame) {
             if (feature?.chr === 'chr1' && item.placedFeatures?.length && item.xSpan?.end > item.xSpan?.start) {
               drawn.push(`${feature.chr}:${feature.start}-${feature.end} ${feature[3] ?? ''}`);
             }
+          }
+        }
+        if (Array.isArray(props.placements)) {
+          for (const placement of props.placements) {
+            const feature = placement?.feature;
+            const xSpan = placement?.xSpan;
+            const name = feature?.[3];
+            if (!feature || typeof name !== 'string' || name === '') continue;
+            if (!placement.placedFeatures?.length || !(xSpan?.end > xSpan?.start)) continue;
+            const mark = rects.find((rect) => {
+              const x = rect.x?.baseVal?.value;
+              const width = rect.width?.baseVal?.value;
+              return Math.abs(x - xSpan.start) < 0.01
+                && Math.abs(width - (xSpan.end - xSpan.start)) < 0.01;
+            });
+            if (!mark) continue;
+            const box = mark.getBoundingClientRect();
+            const visible = typeof mark.checkVisibility === 'function' ? mark.checkVisibility() : true;
+            if (box.width <= 0 || box.height <= 0 || !visible) continue;
+            peaks[name] = {
+              chr: feature.chr,
+              start: feature.start,
+              end: feature.end,
+              score: feature[4] == null ? null : Number(feature[4]),
+              svgWidth: box.width,
+              svgHeight: box.height,
+            };
           }
         }
       }
@@ -301,6 +357,9 @@ async function readHub(frame) {
       models,
       regions,
       drawn,
+      ruler,
+      modelWindow,
+      peaks,
     };
   });
 }
@@ -310,6 +369,50 @@ function showsRegion(regions, displayRegion) {
   return regions.some(
     (region) =>
       region.start === Number(start) - 1 && region.end === Number(end),
+  );
+}
+
+function displayWindow(displayRegion) {
+  const match = String(displayRegion).match(/^([^:]+):(\d+)-(\d+)$/);
+  if (!match) return null;
+  return { chr: match[1], start: Number(match[2]) - 1, end: Number(match[3]) };
+}
+
+function intervalMatches(interval, displayRegion) {
+  const expected = displayWindow(displayRegion);
+  return Boolean(
+    expected &&
+      interval &&
+      interval.chr === expected.chr &&
+      interval.start === expected.start &&
+      interval.end === expected.end,
+  );
+}
+
+function peaksMatch(state, peaks) {
+  const ruler = state?.ruler;
+  if (!ruler || !(ruler.pixels > 0) || ruler.end === ruler.start) return false;
+  return peaks.every(([name, start, end, score]) => {
+    const peak = state.peaks?.[name];
+    if (!peak || peak.chr !== ruler.chr || peak.start !== start || peak.end !== end) return false;
+    if (score == null ? peak.score != null : peak.score !== score) return false;
+    const width = ((end - start) * ruler.pixels) / (ruler.end - ruler.start);
+    return Math.abs(peak.svgWidth - width) < 1;
+  });
+}
+
+function removalReady(state, displayRegion) {
+  if (!state) return false;
+  const urls = state.models.map((track) => track.url);
+  return (
+    state.viewers === 1 &&
+    urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
+    !urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
+    state.models.some((track) => track.file && track.url === '') &&
+    showsRegion(state.regions, displayRegion) &&
+    intervalMatches(state.ruler, displayRegion) &&
+    intervalMatches(state.modelWindow, displayRegion) &&
+    peaksMatch(state, remainingPeaks)
   );
 }
 
@@ -767,6 +870,11 @@ async function main() {
   await viewerFrame.getByRole('button', { name: `Remove run ${manifest.second_run_id}` }).click();
   await secondArticle.waitFor({ state: 'detached', timeout: 10_000 });
   const regionBox = viewerFrame.getByRole('textbox', { name: 'Genomic region' });
+  await viewerFrame.getByTestId('washu-genome-viewer').scrollIntoViewIfNeeded();
+  if (waitForRemovalDraw) {
+    stage = 'redraw after removal';
+    await waitForHub(viewerFrame, (state) => removalReady(state, manifest.window), 20_000);
+  }
   stage = 'navigate after removal';
   await regionBox.fill(navigatedRegion);
   await viewerFrame.waitForFunction(
@@ -779,21 +887,16 @@ async function main() {
   );
   const afterRemoval = await waitForHub(
     viewerFrame,
-    (state) => {
-      const urls = state.models.map((track) => track.url);
-      return (
-        state.viewers === 1 &&
-        urls.some((url) => url.includes(`/runs/${manifest.primary_run_id}/`)) &&
-        !urls.some((url) => url.includes(`/runs/${manifest.second_run_id}/`)) &&
-        state.models.some((track) => track.file && track.url === '') &&
-        showsRegion(state.regions, navigatedRegion)
-      );
-    },
+    (state) => removalReady(state, navigatedRegion),
     20_000,
   );
   evidence.removal = {
     removed: manifest.second_run_id,
     region: navigatedRegion,
+    navigation: waitForRemovalDraw ? 'after redraw' : 'immediate',
+    ruler: afterRemoval.ruler,
+    model_window: afterRemoval.modelWindow,
+    peaks: afterRemoval.peaks,
     remaining: afterRemoval.models.map((track) => track.name),
     regions: afterRemoval.regions.slice(0, 4),
   };
