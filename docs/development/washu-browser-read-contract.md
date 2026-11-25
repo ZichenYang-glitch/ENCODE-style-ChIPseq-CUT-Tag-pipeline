@@ -40,7 +40,7 @@ HELIXWEAVE_PYTHON=/path/to/checkout-ci-fast/bin/python \
   node frontend/scripts/washu-multi-source-proof.mjs
 ```
 
-第一条从未登录首页开始。检查 EGFR、TP53 的已绘制 PET 锚点、bigWig 柱值和峰区间，复验坐标输入、歧义、缺失或错配的索引、参考冲突，并记录首次窗口绘制的耗时以及文档和 worker 实际读取的字节。默认生成 2,020,004 行的合成互作文件和真实 TBI；已有同一套夹具时可指定 `WASHU_LOCAL_FIXTURES`。结果目录含 `browser.json`、`EGFR.png` 和 `coordinate.png`。第二条从已授权运行进入，核对三条轨道绘制和移除、另一运行的旧版本被拒绝、剩余轨道仍可操作，输出 `evidence.json`。复验小鼠本地三轨时为第一条命令设置 `WASHU_ASSEMBLY=mm10`。可用生成器参数 `--assembly mm10 --filler-pairs 1010000 --dest DIR` 创建大型小鼠夹具，再用 `WASHU_MOUSE_FIXTURES=DIR` 与 `WASHU_MOUSE_DIR` 记录首个窗口的实际读取字节和绘制时间。复验小鼠双运行时为第二条命令设置 `WASHU_OVERLAY_ASSEMBLY=GRCm38`，可额外设置 `WASHU_OVERLAY_FOREIGN=hg38` 或 `mm39` 验证组装冲突。两者均只使用合成数据。可用 `WASHU_LOCAL_OVERLAY_DIR` 和 `WASHU_OVERLAY_DIR` 指定各自的输出目录。
+第一条从未登录首页开始。检查 EGFR、TP53 的已绘制 PET 锚点、bigWig 柱值和峰区间。在 EGFR 的两个锚点都可见时，将窗口从 10 kb 缩到 8 kb 再恢复，逐次核对标尺和互作，复验坐标输入、歧义、缺失或错配的索引、参考冲突，并记录首次窗口绘制的耗时以及文档和 worker 实际读取的字节。默认生成 2,020,004 行的合成互作文件和真实 TBI；已有同一套夹具时可指定 `WASHU_LOCAL_FIXTURES`。结果目录含 `browser.json`、`EGFR.png` 和 `coordinate.png`。第二条从已授权运行进入，核对三条轨道绘制和移除、另一运行的旧版本被拒绝、剩余轨道仍可操作，输出 `evidence.json`。复验小鼠本地三轨时为第一条命令设置 `WASHU_ASSEMBLY=mm10`。可用生成器参数 `--assembly mm10 --filler-pairs 1010000 --dest DIR` 创建大型小鼠夹具，再用 `WASHU_MOUSE_FIXTURES=DIR` 与 `WASHU_MOUSE_DIR` 记录首个窗口的实际读取字节和绘制时间。复验小鼠双运行时为第二条命令设置 `WASHU_OVERLAY_ASSEMBLY=GRCm38`，可额外设置 `WASHU_OVERLAY_FOREIGN=hg38` 或 `mm39` 验证组装冲突。两者均只使用合成数据。可用 `WASHU_LOCAL_OVERLAY_DIR` 和 `WASHU_OVERLAY_DIR` 指定各自的输出目录。
 
 ## 组件
 

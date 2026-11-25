@@ -198,8 +198,7 @@ def test_mm10_consensus_places_fixed_values_inside_egfr_and_trp53() -> None:
         {"chrom": "chr11", "start": 69586000, "end": 69587000, "name": "Peak-trp53"},
     ]
     assert spec["signals"][0]["value"] != human["signals"][0]["value"]
-    # 90 kb still places both anchors. A 55 kb window around the same
-    # anchors leaves the longrange track without a placement.
+    # The typed 90 kb window includes both ends of the planted interaction.
     assert spec["coordinate_probe"] == {
         "gene": "Egfr",
         "region": "chr11:16760001-16850000",
