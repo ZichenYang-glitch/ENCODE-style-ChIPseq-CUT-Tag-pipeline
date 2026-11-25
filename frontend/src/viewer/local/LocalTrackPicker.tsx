@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   PLAIN_PEAK_MAX_BYTES,
+  assemblyKey,
   assemblySignature,
   buildLocalTrack,
   type LocalWashuTrack,
@@ -29,6 +30,7 @@ export default function LocalTrackPicker({
   const [issues, setIssues] = useState<LocalSelectionIssue[]>([])
   const [choices, setChoices] = useState<OpenChoice[]>([])
   const [busy, setBusy] = useState(false)
+  const [checkingPair, setCheckingPair] = useState<string | null>(null)
   const request = useRef(0)
   const onTracksChangeRef = useRef(onTracksChange)
   onTracksChangeRef.current = onTracksChange
@@ -37,14 +39,13 @@ export default function LocalTrackPicker({
     onTracksChangeRef.current(tracks)
   }, [tracks])
 
-  async function acceptFiles(list: FileList | null) {
-    if (!list || list.length === 0) return
+  async function acceptFiles(files: File[]) {
+    if (!files.length) return
     const ticket = ++request.current
     const selectedAssembly = assembly
-    const files = Array.from(list)
     setBusy(true)
     try {
-      const result = await classifyLocalFiles(files)
+      const result = await classifyLocalFiles(files, selectedAssembly)
       if (ticket !== request.current) return
       setIssues(result.issues)
       if (result.choices.length > 0) {
@@ -67,10 +68,17 @@ export default function LocalTrackPicker({
     }
   }
 
-  function confirmChoice(choice: OpenChoice, optionId: string) {
+  async function confirmChoice(choice: OpenChoice, optionId: string) {
     const option = choice.options.find((item) => item.id === optionId)
-    setChoices((current) => current.filter((item) => item.id !== choice.id))
     if (!option) return
+    setCheckingPair(choice.id)
+    const problem = await option.checkPair?.()
+    setCheckingPair(null)
+    if (problem) {
+      setIssues(current => [...current, problem])
+      return
+    }
+    setChoices((current) => current.filter((item) => item.id !== choice.id))
     setTracks((current) => [
       ...current,
       buildLocalTrack(option.prepared, choice.assembly),
@@ -87,7 +95,7 @@ export default function LocalTrackPicker({
     <section className="min-w-0 space-y-3" data-testid="local-track-picker" aria-label="Local tracks">
       <p data-testid="local-track-assembly">{signature}</p>
       <p className="text-sm">
-        文件本身不能证明组装。已添加的轨道保持添加时的参考，不会随当前选择改标。
+        请选择文件实际使用的组装。缺少组装声明时以您的选择登记；文件留在此浏览器。
       </p>
       <ul className="text-sm" data-testid="local-track-formats" data-plain-max-bytes={PLAIN_PEAK_MAX_BYTES}>
         <li data-format="longrange">预建 longrange：.longrange.gz + .tbi，按窗口读取，不转换整份。</li>
@@ -104,10 +112,11 @@ export default function LocalTrackPicker({
           aria-label="Local track files"
           type="file"
           multiple
+          disabled={busy}
           onChange={(event) => {
-            const list = event.target.files
-            event.target.value = ''
-            void acceptFiles(list)
+            const files = Array.from(event.currentTarget.files ?? [])
+            event.currentTarget.value = ''
+            void acceptFiles(files)
           }}
         />
       </label>
@@ -138,12 +147,13 @@ export default function LocalTrackPicker({
                 key={option.id}
                 type="button"
                 data-choice={option.prepared.washUType}
-                onClick={() => confirmChoice(choice, option.id)}
+                disabled={checkingPair === choice.id}
+                onClick={() => void confirmChoice(choice, option.id)}
               >
                 {option.label}
               </button>
             ))}
-            <button type="button" data-choice="skip" onClick={() => dismissChoice(choice)}>
+            <button type="button" data-choice="skip" disabled={checkingPair === choice.id} onClick={() => dismissChoice(choice)}>
               不添加
             </button>
           </div>
@@ -152,7 +162,7 @@ export default function LocalTrackPicker({
       <ul className="space-y-2">
         {tracks.map((track) => {
           const readMethod = track.model.metadata.readMethod
-          const mismatched = track.assembly.trim().toLowerCase() !== assembly.trim().toLowerCase()
+          const mismatched = assemblyKey(track.assembly) !== assemblyKey(assembly)
           return (
             <li
               key={track.id}

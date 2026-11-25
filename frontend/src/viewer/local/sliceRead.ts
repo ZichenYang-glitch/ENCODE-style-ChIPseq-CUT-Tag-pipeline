@@ -1,4 +1,4 @@
-import { PLAIN_PEAK_MAX_BYTES } from './contract'
+import { PLAIN_PEAK_MAX_BYTES, assemblyKey } from './contract'
 
 export const HEADER_BYTES = 18
 export const SCAN_WINDOW_BYTES = 64 * 1024
@@ -119,6 +119,7 @@ export function isBigBedMagic(bytes: Uint8Array): boolean {
 export interface PlainPeakScan {
   format: 'BED3' | 'BED4' | 'narrowPeak' | 'broadPeak'
   dataRows: number
+  declaredAssembly?: string
 }
 
 export async function scanPlainPeak(
@@ -139,10 +140,22 @@ export async function scanPlainPeak(
   let lineNumber = 1
   let dataRows = 0
   let maxColumns = 0
+  let declaredAssembly: string | undefined
   const finishLine = (raw: string): { error: string } | null => {
     const verdict = inspectPeakLine(raw, lineNumber, file.name)
     lineNumber += 1
     if (typeof verdict === 'object') return verdict
+    if (verdict === 'skip') {
+      // UCSC track and browser directives can explicitly name an assembly.
+      const declaration = /^track\s/i.test(raw)
+        ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(raw)
+        : /^browser\s+genome\s+([A-Za-z0-9_.-]+)/i.exec(raw)
+      const value = declaration?.[1]
+      if (value && declaredAssembly && assemblyKey(value) !== assemblyKey(declaredAssembly)) {
+        return { error: `${file.name} 的文件头分别声明 ${declaredAssembly} 和 ${value}。请核对参考组装。` }
+      }
+      if (value) declaredAssembly = value
+    }
     if (verdict === 'data') {
       dataRows += 1
       maxColumns = Math.max(maxColumns, raw.replace(/\r$/, '').split('\t').length)
@@ -189,7 +202,7 @@ export async function scanPlainPeak(
         ? 'BED3'
         : 'BED4'
       : extensionFormat
-  return { ok: { format, dataRows } }
+  return { ok: { format, dataRows, declaredAssembly } }
 }
 
 function inspectPeakLine(

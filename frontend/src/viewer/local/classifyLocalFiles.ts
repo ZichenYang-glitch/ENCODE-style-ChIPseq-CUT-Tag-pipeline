@@ -3,6 +3,7 @@ import {
   READ_BIGWIG_SLICE,
   READ_TABIX_SLICE,
   READ_TEXT_FILE,
+  assemblyKey,
   browserFileName,
   nativeTabixFiles,
   type PreparedLocalFile,
@@ -27,6 +28,7 @@ export interface LocalChoiceOption {
   id: string
   label: string
   prepared: PreparedLocalFile
+  checkPair?: () => Promise<LocalSelectionIssue | null>
 }
 
 export interface LocalSelectionChoice {
@@ -63,6 +65,7 @@ interface NamedFile {
 
 export async function classifyLocalFiles(
   input: Iterable<File>,
+  assembly?: string,
 ): Promise<ClassifiedLocalFiles> {
   const named = Array.from(input).map((file) => ({
     file,
@@ -85,27 +88,55 @@ export async function classifyLocalFiles(
   const ready: PreparedLocalFile[] = []
   const issues: LocalSelectionIssue[] = []
   const choices: LocalSelectionChoice[] = []
-  const seenIndexKeys = new Set<string>()
+  const indexedNames = new Map<string, number>()
+  for (const item of others.filter(item => needsIndex(fileKind(item.name)))) {
+    const key = `${item.name.toLowerCase()}.tbi`
+    indexedNames.set(key, (indexedNames.get(key) ?? 0) + 1)
+  }
+  const unmatched = indexes
+    .filter(item => !indexedNames.has(item.name.toLowerCase()))
+    .map(item => item.file)
 
   for (const item of others) {
     const kind = fileKind(item.name)
     if (!needsIndex(kind)) {
-      const prepared = await prepareUnindexed(item, kind)
-      if ('issue' in prepared) issues.push(prepared.issue)
-      else ready.push(prepared)
+      try {
+        const prepared = await prepareUnindexed(item, kind, assembly)
+        if ('issue' in prepared) issues.push(prepared.issue)
+        else ready.push(prepared)
+      } catch {
+        issues.push(readError(item.file))
+      }
       continue
     }
-    const key = `${item.name.toLowerCase()}.tbi`
-    if (seenIndexKeys.has(key)) continue
-    seenIndexKeys.add(key)
-    const group = others.filter(
-      (candidate) =>
-        needsIndex(fileKind(candidate.name)) &&
-        `${candidate.name.toLowerCase()}.tbi` === key,
-    )
-    const indexFiles = indexesByName.get(key) ?? []
-    for (const indexFile of indexFiles) consumed.add(indexFile)
-    await resolveIndexedGroup(group, indexFiles, ready, issues, choices)
+    const indexName = `${item.name.toLowerCase()}.tbi`
+    const exact = indexesByName.get(indexName) ?? []
+    const candidates = exact.length ? exact : unmatched
+    for (const file of candidates) consumed.add(file)
+    if (!candidates.length) {
+      issues.push(issue('missing-index',
+        `${item.name} 缺少 .tbi。请同时选择数据和对应索引，文件名不同时可以手动配对。`))
+      continue
+    }
+    const formats = kind === 'ambiguous-gz'
+      ? (['longrange', 'bed'] as const)
+      : [fixedIndexedFormat(kind)]
+    if (exact.length === 1 && formats.length === 1 && indexedNames.get(indexName) === 1) {
+      const problem = await checkIndex(item.file, exact[0])
+      if (problem) issues.push(problem)
+      else ready.push(optionFor(item, exact[0], formats[0]).prepared)
+      continue
+    }
+    const options = candidates.flatMap(index => formats.map(format => ({
+      ...optionFor(item, index, format),
+      checkPair: () => checkIndex(item.file, index),
+    })))
+    choices.push({
+      id: trackId(),
+      reason: formats.length > 1 ? 'ambiguous-format' : 'ambiguous-index',
+      message: `请为 ${item.name} 指定对应索引和格式。选定后会在浏览器中核对。`,
+      options,
+    })
   }
 
   for (const item of indexes) {
@@ -151,11 +182,12 @@ function needsIndex(kind: FileKind): boolean {
 async function prepareUnindexed(
   item: NamedFile,
   kind: FileKind,
+  assembly?: string,
 ): Promise<PreparedLocalFile | { issue: LocalSelectionIssue }> {
   if (kind === 'bigwig') return prepareBigWig(item)
-  if (kind === 'plain-bed') return preparePlain(item, 'BED3')
-  if (kind === 'plain-narrow') return preparePlain(item, 'narrowPeak')
-  if (kind === 'plain-broad') return preparePlain(item, 'broadPeak')
+  if (kind === 'plain-bed') return preparePlain(item, 'BED3', assembly)
+  if (kind === 'plain-narrow') return preparePlain(item, 'narrowPeak', assembly)
+  if (kind === 'plain-broad') return preparePlain(item, 'broadPeak', assembly)
   if (kind === 'bedpe') {
     return {
       issue: issue(
@@ -213,6 +245,7 @@ async function prepareBigWig(
 async function preparePlain(
   item: NamedFile,
   extensionFormat: 'BED3' | 'narrowPeak' | 'broadPeak',
+  assembly?: string,
 ): Promise<PreparedLocalFile | { issue: LocalSelectionIssue }> {
   const scanned = await scanPlainPeak(item.file, extensionFormat)
   if ('error' in scanned) {
@@ -224,6 +257,11 @@ async function preparePlain(
           : 'plain-invalid'
     return { issue: issue(reason, scanned.error) }
   }
+  const declared = scanned.ok.declaredAssembly
+  if (assembly && declared && assemblyKey(declared) !== assemblyKey(assembly)) {
+    return { issue: issue('assembly-conflict',
+      `${item.name} 的文件头声明 ${declared}，当前选择为 ${assembly}。请选择相符的组装或文件。`) }
+  }
   return {
     format: scanned.ok.format,
     washUType: 'bed',
@@ -234,62 +272,17 @@ async function preparePlain(
   }
 }
 
-async function resolveIndexedGroup(
-  group: NamedFile[],
-  indexFiles: File[],
-  ready: PreparedLocalFile[],
-  issues: LocalSelectionIssue[],
-  choices: LocalSelectionChoice[],
-): Promise<void> {
-  if (indexFiles.length === 0) {
-    for (const item of group) {
-      issues.push(
-        issue(
-          'missing-index',
-          `${item.name} 缺少同名 .tbi。预建索引轨道不会整份解压或转换。请同时选择索引，或移除该文件。`,
-        ),
-      )
-    }
-    return
+function readError(file: File): LocalSelectionIssue {
+  return issue('unreadable-file', `浏览器无法读取 ${browserFileName(file)}。请确认文件可访问，再重新选择。`)
+}
+
+async function checkIndex(data: File, index: File): Promise<LocalSelectionIssue | null> {
+  try {
+    return await indexedProblem(data, index)
+  } catch {
+    return issue('unreadable-pair',
+      `无法读取 ${browserFileName(data)} 与 ${browserFileName(index)}。请重新选择可访问的数据文件和索引。`)
   }
-  const viable: LocalChoiceOption[] = []
-  const failures: LocalSelectionIssue[] = []
-  for (const item of group) {
-    for (const indexFile of indexFiles) {
-      const problem = await indexedProblem(item.file, indexFile)
-      if (problem) {
-        failures.push(problem)
-        continue
-      }
-      const kind = fileKind(item.name)
-      if (kind === 'ambiguous-gz') {
-        viable.push(optionFor(item, indexFile, 'longrange'))
-        viable.push(optionFor(item, indexFile, 'bed'))
-      } else {
-        viable.push(optionFor(item, indexFile, fixedIndexedFormat(kind)))
-      }
-    }
-  }
-  if (viable.length === 0) {
-    issues.push(...failures)
-    return
-  }
-  if (failures.length > 0) issues.push(...failures)
-  if (viable.length === 1) {
-    const only = viable[0]
-    if (only) ready.push(only.prepared)
-    return
-  }
-  const formats = new Set(viable.map((option) => option.prepared.washUType))
-  choices.push({
-    id: trackId(),
-    reason: formats.size > 1 ? 'ambiguous-format' : 'ambiguous-index',
-    message:
-      formats.size > 1
-        ? '这些文件有不止一种读法。请选择要添加的那一种；其余不会读取。'
-        : '有多个索引候选。请选择一个；未选择则不读取。',
-    options: viable,
-  })
 }
 
 async function indexedProblem(data: File, index: File): Promise<LocalSelectionIssue | null> {

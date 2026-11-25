@@ -56,17 +56,18 @@ export function browserFileName(file: File): string {
   return trimmed === '' ? 'local-track' : trimmed
 }
 
+// Equivalent public names of the same browser coordinate scaffold.
+export function assemblyKey(value: string): string {
+  const key = value.trim().toLowerCase()
+  if (/^(?:hg38|grch38)(?:\.p[0-9]+)?$/.test(key)) return 'hg38'
+  if (/^(?:hg19|grch37)(?:\.p[0-9]+)?$/.test(key)) return 'hg19'
+  if (key === 'grcm38') return 'mm10'
+  if (key === 'grcm39') return 'mm39'
+  return key
+}
+
 export function assemblySignature(assembly: string): string {
-  const normalized = assembly.trim().toLowerCase()
-  if (
-    normalized === 'hg38' ||
-    normalized === 'grch38' ||
-    normalized.startsWith('hg38.') ||
-    normalized.startsWith('grch38.')
-  ) {
-    return '用户指定 GRCh38'
-  }
-  return `用户指定 ${assembly.trim()}`
+  return `用户指定 ${assemblyKey(assembly) === 'hg38' ? 'GRCh38' : assembly.trim()}`
 }
 
 export function nativeTabixFiles(data: File, index: File): File[] {
@@ -91,6 +92,7 @@ export function buildLocalTrack(
     id,
     fileObj: prepared.dataFile,
     isText: prepared.isText,
+    ...(prepared.isText && { textConfig: {} }),
     metadata: {
       genome: assembly,
       assemblySignature: signature,
