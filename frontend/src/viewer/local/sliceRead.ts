@@ -1,4 +1,4 @@
-import { PLAIN_PEAK_MAX_BYTES, assemblyKey } from './contract'
+import { PLAIN_PEAK_MAX_BYTES, assemblyKey, browserFileName } from './contract'
 
 export const SCAN_WINDOW_BYTES = 64 * 1024
 const MAX_LINE_BYTES = 64 * 1024
@@ -72,10 +72,32 @@ export function isBigBedMagic(bytes: Uint8Array): boolean {
   return little || big
 }
 
+export async function hasBigWigIndexes(file: File, header: Uint8Array): Promise<boolean> {
+  if (header.length < 64) return false
+  const little = header[0] === 0x26
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength)
+  const headerEnd = 64 + 24 * view.getUint16(6, little)
+  const chromTree = Number(view.getBigUint64(8, little))
+  const data = Number(view.getBigUint64(16, little))
+  const index = Number(view.getBigUint64(24, little))
+  if (
+    chromTree < headerEnd || chromTree + 32 > file.size ||
+    data < headerEnd || data + 8 > file.size ||
+    index < headerEnd || index + 48 > file.size
+  ) return false
+  const [chromMagic, indexMagic] = await Promise.all([
+    readFileSlice(file, chromTree, 4),
+    readFileSlice(file, index, 4),
+  ])
+  return new DataView(chromMagic.buffer, chromMagic.byteOffset, 4).getUint32(0, little) === 0x78ca8c91 &&
+    new DataView(indexMagic.buffer, indexMagic.byteOffset, 4).getUint32(0, little) === 0x2468ace0
+}
+
 export interface PlainPeakScan {
   format: 'BED3' | 'BED4' | 'narrowPeak' | 'broadPeak'
   dataRows: number
   declaredAssembly?: string
+  dataFile: File
 }
 
 export async function scanPlainPeak(
@@ -97,11 +119,15 @@ export async function scanPlainPeak(
   let dataRows = 0
   let maxColumns = 0
   let declaredAssembly: string | undefined
+  const dataParts: string[] = []
+  let rows: string[] = []
+  let skippedLines = false
   const finishLine = (raw: string): { error: string } | null => {
     const verdict = inspectPeakLine(raw, lineNumber, file.name)
     lineNumber += 1
     if (typeof verdict === 'object') return verdict
     if (verdict === 'skip') {
+      skippedLines = true
       // UCSC track and browser directives can explicitly name an assembly.
       const declaration = /^track\s/i.test(raw)
         ? /(?:^|\s)(?:db|genome)=["']?([A-Za-z0-9_.-]+)/i.exec(raw)
@@ -114,6 +140,7 @@ export async function scanPlainPeak(
     }
     if (verdict === 'data') {
       dataRows += 1
+      rows.push(raw)
       maxColumns = Math.max(maxColumns, raw.replace(/\r$/, '').split('\t').length)
     }
     return null
@@ -144,10 +171,13 @@ export async function scanPlainPeak(
       const problem = finishLine(part)
       if (problem) return problem
     }
+    if (rows.length) dataParts.push(rows.join('\n') + '\n')
+    rows = []
   }
   if (pending) {
     const problem = finishLine(pending)
     if (problem) return problem
+    dataParts.push(...rows)
   }
   if (dataRows === 0) {
     return { error: `${file.name} 没有可绘制的区间。` }
@@ -158,7 +188,12 @@ export async function scanPlainPeak(
         ? 'BED3'
         : 'BED4'
       : extensionFormat
-  return { ok: { format, dataRows, declaredAssembly } }
+  // WashU infers the delimiter from the first rows. UCSC directives stay in the
+  // assembly check above and the native reader receives just the validated intervals.
+  const dataFile = skippedLines
+    ? new File(dataParts, browserFileName(file), { type: file.type, lastModified: file.lastModified })
+    : file
+  return { ok: { format, dataRows, declaredAssembly, dataFile } }
 }
 
 function inspectPeakLine(

@@ -17,6 +17,8 @@ export { PLAIN_PEAK_MAX_BYTES, assemblySignature }
 
 interface OpenChoice extends LocalSelectionChoice {
   assembly: string
+  checking?: boolean
+  problem?: LocalSelectionIssue
 }
 
 export default function LocalTrackPicker({
@@ -30,7 +32,6 @@ export default function LocalTrackPicker({
   const [issues, setIssues] = useState<LocalSelectionIssue[]>([])
   const [choices, setChoices] = useState<OpenChoice[]>([])
   const [busy, setBusy] = useState(false)
-  const [checkingPair, setCheckingPair] = useState<string | null>(null)
   const request = useRef(0)
   const onTracksChangeRef = useRef(onTracksChange)
   onTracksChangeRef.current = onTracksChange
@@ -70,12 +71,11 @@ export default function LocalTrackPicker({
 
   async function confirmChoice(choice: OpenChoice, optionId: string) {
     const option = choice.options.find((item) => item.id === optionId)
-    if (!option) return
-    setCheckingPair(choice.id)
+    if (!option || choice.checking) return
+    setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: true } : item))
     const problem = await option.checkPair?.()
-    setCheckingPair(null)
     if (problem) {
-      setIssues(current => [...current, problem])
+      setChoices(current => current.map(item => item.id === choice.id ? { ...item, checking: false, problem } : item))
       return
     }
     setChoices((current) => current.filter((item) => item.id !== choice.id))
@@ -99,11 +99,12 @@ export default function LocalTrackPicker({
         请选择文件实际使用的组装。缺少组装声明时以您的选择登记；文件留在此浏览器。
       </p>
       <ul className="text-sm" data-testid="local-track-formats" data-plain-max-bytes={PLAIN_PEAK_MAX_BYTES}>
-        <li data-format="longrange">预建 longrange：.longrange.gz + .tbi，按窗口读取，不转换整份。</li>
-        <li data-format="bigwig">bigWig：.bw / .bigWig，按索引窗口读取。</li>
+        <li data-format="longrange">预建 longrange 使用 .longrange.gz 和配套的 BGZF 压缩 .tbi，按窗口读取。</li>
+        <li data-format="bigwig">bigWig（.bw 或 .bigWig）按索引窗口读取。</li>
         <li data-format="bed">
-          峰：BED3/BED4、narrowPeak、broadPeak，不超过 8 MiB；.bed.gz + .tbi 按窗口读取。
+          BED3/BED4、narrowPeak、broadPeak 文本上限为 8 MiB。带 .tbi 的 BGZF 峰文件按窗口读取。
         </li>
+        <li>本地 .tbi 解压后的上限为 32 MiB。</li>
       </ul>
       <label className="block text-sm">
         添加本地轨道
@@ -142,19 +143,20 @@ export default function LocalTrackPicker({
         <div key={choice.id} data-testid="local-track-choice" data-reason={choice.reason}>
           <p>{choice.message}</p>
           <p>确认后记为 {assemblySignature(choice.assembly)}，不会跟着之后的参考改标。</p>
+          {choice.problem && <p role="alert" data-reason={choice.problem.reason}>{choice.problem.message}</p>}
           <div className="flex flex-wrap gap-2">
             {choice.options.map((option) => (
               <button
                 key={option.id}
                 type="button"
                 data-choice={option.prepared.washUType}
-                disabled={checkingPair === choice.id}
+                disabled={choice.checking}
                 onClick={() => void confirmChoice(choice, option.id)}
               >
                 {option.label}
               </button>
             ))}
-            <button type="button" data-choice="skip" disabled={checkingPair === choice.id} onClick={() => dismissChoice(choice)}>
+            <button type="button" data-choice="skip" disabled={choice.checking} onClick={() => dismissChoice(choice)}>
               不添加
             </button>
           </div>

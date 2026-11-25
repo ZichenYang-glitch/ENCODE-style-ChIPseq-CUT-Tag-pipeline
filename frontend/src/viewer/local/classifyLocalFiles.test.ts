@@ -8,7 +8,8 @@ import {
   nativeTabixFiles,
 } from './contract'
 import { classifyLocalFiles } from './classifyLocalFiles'
-import { indexedPair } from './indexFixture'
+import { indexedPair, signalBigWig } from './indexFixture'
+import { readFileSlice } from './sliceRead'
 
 function bgzfHeader(): Uint8Array {
   return new Uint8Array([
@@ -65,10 +66,7 @@ describe('classifyLocalFiles', () => {
     ])
     const longrange = fileNamed('pet.longrange.gz', built.bgzf)
     const index = fileNamed('pet.longrange.gz.tbi', built.tabix)
-    const signal = fileNamed(
-      'signal.bigWig',
-      new Uint8Array([0x26, 0xfc, 0x8f, 0x88, 0, 0, 0, 0]),
-    )
+    const signal = fileNamed('signal.bigWig', signalBigWig())
     const result = await classifyLocalFiles([index, signal, longrange])
     expect(result.issues).toEqual([])
     expect(result.choices).toEqual([])
@@ -229,5 +227,27 @@ describe('classifyLocalFiles', () => {
       'bigbed-not-bigwig',
       'unmatched-index',
     ])
+  })
+
+  it('rejects truncated bigWigs but preserves a valid neighbouring signal', async () => {
+    const signal = signalBigWig()
+    const result = await classifyLocalFiles([
+      fileNamed('only-magic.bw', signal.subarray(0, 4)),
+      fileNamed('missing-index.bw', signal.subarray(0, 170)),
+      fileNamed('good.bw', signal),
+    ])
+    expect(result.ready.map(file => file.label)).toEqual(['good.bw'])
+    expect(result.issues.map(issue => issue.reason)).toEqual(['invalid-bigwig', 'invalid-bigwig'])
+  })
+
+  it('gives the text reader the intervals that passed validation, retaining their names and coordinates', async () => {
+    const row = 'chr1\t1020\t1080\tLOCAL_PEAK'
+    const original = fileNamed('headers.bed', new TextEncoder().encode(
+      'track name=peaks db=hg38\r\n# comment\r\n' + row + '\r\n\r\nchr1\t2000\t2100\t第二个峰',
+    ))
+    const [track] = (await classifyLocalFiles([original], 'hg38')).ready
+    expect(track.dataFile.name).toBe(original.name)
+    expect(new TextDecoder().decode(await readFileSlice(track.dataFile, 0, track.dataFile.size)))
+      .toBe(row + '\r\nchr1\t2000\t2100\t第二个峰')
   })
 })

@@ -9,12 +9,13 @@ import {
   type PreparedLocalFile,
 } from './contract'
 import {
+  hasBigWigIndexes,
   isBigBedMagic,
   isBigWigMagic,
   readFileSlice,
   scanPlainPeak,
 } from './sliceRead'
-import { tabixPairProblem } from './tabixPair'
+import { tabixPairProblem, type IndexedLocalFormat } from './tabixPair'
 
 export interface LocalSelectionIssue {
   id: string
@@ -120,14 +121,14 @@ export async function classifyLocalFiles(
       ? (['longrange', 'bed'] as const)
       : [fixedIndexedFormat(kind)]
     if (exact.length === 1 && formats.length === 1 && indexedNames.get(indexName) === 1) {
-      const problem = await checkIndex(item.file, exact[0])
+      const problem = await checkIndex(item.file, exact[0], formats[0])
       if (problem) issues.push(problem)
       else ready.push(optionFor(item, exact[0], formats[0]).prepared)
       continue
     }
     const options = candidates.flatMap(index => formats.map(format => ({
       ...optionFor(item, index, format),
-      checkPair: () => checkIndex(item.file, index),
+      checkPair: () => checkIndex(item.file, index, format),
     })))
     choices.push({
       id: trackId(),
@@ -213,7 +214,7 @@ async function prepareUnindexed(
 async function prepareBigWig(
   item: NamedFile,
 ): Promise<PreparedLocalFile | { issue: LocalSelectionIssue }> {
-  const header = await readFileSlice(item.file, 0, 4)
+  const header = await readFileSlice(item.file, 0, 64)
   if (isBigBedMagic(header)) {
     return {
       issue: issue(
@@ -227,6 +228,14 @@ async function prepareBigWig(
       issue: issue(
         'not-bigwig',
         `${item.name} 的文件头不是 bigWig。请换一个 .bw 或 .bigWig。`,
+      ),
+    }
+  }
+  if (!(await hasBigWigIndexes(item.file, header))) {
+    return {
+      issue: issue(
+        'invalid-bigwig',
+        `${item.name} 缺少可读的 bigWig 文件头或信号索引。请重新选择完整的 .bw 或 .bigWig 文件。`,
       ),
     }
   }
@@ -266,7 +275,7 @@ async function preparePlain(
     readMethod: READ_TEXT_FILE,
     isText: true,
     label: item.name,
-    dataFile: item.file,
+    dataFile: scanned.ok.dataFile,
   }
 }
 
@@ -274,22 +283,17 @@ function readError(file: File): LocalSelectionIssue {
   return issue('unreadable-file', `浏览器无法读取 ${browserFileName(file)}。请确认文件可访问，再重新选择。`)
 }
 
-async function checkIndex(data: File, index: File): Promise<LocalSelectionIssue | null> {
+async function checkIndex(data: File, index: File, format: IndexedLocalFormat): Promise<LocalSelectionIssue | null> {
   try {
-    return await indexedProblem(data, index)
+    const verdict = await tabixPairProblem(data, index, format)
+    return verdict.ok ? null : issue(verdict.reason, verdict.message)
   } catch {
     return issue('unreadable-pair',
       `无法读取 ${browserFileName(data)} 与 ${browserFileName(index)}。请重新选择可访问的数据文件和索引。`)
   }
 }
 
-async function indexedProblem(data: File, index: File): Promise<LocalSelectionIssue | null> {
-  const verdict = await tabixPairProblem(data, index)
-  if (verdict.ok) return null
-  return issue(verdict.reason, verdict.message)
-}
-
-function fixedIndexedFormat(kind: FileKind): 'longrange' | 'bed' | 'narrowPeak' | 'broadPeak' {
+function fixedIndexedFormat(kind: FileKind): IndexedLocalFormat {
   if (kind === 'longrange') return 'longrange'
   if (kind === 'indexed-narrow') return 'narrowPeak'
   if (kind === 'indexed-broad') return 'broadPeak'
@@ -299,7 +303,7 @@ function fixedIndexedFormat(kind: FileKind): 'longrange' | 'bed' | 'narrowPeak' 
 function optionFor(
   item: NamedFile,
   index: File,
-  format: 'longrange' | 'bed' | 'narrowPeak' | 'broadPeak',
+  format: IndexedLocalFormat,
 ): LocalChoiceOption {
   const prepared: PreparedLocalFile = {
     format: format === 'longrange' ? 'longrange' : `indexed-${format}`,
