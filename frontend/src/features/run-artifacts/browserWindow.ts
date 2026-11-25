@@ -18,7 +18,15 @@ const SCAFFOLDS: Record<string, string> = {
   grcm39: 'mm39',
 };
 
-export const USER_ASSEMBLIES = ['hg19', 'hg38', 'mm9', 'mm10', 'mm39'] as const;
+export const USER_ASSEMBLIES = [
+  { scaffold: 'hg38', declared: 'GRCh38' },
+  { scaffold: 'hg19', declared: 'GRCh37' },
+  { scaffold: 'mm10', declared: 'GRCm38' },
+  { scaffold: 'mm39', declared: 'GRCm39' },
+  { scaffold: 'mm9', declared: 'mm9' },
+] as const;
+
+const REGION = /^([A-Za-z0-9_.:-]+):([0-9]+)-([0-9]+)$/;
 
 const ABSOLUTE_HTTP = /^https?:\/\//i;
 
@@ -53,6 +61,25 @@ export function userSpecifiedReference(scaffold: string | null | undefined): str
   return null;
 }
 
+export function declaredAssembly(scaffold: string | null | undefined): string {
+  return USER_ASSEMBLIES.find((item) => item.scaffold === scaffold)?.declared ?? scaffold ?? '';
+}
+
+/**
+ * Colon text is 1-based and closed. WashU's ChromosomeInterval.parse keeps
+ * the end and turns the start into max(0, start - 1). Region summaries use
+ * that same half-open window.
+ */
+export function seenWindow(region: string): { chrom: string; start: number; end: number } | null {
+  const parsed = REGION.exec(region);
+  if (!parsed) return null;
+  return {
+    chrom: parsed[1],
+    start: Math.max(0, Number(parsed[2]) - 1),
+    end: Number(parsed[3]),
+  };
+}
+
 export function referenceBinding(reference: {
   status: string;
   identity_sha256?: string | null;
@@ -69,7 +96,6 @@ export function referenceBinding(reference: {
 
 export function windowAuthority(
   primary: { runId: string; reference: ReferenceBinding } | null,
-  added: ReadonlyArray<{ runId: string; reference: ReferenceBinding }>,
   userAssembly: string,
 ): WindowAuthority {
   if (primary && primary.reference.status === 'bound' && primary.reference.scaffold) {
@@ -80,22 +106,12 @@ export function windowAuthority(
       runId: primary.runId,
     };
   }
-  const scaffold = viewerScaffold(userAssembly) ?? 'hg38';
-  const firstBound = added.find(
-    (run) =>
-      run.reference.status === 'bound' &&
-      run.reference.scaffold === scaffold &&
-      run.reference.identity,
-  );
-  if (firstBound) {
-    return {
-      scaffold,
-      source: 'user',
-      identity: firstBound.reference.identity,
-      runId: firstBound.runId,
-    };
-  }
-  return { scaffold, source: 'user', identity: null, runId: null };
+  return {
+    scaffold: viewerScaffold(userAssembly) ?? 'hg38',
+    source: 'user',
+    identity: null,
+    runId: null,
+  };
 }
 
 export function placePlatformRun(
@@ -122,28 +138,26 @@ export function placePlatformRun(
       reason: `Run ${runId} uses scaffold ${reference.scaffold}, not this window's ${authority.scaffold}. Chromosome names do not make those scaffolds the same reference.`,
     };
   }
+  // identity_sha256 mixes the profile id, display name, and workflow bindings.
+  // A different digest does not prove a different genome. The same assembly
+  // label, including GRCh38/hg38, can share the window; the note only says
+  // the profiles may be different revisions.
   if (authority.runId === runId) {
+    return { ok: true, warning: null };
+  }
+  if (authority.identity && reference.identity && authority.identity !== reference.identity) {
     return {
       ok: true,
-      warning:
-        authority.source === 'user'
-          ? `This window scaffold was selected as ${authority.scaffold}. Run ${runId} is bound to reference identity ${reference.identity ?? 'unknown'}. Chromosome names alone did not establish that identity.`
-          : null,
+      warning: `Run ${runId} has its own reference profile on ${authority.scaffold}. The profiles may use different reference revisions. Chromosome names do not prove the files are the same build.`,
     };
   }
-  if (!authority.identity || !reference.identity || authority.identity !== reference.identity) {
+  if (authority.source === 'user') {
     return {
-      ok: false,
-      reason: `Run ${runId} is not the same reference identity as this window. Chromosome names do not prove the references match, so its tracks stay out.`,
+      ok: true,
+      warning: `Run ${runId} keeps its own reference profile on ${declaredAssembly(authority.scaffold)}. This window was declared by the user; chromosome names do not prove it is that reference revision.`,
     };
   }
-  return {
-    ok: true,
-    warning:
-      authority.source === 'user'
-        ? `Run ${runId} shares reference identity ${reference.identity}. The window scaffold was selected as ${authority.scaffold}; chromosome names did not establish that identity.`
-        : null,
-  };
+  return { ok: true, warning: null };
 }
 
 export function placeLocalTrack(

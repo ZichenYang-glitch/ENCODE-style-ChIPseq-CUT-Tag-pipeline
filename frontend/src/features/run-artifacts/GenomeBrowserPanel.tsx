@@ -18,10 +18,12 @@ import { Button } from '../../components/Button';
 import LocalTrackPicker, { type LocalWashuTrack } from '../../viewer/local/LocalTrackPicker';
 import LocusSearch from '../../viewer/search/LocusSearch';
 import {
+  declaredAssembly,
   localTrackHasForeignUrl,
   placeLocalTrack,
   placePlatformRun,
   referenceBinding,
+  seenWindow,
   userSpecifiedReference,
   USER_ASSEMBLIES,
   windowAuthority,
@@ -528,30 +530,13 @@ export default function GenomeBrowserPanel({
     () => (session ? sessionReadyTracks(session, selected) : []),
     [selected, session],
   );
-  const addedBindings = activeAddedIds.flatMap((id, index) => {
-    const data = addedSessionQueries[index]?.data;
-    if (!data || data.run_id !== id) return [];
-    return [{ runId: id, reference: referenceBinding(data.reference) }];
-  });
-  const addedBindingKey = addedBindings
-    .map((item) =>
-      [
-        item.runId,
-        item.reference.status,
-        item.reference.identity ?? '',
-        item.reference.scaffold ?? '',
-      ].join(':'),
-    )
-    .join('|');
-  const addedBindingsRef = useRef(addedBindings);
-  addedBindingsRef.current = addedBindings;
   const authority = useMemo(() => {
     const primary =
       session && openedRunId
         ? { runId: session.run_id, reference: referenceBinding(session.reference) }
         : null;
-    return windowAuthority(primary, addedBindingsRef.current, userAssembly);
-  }, [addedBindingKey, openedRunId, session, userAssembly]);
+    return windowAuthority(primary, userAssembly);
+  }, [openedRunId, session, userAssembly]);
   const primaryPlacement =
     session && openedRunId
       ? placePlatformRun(authority, session.run_id, referenceBinding(session.reference))
@@ -778,13 +763,16 @@ export default function GenomeBrowserPanel({
             value={userAssembly}
             onChange={(event) => setUserAssembly(event.target.value)}
           >
-            {USER_ASSEMBLIES.map((name) => (
-              <option key={name} value={name}>
-                {name}
+            {USER_ASSEMBLIES.map((item) => (
+              <option key={item.scaffold} value={item.scaffold}>
+                {item.scaffold} · {item.declared}
               </option>
             ))}
           </select>
         </label>
+      ) : null}
+      {showAssembly ? (
+        <p role="status">当前声明 {declaredAssembly(userAssembly)}</p>
       ) : null}
       {authority.source === 'user' ? (
         <p role="status">{userSpecifiedReference(authority.scaffold)}</p>
@@ -1067,7 +1055,11 @@ function AddedRunBlock({
           {placement.reason}
         </p>
       ) : null}
-      {placement?.ok && placement.warning ? <p role="status">{placement.warning}</p> : null}
+      {placement?.ok && placement.warning ? (
+        <p role="status" data-testid="reference-note">
+          {placement.warning}
+        </p>
+      ) : null}
       {data && data.ok && !conflict ? (
         <TrackChooser
           runId={runId}
@@ -1241,7 +1233,7 @@ function TrackChooser({
 }
 
 function RegionNotes({ region, rows }: { region: string; rows: PlatformRow[] }) {
-  const parsed = REGION.exec(region);
+  const seen = seenWindow(region);
   const countable = rows.filter(
     (row) =>
       row.generation &&
@@ -1252,11 +1244,14 @@ function RegionNotes({ region, rows }: { region: string; rows: PlatformRow[] }) 
     queryKey: [
       'browser-region',
       region,
-      countable.map((row) => `${row.runId}:${row.track.artifact_id}:${row.track.revision}`),
+      countable.map(
+        (row) =>
+          `${row.runId}:${row.generation}:${row.track.artifact_id}:${row.track.revision}`,
+      ),
     ],
-    enabled: Boolean(parsed && countable.length > 0),
+    enabled: Boolean(seen && countable.length > 0),
     queryFn: async ({ signal }) => {
-      if (!parsed) return [];
+      if (!seen) return [];
       return Promise.allSettled(
         countable.map((row) =>
           summarizeRunBrowserTrackRegion(
@@ -1265,9 +1260,9 @@ function RegionNotes({ region, rows }: { region: string; rows: PlatformRow[] }) 
             row.generation ?? '',
             row.track.revision,
             {
-              chrom: parsed[1],
-              start: Number(parsed[2]),
-              end: Number(parsed[3]),
+              chrom: seen.chrom,
+              start: seen.start,
+              end: seen.end,
             },
             { signal },
           ),
