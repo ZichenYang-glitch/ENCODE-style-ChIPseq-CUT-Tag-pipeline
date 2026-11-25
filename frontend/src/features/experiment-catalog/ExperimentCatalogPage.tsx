@@ -22,6 +22,7 @@ import type {
 import { ApiError } from '../../api/fetcher';
 import { useAuth } from '../../app/auth';
 import { Button } from '../../components/Button';
+import { ArchivedTrackList } from '../experiment-archive/ArchivedTrackList';
 import {
   CATALOG_PAGE_SIZE,
   RUN_INPUT_SCOPE_TEXT,
@@ -513,6 +514,13 @@ export function ExperimentCatalogPage() {
           sampleRunsError={
             sampleRunsQuery.isError ? errorMessage(sampleRunsQuery.error) : null
           }
+        />
+      )}
+
+      {selected !== null && head !== null && applied !== null && (
+        <ArchivedTrackList
+          projectId={applied.projectId}
+          experimentId={selected.experiment_id}
         />
       )}
 

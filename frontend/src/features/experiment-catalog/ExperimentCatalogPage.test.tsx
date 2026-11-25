@@ -5,6 +5,7 @@ import type { RouteObject } from 'react-router-dom';
 import { renderWithRouter } from '../../test/test-utils';
 import { fetchSessionState } from '../../api/authClient';
 import { authoringListProjects } from '../../api/generated/authoring/authoring';
+import { catalogListArchivedTracks } from '../../api/archivedTracks';
 import {
   catalogCreateExperiment,
   catalogCreateTerm,
@@ -38,6 +39,11 @@ vi.mock('../../api/generated/catalog/catalog', () => ({
 
 vi.mock('../../api/generated/authoring/authoring', () => ({
   authoringListProjects: vi.fn(),
+}));
+
+vi.mock('../../api/archivedTracks', () => ({
+  catalogListArchivedTracks: vi.fn(async () => ({ items: [], next_offset: null })),
+  catalogGetArchivedTrack: vi.fn(),
 }));
 
 const PROJECT_ID = `prj_${'1'.repeat(32)}`;
@@ -325,6 +331,16 @@ describe('Experiment catalog page', () => {
     expect(screen.getByRole('region', { name: 'Experiment revision' })).toHaveTextContent(
       '旧版 1',
     );
+    expect(await screen.findByRole('region', { name: '已封存轨道' })).toBeInTheDocument();
+    expect(catalogListArchivedTracks).toHaveBeenCalledWith(
+      PROJECT_ID,
+      EXPERIMENT_ID,
+      { limit: 50, offset: 0 },
+      expect.any(Object),
+    );
+    expect(
+      vi.mocked(catalogListArchivedTracks).mock.calls.every((call) => call[1] === EXPERIMENT_ID),
+    ).toBe(true);
 
     await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(
