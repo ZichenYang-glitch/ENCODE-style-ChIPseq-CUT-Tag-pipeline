@@ -70,14 +70,14 @@ def test_chr7_matches_the_drawn_fixture_and_tp53_stays_inside_the_gene() -> None
 
 @pytest.fixture(scope="module")
 def fixture_python() -> str:
-    # The browser data writers live in workflow/envs/chipseq.lock; ci-fast
-    # can still check the fixture coordinates and online converter contract.
     interpreter = os.environ.get("WASHU_FIXTURE_PYTHON")
     if interpreter:
         return interpreter
     if all(importlib.util.find_spec(name) for name in ("pysam", "pyBigWig")):
         return sys.executable
-    pytest.skip("set WASHU_FIXTURE_PYTHON to the locked chipseq Python")
+    pytest.fail(
+        "set WASHU_FIXTURE_PYTHON to the Python from workflow/envs/deeptools.lock"
+    )
 
 
 def _build(dest: Path, pairs: int, interpreter: str) -> dict:
@@ -144,10 +144,6 @@ def test_default_fixture_exceeds_both_online_caps(
     assert saved["record_count"] == observation["record_count"]
     assert saved["data_file_bytes"] == observation["data_file_bytes"]
     assert saved["index_file_bytes"] == observation["index_file_bytes"]
-
-
-_MOUSE_GTF = Path("/home/yangzichen/reference/genomes/GRCm38/GRCm38.annotation.gtf")
-_MOUSE_SIZES = Path("/home/yangzichen/reference/genomes/GRCm38/GRCm38.fa.sizes")
 
 
 def test_mm10_consensus_places_fixed_values_inside_egfr_and_trp53() -> None:
@@ -276,54 +272,38 @@ def test_mm10_build_reads_back_both_genes(
     assert first["wrong_index"]["hits"] == []
 
 
-def test_pinned_mouse_genes_match_the_local_gencode_m25_gtf() -> None:
-    if not _MOUSE_GTF.is_file():
-        pytest.skip("local GRCm38 annotation is not on this machine")
+def test_pinned_mouse_genes_match_released_gencode_m25_records() -> None:
+    fixture = (
+        Path(__file__).resolve().parents[1]
+        / "fixtures/browser/gencode-m25-fixture-genes.gtf"
+    )
     spec = load_consensus("mm10")
-    wanted = {gene["gene_id"]: gene for gene in spec["genes"].values()}
-    found: dict[str, dict[str, str]] = {}
-    with _MOUSE_GTF.open(encoding="utf-8") as handle:
-        for line in handle:
-            if not line or line[0] == "#":
-                continue
-            gene_id = next((item for item in wanted if item in line), None)
-            if gene_id is None:
-                continue
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 9 or parts[2] != "gene":
-                continue
-            attrs = dict(re.findall(r'([A-Za-z0-9_]+) "([^"]*)"', parts[8]))
-            if attrs.get("gene_id") != gene_id:
-                continue
-            found[gene_id] = {
-                "chrom": parts[0],
-                "start": parts[3],
-                "end": parts[4],
-                "strand": parts[6],
-                "gene_name": attrs["gene_name"],
-                "gene_type": attrs["gene_type"],
-                "mgi_id": attrs["mgi_id"],
-            }
-            if len(found) == len(wanted):
-                break
-    assert set(found) == set(wanted)
-    for gene_id, gene in wanted.items():
-        row = found[gene_id]
-        assert row["chrom"] == gene["chrom"]
-        assert int(row["start"]) == gene["gtf_start"]
-        assert int(row["end"]) == gene["gtf_end"]
-        assert row["strand"] == gene["strand"]
-        assert row["gene_name"] in spec["genes"]
-        assert spec["genes"][row["gene_name"]] is gene
-        assert row["gene_type"] == "protein_coding"
-        assert row["mgi_id"] == gene["mgi_id"]
-    if _MOUSE_SIZES.is_file():
-        sizes = {
-            chrom: int(length)
-            for chrom, length in (
-                line.split("\t")
-                for line in _MOUSE_SIZES.read_text(encoding="ascii").splitlines()
-                if line
-            )
-        }
-        assert sizes["chr11"] == spec["chrom_sizes"]["chr11"]
+    seen = set()
+    for line in fixture.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#"):
+            continue
+        chrom, _, feature, start, end, _, strand, _, attributes = line.split("\t")
+        assert feature == "gene"
+        attrs = dict(re.findall(r'([A-Za-z0-9_]+) "([^"]*)"', attributes))
+        name = attrs["gene_name"]
+        assert name not in seen
+        seen.add(name)
+        gene = spec["genes"][name]
+        assert (chrom, int(start), int(end), strand) == (
+            gene["chrom"],
+            gene["gtf_start"],
+            gene["gtf_end"],
+            gene["strand"],
+        )
+        assert attrs["gene_id"] == gene["gene_id"]
+        assert attrs["mgi_id"] == gene["mgi_id"]
+        assert attrs["gene_type"] == "protein_coding"
+    assert seen == set(spec["genes"])
+
+    provenance = (
+        Path(__file__).resolve().parents[2]
+        / "frontend/src/viewer/search/mm10-gene-index.provenance.json"
+    )
+    scaffold = json.loads(provenance.read_text(encoding="utf-8"))["viewer_scaffold"]
+    lengths = dict(zip(scaffold["sequences"], scaffold["lengths"], strict=True))
+    assert lengths["chr11"] == spec["chrom_sizes"]["chr11"]

@@ -29,11 +29,11 @@ GRCh38 注释来源是 GENCODE 人类第 49 版的 primary assembly GTF。上游
 
 ### 从打包页面复验
 
-在仓库根目录使用 Node 22 和 Playwright Chromium。准备两个 Python 环境：一个安装当前提交构建的 wheel，另一个按仓库的 ci-fast 环境在当前工作树安装可编辑包。合成文件生成器使用 `workflow/envs/chipseq.lock` 中的 pysam 和 pyBigWig。命令里的 Python 路径由复审者换成自己的安装位置。
+在仓库根目录使用 Node 22 和 Playwright Chromium。准备两个 Python 环境：一个安装当前提交构建的 wheel，另一个按仓库的 ci-fast 环境在当前工作树安装可编辑包。将 `WASHU_FIXTURE_PYTHON` 指向 `workflow/envs/deeptools.lock` 对应的 Python。CI 在包含本地轨道测试的分片中用该环境生成并读取真实 BGZF、TBI 和 bigWig 文件。小鼠对照来自仓库中随附的两条原始 GENCODE M25 gene 记录。命令里的 Python 路径由复审者换成自己的安装位置。
 
 ```bash
 HELIXWEAVE_PYTHON=/path/to/wheel-env/bin/python \
-  WASHU_FIXTURE_PYTHON=/path/to/chipseq/bin/python \
+  WASHU_FIXTURE_PYTHON=/path/to/deeptools/bin/python \
   node frontend/scripts/washu-local-overlay-proof.mjs
 
 HELIXWEAVE_PYTHON=/path/to/checkout-ci-fast/bin/python \

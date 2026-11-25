@@ -108,6 +108,17 @@ jobs:
           echo "shard ${{ matrix.shard }} owns $(wc -l < shard-files.txt) test files"
           echo "shard ${{ matrix.shard }} owns $(wc -l < shard-files.txt) test files" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Prepare locked readers for the WashU fixture tests
+        shell: micromamba-shell {0}
+        run: |
+          set -euo pipefail
+          if grep -Fxq 'test/browser/test_local_overlay_fixtures.py' shard-files.txt; then
+            fixture_prefix="$RUNNER_TEMP/washu-fixture-tools"
+            micromamba create --yes --prefix "$fixture_prefix" --file workflow/envs/deeptools.lock
+            "$fixture_prefix/bin/python" -I -c "import pysam, pyBigWig"
+            echo "WASHU_FIXTURE_PYTHON=$fixture_prefix/bin/python" >> "$GITHUB_ENV"
+          fi
+
       - name: Run deterministic Python shard
         shell: micromamba-shell {0}
         env:
