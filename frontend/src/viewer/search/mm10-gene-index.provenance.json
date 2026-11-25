@@ -1,0 +1,176 @@
+{
+  "annotation": {
+    "release": "GENCODE mouse M25",
+    "source_url": "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/gencode.vM25.primary_assembly.annotation.gtf.gz",
+    "filename": "GRCm38.annotation.gtf",
+    "bytes": 888182176,
+    "sha256": "dbd5e0488a5994cc5e9379e13ecaceb0d2affcb0c6c9f7584def7f1be01769b6",
+    "uncompressed_bytes": 888182176,
+    "uncompressed_sha256": "dbd5e0488a5994cc5e9379e13ecaceb0d2affcb0c6c9f7584def7f1be01769b6",
+    "feature": "gene",
+    "assembly_accession": "GCA_000001635.2",
+    "genome_url": "https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/chromFa.tar.gz",
+    "genomepy_version": "0.16.3",
+    "readme_date": "2025-12-15 19:29:42",
+    "readme_filename": "README.txt",
+    "readme_sha256": "179cf9fc04c6302e9250f5ac62a1f0d8d7bad11e0c157a7199f809d3a957a702",
+    "attestation": "This plain GTF is the local genomepy copy of GENCODE mouse release M25. It has no ##description header. Its primary-chromosome records are byte-identical to gencode.vM25.primary_assembly.annotation.gtf.gz after that gzip's five-line header. The remaining records differ only by UCSC-style scaffold names; coordinates are unchanged. upstream_crosscheck records the official checksums and the comparison.",
+    "license": "GENCODE project data is open access (https://www.gencodegenes.org/pages/data_access.html). Reuse follows the EMBL-EBI Terms of Use: EMBL-EBI expects attribution and does not add restrictions beyond the data owner's terms. This index redistributes gene id, symbol, type, strand, and span for browser search. It is not the GTF."
+  },
+  "assembly_report": {
+    "filename": "assembly_report.txt",
+    "sha256": "e8416208f2019f07d3d387969a5a289a49259aa7706cf1bb2c8fd53b7e3f4473",
+    "admitted_sequence_names": 66,
+    "source_note": "UCSC-style-name and Sequence-Length columns. Every pinned wuepgg 62.0.2 mm10 sequence is present at that viewer length. This record identifies the report by sha256."
+  },
+  "aliases": {
+    "source": "Ensembl 100 mus_musculus_core_100_38 MGI synonyms",
+    "source_url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/external_synonym.txt.gz",
+    "release": "Ensembl 100",
+    "db_name": "MGI",
+    "external_db_id": "1400",
+    "excluded_db_names": [
+      "HGNC"
+    ],
+    "canonical_sha256": "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70",
+    "canonical_bytes": 381823,
+    "filename": "external_synonym.txt.gz",
+    "bytes": 381823,
+    "sha256": "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70",
+    "mapping_sha256": "5cbc4124ae30f00a69629f54b6cb5b1500014a8d943dc7aae1505f50b54640c9",
+    "mapping_note": "mapping_sha256 is SHA-256 over lines of 'role sha256' for external_db, gene, xref, external_synonym, and object_xref, in that order. sha256 itself is the synonym file.",
+    "files": [
+      {
+        "role": "external_db.txt.gz",
+        "filename": "external_db.txt.gz",
+        "bytes": 14232,
+        "sha256": "1627403c7f8ed443ad65087ca11d2e1133499874c322af2046f4e59448ce91d0",
+        "canonical_bytes": 14232,
+        "canonical_sha256": "1627403c7f8ed443ad65087ca11d2e1133499874c322af2046f4e59448ce91d0",
+        "url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/external_db.txt.gz"
+      },
+      {
+        "role": "gene.txt.gz",
+        "filename": "gene.txt.gz",
+        "bytes": 3146731,
+        "sha256": "7eb13f94fa7ce33b41d7b2d36ec973aa89e1b9741c6948f311bed14f201f4431",
+        "canonical_bytes": 3146731,
+        "canonical_sha256": "7eb13f94fa7ce33b41d7b2d36ec973aa89e1b9741c6948f311bed14f201f4431",
+        "url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/gene.txt.gz"
+      },
+      {
+        "role": "xref.txt.gz",
+        "filename": "xref.txt.gz",
+        "bytes": 30340560,
+        "sha256": "6de286b59baaa4c05486284e5fdfec368f289691bd06916f34e22d5964946439",
+        "canonical_bytes": 30340560,
+        "canonical_sha256": "6de286b59baaa4c05486284e5fdfec368f289691bd06916f34e22d5964946439",
+        "url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/xref.txt.gz"
+      },
+      {
+        "role": "external_synonym.txt.gz",
+        "filename": "external_synonym.txt.gz",
+        "bytes": 381823,
+        "sha256": "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70",
+        "canonical_bytes": 381823,
+        "canonical_sha256": "ad3d47113baeca83c1d83166e360cdb3d58c13d48a52ad5f45ee350eb44dca70",
+        "url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/external_synonym.txt.gz"
+      },
+      {
+        "role": "object_xref.txt.gz",
+        "filename": "object_xref.txt.gz",
+        "bytes": 27426363,
+        "sha256": "44ee975e37c04f4cea75d69c2ae32d33f8de3f70b71b0b8babac49165e54ca87",
+        "canonical_bytes": 27426363,
+        "canonical_sha256": "44ee975e37c04f4cea75d69c2ae32d33f8de3f70b71b0b8babac49165e54ca87",
+        "url": "https://ftp.ensembl.org/pub/release-100/mysql/mus_musculus_core_100_38/object_xref.txt.gz"
+      }
+    ],
+    "fields": [
+      "display_label",
+      "synonym"
+    ],
+    "join": "Ensembl gene id without version",
+    "mgi_xrefs": 55313,
+    "mgi_gene_links": 55901,
+    "ignored_hgnc_gene_links": 2,
+    "license": "Mouse aliases are the MGI symbol and external synonyms joined through Ensembl release 100 mus_musculus_core_100_38, external_db db_name MGI. HGNC rows in that database are not used. Ensembl redistributes the cross-reference under its public data policy. MGI asks for attribution: Mouse Genome Informatics, The Jackson Laboratory."
+  },
+  "viewer_scaffold": {
+    "id": "mm10",
+    "version": "62.0.2",
+    "sequences": [
+      "chr1",
+      "chr2",
+      "chr3",
+      "chr4",
+      "chr5",
+      "chr6",
+      "chr7",
+      "chr8",
+      "chr9",
+      "chr10",
+      "chr11",
+      "chr12",
+      "chr13",
+      "chr14",
+      "chr15",
+      "chr16",
+      "chr17",
+      "chr18",
+      "chr19",
+      "chrX",
+      "chrY",
+      "chrM"
+    ],
+    "lengths": [
+      195471971,
+      182113224,
+      160039680,
+      156508116,
+      151834684,
+      149736546,
+      145441459,
+      129401213,
+      124595110,
+      130694993,
+      122082543,
+      120129022,
+      120421639,
+      124902244,
+      104043685,
+      98207768,
+      94987271,
+      90702639,
+      61431566,
+      171031299,
+      91744698,
+      16299
+    ],
+    "note": "These are the only sequences in the pinned viewer genome. chrM is last, which matches wuepgg 62.0.2 mm10 and not mm39. A region on any other sequence is not sent to the viewer, because its region parser throws when the sequence is missing and the viewer unmounts."
+  },
+  "generator": "frontend/src/viewer/search/build_grcm38_gene_index.py",
+  "coordinate_system": "1-based-closed",
+  "region_format": "chrom:start-end",
+  "coordinate_note": "Spans are GENCODE gene-feature coordinates: 1-based and closed, written as chrom:start-end. Typed coordinates on a pinned sequence are passed through unchanged. The pinned viewer subtracts 1 from the start of a colon coordinate and keeps the end, so this string is not converted again. A sequence outside the pinned genome is not sent to the viewer.",
+  "assembly_note": "assembly_match lists names that use these GRCm38 primary chromosome coordinates. GENCODE mouse M25 corresponds to Ensembl 100 on GRCm38. GCA_000001635.2 is GRCm38 and GCA_000001635.8 is GRCm38.p6. GCA_000001635.9 is GRCm39 and is rejected. The pinned viewer genome is the 22 sequences in viewer_scaffold, from wuepgg 62.0.2, with chrM last. Sequences are kept when the assembly report gives them a UCSC-style name; navigation still refuses a name the viewer genome lacks.",
+  "counts": {
+    "genes": 55487,
+    "aliases": 45612,
+    "chromosomes": 45,
+    "dropped_incomplete": 0,
+    "dropped_unknown_sequence": 0
+  },
+  "upstream_crosscheck": {
+    "official_gzip_url": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M25/gencode.vM25.primary_assembly.annotation.gtf.gz",
+    "official_gzip_md5": "c5125258a0a2c5250ddb4c192abbf4e8",
+    "official_gzip_sha256": "b3ceeef170048fc86c5dead33ba7af61d71e50c9a19ca5b4b9784b830802f5cd",
+    "official_gzip_bytes": 28556861,
+    "official_uncompressed_sha256": "009fe0274de483412832839740e92c959877f511833a2c6bcc41043477d1af9e",
+    "official_uncompressed_bytes": 888172458,
+    "header_lines": 5,
+    "identical_records": 1872052,
+    "scaffold_seqname_only_records": 1019,
+    "note": "Compared with the pinned gzip after removing its five header lines. The first 1872052 records match byte for byte. The remaining 1019 records differ only in the sequence name: genomepy rewrote GenBank scaffold accessions to UCSC-style names. Coordinates are unchanged."
+  }
+}
