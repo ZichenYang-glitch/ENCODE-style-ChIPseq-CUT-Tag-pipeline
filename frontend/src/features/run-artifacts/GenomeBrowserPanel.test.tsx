@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import GenomeBrowserPanel from './GenomeBrowserPanel';
@@ -20,8 +20,9 @@ vi.mock('wuepgg', () => ({
   }: {
     genomeName: string;
     viewRegion?: string;
-    tracks: Array<{ name?: string; url?: string }>;
+    tracks: Array<{ type?: string; name?: string; url?: string; options?: Record<string, unknown> }>;
   }) => {
+    (globalThis as { __hubTracks?: unknown }).__hubTracks = tracks;
     for (const track of tracks) {
       if (track.url) void fetch(track.url);
     }
@@ -37,6 +38,15 @@ vi.mock('../../api/generated/artifacts/artifacts', () => ({
   getRunBrowserSession: vi.fn(),
   prepareRunBrowserTrack: vi.fn(),
   summarizeRunBrowserTrackRegion: vi.fn(),
+}));
+
+vi.mock('../../api/generated/runs/runs', () => ({
+  listRuns: vi.fn(async () => ({
+    ok: true,
+    runs: [],
+    next_cursor: null,
+    issues: [],
+  })),
 }));
 
 const sessionMock = vi.mocked(getRunBrowserSession);
@@ -169,6 +179,14 @@ describe('GenomeBrowserPanel', () => {
     expect(await screen.findByText(/not a zero-signal measurement/)).toBeInTheDocument();
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('hg38');
     expect(screen.getByTestId('washu-mock-viewer')).toHaveTextContent('chr1:200-2400');
+    const hubTracks = (
+      globalThis as {
+        __hubTracks?: Array<{ type?: string; options?: Record<string, unknown> }>;
+      }
+    ).__hubTracks;
+    expect(hubTracks?.find((track) => track.type === 'longrange')?.options).toEqual({
+      clampHeight: true,
+    });
   });
 
   it('shows a failure when a later byte read fails after preflight', async () => {
@@ -314,6 +332,41 @@ describe('GenomeBrowserPanel', () => {
     releaseLate(new Response('changed', { status: 409 }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.getByTestId('washu-genome-viewer')).toBeInTheDocument();
+  });
+
+  it('requests the half-open window WashU draws for a colon coordinate', async () => {
+    const value = session();
+    value.tracks[0] = {
+      ...value.tracks[0],
+      provenance: { suggested_region: 'chr7:100-200' },
+    };
+    sessionMock.mockResolvedValue(value);
+    renderPanel();
+    await userEvent.click(await screen.findByRole('checkbox', { name: /PET records/ }));
+    await waitFor(
+      () => {
+        expect(summaryMock).toHaveBeenCalledWith(
+          'run-1',
+          'artifact-pet',
+          expect.any(String),
+          expect.any(String),
+          expect.objectContaining({ chrom: 'chr7', start: 99, end: 200 }),
+          expect.anything(),
+        );
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it('keeps a region the user chose ahead of the default hop', async () => {
+    sessionMock.mockResolvedValue(session());
+    renderPanel();
+    const box = await screen.findByRole('textbox', { name: 'Genomic region' });
+    await waitFor(() => expect(box).toHaveValue('chr1:200-2400'));
+    fireEvent.change(box, { target: { value: 'chr7:100-200' } });
+    expect(box).toHaveValue('chr7:100-200');
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    expect(screen.getByRole('textbox', { name: 'Genomic region' })).toHaveValue('chr7:100-200');
   });
 
   it('shows a retry when the first session request fails, then an empty selection', async () => {

@@ -96,6 +96,14 @@ describe('AppShell navigation', () => {
     expect(router.state.location.pathname).toBe('/workflows');
   });
 
+  it('opens the standalone document from the home navigation without a run', () => {
+    renderWithRouter(routes, { initialEntries: ['/workflows'] });
+    expect(screen.getByRole('link', { name: '打开本地轨道' })).toHaveAttribute(
+      'href',
+      '/viewer.html',
+    );
+  });
+
   it('marks Workflows current on the catalog and exact workflow detail', () => {
     const { unmount } = renderWithRouter(routes, {
       initialEntries: ['/workflows'],

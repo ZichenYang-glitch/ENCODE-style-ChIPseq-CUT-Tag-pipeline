@@ -26,6 +26,7 @@ const apiUrls = [];
 const consoleMessages = [];
 const external = [];
 const cspReports = [];
+let cspProbeUsed = false;
 const enforcedPolicy = "connect-src 'self'; report-uri /csp-report";
 let browser;
 let page;
@@ -314,6 +315,7 @@ async function writeEgress() {
     policy: documentPolicy,
     violations,
     reports,
+    cspProbeUsed,
     externalRequests: [...external],
   };
   writeFileSync(join(work, 'egress.json'), `${JSON.stringify(egress, null, 2)}\n`);
@@ -521,7 +523,7 @@ try {
           read.status === 409 &&
           read.body.includes('derivative_changed'),
       );
-      if (alert > 0 && rejected && cspReports.length > 0) break;
+      if (alert > 0 && rejected) break;
       await page.waitForTimeout(200);
     }
   } else {
@@ -618,6 +620,34 @@ try {
       return { width: box.width, height: box.height };
     }),
   );
+  if (negative && cspReports.length === 0) {
+    // A failed track may already be unmounted. Check the production worker's
+    // inherited policy separately using a constant URL with no track identity.
+    const target = 'https://epigenome.wustl.edu/cors/helixweave-csp-probe';
+    let reachedNetwork = false;
+    await context.route(target, async route => {
+      reachedNetwork = true;
+      await route.abort();
+    });
+    const report = page.waitForRequest(req => new URL(req.url()).pathname === '/csp-report',
+      { timeout: 8000 });
+    cspProbeUsed = true;
+    await Promise.all([report, viewerFrame.evaluate(async url => {
+      const source = `fetch(${JSON.stringify(url)}).then(() => postMessage('allowed'), () => postMessage('rejected'))`;
+      const handle = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+      const worker = new Worker(handle);
+      try {
+        await new Promise((resolve, reject) => {
+          worker.onmessage = event => event.data === 'rejected' ? resolve() : reject(new Error('CSP probe allowed'));
+          worker.onerror = reject;
+        });
+      } finally {
+        worker.terminate();
+        URL.revokeObjectURL(handle);
+      }
+    }, target)]);
+    if (reachedNetwork) throw new Error('Worker CSP allowed the test request to reach the network');
+  }
   const egress = await writeEgress();
   if (egress.policy !== enforcedPolicy) {
     throw new Error(`production policy was ${JSON.stringify(egress.policy)}`);

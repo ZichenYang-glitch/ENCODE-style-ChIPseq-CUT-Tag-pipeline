@@ -127,6 +127,13 @@ export function LoginPage() {
             </Button>
           </form>
         )}
+        <a
+          href="/viewer.html"
+          lang="zh-CN"
+          className="mt-4 inline-block text-sm text-[var(--color-link)] underline"
+        >
+          打开本地轨道
+        </a>
       </section>
     </div>
   );

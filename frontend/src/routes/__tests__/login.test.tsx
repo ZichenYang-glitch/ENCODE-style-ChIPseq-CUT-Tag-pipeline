@@ -58,6 +58,10 @@ describe('session guard', () => {
     await screen.findByRole('heading', { name: 'HelixWeave' });
     expect(router.state.location.pathname).toBe('/login');
     expect(router.state.location.state).toEqual({ from: '/runs' });
+    expect(screen.getByRole('link', { name: '打开本地轨道' })).toHaveAttribute(
+      'href',
+      '/viewer.html',
+    );
   });
 
   it('lets an authenticated principal through to the requested page', async () => {

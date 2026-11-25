@@ -1,0 +1,86 @@
+{
+  "annotation": {
+    "release": "GENCODE human 49",
+    "source_url": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.primary_assembly.annotation.gtf.gz",
+    "filename": "gencode.v49.primary_assembly.annotation.gtf.gz",
+    "bytes": 93496634,
+    "sha256": "5cabe88e93064851dc6cb826efe0e8b7babf7985e73df280cfb05910d05cd023",
+    "uncompressed_bytes": 3326907803,
+    "uncompressed_sha256": "8eb596086228540c93ccf56fbb6601fd99f19a6df2cecdde239af423e5db0729",
+    "feature": "gene",
+    "assembly_accession": "GCA_000001405.15",
+    "genome_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz",
+    "genomepy_version": "",
+    "readme_date": "",
+    "readme_filename": "",
+    "readme_sha256": "",
+    "attestation": "The annotation file is the GENCODE human release 49 primary-assembly GTF gzip. Its SHA-256 is the checksum of that gzip, and uncompressed_sha256 is the checksum of the decompressed bytes. Sequence names are already UCSC-style. A README is not required when the gzip checksum matches the pinned release.",
+    "license": "GENCODE project data is open access (https://www.gencodegenes.org/pages/data_access.html). Reuse follows the EMBL-EBI Terms of Use: EMBL-EBI expects attribution and does not add restrictions beyond the data owner's terms. This index redistributes gene id, symbol, type, strand, and span for browser search. It is not the GTF."
+  },
+  "assembly_report": {
+    "filename": "assembly_report.txt",
+    "sha256": "f5957ff3b9f206851535c7a1990d95b8bc15d519906da470d3e4a145b38a4f12",
+    "admitted_sequence_names": 455,
+    "source_note": "UCSC-style-name column of an assembly report for GCA_000001405.15. NCBI publishes that report for the accession. This record identifies the file by sha256. Primary chromosome lengths in the shipped report match the pinned viewer genome."
+  },
+  "aliases": {
+    "source": "HGNC complete set 2025-10-07",
+    "source_url": "https://storage.googleapis.com/public-download-files/hgnc/archive/archive/quarterly/tsv/hgnc_complete_set_2025-10-07.tsv",
+    "canonical_sha256": "30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5",
+    "canonical_bytes": 16741286,
+    "filename": "hgnc_complete_set_2025-10-07.tsv",
+    "bytes": 16741286,
+    "sha256": "30c2a235934e0f2ec579cb5a7158b8df0091a6674793341d08b8ea9e42e797e5",
+    "fields": [
+      "symbol",
+      "alias_symbol",
+      "prev_symbol"
+    ],
+    "join": "Ensembl gene id without version",
+    "license": "HGNC alias_symbol and prev_symbol are taken from the HGNC complete set, which HGNC releases under CC0. Attribution is requested: Seal et al., Nucleic Acids Research (2023); HGNC RRID:SCR_002827."
+  },
+  "viewer_scaffold": {
+    "id": "hg38",
+    "version": "62.0.2",
+    "sequences": [
+      "chr1",
+      "chr2",
+      "chr3",
+      "chr4",
+      "chr5",
+      "chr6",
+      "chr7",
+      "chr8",
+      "chr9",
+      "chr10",
+      "chr11",
+      "chr12",
+      "chr13",
+      "chr14",
+      "chr15",
+      "chr16",
+      "chr17",
+      "chr18",
+      "chr19",
+      "chr20",
+      "chr21",
+      "chr22",
+      "chrM",
+      "chrX",
+      "chrY"
+    ],
+    "note": "These are the only sequences in the pinned viewer genome. A region on any other sequence is not sent to the viewer, because its region parser throws when the sequence is missing and the viewer unmounts."
+  },
+  "generator": "frontend/src/viewer/search/build_grch38_gene_index.py",
+  "coordinate_system": "1-based-closed",
+  "region_format": "chrom:start-end",
+  "coordinate_note": "Spans are GENCODE gene-feature coordinates: 1-based and closed, written as chrom:start-end. Typed coordinates on a pinned sequence are passed through unchanged. The pinned viewer subtracts 1 from the start of a colon coordinate and keeps the end, so this string is not converted again. A sequence outside the pinned genome is not sent to the viewer.",
+  "assembly_note": "assembly_match lists names that use these primary chromosome coordinates. GENCODE 49 annotates GRCh38.p14. The pinned viewer genome is the 25 sequences in viewer_scaffold. This primary-assembly GTF has no patch or alt loci. Sequences are kept when the assembly report gives them a UCSC-style name; navigation still refuses a name the viewer genome lacks.",
+  "counts": {
+    "genes": 78691,
+    "aliases": 57711,
+    "chromosomes": 25,
+    "dropped_incomplete": 0,
+    "dropped_unknown_sequence": 208
+  }
+}
