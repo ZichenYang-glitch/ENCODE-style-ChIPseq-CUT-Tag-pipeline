@@ -5,126 +5,61 @@
     "assembly": "GRCh38",
     "assembly_accession": "GCA_000001405.15",
     "source_filename": "gencode.v49.primary_assembly.annotation.gtf.gz",
-    "source_url": "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/gencode.v49.primary_assembly.annotation.gtf.gz",
-    "local_sha256": "9578f079f35e9e550245db9ed7ad3181ccd60414df4e87e60c1e8617c0529d2d",
-    "coordinate_system": "Region strings and BED intervals are 0-based half-open, matching the existing Genomic region field. gtf_start and gtf_end are the published 1-based inclusive gene coordinates."
+    "coordinate_system": "BED, tabix and the planted intervals are 0-based half-open. hub_region is the 1-based inclusive string GenomeHub parses by subtracting one from the start."
   },
   "chrom_sizes_hg38": {
     "chr1": 248956422,
     "chr7": 159345973,
     "chr17": 83257441
   },
-  "mm10_chr7": 145441459,
+  "seed": 816,
+  "filler_pairs": 1010000,
+  "filenames": {
+    "longrange": "pet.longrange.gz",
+    "longrange_index": "pet.longrange.gz.tbi",
+    "signal": "signal.bw",
+    "peaks": "peak.bed",
+    "other_longrange": "other.longrange.gz",
+    "other_index": "other.longrange.gz.tbi"
+  },
   "genes": {
     "EGFR": {
       "gene_id": "ENSG00000146648.22",
       "chrom": "chr7",
       "gtf_start": 55018820,
-      "gtf_end": 55211628
+      "gtf_end": 55211628,
+      "hub_region": "chr7:55018820-55211628",
+      "zero_based_half_open": [55018819, 55211628]
     },
     "TP53": {
       "gene_id": "ENSG00000141510.20",
       "chrom": "chr17",
       "gtf_start": 7661779,
       "gtf_end": 7687546,
-      "strand": "-"
-    },
-    "ambiguous": {
-      "symbol": "DDX11L16",
-      "loci": [
-        {
-          "gene_id": "ENSG00000290825.2",
-          "chrom": "chr1",
-          "gtf_start": 11121,
-          "gtf_end": 24894
-        },
-        {
-          "chrom": "chr15",
-          "gtf_start": 101966063,
-          "gtf_end": 101980481
-        }
-      ]
-    },
-    "missing_symbol": "NO_SUCH_GENE_HELIXWEAVE"
+      "strand": "-",
+      "hub_region": "chr17:7661779-7687546",
+      "zero_based_half_open": [7661778, 7687546]
+    }
   },
   "windows": {
-    "egfr": {"chrom": "chr7", "start": 55018900, "end": 55019400},
-    "tp53": {"chrom": "chr17", "start": 7662000, "end": 7664000}
+    "egfr": {"chrom": "chr7", "start": 55101000, "end": 55107000},
+    "tp53": {"chrom": "chr17", "start": 7672000, "end": 7678000}
   },
   "longrange_pairs": {
     "egfr": [
-      {"a": [55019000, 55019100], "b": [55019200, 55019300]},
-      {"a": [55115200, 55115300], "b": [55115400, 55115500]},
-      {"a": [55211400, 55211500], "b": [55211520, 55211600]}
+      {"a": [55101000, 55102000], "b": [55106000, 55107000]}
     ],
     "tp53": [
-      {"a": [7662400, 7662500], "b": [7663000, 7663100]},
-      {"a": [7674600, 7674700], "b": [7675000, 7675100]},
-      {"a": [7686400, 7686500], "b": [7687000, 7687100]}
+      {"a": [7672000, 7673000], "b": [7677000, 7678000]}
     ]
   },
   "signals": [
-    {"chrom": "chr7", "start": 55019040, "end": 55019080, "value": 4.5},
-    {"chrom": "chr7", "start": 55115240, "end": 55115280, "value": 4.5},
-    {"chrom": "chr7", "start": 55211440, "end": 55211480, "value": 4.5},
-    {"chrom": "chr17", "start": 7662700, "end": 7662800, "value": 2.25},
-    {"chrom": "chr17", "start": 7674640, "end": 7674680, "value": 2.25},
-    {"chrom": "chr17", "start": 7686440, "end": 7686480, "value": 2.25}
+    {"chrom": "chr7", "start": 55104400, "end": 55105900, "value": 4.5},
+    {"chrom": "chr17", "start": 7675400, "end": 7676900, "value": 2.25}
   ],
   "peaks": [
-    {"chrom": "chr7", "start": 55019050, "end": 55019250, "name": "egfr-peak", "score": 80},
-    {"chrom": "chr7", "start": 55115220, "end": 55115480, "name": "egfr-mid", "score": 81},
-    {"chrom": "chr7", "start": 55211420, "end": 55211580, "name": "egfr-end", "score": 82},
-    {"chrom": "chr17", "start": 7662600, "end": 7662900, "name": "tp53-peak", "score": 40},
-    {"chrom": "chr17", "start": 7674620, "end": 7675080, "name": "tp53-mid", "score": 41},
-    {"chrom": "chr17", "start": 7686420, "end": 7687080, "name": "tp53-high", "score": 42}
+    {"chrom": "chr7", "start": 55103200, "end": 55104100, "name": "Peak-one"},
+    {"chrom": "chr17", "start": 7674200, "end": 7675100, "name": "Peak-tp53"}
   ],
-  "filenames": {
-    "longrange": "local-pet.longrange.gz",
-    "longrange_index": "local-pet.longrange.gz.tbi",
-    "longrange_missing_index": "local-pet-plain.longrange.gz",
-    "longrange_wrong": "local-pet-bad.longrange.gz",
-    "longrange_wrong_index": "local-pet-bad.longrange.gz.tbi",
-    "signal": "local-signal.bw",
-    "peaks": "local-peaks.bed"
-  },
-  "platform": {
-    "run_signal_value": 7.25,
-    "run_signal_interval": {"chrom": "chr7", "start": 55019040, "end": 55019080},
-    "run_peak_line": "chr7\t55019120\t55019180\trun-b-peak\t15\t+",
-    "run_peak_revised_line": "chr7\t55019120\t55019180\trun-b-revised\t16\t+",
-    "mm10_signal_value": 9.5
-  },
-  "selectors": {
-    "open_local_tracks": "打开本地轨道",
-    "local_file_input": "Local tracks",
-    "assembly": "Assembly",
-    "assembly_hg38": "hg38",
-    "assembly_mm10": "mm10",
-    "user_assembly_text": "用户指定 GRCh38",
-    "region_input": "Genomic region",
-    "gene_matches": "Gene matches",
-    "no_gene_status": "No gene matches",
-    "viewer": "washu-genome-viewer",
-    "remove_prefix": "Remove ",
-    "add_run": "Add authorized run",
-    "authorized_runs": "Authorized runs",
-    "missing_index_status": "missing index",
-    "wrong_index_status": "index does not match",
-    "assembly_mismatch_status": "does not match",
-    "stale_status": "This file changed",
-    "open_run_browser": "View tracks in genome browser",
-    "refresh_runs": "Refresh list"
-  },
-  "behavior": {
-    "region_submit": "Press Enter in the Genomic region field. One field accepts a gene symbol or chrom:start-end.",
-    "unique_gene": "EGFR and TP53 each have one GENCODE v49 gene locus. Navigation must land on a 0-based half-open interval that overlaps that gene and at least one planted feature below. The full gene span chr7:55018819-55211628 or chr17:7661778-7687546 does.",
-    "ambiguous_gene": "DDX11L16 lists Gene matches for chr1 and chr15 and does not navigate until a candidate is chosen.",
-    "missing_gene": "NO_SUCH_GENE_HELIXWEAVE shows No gene matches and leaves the current region in place.",
-    "file_input_appends": "A later selection on Local tracks adds files. It does not remove tracks already added.",
-    "index_pairing": "NAME.longrange.gz uses NAME.longrange.gz.tbi. A gz with no sibling tbi is a missing index. A tbi built for a different file is a wrong index.",
-    "assembly_change": "The Assembly select offers hg38 and mm10. Changing it must not relabel tracks already read as 用户指定 GRCh38.",
-    "run_track_name": "A track taken from an authorized run has an accessible name that includes that run id.",
-    "network": "Local file bytes and gene symbols stay in the browser. Same-origin run track reads remain allowed."
-  }
+  "other_longrange_line": "chr1\t10\t20\tchr1:30-40,1"
 }
