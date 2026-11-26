@@ -69,10 +69,11 @@ def _consensus_validate_mode(wildcards):
             f"Consensus peak_mode wildcard mismatch for {experiment}: "
             f"target has {wildcards.peak_mode}, sample sheet has {actual_peak_mode}"
         )
-    if wildcards.suffix != expected_suffix:
+    suffix = wildcards.get("suffix", expected_suffix)
+    if suffix != expected_suffix:
         raise ValueError(
             f"Consensus suffix wildcard mismatch for {experiment}: "
-            f"target has {wildcards.suffix}, expected {expected_suffix}"
+            f"target has {suffix}, expected {expected_suffix}"
         )
 
 
@@ -110,15 +111,18 @@ def _consensus_macs3_inputs(wildcards):
 # Helper: resolve per-biorep consensus peak files for compute_consensus.py
 # ---------------------------------------------------------------------------
 
-def _consensus_biorep_peaks(experiment, assay, peak_mode):
+def _consensus_biorep_peaks(wildcards):
     """Return sorted list of per-biorep consensus peak files for an experiment."""
+    experiment = wildcards.experiment
+    if experiment in MIXED_REPLICATE_ROUTES:
+        _consensus_validate_mode(wildcards)
     _consensus_guard_macs3_request(experiment, final=False)
     bioreps = sorted(_bioreps_for(experiment, "treatment"))
-    suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
+    suffix = "narrowPeak" if wildcards.peak_mode == "narrow" else "broadPeak"
     return [
         f"{OUTDIR}/experiments/{experiment}/06_reproducibility/consensus/"
-        f"biorep_peaks/{experiment}.biorep{br}.{assay}.macs3."
-        f"{peak_mode}_peaks.{suffix}"
+        f"biorep_peaks/{experiment}.biorep{br}.{wildcards.assay}.macs3."
+        f"{wildcards.peak_mode}_peaks.{suffix}"
         for br in bioreps
     ]
 
@@ -277,9 +281,7 @@ rule consensus_compute_narrow:
                   f"consensus/{{experiment}}.{{assay}}.macs3.{{peak_mode}}."
                   f"consensus.summary.tsv",
     input:
-        lambda wc: _consensus_biorep_peaks(
-            wc.experiment, wc.assay, wc.peak_mode
-        ),
+        _consensus_biorep_peaks,
     params:
         script = f"{workflow.basedir}/../scripts/compute_consensus.py",
         blacklist = lambda wc: experiment_blacklist(wc.experiment),
@@ -338,9 +340,7 @@ rule consensus_compute_broad:
                   f"consensus/{{experiment}}.{{assay}}.macs3.{{peak_mode}}."
                   f"consensus.summary.tsv",
     input:
-        lambda wc: _consensus_biorep_peaks(
-            wc.experiment, wc.assay, wc.peak_mode
-        ),
+        _consensus_biorep_peaks,
     params:
         script = f"{workflow.basedir}/../scripts/compute_consensus.py",
         blacklist = lambda wc: experiment_blacklist(wc.experiment),
