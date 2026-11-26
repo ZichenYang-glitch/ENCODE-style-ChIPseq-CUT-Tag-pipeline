@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -24,8 +25,9 @@ from encode_pipeline.adapters.browser.catalog import describe_browser_artifact
 from encode_pipeline.adapters.encode import EncodeStyleWorkflowAdapter
 from encode_pipeline.config.scientific_policy import SCIENTIFIC_POLICY_REVISION
 from encode_pipeline.errors import ValidationError
-from encode_pipeline.manifest.make import MANIFEST_COLUMNS, build_manifest_rows
+from encode_pipeline.manifest.make import build_manifest_rows
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.services.materialization import WorkspaceMaterializer
 
 
 SAMPLE_COLUMNS = (
@@ -46,6 +48,18 @@ SAMPLE_COLUMNS = (
 )
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
+EXPECTED_MANIFEST_COLUMNS = [
+    "sample_id",
+    "experiment_id",
+    "assay",
+    "target",
+    "genome",
+    "output_type",
+    "method",
+    "path",
+    "status",
+    "qc_flag",
+]
 
 
 def _write_synthetic_inputs(root: Path) -> dict[str, Path]:
@@ -70,10 +84,15 @@ def _render_samples_tsv(
     lines = ["\t".join(SAMPLE_COLUMNS)]
     for exp, assay, peak_mode, bioreps, layout in groups:
         target = "H3K27me3" if peak_mode == "broad" else "CTCF"
+        technical = Counter()
         for br in bioreps:
+            technical[br] += 1
+            sample = f"{exp}_r{br}"
+            if technical[br] > 1:
+                sample += f"_t{technical[br]}"
             fq2 = str(inputs["r2"]) if layout == "PE" else ""
             row = [
-                f"{exp}_r{br}",
+                sample,
                 layout,
                 str(inputs["r1"]),
                 fq2,
@@ -86,38 +105,10 @@ def _render_samples_tsv(
                 exp,
                 "treatment",
                 str(br),
-                "1",
+                str(technical[br]),
             ]
             lines.append("\t".join(row))
     return "\n".join(lines) + "\n"
-
-
-def _build_inline_samples(
-    inputs: dict[str, Path],
-    groups: list[tuple[str, str, str, tuple[int, ...], str]],
-) -> list[dict[str, str]]:
-    rows = []
-    for exp, assay, peak_mode, bioreps, layout in groups:
-        target = "H3K27me3" if peak_mode == "broad" else "CTCF"
-        for br in bioreps:
-            rows.append(
-                {
-                    "sample": f"{exp}_r{br}",
-                    "layout": layout,
-                    "fastq_1": str(inputs["r1"]),
-                    "fastq_2": str(inputs["r2"]) if layout == "PE" else "",
-                    "assay": assay,
-                    "peak_mode": peak_mode,
-                    "genome": "hs",
-                    "bowtie2_index": str(inputs["bt2"]),
-                    "target": target,
-                    "experiment": exp,
-                    "role": "treatment",
-                    "biological_replicate": str(br),
-                    "technical_replicate": "1",
-                }
-            )
-    return rows
 
 
 def _build_fixture_workspace(
@@ -130,7 +121,10 @@ def _build_fixture_workspace(
 ) -> tuple[Path, Path, Path, dict, list[dict[str, str]]]:
     inputs = _write_synthetic_inputs(tmp_path / f"inp_{name}")
     samples_text = _render_samples_tsv(inputs, groups)
-    inline_samples = _build_inline_samples(inputs, groups)
+    inline_samples = list(csv.DictReader(samples_text.splitlines(), delimiter="\t"))
+    for row in inline_samples:
+        # The adapter takes chrom_sizes from the config for inline rows.
+        del row["chrom_sizes"]
     cfg = {
         "outdir": str(tmp_path / "results"),
         "genome": "hs",
@@ -144,15 +138,8 @@ def _build_fixture_workspace(
     }
     cfg.update(extra_config)
     workdir, config_path, samples_path = tmp_config(config=cfg, samples=samples_text)
-    (workdir / "config").mkdir(exist_ok=True)
-    (workdir / "config" / "config.yaml").write_text(
-        Path(config_path).read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    (workdir / "config" / "samples.tsv").write_text(
-        Path(samples_path).read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    # Keep --configfile as the only source for Snakemake, including on resume.
+    # Stage the adapter's config/config.yaml only when its consumer needs it.
     loaded_cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     return workdir, Path(config_path), Path(samples_path), loaded_cfg, inline_samples
 
@@ -172,37 +159,57 @@ def _parse_summary(stdout: str) -> dict[str, dict[str, str]]:
     return parsed
 
 
-def _rule_shell_blocks(output: str) -> dict[str, list[str]]:
-    blocks: dict[str, list[str]] = {}
-    current: str | None = None
-    buf: list[str] = []
-    for line in output.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("rule ", "localrule ")) and stripped.endswith(":"):
-            if current is not None:
-                blocks.setdefault(current, []).append("\n".join(buf))
-            current = stripped.split()[1].rstrip(":")
-            buf = [line]
-        elif current is not None:
-            buf.append(line)
-    if current is not None:
-        blocks.setdefault(current, []).append("\n".join(buf))
-    return blocks
+def _assert_three_replicate_command(run_snakemake, config_path, target, *, minimum):
+    # A summary lists the default DAG's files. A separate dry-run prints the
+    # command for exactly this experiment and caller.
+    sm = run_snakemake(config_path, extra_args=["--printshellcmds", str(target)])
+    output = sm.stdout + sm.stderr
+    assert sm.returncode == 0, output
+    assert "--bioreps 1 2 3" in output
+    assert f"--min-replicates {minimum}" in output
+
+
+def _extract_workspace_artifacts(adapter, inputs, workdir):
+    plan = adapter.plan_workspace(inputs, workdir)
+    assert plan.is_success, plan.issues
+    materialized = WorkspaceMaterializer().materialize(plan.value, workdir)
+    assert materialized.is_success, materialized.issues
+    return adapter.extract_artifacts(inputs, workdir)
+
+
+def _assert_final_track(item):
+    desc = describe_browser_artifact(
+        workflow_id=WORKFLOW_ID,
+        output_type=item.output_type,
+        name=Path(item.relative_path).name,
+    )
+    assert desc is not None and desc.available
+    assert (desc.wash_u_type, desc.role) == ("bed", "interval")
+    reading = f"{desc.detail} {desc.score_meaning}".lower()
+    if "idr" in item.output_type:
+        assert "idr" in reading or "rank" in reading
+    else:
+        assert "support" in reading and "replicate" in reading
 
 
 def _materialize_present_outputs(
     manifest_rows: list[dict],
     *,
-    output_types: set[str] | None = None,
+    output_types: set[str],
 ) -> None:
     for row in manifest_rows:
-        if output_types is not None and row["output_type"] not in output_types:
+        if row["output_type"] not in output_types:
             continue
         path = Path(row["path"])
         if not row["path"] or path.suffix == "":
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("chr1\t10\t20\tp1\t1000\t.\t1.0\t-1\t-1\t5\n", encoding="utf-8")
+        peak = (
+            "chr1\t10\t20\n"
+            if path.suffix == ".bed"
+            else "chr1\t10\t20\tp1\t1000\t.\t1.0\t-1\t-1\t5\n"
+        )
+        path.write_text(peak, encoding="utf-8")
 
 
 def _run_validate_cli(config_path: Path) -> subprocess.CompletedProcess[str]:
@@ -241,7 +248,7 @@ def _run_manifest_cli(
     if proc.returncode == 0 and output_path.exists():
         with output_path.open(encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle, delimiter="\t")
-            assert reader.fieldnames == MANIFEST_COLUMNS
+            assert reader.fieldnames == EXPECTED_MANIFEST_COLUMNS
             rows = list(reader)
     return proc, rows
 
@@ -428,8 +435,8 @@ def test_strict_policy_pure_two_chipseq_idr_and_non_rewrite_identity(
     cfg_fallback_path.write_text(
         yaml.safe_dump(cfg_fallback, sort_keys=False), encoding="utf-8"
     )
-    cross_mode = run_snakemake(
-        cfg_fallback_path, extra_args=["--summary", str(marker), str(eff)]
+    cross_mode = _run_snakemake_identity_targets(
+        workdir, snakefile, cfg_fallback_path, marker, eff
     )
     assert cross_mode.returncode != 0
     assert marker.read_bytes() == marker_bytes
@@ -651,7 +658,9 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
         },
     )
     adapter = EncodeStyleWorkflowAdapter()
-    extracted = adapter.extract_artifacts(WorkflowInputs(config=cfg), workdir)
+    extracted = _extract_workspace_artifacts(
+        adapter, WorkflowInputs(config=cfg), workdir
+    )
     assert extracted.is_success, extracted.issues
     extracted_types = {item.output_type for item in extracted.value}
     assert {
@@ -688,7 +697,7 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
     repro: dict = {
         "enabled": True,
         "mixed_replicate_policy": "per_group_fallback",
-        "consensus": {"enabled": True, "min_replicates": 2},
+        "consensus": {"enabled": True},
     }
     extra_cfg: dict = {"reproducibility": repro}
     if switch_mode == "chipseq_idr_top":
@@ -702,8 +711,10 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
         tmp_config,
         name=f"fb_chip_{switch_mode}",
         groups=[
-            ("GRP2", "chipseq", "narrow", (1, 2), "PE"),
-            ("GRP3", "chipseq", "narrow", (1, 2, 3), "PE"),
+            # Both groups have an extra technical replicate. Only distinct
+            # biological replicates determine the published result.
+            ("GRP2", "chipseq", "narrow", (1, 1, 2), "PE"),
+            ("GRP3", "chipseq", "narrow", (1, 2, 2, 3), "PE"),
         ],
         extra_config=extra_cfg,
     )
@@ -720,12 +731,9 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
     assert adapter.validate(
         WorkflowInputs(config=inline_cfg, samples=inline_samples)
     ).is_success
-    assert adapter.plan_workspace(WorkflowInputs(config=cfg), workdir).is_success
-
-    sm = run_snakemake(config_path, extra_args=["--summary", "--printshellcmds"])
+    sm = run_snakemake(config_path, extra_args=["--summary"])
     assert sm.returncode == 0, sm.stdout + sm.stderr
     dag_targets = _parse_summary(sm.stdout)
-    combined_output = sm.stdout + sm.stderr
 
     # 2-rep ChIP narrow keeps conservative/optimal IDR and no consensus final.
     grp2_cons_peak = (
@@ -783,13 +791,9 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
         not in dag_targets
     )
 
-    blocks = _rule_shell_blocks(combined_output)
-    grp3_compute_blocks = [
-        b for b in blocks.get("consensus_compute_narrow", []) if "GRP3" in b
-    ]
-    assert grp3_compute_blocks
-    assert "--bioreps 1 2 3" in grp3_compute_blocks[0]
-    assert "--min-replicates 2" in grp3_compute_blocks[0]
+    _assert_three_replicate_command(
+        run_snakemake, config_path, grp3_cons_peak, minimum=2
+    )
 
     rows, _, _ = build_manifest_rows(cfg, samples_path=str(samples_path))
     manifest_proc, cli_rows = _run_manifest_cli(
@@ -820,7 +824,9 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
         "chipseq_macs3_narrow_consensus_final_peak",
     }
     _materialize_present_outputs(rows, output_types=final_types)
-    extracted = adapter.extract_artifacts(WorkflowInputs(config=cfg), workdir)
+    extracted = _extract_workspace_artifacts(
+        adapter, WorkflowInputs(config=cfg), workdir
+    )
     assert extracted.is_success, extracted.issues
     extracted_pairs = {
         (item.metadata.get("experiment_id"), item.output_type)
@@ -832,16 +838,7 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
         ("GRP3", "chipseq_macs3_narrow_consensus_final_peak"),
     } <= extracted_pairs
     for item in extracted.value:
-        desc = describe_browser_artifact(
-            workflow_id=WORKFLOW_ID,
-            output_type=item.output_type,
-            name=Path(item.relative_path).name,
-        )
-        assert desc is not None
-        assert desc.available is True
-        assert desc.wash_u_type == "bed"
-        assert desc.role == "interval"
-        assert desc.label and desc.detail and desc.score_meaning
+        _assert_final_track(item)
 
 
 @pytest.mark.parametrize(
@@ -937,12 +934,9 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
     assert adapter.validate(
         WorkflowInputs(config=inline_cfg, samples=inline_samples)
     ).is_success
-    assert adapter.plan_workspace(WorkflowInputs(config=cfg), workdir).is_success
-
-    sm = run_snakemake(config_path, extra_args=["--summary", "--printshellcmds"])
+    sm = run_snakemake(config_path, extra_args=["--summary"])
     assert sm.returncode == 0, sm.stdout + sm.stderr
     dag_targets = _parse_summary(sm.stdout)
-    combined_output = sm.stdout + sm.stderr
 
     grp2_idr = str(
         outdir / f"experiments/GRP2/06_reproducibility/final/"
@@ -984,12 +978,10 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
     assert grp3_cons_final in dag_targets
     assert grp3_idr not in dag_targets
 
-    blocks = _rule_shell_blocks(combined_output)
-    grp3_macs3_blocks = [
-        b for b in blocks.get("consensus_compute_narrow", []) if "GRP3" in b
-    ]
-    assert grp3_macs3_blocks
-    assert "--bioreps 1 2 3" in grp3_macs3_blocks[0]
+    _assert_three_replicate_command(run_snakemake, config_path, grp3_cons, minimum=2)
+    for wrong_final in (grp2_cons_final, grp3_idr):
+        direct = run_snakemake(config_path, extra_args=[wrong_final])
+        assert direct.returncode != 0, wrong_final
 
     if seacr:
         for exp in ("GRP2", "GRP3"):
@@ -1000,11 +992,13 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
                 )
                 in dag_targets
             )
-        grp3_seacr_blocks = [
-            b for b in blocks.get("consensus_compute_seacr", []) if "GRP3" in b
-        ]
-        assert grp3_seacr_blocks
-        assert "--bioreps 1 2 3" in grp3_seacr_blocks[0]
+        _assert_three_replicate_command(
+            run_snakemake,
+            config_path,
+            outdir / "experiments/GRP3/06_reproducibility/consensus/"
+            "GRP3.cuttag.seacr.stringent.consensus.bed",
+            minimum=2,
+        )
 
     rows, _, _ = build_manifest_rows(cfg, samples_path=str(samples_path))
     manifest_proc, cli_rows = _run_manifest_cli(
@@ -1048,7 +1042,8 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
     }
 
     _materialize_present_outputs(rows, output_types=final_types)
-    extracted = adapter.extract_artifacts(WorkflowInputs(config=cfg), workdir)
+    inline_inputs = WorkflowInputs(config=inline_cfg, samples=inline_samples)
+    extracted = _extract_workspace_artifacts(adapter, inline_inputs, workdir)
     assert extracted.is_success, extracted.issues
     extracted_pairs = {
         (item.metadata.get("experiment_id"), item.output_type)
@@ -1059,16 +1054,7 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
     assert ("GRP3", idr_final_type) not in extracted_pairs
 
     for item in extracted.value:
-        desc = describe_browser_artifact(
-            workflow_id=WORKFLOW_ID,
-            output_type=item.output_type,
-            name=Path(item.relative_path).name,
-        )
-        assert desc is not None
-        assert desc.available is True
-        assert desc.wash_u_type == "bed"
-        assert desc.role == "interval"
-        assert desc.label and desc.detail and desc.score_meaning
+        _assert_final_track(item)
 
 
 # ---------------------------------------------------------------------------
@@ -1077,63 +1063,40 @@ def test_per_group_fallback_atac_and_cuttag_narrow_routing_and_seacr_coexistence
 
 
 @pytest.mark.parametrize(
-    (
-        "assay",
-        "idr_key",
-        "cons_peak_type",
-        "cons_summary_type",
-        "cons_final_type",
-    ),
+    ("pair_assay", "trio_assay", "seacr"),
     [
-        (
-            "chipseq",
-            "chipseq_narrow",
-            "chipseq_macs3_narrow_consensus_peak",
-            "chipseq_macs3_narrow_consensus_summary",
-            "chipseq_macs3_narrow_consensus_final_peak",
-        ),
-        (
-            "atac",
-            "atac_narrow",
-            "atac_macs3_narrow_consensus_peak",
-            "atac_macs3_narrow_consensus_summary",
-            "atac_macs3_narrow_consensus_final_peak",
-        ),
-        (
-            "cuttag",
-            "cuttag_narrow",
-            "cuttag_macs3_narrow_consensus_peak",
-            "cuttag_macs3_narrow_consensus_summary",
-            "cuttag_macs3_narrow_consensus_final_peak",
-        ),
+        ("chipseq", "chipseq", False),
+        ("atac", "atac", False),
+        ("cuttag", "cuttag", False),
+        ("atac", "cuttag", True),
     ],
+    ids=["chipseq", "atac", "cuttag", "atac-pair-cuttag-seacr-trio"],
 )
 def test_per_group_fallback_min3_skips_2rep_macs3_report_and_runs_3of3(
     tmp_path,
     tmp_config,
     run_validator,
     run_snakemake,
-    assay,
-    idr_key,
-    cons_peak_type,
-    cons_summary_type,
-    cons_final_type,
+    pair_assay,
+    trio_assay,
+    seacr,
 ):
     workdir, config_path, samples_path, cfg, inline_samples = _build_fixture_workspace(
         tmp_path,
         tmp_config,
-        name=f"min3_{assay}",
+        name=f"min3_{pair_assay}_{trio_assay}",
         groups=[
-            ("GRP2", assay, "narrow", (1, 2), "PE"),
-            ("GRP3", assay, "narrow", (1, 2, 3), "PE"),
+            ("GRP2", pair_assay, "narrow", (1, 2), "PE"),
+            ("GRP3", trio_assay, "narrow", (1, 2, 3), "PE"),
         ],
         extra_config={
+            "cuttag": {"seacr": {"enabled": seacr, "mode": "stringent"}},
             "reproducibility": {
                 "enabled": True,
                 "mixed_replicate_policy": "per_group_fallback",
                 "consensus": {"enabled": True, "min_replicates": 3},
-                "idr": {idr_key: True},
-            }
+                "idr": {f"{assay}_narrow": True for assay in (pair_assay, trio_assay)},
+            },
         },
     )
     outdir = Path(cfg["outdir"])
@@ -1148,13 +1111,12 @@ def test_per_group_fallback_min3_skips_2rep_macs3_report_and_runs_3of3(
         WorkflowInputs(config=inline_cfg, samples=inline_samples)
     ).is_success
 
-    sm = run_snakemake(config_path, extra_args=["--summary", "--printshellcmds"])
+    sm = run_snakemake(config_path, extra_args=["--summary"])
     assert sm.returncode == 0, sm.stdout + sm.stderr
     dag_targets = _parse_summary(sm.stdout)
-    combined_output = sm.stdout + sm.stderr
 
     # 2-rep IDR final remains; 2-rep auxiliary MACS3 consensus report is skipped.
-    if assay == "chipseq":
+    if pair_assay == "chipseq":
         assert (
             str(outdir / "experiments/GRP2/06_idr/final/conservative.narrowPeak")
             in dag_targets
@@ -1166,43 +1128,37 @@ def test_per_group_fallback_min3_skips_2rep_macs3_report_and_runs_3of3(
     else:
         assert (
             str(
-                outdir / f"experiments/GRP2/06_reproducibility/final/"
-                f"GRP2.{assay}.macs3.narrow.replicate_validated.idr.narrowPeak"
+                outdir / "experiments/GRP2/06_reproducibility/final/"
+                f"GRP2.{pair_assay}.macs3.narrow.replicate_validated.idr.narrowPeak"
             )
             in dag_targets
         )
     assert (
         str(
-            outdir / f"experiments/GRP2/06_reproducibility/consensus/"
-            f"GRP2.{assay}.macs3.narrow.consensus.narrowPeak"
+            outdir / "experiments/GRP2/06_reproducibility/consensus/"
+            f"GRP2.{pair_assay}.macs3.narrow.consensus.narrowPeak"
         )
         not in dag_targets
     )
-    assert (
-        str(
-            outdir / f"experiments/GRP2/06_reproducibility/consensus/"
-            f"GRP2.{assay}.macs3.narrow.consensus.summary.tsv"
-        )
-        not in dag_targets
+    skipped_summary = (
+        outdir / "experiments/GRP2/06_reproducibility/consensus/"
+        f"GRP2.{pair_assay}.macs3.narrow.consensus.summary.tsv"
     )
+    assert str(skipped_summary) not in dag_targets
+    direct = run_snakemake(config_path, extra_args=[str(skipped_summary)])
+    assert direct.returncode != 0, skipped_summary
 
     # 3-rep group runs 3-of-3 consensus and promotes primary final.
-    assert (
-        str(
-            outdir / f"experiments/GRP3/06_reproducibility/final/"
-            f"GRP3.{assay}.macs3.narrow.replicate_validated.consensus.narrowPeak"
-        )
-        in dag_targets
+    grp3_final = (
+        outdir / "experiments/GRP3/06_reproducibility/final/"
+        f"GRP3.{trio_assay}.macs3.narrow.replicate_validated.consensus.narrowPeak"
     )
-    blocks = _rule_shell_blocks(combined_output)
-    grp3_blocks = [b for b in blocks.get("consensus_compute_narrow", []) if "GRP3" in b]
-    assert grp3_blocks
-    assert "--min-replicates 3" in grp3_blocks[0]
-    assert "--bioreps 1 2 3" in grp3_blocks[0]
+    assert str(grp3_final) in dag_targets
+    _assert_three_replicate_command(run_snakemake, config_path, grp3_final, minimum=3)
 
     rows, _, _ = build_manifest_rows(cfg, samples_path=str(samples_path))
     manifest_proc, cli_rows = _run_manifest_cli(
-        config_path, workdir / f"manifest_min3_{assay}.tsv"
+        config_path, workdir / "manifest_min3.tsv"
     )
     assert manifest_proc.returncode == 0, manifest_proc.stderr
     assert {(r["experiment_id"], r["output_type"]) for r in rows} == {
@@ -1210,12 +1166,19 @@ def test_per_group_fallback_min3_skips_2rep_macs3_report_and_runs_3of3(
     }
 
     pairs = {(r["experiment_id"], r["output_type"]) for r in rows}
-    assert ("GRP2", cons_peak_type) not in pairs
-    assert ("GRP2", cons_summary_type) not in pairs
-    assert ("GRP2", cons_final_type) not in pairs
-    assert ("GRP3", cons_peak_type) in pairs
-    assert ("GRP3", cons_summary_type) in pairs
-    assert ("GRP3", cons_final_type) in pairs
+    for suffix in ("peak", "summary", "final_peak"):
+        assert ("GRP2", f"{pair_assay}_macs3_narrow_consensus_{suffix}") not in pairs
+        assert ("GRP3", f"{trio_assay}_macs3_narrow_consensus_{suffix}") in pairs
+    if seacr:
+        assert ("GRP3", "cuttag_seacr_consensus_final_peak") in pairs
+        seacr_final = (
+            outdir / "experiments/GRP3/06_reproducibility/final/"
+            "GRP3.cuttag.seacr.stringent.replicate_validated.consensus.bed"
+        )
+        assert str(seacr_final) in dag_targets
+        _assert_three_replicate_command(
+            run_snakemake, config_path, seacr_final, minimum=3
+        )
 
 
 @pytest.mark.parametrize("cuttag_idr", [True, False], ids=["idr-on", "idr-off"])
@@ -1229,6 +1192,7 @@ def test_per_group_fallback_min3_rejects_pe_cuttag_seacr_with_2_replicates(
         groups=[
             ("GRP2", "cuttag", "narrow", (1, 2), "PE"),
             ("GRP3", "cuttag", "narrow", (1, 2, 3), "PE"),
+            ("ATAC2", "atac", "narrow", (1, 2), "PE"),
         ],
         extra_config={
             "cuttag": {"seacr": {"enabled": True, "mode": "stringent"}},
@@ -1236,7 +1200,7 @@ def test_per_group_fallback_min3_rejects_pe_cuttag_seacr_with_2_replicates(
                 "enabled": True,
                 "mixed_replicate_policy": "per_group_fallback",
                 "consensus": {"enabled": True, "min_replicates": 3},
-                "idr": {"cuttag_narrow": cuttag_idr},
+                "idr": {"cuttag_narrow": cuttag_idr, "atac_narrow": True},
             },
         },
     )
@@ -1342,8 +1306,8 @@ def test_per_group_fallback_identity_resumes_same_mode_and_isolates_from_strict(
         other_path.write_text(
             yaml.safe_dump(cfg_other, sort_keys=False), encoding="utf-8"
         )
-        refused = run_snakemake(
-            other_path, extra_args=["--summary", str(marker), str(eff)]
+        refused = _run_snakemake_identity_targets(
+            workdir, snakefile, other_path, marker, eff
         )
         assert refused.returncode != 0
         assert marker.read_bytes() == marker_bytes
@@ -1419,20 +1383,27 @@ def test_per_group_fallback_does_not_expand_to_4plus_or_experimental_broad(
     idr_key,
     other_bioreps,
 ):
+    groups = [
+        ("GRP2", assay, peak_mode, (1, 2), "PE"),
+        ("GRP_OTHER", assay, peak_mode, other_bioreps, "PE"),
+    ]
+    idr_flags = {idr_key: True}
+    if peak_mode == "broad":
+        # Satisfy narrow IDR admission independently, so the broad group
+        # actually reaches the unsupported replicate-count boundary.
+        groups.append(("NARROW2", assay, "narrow", (1, 2), "PE"))
+        idr_flags[f"{assay}_narrow"] = True
     workdir, config_path, samples_path, cfg, inline_samples = _build_fixture_workspace(
         tmp_path,
         tmp_config,
         name=f"no_expand_{idr_key}_{len(other_bioreps)}",
-        groups=[
-            ("GRP2", assay, peak_mode, (1, 2), "PE"),
-            ("GRP_OTHER", assay, peak_mode, other_bioreps, "PE"),
-        ],
+        groups=groups,
         extra_config={
             "reproducibility": {
                 "enabled": True,
                 "mixed_replicate_policy": "per_group_fallback",
                 "consensus": {"enabled": True},
-                "idr": {idr_key: True},
+                "idr": idr_flags,
             }
         },
     )
@@ -1452,6 +1423,17 @@ def test_per_group_fallback_does_not_expand_to_4plus_or_experimental_broad(
     "repro_override",
     [
         {
+            "enabled": False,
+            "mixed_replicate_policy": "per_group_fallback",
+            "consensus": {"enabled": True},
+            "idr": {"atac_narrow": True},
+        },
+        {
+            "enabled": True,
+            "mixed_replicate_policy": "per_group_fallback",
+            "consensus": {"enabled": True},
+        },
+        {
             "enabled": True,
             "mixed_replicate_policy": "per_group_fallback",
             "consensus": {"enabled": False},
@@ -1470,7 +1452,13 @@ def test_per_group_fallback_does_not_expand_to_4plus_or_experimental_broad(
             "idr": {"atac_narrow": True},
         },
     ],
-    ids=["consensus-disabled", "unknown-policy", "min-replicates-4"],
+    ids=[
+        "reproducibility-disabled",
+        "no-narrow-idr",
+        "consensus-disabled",
+        "unknown-policy",
+        "min-replicates-4",
+    ],
 )
 def test_per_group_fallback_rejects_misconfiguration(
     tmp_path, tmp_config, run_validator, run_snakemake, repro_override
@@ -1563,22 +1551,34 @@ def test_per_group_fallback_lightweight_real_consensus_execution(
     seed_run_identity(
         workdir, snakemake_executable, snakefile, config_path, outdir=str(outdir)
     )
+    record = json.loads((outdir / ".helixweave/effective_config.json").read_bytes())
+    routes = record["resolved_reproducibility_by_experiment"]
+    assert {
+        exp: (route["caller"], route["n_bioreps"], route["route"])
+        for exp, route in routes.items()
+    } == {"GRP2": ("macs3", 2, "idr"), "GRP3": ("macs3", 3, "consensus")}
+    if min_replicates == 3:
+        assert (
+            routes["GRP2"]["auxiliary_consensus_skipped"]
+            == "insufficient_biological_replicates"
+        )
+    else:
+        assert "auxiliary_consensus_skipped" not in routes["GRP2"]
+    assert "auxiliary_consensus_skipped" not in routes["GRP3"]
 
     # Stage tiny synthetic per-biorep narrowPeak inputs for GRP3 (3 bioreps):
     # - 3/3 peak at chr1:100-220 (all 3 bioreps, max signal 10)
-    # - 2/3 peak at chr1:500-610 (bioreps 1 & 2, max signal 8)
+    # - 2/3 peak at chr1:500-610 (requires bioreps 2 & 3, max signal 8)
     # - 1/3 singleton at chr1:900-1000 (biorep 3 only)
     biorep_lines = {
-        1: (
-            "chr1\t100\t200\tp3_1\t100\t.\t5\t3\t2\t20\n"
-            "chr1\t500\t600\tp2_1\t100\t.\t4\t3\t2\t25\n"
-        ),
+        1: "chr1\t100\t200\tp3_1\t100\t.\t5\t3\t2\t20\n",
         2: (
             "chr1\t120\t220\tp3_2\t100\t.\t10\t3\t2\t30\n"
             "chr1\t510\t610\tp2_2\t100\t.\t8\t3\t2\t35\n"
         ),
         3: (
             "chr1\t110\t210\tp3_3\t100\t.\t7\t3\t2\t15\n"
+            "chr1\t500\t600\tp2_3\t100\t.\t4\t3\t2\t25\n"
             "chr1\t900\t1000\tp1_3\t100\t.\t6\t3\t2\t40\n"
         ),
     }
@@ -1678,7 +1678,9 @@ def test_per_group_fallback_lightweight_real_consensus_execution(
     assert ("GRP3", expected_final_type) in present_pairs
 
     adapter = EncodeStyleWorkflowAdapter()
-    extracted = adapter.extract_artifacts(WorkflowInputs(config=cfg), workdir)
+    extracted = _extract_workspace_artifacts(
+        adapter, WorkflowInputs(config=cfg), workdir
+    )
     assert extracted.is_success, extracted.issues
     extracted_final = [
         item
@@ -1687,12 +1689,5 @@ def test_per_group_fallback_lightweight_real_consensus_execution(
         and item.output_type == expected_final_type
     ]
     assert len(extracted_final) == 1
-    desc = describe_browser_artifact(
-        workflow_id=WORKFLOW_ID,
-        output_type=extracted_final[0].output_type,
-        name=Path(extracted_final[0].relative_path).name,
-    )
-    assert desc is not None
-    assert desc.available is True
-    assert desc.wash_u_type == "bed"
-    assert desc.role == "interval"
+    assert workdir / extracted_final[0].relative_path == cons_final
+    _assert_final_track(extracted_final[0])
