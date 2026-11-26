@@ -159,12 +159,14 @@ def register_proposal(
         now=write.now,
         lookup=lookup,
     )
+    model_source = proposal.source if proposal.source == "peri_bound_model" else None
     session.add(
         CatalogProposalRow(
             proposal_id=proposal.proposal_id,
             project_id=proposal.project_id,
             created_by_user_id=proposal.created_by_user_id,
-            source=proposal.source,
+            source="agent" if model_source is not None else proposal.source,
+            model_source=model_source,
             rule_version=proposal.rule_version,
             vocabulary_version=proposal.vocabulary_version,
             projection_version=proposal.projection_version,

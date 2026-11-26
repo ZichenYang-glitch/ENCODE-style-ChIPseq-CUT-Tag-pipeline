@@ -18,35 +18,30 @@ down_revision = "20261119_39"
 branch_labels = None
 depends_on = None
 
-_MODEL_SOURCE = (
-    "source IN ('offline_suggestion', 'agent', 'manual', 'peri_bound_model')"
-)
-_OFFLINE_SOURCES = "source IN ('offline_suggestion', 'agent', 'manual')"
-
 
 def upgrade() -> None:
-    with op.batch_alter_table("catalog_proposals") as batch_op:
-        batch_op.drop_constraint("ck_catalog_proposals_source", type_="check")
-        batch_op.create_check_constraint(
-            "ck_catalog_proposals_source",
-            _MODEL_SOURCE,
-        )
+    # Receipts reference these immutable rows. SQLite can append this column in
+    # place without rebuilding the parent or replacing either audit trigger.
+    op.execute(
+        "ALTER TABLE catalog_proposals ADD COLUMN model_source VARCHAR(32) "
+        "CONSTRAINT ck_catalog_proposals_model_source "
+        "CHECK (model_source IS NULL OR "
+        "(source = 'agent' AND model_source = 'peri_bound_model'))"
+    )
 
 
 def downgrade() -> None:
-    connection = op.get_bind()
-    incompatible = connection.execute(
-        sa.text(
-            "SELECT count(*) FROM catalog_proposals WHERE source = 'peri_bound_model'"
+    incompatible = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT 1 FROM catalog_proposals WHERE model_source IS NOT NULL LIMIT 1"
+            )
         )
-    ).scalar()
+        .first()
+    )
     if incompatible:
         raise RuntimeError(
             "20261126_40 cannot downgrade while peri_bound_model proposals exist"
         )
-    with op.batch_alter_table("catalog_proposals") as batch_op:
-        batch_op.drop_constraint("ck_catalog_proposals_source", type_="check")
-        batch_op.create_check_constraint(
-            "ck_catalog_proposals_source",
-            _OFFLINE_SOURCES,
-        )
+    op.execute("ALTER TABLE catalog_proposals DROP COLUMN model_source")

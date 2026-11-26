@@ -2982,6 +2982,27 @@ def test_registered_result_migration_preserves_m1_bindings_and_audit(tmp_path):
             )
             == proposal_id
         )
+        assert connection.execute(text("PRAGMA foreign_key_check")).fetchall() == []
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT model_source FROM catalog_proposals WHERE proposal_id=:id"
+                ),
+                {"id": proposal_id},
+            )
+            is None
+        )
+        proposal_triggers = set(
+            connection.scalars(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='catalog_proposals'"
+                )
+            )
+        )
+        assert {
+            "trg_catalog_proposals_no_update",
+            "trg_catalog_proposals_no_delete",
+        } <= proposal_triggers
     upgraded.dispose()
 
     downgrade_database(database_url, "20261119_32")
