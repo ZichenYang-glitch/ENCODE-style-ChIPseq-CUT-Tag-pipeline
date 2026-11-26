@@ -113,14 +113,14 @@ function viewerIdentity(url, origin, fixture) {
 
 const languages = {
   en: {
-    locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region', matches: 'Gene matches',
+    locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region', matches: 'Gene matches', runScope: 'Run input scope',
     version: (n) => `Version ${n}`,
     source: (item) => `Registered result ${item.result_id} · Revision ${item.result_revision_id}`,
     action: (n) => `Open version ${n} in WashU · ${trackName}`,
     offline: 'The archived copy is offline.', denied: 'You do not have access to this archived version.',
   },
   'zh-CN': {
-    locale: 'zh-CN', select: '语言', list: '已封存轨道', viewer: '已封存轨道', region: '基因组位置', matches: '基因匹配结果',
+    locale: 'zh-CN', select: '语言', list: '已封存轨道', viewer: '已封存轨道', region: '基因组位置', matches: '基因匹配结果', runScope: '运行输入范围',
     version: (n) => `第 ${n} 版`,
     source: (item) => `登记 ${item.result_id} · 修订 ${item.result_revision_id}`,
     action: (n) => `在 WashU 查看 ${trackName} 第 ${n} 版`,
@@ -302,6 +302,7 @@ async function openVersion(browser, manifest, fixture, out, work, language) {
     if (language !== 'en') {
       await catalog.getByRole('combobox', { name: 'Language', exact: true }).selectOption(language);
     }
+    await expect(catalog.getByRole('heading', { name: copy.runScope, exact: true })).toBeVisible();
     await expect(catalog.getByRole('region', { name: copy.list })).toBeVisible();
     await checkTrackFacts(row, fixture, copy);
     if (fixture.version_number === 1) {
