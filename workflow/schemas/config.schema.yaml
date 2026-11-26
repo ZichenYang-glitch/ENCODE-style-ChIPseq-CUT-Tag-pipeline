@@ -375,7 +375,15 @@ reproducibility:
       allowed: [true, false, "true", "false"]
       description: >
         Master switch for new reproducibility outputs. When false,
-        all sub-keys are ignored for DAG purposes. Orthogonal to chipseq_idr.
+        strict uses the historical behavior. per_group_fallback requires this switch.
+    mixed_replicate_policy:
+      type: string
+      default: strict
+      allowed: [strict, per_group_fallback]
+      description: >
+        Explicitly enable per-experiment routing for supported narrow-peak MACS3
+        IDR groups in a fresh run. Two biological replicates use IDR and three
+        use consensus with the configured support threshold (default 2).
     consensus:
       type: mapping
       required: false

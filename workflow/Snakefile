@@ -41,6 +41,7 @@ from encode_pipeline.samples.admission import (
     validate_reference_control_admission,
 )
 from encode_pipeline.samples.load import load_and_validate_samples
+from encode_pipeline.samples.mixed_replicates import resolve_mixed_replicate_routes
 from encode_pipeline.qc.histone import classify_histone_target
 
 
@@ -145,11 +146,15 @@ SAMPLES = load_and_validate_samples(
     VALIDATED_CONFIG["samples"],
     use_control=USE_CONTROL,
     chipseq_idr_enabled=CHIPSEQ_IDR,
+    mixed_replicate_config=VALIDATED_CONFIG,
     reproducibility_idr_atac_narrow=ATAC_IDR_ENABLED,
     reproducibility_idr_cuttag_narrow=CUTTAG_IDR_ENABLED,
     reproducibility_idr_chipseq_broad=BROAD_CHIPSEQ_IDR_ENABLED,
     reproducibility_idr_cuttag_broad=BROAD_CUTTAG_IDR_ENABLED,
 )
+
+MIXED_REPLICATE_ROUTES = resolve_mixed_replicate_routes(SAMPLES, VALIDATED_CONFIG, IDR_SAMPLE_FLAGS)
+
 
 # SCI-3: Bowtie2 -I/--minins vs per-sample resolved PE max_insert
 validate_bowtie2_insert_bounds(VALIDATED_CONFIG, SAMPLES)
@@ -308,7 +313,7 @@ def _canonical_record_config():
 def _effective_config_record_payload():
     """Merged, normalized configuration recorded for the actual run."""
     _wc = lambda sid: type("Wildcards", (), {"sample": sid})()
-    return {
+    record = {
         "config_schema_version": VALIDATED_CONFIG.get("config_schema_version"),
         "scientific_policy_revision": SCIENTIFIC_POLICY_REVISION,
         "identity": _analysis_identity_hash(),
@@ -320,6 +325,13 @@ def _effective_config_record_payload():
             sample_id: get_organelle_chroms(_wc(sample_id)) for sample_id in ACTIVE_SAMPLE_IDS
         },
     }
+    if MIXED_REPLICATE_ROUTES:
+        record["resolved_reproducibility_by_experiment"] = _mixed_replicate_record()
+    return record
+
+
+def _mixed_replicate_record():
+    return {exp: route.as_record() for exp, route in sorted(MIXED_REPLICATE_ROUTES.items())}
 
 
 def _analysis_identity_inputs(wildcards):
@@ -426,6 +438,8 @@ def _check_effective_config_record(record, marker_identity):
             "Effective configuration record was created by a different scientific "
             "policy revision; use a fresh outdir for this workflow version."
         )
+    if MIXED_REPLICATE_ROUTES and recorded.get("resolved_reproducibility_by_experiment") != _mixed_replicate_record():
+        raise WorkflowError("Recorded mixed replicate routes do not match the experiment groups; use a fresh outdir.")
     recomputed = _analysis_identity_payload(recorded["config"], _analysis_samples_identity())
     encoded = json.dumps(recomputed, sort_keys=True, separators=(",", ":")).encode()
     if hashlib.sha256(encoded).hexdigest() != recorded["identity"]:

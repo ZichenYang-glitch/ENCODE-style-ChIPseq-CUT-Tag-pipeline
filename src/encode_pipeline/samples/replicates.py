@@ -1,22 +1,14 @@
 """Cross-replicate validation for replicate-aware outputs."""
 
 from encode_pipeline.errors import ValidationError
+from encode_pipeline.samples.mixed_replicates import (
+    resolve_mixed_replicate_routes,
+    treatment_groups,
+)
 
 __all__ = [
     "validate_replicate_groups",
 ]
-
-
-def _group_samples_by_experiment(samples):
-    """Group samples into treatment and control dicts keyed by experiment."""
-    exp_treatments: dict[str, list[dict]] = {}
-    exp_controls: dict[str, list[dict]] = {}
-    for s in samples:
-        if s["role"] == "treatment":
-            exp_treatments.setdefault(s["experiment"], []).append(s)
-        else:
-            exp_controls.setdefault(s["experiment"], []).append(s)
-    return exp_treatments, exp_controls
 
 
 def _biological_replicates(rows):
@@ -95,6 +87,8 @@ def validate_replicate_groups(
     reproducibility_idr_chipseq_broad=False,
     reproducibility_idr_cuttag_broad=False,
     error_cls=ValidationError,
+    *,
+    mixed_replicate_config=None,
 ):
     """Pass 3: cross-replicate validation for replicate-aware outputs.
 
@@ -106,9 +100,7 @@ def validate_replicate_groups(
     - Mixed control types (control_bam vs control_sample) within an experiment
     - Partial controls: some treatment rows have controls and others do not
     """
-    exp_treatments, exp_controls = _group_samples_by_experiment(samples)
-    # exp_controls is reserved for future experiment-scoped control checks.
-    _ = exp_controls
+    exp_treatments = treatment_groups(samples)
 
     for exp, rows in exp_treatments.items():
         # --- Consistency checks ---
@@ -123,6 +115,17 @@ def validate_replicate_groups(
             continue
 
         _validate_control_consistency(exp, rows, samples, error_cls)
+
+    routes = resolve_mixed_replicate_routes(
+        samples,
+        mixed_replicate_config,
+        {
+            "chipseq_narrow": chipseq_idr_enabled,
+            "atac_narrow": reproducibility_idr_atac_narrow,
+            "cuttag_narrow": reproducibility_idr_cuttag_narrow,
+        },
+        error_cls=error_cls,
+    )
 
     # --- ChIP-seq IDR eligibility (only when chipseq_idr_enabled) ---
     if chipseq_idr_enabled:
@@ -139,7 +142,7 @@ def validate_replicate_groups(
                 continue  # skip chipseq broad
 
             bio_reps = _biological_replicates(rows)
-            if len(bio_reps) != 2:
+            if len(bio_reps) != 2 and exp not in routes:
                 raise error_cls(
                     f"ChIP-seq IDR: experiment {exp!r} has "
                     f"{len(bio_reps)} biological replicate(s) ({bio_reps}). "
@@ -164,7 +167,7 @@ def validate_replicate_groups(
             if first["peak_mode"] != "narrow":
                 continue  # ATAC broad — no IDR
             bio_reps = _biological_replicates(rows)
-            if len(bio_reps) != 2:
+            if len(bio_reps) != 2 and exp not in routes:
                 raise error_cls(
                     f"reproducibility.idr.atac_narrow: ATAC narrow "
                     f"experiment {exp!r} has {len(bio_reps)} biological "
@@ -194,7 +197,7 @@ def validate_replicate_groups(
                 continue  # skip CUT&Tag broad
 
             bio_reps = _biological_replicates(rows)
-            if len(bio_reps) != 2:
+            if len(bio_reps) != 2 and exp not in routes:
                 raise error_cls(
                     f"reproducibility.idr.cuttag_narrow: CUT&Tag narrow "
                     f"experiment {exp!r} has {len(bio_reps)} biological "

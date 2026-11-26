@@ -3,7 +3,7 @@
 import warnings
 
 from encode_pipeline.config import defaults
-from encode_pipeline.config.coercion import coerce_bool
+from encode_pipeline.config.coercion import coerce_bool, coerce_int
 
 __all__ = [
     "idr_sample_flags_from_validated",
@@ -59,6 +59,15 @@ def validate_idr_config(
         emit_warnings=emit_warnings,
     )
     idr = repro.get("idr", {})
+    if repro.get("mixed_replicate_policy") and not (
+        chipseq_idr
+        or any(
+            idr.get(key) for key in ("chipseq_narrow", "cuttag_narrow", "atac_narrow")
+        )
+    ):
+        raise error_cls(
+            "per_group_fallback requires an enabled narrow-peak MACS3 IDR method."
+        )
     if not replicate_analysis:
         for key in ("chipseq_narrow", "atac_narrow", "cuttag_narrow"):
             if idr.get(key):
@@ -136,6 +145,14 @@ def validate_reproducibility(
         "reproducibility.enabled",
         error_cls=error_cls,
     )
+    policy = raw.get("mixed_replicate_policy", "strict")
+    if policy not in ("strict", "per_group_fallback"):
+        raise error_cls(
+            "reproducibility.mixed_replicate_policy must be 'strict' or 'per_group_fallback'."
+        )
+    mixed = policy == "per_group_fallback"
+    if mixed and not enabled:
+        raise error_cls("per_group_fallback requires reproducibility.enabled=true.")
     if not enabled:
         return {"enabled": False}
 
@@ -155,6 +172,24 @@ def validate_reproducibility(
     )
 
     min_reps = consensus_raw.get("min_replicates", 2)
+    if mixed:
+        if not consensus["enabled"]:
+            raise error_cls(
+                "per_group_fallback requires reproducibility.consensus.enabled=true."
+            )
+        min_reps = coerce_int(
+            min_reps,
+            name="reproducibility.consensus.min_replicates",
+            minimum=1,
+            error_cls=error_cls,
+        )
+        if min_reps not in (2, 3):
+            raise error_cls(
+                "consensus.min_replicates must be 2 or 3 in per_group_fallback."
+            )
+        # Omitting strict keeps both the scientific identity and the serialized
+        # effective configuration identical to those of historical runs.
+        result["mixed_replicate_policy"] = policy
     if isinstance(min_reps, bool):
         raise error_cls(
             f"reproducibility.consensus.min_replicates must be an integer "

@@ -147,7 +147,9 @@ The bundled adapter uses Snakemake and preserves the existing
 For assay-specific truth, use the [configuration reference](docs/configuration.md),
 [sample sheet reference](docs/sample-sheet.md),
 [QC guide](docs/qc-interpretation.md), and
-[reproducibility policy](docs/reproducibility-policy.md).
+[reproducibility policy](docs/reproducibility-policy.md). For a new run with
+two- and three-replicate experiments, the [mixed-mode example](docs/reproducibility-policy.md#same-run-with-two--and-three-replicate-groups)
+shows how to request IDR and consensus in the same run.
 
 Create the locked scientific runner and validate the committed example
 metadata:
