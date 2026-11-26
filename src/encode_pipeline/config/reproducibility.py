@@ -17,25 +17,17 @@ def resolve_idr_sample_flags(config, *, error_cls=ValueError):
     if not isinstance(config, dict):
         raise error_cls(f"config must be a mapping, got {type(config).__name__}")
 
-    chipseq_raw = config.get("chipseq_idr", False)
-    chipseq_idr = (
-        False
-        if chipseq_raw is None
-        else coerce_bool(chipseq_raw, "chipseq_idr", error_cls=error_cls)
+    chipseq_idr = coerce_bool(
+        config.get("chipseq_idr", False), "chipseq_idr", error_cls=error_cls
     )
-
-    repro_raw = config.get("reproducibility", {})
-    repro = {} if repro_raw is None else repro_raw
+    repro = config.get("reproducibility", {})
     if not isinstance(repro, dict):
         raise error_cls(
             f"reproducibility must be a mapping, got {type(repro).__name__}"
         )
 
-    enabled_raw = repro.get("enabled", False)
-    repro_enabled = (
-        False
-        if enabled_raw is None
-        else coerce_bool(enabled_raw, "reproducibility.enabled", error_cls=error_cls)
+    repro_enabled = coerce_bool(
+        repro.get("enabled", False), "reproducibility.enabled", error_cls=error_cls
     )
     if not repro_enabled:
         return {
@@ -46,21 +38,22 @@ def resolve_idr_sample_flags(config, *, error_cls=ValueError):
             "cuttag_broad": False,
         }
 
-    idr_raw = repro.get("idr", {})
-    idr = {} if idr_raw is None else idr_raw
+    idr = repro.get("idr", {})
     if not isinstance(idr, dict):
         raise error_cls(
             f"reproducibility.idr must be a mapping, got {type(idr).__name__}"
         )
 
     def _idr_flag(key):
-        raw = idr.get(key)
-        if raw is None:
-            return False
-        return coerce_bool(raw, f"reproducibility.idr.{key}", error_cls=error_cls)
+        return coerce_bool(
+            idr.get(key, False), f"reproducibility.idr.{key}", error_cls=error_cls
+        )
 
+    # This alias alone has a nullable (unconfigured) state in normalized config.
+    alias = idr.get("chipseq_narrow")
+    alias_enabled = alias is not None and _idr_flag("chipseq_narrow")
     return {
-        "chipseq_narrow": chipseq_idr or _idr_flag("chipseq_narrow"),
+        "chipseq_narrow": chipseq_idr or alias_enabled,
         "atac_narrow": _idr_flag("atac_narrow"),
         "cuttag_narrow": _idr_flag("cuttag_narrow"),
         "chipseq_broad": _idr_flag("chipseq_broad_experimental"),

@@ -8,6 +8,7 @@ import pytest
 
 from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
 from encode_pipeline.config.validate import ValidationError, validate_config
+from encode_pipeline.manifest.make import build_manifest_rows
 
 
 SAMPLES_HEADER = "sample\tfastq_1\tfastq_2\tlayout\tassay\ttarget\tpeak_mode\tgenome\tbowtie2_index\n"
@@ -413,3 +414,36 @@ def test_resolve_idr_sample_flags_handles_aliases_and_disabled_reproducibility()
 def test_resolve_idr_sample_flags_rejects_non_mapping_blocks(bad_config, pattern):
     with pytest.raises(ValueError, match=pattern):
         resolve_idr_sample_flags(bad_config)
+
+
+@pytest.mark.parametrize(
+    "overrides,field",
+    [
+        ({"chipseq_idr": None}, "chipseq_idr"),
+        ({"reproducibility": None}, "reproducibility"),
+        ({"reproducibility": {"enabled": None}}, "reproducibility.enabled"),
+        ({"reproducibility": {"enabled": True, "idr": None}}, "reproducibility.idr"),
+        (
+            {"reproducibility": {"enabled": True, "idr": {"atac_narrow": None}}},
+            "atac_narrow",
+        ),
+        (
+            {
+                "chipseq_idr": True,
+                "reproducibility": {
+                    "enabled": True,
+                    "idr": {"chipseq_narrow": "garbled"},
+                },
+            },
+            "chipseq_narrow",
+        ),
+    ],
+)
+def test_manifest_and_validator_reject_the_same_invalid_idr_setting(
+    tmp_path, overrides, field
+):
+    config = _make_config(tmp_path, **overrides)
+    with pytest.raises(ValidationError, match=re.escape(field)):
+        validate_config(config)
+    with pytest.raises((ValueError, ValidationError), match=re.escape(field)):
+        build_manifest_rows(config)
