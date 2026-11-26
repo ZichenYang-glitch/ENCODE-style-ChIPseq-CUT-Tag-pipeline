@@ -157,7 +157,7 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `chipseq_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_chipseq_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
 | `cuttag_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_cuttag_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
 
-#### Consensus final outputs (primary when no IDR)
+#### Primary consensus finals by experiment and caller
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
@@ -298,7 +298,10 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 
 In WashU, column 5 of a consensus peak is 1000 times the fraction of distinct
 biological replicates supporting that interval, rounded to the nearest integer.
-Column 5 of an IDR final records the scaled IDR value. [IDR output format](https://github.com/nboley/idr#output-file-format).
+For three biological replicates, support from two gives 667 and support from all
+three gives 1000. Column 5 of an IDR final records the scaled IDR value. The
+run's `idr.rank` setting selects the input field used to rank peaks before IDR.
+[IDR output format](https://github.com/nboley/idr#output-file-format)
 
 ## Known Assumptions
 

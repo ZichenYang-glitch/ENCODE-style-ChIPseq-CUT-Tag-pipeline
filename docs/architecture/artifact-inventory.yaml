@@ -1122,8 +1122,8 @@ artifacts:
   manifest_output_type: chipseq_macs3_narrow_consensus_peak
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output. Not a primary final when mixed_replicate_policy is missing or strict. Omitted from the manifest when a route sets run_macs3_consensus false.
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: chipseq_macs3_narrow_consensus_summary
   description: ChIP-seq narrow consensus summary TSV
@@ -1136,8 +1136,8 @@ artifacts:
   manifest_output_type: chipseq_macs3_narrow_consensus_summary
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: chipseq_macs3_broad_consensus_peak
   description: ChIP-seq broad consensus peak (catalog/report)
@@ -1178,8 +1178,8 @@ artifacts:
   manifest_output_type: cuttag_macs3_narrow_consensus_peak
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output. Omitted from the manifest when a route sets run_macs3_consensus false. SEACR products are unaffected.
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: cuttag_macs3_narrow_consensus_summary
   description: CUT&Tag narrow consensus summary TSV
@@ -1192,8 +1192,8 @@ artifacts:
   manifest_output_type: cuttag_macs3_narrow_consensus_summary
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: cuttag_macs3_broad_consensus_peak
   description: CUT&Tag broad consensus peak (catalog/report)
@@ -1234,8 +1234,8 @@ artifacts:
   manifest_output_type: atac_macs3_narrow_consensus_peak
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output. Not a primary final when mixed_replicate_policy is missing or strict. Omitted from the manifest when a route sets run_macs3_consensus false.
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: atac_macs3_narrow_consensus_summary
   description: ATAC narrow consensus summary TSV
@@ -1248,8 +1248,8 @@ artifacts:
   manifest_output_type: atac_macs3_narrow_consensus_summary
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (per_group_fallback groups must meet consensus.min_replicates)
+  notes: A two-replicate IDR group produces this auxiliary output only at min_replicates=2 under per_group_fallback.
 
 - id: cuttag_seacr_consensus_peak
   description: CUT&Tag SEACR consensus peak (catalog/report)
@@ -1337,7 +1337,7 @@ artifacts:
   config_gate: reproducibility.enabled and reproducibility.idr.cuttag_broad_experimental
   notes: Experimental opt-in only; omitted when flag is false
 
-# Consensus final outputs (primary when no IDR)
+# Primary consensus finals by experiment and caller
 
 - id: chipseq_macs3_broad_consensus_final_peak
   description: ChIP-seq broad consensus final validated peak
@@ -1364,8 +1364,8 @@ artifacts:
   manifest_output_type: cuttag_macs3_narrow_consensus_final_peak
   pipeline_done: false
   rule_all: true
-  config_gate: reproducibility.enabled and reproducibility.consensus.enabled (CUT&Tag narrow IDR not enabled)
-  notes: Primary final when CUT&Tag narrow IDR is not enabled
+  config_gate: reproducibility.enabled and reproducibility.consensus.enabled and MACS3 consensus is primary for this experiment
+  notes: Primary when CUT&Tag narrow IDR is disabled or falls back for a three-replicate group.
 
 - id: cuttag_macs3_broad_consensus_final_peak
   description: CUT&Tag broad consensus final validated peak
@@ -1392,8 +1392,8 @@ artifacts:
   manifest_output_type: chipseq_macs3_narrow_consensus_final_peak
   pipeline_done: false
   rule_all: true
-  config_gate: per_group_fallback route method consensus for this ChIP-seq narrow group
-  notes: Absent when mixed_replicate_policy is missing or strict. Recorded only for the routed experiment; other groups are not included.
+  config_gate: per_group_fallback selects MACS3 consensus for this experiment
+  notes: Primary MACS3 final using all three biological replicates from this experiment.
 
 - id: atac_macs3_narrow_consensus_final_peak
   description: ATAC narrow consensus final validated peak
@@ -1406,8 +1406,8 @@ artifacts:
   manifest_output_type: atac_macs3_narrow_consensus_final_peak
   pipeline_done: false
   rule_all: true
-  config_gate: per_group_fallback route method consensus for this ATAC narrow group
-  notes: Absent when mixed_replicate_policy is missing or strict. Recorded only for the routed experiment; other groups are not included.
+  config_gate: per_group_fallback selects MACS3 consensus for this experiment
+  notes: Primary MACS3 final using all three biological replicates from this experiment.
 
 - id: cuttag_seacr_consensus_final_peak
   description: CUT&Tag SEACR consensus final validated peak
@@ -1421,7 +1421,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled and cuttag.seacr.enabled
-  notes: SEACR consensus is primary final for CUT&Tag SEACR
+  notes: Primary BED from this experiment's paired-end SEACR peaks. In per_group_fallback mode the group must meet consensus.min_replicates.
 
 # IDR QC summaries
 

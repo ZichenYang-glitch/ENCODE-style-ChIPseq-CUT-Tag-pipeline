@@ -460,6 +460,61 @@ def test_pet_derivative_and_signal_share_a_reference_window(
     assert index.content == b"\x1f\x8b\x08\x04"
 
 
+def test_washu_exposes_the_score_from_each_final_peak_file(
+    client: ApiTestClient,
+) -> None:
+    run_id = _create_run(client)
+    _bind_reference(client, run_id, assembly="hg38")
+    peaks = (
+        ("idr_optimal", "optimal.narrowPeak", "540", "idr_scaled_score", "scaled IDR"),
+        (
+            "chipseq_macs3_narrow_consensus_final_peak",
+            "chip3.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak",
+            "667",
+            "consensus_biorep_support",
+            "biological-replicate support",
+        ),
+        (
+            "atac_macs3_narrow_consensus_final_peak",
+            "atac3.atac.macs3.narrow.replicate_validated.consensus.narrowPeak",
+            "1000",
+            "consensus_biorep_support",
+            "biological-replicate support",
+        ),
+    )
+    for output_type, name, score, _, _ in peaks:
+        _record(
+            client,
+            run_id,
+            output_type,
+            f"chr1\t1200\t1240\tpeak\t{score}\t.\t12\t-1\t-1\t20\n".encode(),
+            name=name,
+            output_type=output_type,
+            reference_assembly="hg38",
+        )
+
+    base = f"/api/v1/runs/{run_id}"
+    session = client.get(f"{base}/browser-session")
+    assert session.status_code == 200, session.text
+    body = session.json()
+    tracks = {track["output_type"]: track for track in body["tracks"]}
+    for output_type, _, score, meaning, description in peaks:
+        track = tracks[output_type]
+        assert track["score_meaning"] == meaning
+        assert description in track["detail"]
+        prepared = client.post(
+            f"{base}/browser-tracks/{track['artifact_id']}/derivative",
+            json={
+                "generation": body["artifact_generation"],
+                "revision": track["revision"],
+            },
+        )
+        assert prepared.status_code == 200, prepared.text
+        display = client.get(prepared.json()["track"]["content_path"])
+        assert display.status_code == 200
+        assert gzip.decompress(display.content).split(b"\t")[4] == score.encode()
+
+
 def test_replaced_display_index_cannot_be_read(client: ApiTestClient) -> None:
     run_id = _create_run(client)
     pet = _record(
