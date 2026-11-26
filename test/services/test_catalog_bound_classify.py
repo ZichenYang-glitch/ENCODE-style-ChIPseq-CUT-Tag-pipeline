@@ -390,3 +390,58 @@ def test_rust_worker_rejects_indexes_and_names_the_catalog_operation():
     assert "experiment.target" in source
     assert "is_ascii_digit" in source
     assert "Do not answer with a position or index" in source
+
+
+def test_operator_catalog_grant_and_revocation_apply_only_to_the_bound_field(
+    bound, monkeypatch, capsys
+):
+    import sys
+    from encode_pipeline.services.peri_runtime import model_grant
+
+    worker, model = bound
+    monkeypatch.setattr(model_grant, "configured_model", lambda _env: model)
+
+    def invoke(*args):
+        monkeypatch.setattr(sys, "argv", ["model_grant", *args])
+        model_grant.main()
+
+    options = {
+        "--project": PROJECT,
+        "--field": "experiment.target",
+        "--binding": binding_id(worker.binding),
+        "--expires": str(int(time.time()) + 120),
+        "--requests": "1",
+        "--input-tokens": "4096",
+        "--output-tokens": "128",
+        "--output-per-call": "16",
+        "--input-rate": "100",
+        "--output-rate": "100",
+        "--currency": "CNY",
+        "--minor-units": "1",
+    }
+
+    def grant(overrides):
+        flags = options | overrides
+        invoke("catalog-grant", *(value for pair in flags.items() for value in pair))
+
+    for changed in (
+        {"--binding": "0" * 64},
+        {"--field": "config.threads"},
+        {"--requests": "0"},
+    ):
+        with pytest.raises(SystemExit) as refused:
+            grant(changed)
+        assert refused.value.code == 2
+    with pytest.raises(SystemExit) as missing:
+        invoke("catalog-revoke", "--grant", "missing")
+    assert missing.value.code == 2
+    capsys.readouterr()
+    grant({})
+    grant_id = json.loads(capsys.readouterr().out)["grant_id"]
+    assert _balances(model, grant_id) == (1, 0, 0)
+    invoke("catalog-revoke", "--grant", grant_id)
+    with pytest.raises(CatalogTransportError) as revoked:
+        _classify(model)
+    assert revoked.value.code == "catalog_model_revoked"
+    assert _balances(model, grant_id) == (1, 0, 0)
+    assert worker.sends == []

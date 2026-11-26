@@ -783,3 +783,73 @@ def test_rebuild_preserves_pinned_experiment_revision_and_catalogued_sample(
         with pytest.raises(CatalogError) as failure:
             rebuild(missing)
         assert failure.value.code == "catalog_not_found"
+
+
+def test_model_shortlist_and_pinned_revision_match_across_catalogs(catalog_stack):
+    data, catalog = catalog_stack
+    calls = []
+
+    class InsufficientModel:
+        def classify(self, **request):
+            calls.append(request)
+            return "insufficient_evidence"
+
+    catalog._catalog_model = InsufficientModel()
+    project = data.create_project("Vocabulary projection")
+    foreign = data.create_project("Other project")
+    sample = data.import_sample(
+        project.project_id, stable_key="test", display_name="Test", attributes={}
+    )
+    experiment = _write(
+        catalog.create_experiment,
+        "experiment",
+        project_id=project.project_id,
+        stable_key="experiment",
+        **_experiment(sample.revision.sample_revision_id),
+    )
+    targets = [
+        _term(catalog, "target", target)
+        for target in ("CTCF", "H2A.Z", "H3K4me3", "H3K27ac", "POLR2A")
+    ]
+    tissue = _term(catalog, "tissue", "Brain")
+    pin = _pin(targets[1])["term_revision_id"]
+    fields = {
+        "project_id": project.project_id,
+        "experiment_id": experiment["experiment_id"],
+        "experiment_revision_id": experiment["experiment_revision_id"],
+        "field": "target",
+        "reason_code": "TARGET_TERM_MATCH",
+        "clue": "H2A.Z",
+        "vocabulary_term_revision_id": None,
+    }
+    for i, (overrides, code) in enumerate(
+        (
+            ({}, "catalog_payload_invalid"),
+            ({"project_id": foreign.project_id}, "catalog_not_found"),
+            (
+                {"experiment_revision_id": "expr_" + "9" * 32},
+                "catalog_revision_conflict",
+            ),
+            ({"field": "batch"}, "catalog_payload_invalid"),
+            (
+                {"vocabulary_term_revision_id": _pin(tissue)["term_revision_id"]},
+                "catalog_payload_invalid",
+            ),
+        )
+    ):
+        with pytest.raises(CatalogError) as refused:
+            _write(
+                catalog.generate_classification_suggestion,
+                f"refused-{i}",
+                **(fields | overrides),
+            )
+        assert refused.value.code == code
+    assert not calls
+    result = _write(
+        catalog.generate_classification_suggestion,
+        "pinned",
+        **(fields | {"vocabulary_term_revision_id": pin}),
+    )
+    assert result["outcome"] == "insufficient_evidence" and result["proposal"] is None
+    assert result["experiment_revision_id"] == experiment["experiment_revision_id"]
+    assert [call["candidates"] for call in calls] == [(("h2az", "H2A.Z"),)]
