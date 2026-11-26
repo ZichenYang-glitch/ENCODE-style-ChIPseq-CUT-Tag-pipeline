@@ -585,11 +585,13 @@ class BoundModel:
             active = [
                 row for row in sane if row["revoked"] == 0 and row["expires"] > now
             ]
-            if len(active) != 1:
-                if any(row["revoked"] == 1 for row in sane):
-                    raise CatalogTransportError("catalog_model_revoked")
-                if sane:
+            if len(active) > 1:
+                raise CatalogTransportError("catalog_model_malformed")
+            if not active:
+                if any(row["revoked"] == 0 for row in sane):
                     raise CatalogTransportError("catalog_model_expired")
+                if sane:
+                    raise CatalogTransportError("catalog_model_revoked")
                 raise CatalogTransportError("catalog_model_unauthorized")
             row = active[0]
             cap = int(row["output_cap"])
