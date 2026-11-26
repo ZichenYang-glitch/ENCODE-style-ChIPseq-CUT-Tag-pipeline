@@ -239,7 +239,9 @@ def test_generate_preview_and_adopt_without_moving_the_revision_early(
             stored = db.get(CatalogProposalRow, proposal["proposal_id"])
             assert stored is not None
             assert (stored.source, stored.model_source) == ("agent", "peri_bound_model")
-        with pytest.raises(RuntimeError, match="cannot downgrade while peri_bound_model"):
+        with pytest.raises(
+            RuntimeError, match="cannot downgrade while peri_bound_model"
+        ):
             downgrade_database(str(engine.url), "20261119_39")
         assert proposal["items"][0]["allowed_fields"] == ["target"]
         assert _revision_count(seeded_app, created_experiment["experiment_id"]) == 1

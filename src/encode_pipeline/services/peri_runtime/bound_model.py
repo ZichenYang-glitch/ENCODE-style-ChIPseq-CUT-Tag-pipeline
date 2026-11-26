@@ -566,7 +566,8 @@ class BoundModel:
             if replay is not None:
                 return replay
             rows = db.execute(
-                "SELECT * FROM catalog_grants WHERE project_id=? AND field=? AND binding=?",
+                """SELECT * FROM catalog_grants
+                WHERE project_id=? AND field=? AND binding=? ORDER BY rowid DESC""",
                 (project_id, CATALOG_FIELD, identity),
             ).fetchall()
             sane = [row for row in rows if _catalog_grant_sane(row)]
@@ -577,11 +578,12 @@ class BoundModel:
             if len(active) > 1:
                 raise CatalogTransportError("catalog_model_malformed")
             if not active:
-                if any(row["revoked"] == 0 for row in sane):
-                    raise CatalogTransportError("catalog_model_expired")
-                if sane:
+                if not sane:
+                    raise CatalogTransportError("catalog_model_unauthorized")
+                # Report the last grant issued for this binding when all are inactive.
+                if sane[0]["revoked"] == 1:
                     raise CatalogTransportError("catalog_model_revoked")
-                raise CatalogTransportError("catalog_model_unauthorized")
+                raise CatalogTransportError("catalog_model_expired")
             row = active[0]
             cap = int(row["output_cap"])
             request = classify_worker_request(

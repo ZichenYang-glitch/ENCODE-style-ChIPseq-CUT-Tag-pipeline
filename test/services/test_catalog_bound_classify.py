@@ -195,6 +195,23 @@ def test_classify_requires_its_own_grant_and_replays_without_another_send(bound)
     assert len(worker.sends) == 2
 
 
+def test_expired_replacement_is_reported_after_an_older_revocation(bound):
+    worker, model = bound
+    first = _grant(model, worker, PROJECT)
+    model.catalog_revoke(first)
+    replacement = _grant(model, worker, PROJECT, requests=1)
+    with closing(model.db()) as db, db:
+        db.execute(
+            "UPDATE catalog_grants SET expires=? WHERE grant_id=?",
+            (int(time.time()) - 5, replacement),
+        )
+    with pytest.raises(CatalogTransportError) as refused:
+        _classify(model)
+    assert refused.value.code == "catalog_model_expired"
+    assert worker.sends == []
+    assert _balances(model, replacement) == (1, 0, 0)
+
+
 def test_cross_project_revocation_expiry_and_timeout_keep_their_counts(bound):
     worker, model = bound
     grant_id = _grant(model, worker, PROJECT, requests=2)
