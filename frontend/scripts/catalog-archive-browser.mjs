@@ -113,14 +113,14 @@ function viewerIdentity(url, origin, fixture) {
 
 const languages = {
   en: {
-    locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region',
+    locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region', matches: 'Gene matches',
     version: (n) => `Version ${n}`,
     source: (item) => `Registered result ${item.result_id} · Revision ${item.result_revision_id}`,
     action: (n) => `Open version ${n} in WashU · ${trackName}`,
     offline: 'The archived copy is offline.', denied: 'You do not have access to this archived version.',
   },
   'zh-CN': {
-    locale: 'zh-CN', select: '语言', list: '已封存轨道', viewer: '已封存轨道', region: '基因组位置',
+    locale: 'zh-CN', select: '语言', list: '已封存轨道', viewer: '已封存轨道', region: '基因组位置', matches: '基因匹配结果',
     version: (n) => `第 ${n} 版`,
     source: (item) => `登记 ${item.result_id} · 修订 ${item.result_revision_id}`,
     action: (n) => `在 WashU 查看 ${trackName} 第 ${n} 版`,
@@ -352,6 +352,14 @@ async function openVersion(browser, manifest, fixture, out, work, language) {
     await expect(viewer.getByRole('combobox', { name: copy.select })).toHaveValue(language);
     await checkTrackFacts(viewer.getByTestId('archived-track-viewer'), fixture, copy);
     const region = viewer.getByRole('textbox', { name: copy.region });
+    let geneMatch;
+    if (fixture.version_number === 1) {
+      await region.fill('EGFR');
+      const gene = viewer.getByRole('listbox', { name: copy.matches }).getByRole('option', { name: /^EGFR ·/ }).first();
+      await expect(gene).toBeVisible();
+      geneMatch = await gene.getAttribute('data-region');
+      assert.match(geneMatch, /^chr7:[0-9]+-[0-9]+$/);
+    }
     await region.fill(targetWindow.region);
     phase = 'target-window';
     await region.press('Enter');
@@ -377,6 +385,7 @@ async function openVersion(browser, manifest, fixture, out, work, language) {
       size_bytes: fixture.size_bytes,
       sha256: fixture.content_sha256,
       expected_value: expectedValue,
+      gene_search: geneMatch,
       open_to_render_ms: elapsedMs,
       geometry,
       transferred_bytes: transcript.bytes,
