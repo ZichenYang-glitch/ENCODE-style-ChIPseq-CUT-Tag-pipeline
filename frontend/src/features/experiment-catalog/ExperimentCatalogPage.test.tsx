@@ -371,7 +371,7 @@ describe('Experiment catalog page', () => {
 
     expect(await within(trace).findByRole('heading', { name: 'Unbound' })).toBeInTheDocument();
     expect(trace).toHaveTextContent('experiment_snapshot_binding_absent');
-    expect(trace).toHaveTextContent('not described as file contributors');
+    expect(trace).toHaveTextContent('no artifacts or file-level sample attributions');
     expect(trace).not.toHaveTextContent('未绑定');
     expect(screen.getByRole('heading', { name: 'Treg CUT&Tag v2' })).toBeInTheDocument();
 
@@ -393,7 +393,7 @@ describe('Experiment catalog page', () => {
     const scope = screen.getByRole('region', { name: 'Run input scope' });
     expect(within(scope).getByRole('heading', { name: 'Run input scope' })).toBeInTheDocument();
     expect(scope).toHaveTextContent(
-      'Associated samples are the input scope of that run, not file contributors.',
+      'These samples were inputs to this run. File-level contributions are not recorded here.',
     );
     expect(scope).toHaveTextContent('run_input_scope');
     expect(scope).toHaveTextContent('peaks');
@@ -451,7 +451,7 @@ describe('Experiment catalog page', () => {
     await user.click(within(revise).getByRole('button', { name: 'Revise classification' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Conflict. This submission was not written.',
+      'Revision conflict. Your changes were not saved.',
     );
     expect(screen.getByRole('alert')).not.toHaveTextContent(
       'The catalog revision changed before this write.',
@@ -460,6 +460,9 @@ describe('Experiment catalog page', () => {
     expect(screen.getByRole('region', { name: 'Experiment revision' })).toHaveTextContent(
       'Current revision 3',
     );
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'zh-CN');
+    expect(screen.getByRole('alert')).toHaveTextContent('冲突。这次提交没有写入。');
+    expect(catalogReviseExperiment).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Revised classification to Losing name.')).not.toBeInTheDocument();
   });
 

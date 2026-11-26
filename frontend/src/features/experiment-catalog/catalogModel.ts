@@ -1,10 +1,9 @@
+import type { UiLanguage } from '../../lib/uiLanguage';
 import type { CatalogListExperimentsParams } from '../../api/generated/models';
 
 export const CATALOG_PAGE_SIZE = 20;
 
-export type CatalogCopyLanguage = 'en' | 'zh-CN';
-
-const STATUS_LABELS: Record<CatalogCopyLanguage, Record<string, string>> = {
+const STATUS_LABELS: Record<UiLanguage, Record<string, string>> = {
   'zh-CN': {
     unknown: '未知',
     not_applicable: '不适用',
@@ -25,22 +24,18 @@ export const RUN_INPUT_SCOPE_TEXT =
   '运行输入范围。关联样本是该次运行的输入范围，不是文件贡献者。';
 
 const RUN_INPUT_SCOPE_TEXT_EN =
-  'Run input scope. Associated samples are the input scope of that run, not file contributors.';
+  'These samples were inputs to this run. File-level contributions are not recorded here.';
 
-function copyLanguage(lang?: CatalogCopyLanguage): CatalogCopyLanguage {
-  return lang === 'en' ? 'en' : 'zh-CN';
+function unclassifiedLabel(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Unclassified' : '未分类';
 }
 
-function unclassifiedLabel(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en' ? 'Unclassified' : '未分类';
+function knownFallbackLabel(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Known' : '已知';
 }
 
-function knownFallbackLabel(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en' ? 'Known' : '已知';
-}
-
-function statusLabel(status: string, lang?: CatalogCopyLanguage): string {
-  return STATUS_LABELS[copyLanguage(lang)][status] ?? status;
+function statusLabel(status: string, lang?: UiLanguage): string {
+  return STATUS_LABELS[lang ?? 'zh-CN'][status] ?? status;
 }
 
 export interface ReadableSlot {
@@ -71,7 +66,7 @@ export interface SampleWrite {
 
 export function singleSlotLabel(
   slot: ReadableSlot | undefined,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
   if (slot === undefined) return unclassifiedLabel(lang);
   if (slot.status === 'known') {
@@ -84,7 +79,7 @@ export function singleSlotLabel(
 
 export function multiSlotLabel(
   slot: ReadableSlot | undefined,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
   if (slot === undefined) return unclassifiedLabel(lang);
   if (slot.status === 'known') {
@@ -101,7 +96,7 @@ export function experimentCellTypeLabel(
     catalog_state?: 'absent';
     cell_type?: ReadableSlot;
   }>,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
   if (samples.length === 0) return unclassifiedLabel(lang);
   const labels = samples.map((sample) =>
@@ -114,9 +109,9 @@ export function experimentCellTypeLabel(
 
 export function revisionNumberLabel(
   revisionNumber: number,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
-  return copyLanguage(lang) === 'en'
+  return lang === 'en'
     ? `Revision ${revisionNumber}`
     : `修订 ${revisionNumber}`;
 }
@@ -124,9 +119,9 @@ export function revisionNumberLabel(
 export function revisionMarkLabel(
   isCurrent: boolean,
   revisionNumber: number,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
-  if (copyLanguage(lang) === 'en') {
+  if (lang === 'en') {
     return isCurrent
       ? `Current revision ${revisionNumber}`
       : `Earlier revision ${revisionNumber}`;
@@ -134,16 +129,16 @@ export function revisionMarkLabel(
   return isCurrent ? `当前 ${revisionNumber}` : `旧版 ${revisionNumber}`;
 }
 
-export function runInputScopeHeading(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en' ? 'Run input scope' : '运行输入范围';
+export function runInputScopeHeading(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Run input scope' : '运行输入范围';
 }
 
-export function runInputScopeText(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en' ? RUN_INPUT_SCOPE_TEXT_EN : RUN_INPUT_SCOPE_TEXT;
+export function runInputScopeText(lang?: UiLanguage): string {
+  return lang === 'en' ? RUN_INPUT_SCOPE_TEXT_EN : RUN_INPUT_SCOPE_TEXT;
 }
 
-export function emptySampleRunsText(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en'
+export function emptySampleRunsText(lang?: UiLanguage): string {
+  return lang === 'en'
     ? 'This sample revision has no run results.'
     : '这条样本修订没有运行结果。';
 }
@@ -151,16 +146,16 @@ export function emptySampleRunsText(lang?: CatalogCopyLanguage): string {
 export function runSampleLine(
   sampleId: string,
   revisionNumber: number,
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): string {
-  return copyLanguage(lang) === 'en'
+  return lang === 'en'
     ? `Run sample ${sampleId} revision ${revisionNumber}`
     : `运行样本 ${sampleId} 修订 ${revisionNumber}`;
 }
 
-export function catalogConflictText(lang?: CatalogCopyLanguage): string {
-  return copyLanguage(lang) === 'en'
-    ? 'Conflict. This submission was not written.'
+export function catalogConflictText(lang?: UiLanguage): string {
+  return lang === 'en'
+    ? 'Revision conflict. Your changes were not saved.'
     : '冲突。这次提交没有写入。';
 }
 
@@ -287,17 +282,17 @@ export function experimentTraceText(
     trace_status: string;
     reason?: string | null;
   },
-  lang?: CatalogCopyLanguage,
+  lang?: UiLanguage,
 ): { title: string; detail: string } {
   if (trace.trace_status === 'unresolved') {
     const reason =
       trace.reason === 'experiment_snapshot_binding_absent'
         ? 'experiment_snapshot_binding_absent'
         : (trace.reason ?? 'unresolved');
-    if (copyLanguage(lang) === 'en') {
+    if (lang === 'en') {
       return {
         title: 'Unbound',
-        detail: `This experiment revision has no bound run (${reason}). Artifacts are not listed here, and run samples are not described as file contributors.`,
+        detail: `This experiment revision has no bound run (${reason}). Its trace contains no artifacts or file-level sample attributions.`,
       };
     }
     return {
@@ -305,11 +300,11 @@ export function experimentTraceText(
       detail: `这条实验修订没有绑定运行（${reason}）。这里不列出产物，也不把运行样本写成文件贡献者。`,
     };
   }
-  if (copyLanguage(lang) === 'en') {
+  if (lang === 'en') {
     return {
       title: trace.trace_status,
       detail:
-        'The experiment trace status is not unbound. If artifact rows appear, they still only describe the run input scope.',
+        'Each artifact lists the samples used as inputs to its run.',
     };
   }
   return {

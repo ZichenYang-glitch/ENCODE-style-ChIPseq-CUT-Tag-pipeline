@@ -22,7 +22,7 @@ import type {
 import { ApiError } from '../../api/fetcher';
 import { useAuth } from '../../app/auth';
 import { Button } from '../../components/Button';
-import { UiLanguageSelect, useUiLanguage } from '../../lib/uiLanguage';
+import { UiLanguageSelect, useUiLanguage, type UiLanguage } from '../../lib/uiLanguage';
 import { ArchivedTrackList } from '../experiment-archive/ArchivedTrackList';
 import {
   CATALOG_PAGE_SIZE,
@@ -45,7 +45,6 @@ import {
   samplesForWrite,
   singleSlotLabel,
   writeSlot,
-  type CatalogCopyLanguage,
   type WriteSlot,
 } from './catalogModel';
 
@@ -71,14 +70,17 @@ interface AppliedSearch {
   cellTypeTermIds: string[];
 }
 
-function errorMessage(caught: unknown, lang: CatalogCopyLanguage): string {
+type FormError = Error | string | null;
+
+function errorMessage(caught: unknown, lang: UiLanguage): string {
+  if (typeof caught === 'string') return caught;
   if (caught instanceof ApiError) {
     if (caught.code === 'catalog_revision_conflict') {
       return catalogConflictText(lang);
     }
     return caught.message;
   }
-  return 'The catalog request failed.';
+  return lang === 'en' ? 'The catalog request failed.' : '实验目录请求失败。';
 }
 
 function termsOf(
@@ -123,7 +125,7 @@ export function ExperimentCatalogPage() {
     undefined,
   ]);
   const [notice, setNotice] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<FormError>(null);
 
   const projectsQuery = useQuery({
     queryKey: ['catalog', 'projects'],
@@ -544,7 +546,7 @@ export function ExperimentCatalogPage() {
       )}
       {formError !== null && (
         <p role="alert" className="text-sm text-[var(--color-error)]">
-          {formError}
+          {errorMessage(formError, language)}
         </p>
       )}
 
@@ -556,11 +558,11 @@ export function ExperimentCatalogPage() {
           head={head}
           onNotice={setNotice}
           onError={setFormError}
-          onConflict={async () => {
+          onConflict={async (error) => {
             setPinnedHead(null);
             setFollowHeadAfter(experimentsUpdatedAt);
             await refreshCatalog();
-            setFormError(catalogConflictText(language));
+            setFormError(error);
           }}
           onRevised={(revision) => {
             setPinnedHead(revision);
@@ -599,7 +601,7 @@ function RevisionDetail({
   sampleRunsTruncated,
   sampleRunsError,
 }: {
-  language: CatalogCopyLanguage;
+  language: UiLanguage;
   head: CatalogExperimentResponse | null;
   selected: CatalogExperimentResponse;
   revisions: CatalogExperimentResponse[];
@@ -794,7 +796,7 @@ function isCurrentRevision(
 function revisionMark(
   revision: { experiment_revision_id: string; revision_number: number },
   head: CatalogExperimentResponse | null,
-  lang: CatalogCopyLanguage,
+  lang: UiLanguage,
 ): string {
   return revisionMarkLabel(
     isCurrentRevision(revision, head),
@@ -815,13 +817,13 @@ function AdminMaintenance({
   onCreated,
   refresh,
 }: {
-  language: CatalogCopyLanguage;
+  language: UiLanguage;
   projectId: string;
   terms: readonly CatalogTermSummaryResponse[];
   head: CatalogExperimentResponse | null;
   onNotice: (notice: string) => void;
-  onError: (message: string | null) => void;
-  onConflict: () => Promise<void>;
+  onError: (error: FormError) => void;
+  onConflict: (error: ApiError) => Promise<void>;
   onRevised: (revision: CatalogExperimentResponse) => void;
   onCreated: (revision: CatalogExperimentResponse) => void;
   refresh: () => Promise<void>;
@@ -852,7 +854,6 @@ function AdminMaintenance({
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <TermForm
-        language={language}
         onError={onError}
         onCreated={async (name) => {
           await refresh();
@@ -880,7 +881,6 @@ function AdminMaintenance({
       />
       <ReviseForm
         key={head?.experiment_revision_id ?? 'closed'}
-        language={language}
         head={head}
         assayTerms={assayTerms}
         onError={onError}
@@ -896,13 +896,11 @@ function AdminMaintenance({
 }
 
 function TermForm({
-  language,
   onCreated,
   onError,
 }: {
-  language: CatalogCopyLanguage;
   onCreated: (displayName: string) => Promise<void>;
-  onError: (message: string | null) => void;
+  onError: (error: FormError) => void;
 }) {
   const [termType, setTermType] = useState<(typeof TERM_TYPES)[number]>('assay');
   const [displayName, setDisplayName] = useState('');
@@ -918,7 +916,7 @@ function TermForm({
       onError(null);
       await onCreated(name);
     },
-    onError: (caught) => onError(errorMessage(caught, language)),
+    onError,
   });
 
   return (
@@ -977,7 +975,7 @@ function ExperimentForm({
   onCreated,
   onError,
 }: {
-  language: CatalogCopyLanguage;
+  language: UiLanguage;
   projectId: string;
   samples: readonly CatalogSampleListResponseSamplesItem[];
   samplesStatus: 'loading' | 'ready' | 'error';
@@ -987,7 +985,7 @@ function ExperimentForm({
   batchTerms: readonly CatalogTermSummaryResponse[];
   roleTerms: readonly CatalogTermSummaryResponse[];
   onCreated: (revision: CatalogExperimentResponse) => Promise<void>;
-  onError: (message: string | null) => void;
+  onError: (error: FormError) => void;
 }) {
   const [stableKey, setStableKey] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -1032,7 +1030,7 @@ function ExperimentForm({
       onError(null);
       await onCreated(revision);
     },
-    onError: (caught) => onError(errorMessage(caught, language)),
+    onError,
   });
 
   return (
@@ -1153,19 +1151,17 @@ function TermSelect({
 }
 
 function ReviseForm({
-  language,
   head,
   assayTerms,
   onRevised,
   onConflict,
   onError,
 }: {
-  language: CatalogCopyLanguage;
   head: CatalogExperimentResponse | null;
   assayTerms: readonly CatalogTermSummaryResponse[];
   onRevised: (revision: CatalogExperimentResponse) => Promise<void>;
-  onConflict: () => Promise<void>;
-  onError: (message: string | null) => void;
+  onConflict: (error: ApiError) => Promise<void>;
+  onError: (error: FormError) => void;
 }) {
   const [displayName, setDisplayName] = useState(head?.display_name ?? '');
   const [assayId, setAssayId] = useState(
@@ -1221,10 +1217,10 @@ function ReviseForm({
     },
     onError: async (caught) => {
       if (caught instanceof ApiError && caught.code === 'catalog_revision_conflict') {
-        await onConflict();
+        await onConflict(caught);
         return;
       }
-      onError(errorMessage(caught, language));
+      onError(caught);
     },
   });
 

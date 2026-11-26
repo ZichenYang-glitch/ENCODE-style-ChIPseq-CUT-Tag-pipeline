@@ -139,23 +139,23 @@ describe('catalog display labels', () => {
     ).toEqual({
       title: 'Unbound',
       detail:
-        'This experiment revision has no bound run (experiment_snapshot_binding_absent). Artifacts are not listed here, and run samples are not described as file contributors.',
+        'This experiment revision has no bound run (experiment_snapshot_binding_absent). Its trace contains no artifacts or file-level sample attributions.',
     });
     expect(experimentTraceText({ trace_status: 'resolved' }, 'en')).toEqual({
       title: 'resolved',
       detail:
-        'The experiment trace status is not unbound. If artifact rows appear, they still only describe the run input scope.',
+        'Each artifact lists the samples used as inputs to its run.',
     });
     expect(runInputScopeHeading('en')).toBe('Run input scope');
     expect(runInputScopeText('en')).toBe(
-      'Run input scope. Associated samples are the input scope of that run, not file contributors.',
+      'These samples were inputs to this run. File-level contributions are not recorded here.',
     );
     expect(revisionMarkLabel(true, 2, 'en')).toBe('Current revision 2');
     expect(revisionMarkLabel(false, 1, 'en')).toBe('Earlier revision 1');
     expect(revisionNumberLabel(2, 'en')).toBe('Revision 2');
     expect(runSampleLine('smp_treg', 2, 'en')).toBe('Run sample smp_treg revision 2');
     expect(emptySampleRunsText('en')).toBe('This sample revision has no run results.');
-    expect(catalogConflictText('en')).toBe('Conflict. This submission was not written.');
+    expect(catalogConflictText('en')).toBe('Revision conflict. Your changes were not saved.');
   });
 });
 
