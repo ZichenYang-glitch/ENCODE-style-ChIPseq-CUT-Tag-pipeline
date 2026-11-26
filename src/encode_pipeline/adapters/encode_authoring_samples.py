@@ -12,7 +12,10 @@ import re
 from typing import Any
 
 from encode_pipeline.config.defaults import SAMPLE_ID_RE
-from encode_pipeline.platform.authoring import WORKFLOW_SAMPLE_PLAN_INVALID
+from encode_pipeline.platform.authoring import (
+    WORKFLOW_SAMPLE_PLAN_INVALID,
+    WorkflowSampleInputBinding,
+)
 from encode_pipeline.platform.results import Issue, Result
 
 
@@ -94,6 +97,30 @@ def materialize_encode_sample_rows(
             return _invalid()
         row["control_sample"] = control_row["sample"]
     return Result.success(rows)
+
+
+def describe_encode_workflow_sample_inputs(
+    plans: Sequence[Mapping[str, Any]],
+) -> tuple[WorkflowSampleInputBinding, ...]:
+    """Name each managed read in plan order, without a filesystem path."""
+
+    bindings: list[WorkflowSampleInputBinding] = []
+    for plan in plans:
+        revision_id = plan["sample_revision_id"]
+        reads = plan["reads"]
+        if not isinstance(revision_id, str) or not isinstance(reads, list):
+            raise ValueError("workflow sample plan has an unexpected shape")
+        for read in reads:
+            if not isinstance(read, Mapping):
+                raise ValueError("workflow sample read has an unexpected shape")
+            bindings.append(
+                WorkflowSampleInputBinding(
+                    sample_revision_id=revision_id,
+                    input_file_revision_id=str(read["input_file_revision_id"]),
+                    occurrence=int(read["read"]),
+                )
+            )
+    return tuple(bindings)
 
 
 def normalize_encode_workflow_sample_plans(

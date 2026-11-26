@@ -8,7 +8,7 @@ import math
 import re
 import tempfile
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -344,6 +344,54 @@ class EncodeStyleWorkflowAdapter:
         )
 
         return project_encode_authoring(self.metadata.workflow_id, schema_payload)
+
+    def supports_workflow_sample_plan(self) -> bool:
+        """ENCODE drafts require an explicit sample plan before validation."""
+
+        return True
+
+    def normalize_workflow_sample_plans(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply ENCODE assay, layout, role, and read-pairing rules."""
+
+        from encode_pipeline.adapters.encode_authoring_samples import (
+            normalize_encode_workflow_sample_plans,
+        )
+
+        return normalize_encode_workflow_sample_plans(plans)
+
+    def describe_workflow_sample_inputs(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+    ):
+        """Describe managed reads in input-use order. Paths stay on the platform."""
+
+        from encode_pipeline.adapters.encode_authoring_samples import (
+            describe_encode_workflow_sample_inputs,
+        )
+
+        return describe_encode_workflow_sample_inputs(plans)
+
+    def materialize_workflow_sample_rows(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+        *,
+        sample_names: Mapping[str, str],
+        read_paths: Mapping[str, str],
+    ) -> Result[list[dict[str, str]]]:
+        """Build ENCODE sample rows from platform-resolved names and paths."""
+
+        from encode_pipeline.adapters.encode_authoring_samples import (
+            materialize_encode_sample_rows,
+        )
+
+        return materialize_encode_sample_rows(
+            plans,
+            sample_names=sample_names,
+            read_paths=read_paths,
+        )
 
     def declare_input_uses(
         self,

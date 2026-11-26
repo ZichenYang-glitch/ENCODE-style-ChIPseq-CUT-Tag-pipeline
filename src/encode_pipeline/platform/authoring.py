@@ -7,7 +7,7 @@ on ``TOOL_REASON_CODES``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -16,6 +16,7 @@ import re
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.snapshots import canonical_workflow_inputs_json
 
 
@@ -340,6 +341,69 @@ class AuthoringFieldProjectingAdapter(Protocol):
         schema_payload: Mapping[str, Any],
     ) -> AuthoringFieldProjection | None:
         """Project approved fields from the digested schema document."""
+
+
+@dataclass(frozen=True)
+class WorkflowSampleInputBinding:
+    """One managed revision a sample plan asks the platform to resolve.
+
+    The adapter names the sample revision, the input revision, and the
+    occurrence already used by ``InputFileRevisionSelection``. The platform
+    resolves the project-local sample name and the private file path.
+    """
+
+    sample_revision_id: str
+    input_file_revision_id: str
+    occurrence: int
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.sample_revision_id, str)
+            or _SAMPLE_REVISION_ID.fullmatch(self.sample_revision_id) is None
+        ):
+            raise ValueError("workflow sample revision is missing or repeated")
+        if (
+            not isinstance(self.input_file_revision_id, str)
+            or _INPUT_FILE_REVISION_ID.fullmatch(self.input_file_revision_id) is None
+        ):
+            raise ValueError("workflow sample read is missing or repeated")
+        if type(self.occurrence) is not int or self.occurrence < 0:
+            raise ValueError("workflow sample read is missing or repeated")
+
+
+@runtime_checkable
+class WorkflowSamplePlanAdapter(Protocol):
+    """Optional adapter contract for an explicit workflow sample plan.
+
+    The authoring service keeps sessions, project scope, path resolution,
+    idempotency, the validation cache, and snapshots. The adapter selected
+    by the registry decides whether a plan is required, how to normalize it,
+    which managed revisions it binds, and how resolved paths become rows.
+    """
+
+    def supports_workflow_sample_plan(self) -> bool:
+        """Return whether this workflow requires an explicit sample plan."""
+
+    def normalize_workflow_sample_plans(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return the canonical plan or raise ValueError for a rejected shape."""
+
+    def describe_workflow_sample_inputs(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+    ) -> tuple[WorkflowSampleInputBinding, ...]:
+        """Name managed revisions in input-use order, without filesystem paths."""
+
+    def materialize_workflow_sample_rows(
+        self,
+        plans: Sequence[Mapping[str, Any]],
+        *,
+        sample_names: Mapping[str, str],
+        read_paths: Mapping[str, str],
+    ) -> Result[list[dict[str, str]]]:
+        """Build workflow rows from names and paths the platform resolved."""
 
 
 def utc_now(clock: Any | None = None) -> datetime:
