@@ -6,7 +6,7 @@ Peri 传输和目录 API 不在本版范围。
 
 路线依据是 [#221](https://github.com/ZichenYang-glitch/ENCODE-style-ChIPseq-CUT-Tag-pipeline/pull/221)
 的 `3554f5f`：字段投影交给 adapter，草稿保存、版本检查和提交仍由公共服务负责。
-样本计划的 ENCODE 分支留在 `services/authoring.py`，不在本版接口里。
+样本计划不在字段投影这一版的接口里。后续契约见下文「样本计划」。
 
 ## 接口
 
@@ -92,5 +92,17 @@ Hi-TrAC 的 `authoring.py` 投影 `options.mapq`。策略边界是 0 到 255，�
 | ENCODE | 除 `config.threads` 与 `options.cores` 以外的配置、样本计划和参考选择 |
 | bulk RNA-seq | 全部字段；`authoring` 模块没有导出 `project_authoring_fields` |
 
-样本计划继续由 ENCODE adapter 的现有函数处理，公共服务里仍有这一处 ENCODE 分支。
-把它收进 adapter 需要单独一版，本版不改这条行为。
+## 样本计划（authoring-sample-plan/1）
+
+registry 选中的 workflow adapter 通过 `WorkflowSamplePlanAdapter` 声明样本计划。
+
+| 方法 | 作用 |
+| --- | --- |
+| `supports_workflow_sample_plan` | 是否要求显式样本计划 |
+| `normalize_workflow_sample_plans` | 规范化本工作流的字段、输入顺序及行间关系 |
+| `describe_workflow_sample_inputs` | 用项目内样本名生成有序的 `InputFileRevisionSelection` |
+| `materialize_workflow_sample_rows` | 用平台已解析的样本名和路径生成样本行 |
+
+公共草稿检查 JSON 行数、键数、样本修订身份及其与 `sample_revision_ids` 的顺序。保存时先由 adapter 规范化输入字段，再对草稿计算摘要。ENCODE 按读段编号排序，保留既有草稿内容和摘要。Hi-TrAC 和 Bulk 沿用旧读段文档格式，允许省略计划，校验仍使用各自的 `samples`。
+
+校验时，平台先解析项目内的样本名。adapter 按 `declare_input_uses` 的顺序提供每个 use 的键、occurrence 和有序输入修订。平台核对项目与归档状态，解析私有路径后交给 adapter 生成样本行。会话、幂等保存和快照复用由平台负责。复用已绑定的快照时还须匹配每个 use 的坐标与成员。ENCODE 的错误码沿用[原草稿契约](../architecture/peri-a1-c1-handoff.md#workflow-sample-plan)。

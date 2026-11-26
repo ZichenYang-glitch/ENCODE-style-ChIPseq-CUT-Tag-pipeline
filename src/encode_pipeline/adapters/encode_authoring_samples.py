@@ -11,8 +11,10 @@ from collections.abc import Mapping, Sequence
 import re
 from typing import Any
 
+from encode_pipeline.adapters.authoring_read_plan import normalize_read_plan
 from encode_pipeline.config.defaults import SAMPLE_ID_RE
 from encode_pipeline.platform.authoring import WORKFLOW_SAMPLE_PLAN_INVALID
+from encode_pipeline.platform.input_registry import InputFileRevisionSelection
 from encode_pipeline.platform.results import Issue, Result
 
 
@@ -96,6 +98,24 @@ def materialize_encode_sample_rows(
     return Result.success(rows)
 
 
+def describe_encode_workflow_sample_inputs(
+    plans: Sequence[Mapping[str, Any]],
+    *,
+    sample_names: Mapping[str, str],
+) -> tuple[InputFileRevisionSelection, ...]:
+    """Name each managed read in plan order, without a filesystem path."""
+
+    return tuple(
+        InputFileRevisionSelection(
+            input_use_key=sample_names[plan["sample_revision_id"]],
+            occurrence=int(read["read"]),
+            input_file_revision_ids=(read["input_file_revision_id"],),
+        )
+        for plan in plans
+        for read in plan["reads"]
+    )
+
+
 def normalize_encode_workflow_sample_plans(
     plans: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -104,9 +124,9 @@ def normalize_encode_workflow_sample_plans(
     if not isinstance(plans, Sequence) or isinstance(plans, (str, bytes)):
         raise ValueError("workflow_samples must be a bounded list")
     normalized: list[dict[str, Any]] = []
-    for item in plans:
+    for item in normalize_read_plan(plans):
         required = _FIELDS - {"control_sample_revision_id"}
-        if not isinstance(item, Mapping) or not required <= set(item) <= _FIELDS:
+        if not required <= set(item) <= _FIELDS:
             raise ValueError("workflow sample plan has an unexpected shape")
         sample_revision_id = item["sample_revision_id"]
         assay = item["assay"]
@@ -145,10 +165,8 @@ def normalize_encode_workflow_sample_plans(
         ):
             raise ValueError("control sample revision is not explicit")
         reads = item["reads"]
-        if not isinstance(reads, list):
-            raise ValueError("workflow sample reads must be explicit")
         expected = (1, 2) if layout == "PE" else (1,)
-        numbers = tuple(sorted(int(read["read"]) for read in reads))
+        numbers = tuple(read["read"] for read in reads)
         if numbers != expected:
             raise ValueError("workflow sample reads do not match the layout")
         normalized.append(
@@ -157,7 +175,7 @@ def normalize_encode_workflow_sample_plans(
                 "control_sample_revision_id": control,
                 "layout": layout,
                 "peak_mode": peak_mode,
-                "reads": [dict(read) for read in reads],
+                "reads": reads,
                 "role": role,
                 "sample_revision_id": sample_revision_id,
                 "target": target,
