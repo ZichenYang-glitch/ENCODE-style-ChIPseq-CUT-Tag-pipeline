@@ -7,16 +7,24 @@ import type {
   CatalogAdoptionReceiptResponse,
   CatalogProposalPreviewResponse,
   CatalogProposalResponse,
+  CatalogTermSummaryResponse,
 } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
 import { Button } from '../../components/Button';
 import { useUiLanguage } from '../../lib/uiLanguage';
 import { newIdempotencyHeaders } from './catalogModel';
 
-function targetLabel(value: unknown, english: boolean): string {
+type TargetTerm = Pick<CatalogTermSummaryResponse, 'term_revision_id' | 'display_name'>;
+
+function targetLabel(value: unknown, terms: readonly TargetTerm[], english: boolean): string {
   const unavailable = english ? 'Unavailable' : '无可用值';
   if (!value || typeof value !== 'object') return unavailable;
   if ('display_name' in value && typeof value.display_name === 'string') return value.display_name;
+  if ('term_revision_id' in value && typeof value.term_revision_id === 'string') {
+    const revision = value.term_revision_id;
+    return terms.find((term) => term.term_revision_id === revision)?.display_name ??
+      (english ? `Vocabulary revision ${revision}` : `词条修订 ${revision}`);
+  }
   if ('status' in value && typeof value.status === 'string') {
     if (value.status === 'unknown') return english ? 'unknown' : '未分类';
     return value.status;
@@ -24,8 +32,9 @@ function targetLabel(value: unknown, english: boolean): string {
   return unavailable;
 }
 
-export function PeriProposalReview({ proposal, onAdopted }: {
+export function PeriProposalReview({ proposal, terms, onAdopted }: {
   proposal: CatalogProposalResponse;
+  terms: readonly TargetTerm[];
   onAdopted: (receipt: CatalogAdoptionReceiptResponse) => void;
 }) {
   const english = useUiLanguage() === 'en';
@@ -94,7 +103,7 @@ export function PeriProposalReview({ proposal, onAdopted }: {
           <label key={item.item_id} className="flex items-center gap-2">
             <input type="checkbox" checked={selection.includes(item.item_id)}
               onChange={(event) => toggle(item.item_id, event.target.checked)} />
-            {english ? 'Target' : '靶标'} · {targetLabel(item.before.target, english)} → {targetLabel(item.after.target, english)} ({english ? 'revision' : '修订'} {item.base_revision_number})
+            {english ? 'Target' : '靶标'} · {targetLabel(item.before.target, terms, english)} → {targetLabel(item.after.target, terms, english)} ({english ? 'revision' : '修订'} {item.base_revision_number})
           </label>
         ))}
       </fieldset>
@@ -113,7 +122,7 @@ export function PeriProposalReview({ proposal, onAdopted }: {
               <ul>
                 {preview.items.map((item) => (
                   <li key={item.item_id}>
-                    {targetLabel(item.before.target, english)} → {targetLabel(item.after.target, english)}
+                    {targetLabel(item.before.target, terms, english)} → {targetLabel(item.after.target, terms, english)}
                   </li>
                 ))}
               </ul>

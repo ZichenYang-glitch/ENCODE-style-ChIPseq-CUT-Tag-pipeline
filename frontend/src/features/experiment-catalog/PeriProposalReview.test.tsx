@@ -10,6 +10,7 @@ vi.mock('../../api/generated/catalog/catalog', () => ({
   catalogPreviewProposal: vi.fn(),
 }));
 
+const terms = ['CTCF', 'H3K27ac'].map((name, i) => ({ term_revision_id: 'termrev' + i, display_name: name }));
 const proposal: CatalogProposalResponse = {
   ok: true, proposal_id: 'proposal', project_id: 'project', contract_version: '1',
   source: 'peri', proposal_state: 'pending', adoptable_by_caller: true,
@@ -19,7 +20,7 @@ const proposal: CatalogProposalResponse = {
     item_id: name, target_kind: 'experiment', target_id: 'exp' + i,
     base_revision_id: 'original' + i, current_revision_id: 'original' + i,
     base_revision_number: 2, current_revision_number: 2, allowed_fields: ['target'],
-    before: { target: { status: 'unknown' } }, after: { target: { status: 'known', display_name: name } }, citations: {},
+    before: { target: { status: 'unknown' } }, after: { target: { status: 'known', term_id: 'term' + i, term_revision_id: 'termrev' + i } }, citations: {},
   })),
 };
 const preview: CatalogProposalPreviewResponse = {
@@ -42,7 +43,7 @@ describe('Review a Peri classification', () => {
       excluded_item_ids: ['H3K27ac'], applied_targets: [], adopted_at: '',
     };
     vi.mocked(catalogAdoptProposal).mockRejectedValueOnce(new Error('lost')).mockResolvedValueOnce(receipt);
-    render(<PeriProposalReview proposal={proposal} onAdopted={onAdopted} />);
+    render(<PeriProposalReview terms={terms} proposal={proposal} onAdopted={onAdopted} />);
     expect(screen.getByRole('button', { name: 'Preview selected' })).toBeDisabled();
     await user.click(screen.getByRole('checkbox', { name: /CTCF/ }));
     await user.click(screen.getByRole('button', { name: 'Preview selected' }));
@@ -61,7 +62,7 @@ describe('Review a Peri classification', () => {
   });
 
   it('prevents adoption when an unexpected field would hide an additional change', () => {
-    render(<PeriProposalReview proposal={{
+    render(<PeriProposalReview terms={terms} proposal={{
       ...proposal, items: [{ ...proposal.items[0]!, allowed_fields: ['target', 'batch'] }],
     }} onAdopted={vi.fn()} />);
     expect(screen.getByRole('alert')).toHaveTextContent('outside the experiment target field');
@@ -73,7 +74,7 @@ describe('Review a Peri classification', () => {
     vi.mocked(catalogPreviewProposal).mockResolvedValueOnce(preview).mockResolvedValueOnce({
       ...preview, has_conflicts: true,
     });
-    render(<PeriProposalReview proposal={proposal} onAdopted={vi.fn()} />);
+    render(<PeriProposalReview terms={terms} proposal={proposal} onAdopted={vi.fn()} />);
     await user.click(screen.getByRole('checkbox', { name: /CTCF/ }));
     await user.click(screen.getByRole('button', { name: 'Preview selected' }));
     expect(screen.getByRole('button', { name: 'Adopt previewed changes' })).toBeInTheDocument();

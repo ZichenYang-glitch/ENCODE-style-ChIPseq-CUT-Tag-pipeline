@@ -107,7 +107,7 @@ export function PeriTargetPanel({ projectId, experiment, terms, onAdopted }: Pro
       {insufficient && <p role="status">{english
         ? 'Insufficient evidence to suggest a target. Refine the clue or candidate.'
         : '证据不足，无法建议靶标。可调整线索或候选词。'}</p>}
-      {proposal && <PeriProposalReview key={proposal.proposal_id} proposal={proposal} onAdopted={onAdopted} />}
+      {proposal && <PeriProposalReview key={proposal.proposal_id} proposal={proposal} terms={targets} onAdopted={onAdopted} />}
     </section>
   );
 }
