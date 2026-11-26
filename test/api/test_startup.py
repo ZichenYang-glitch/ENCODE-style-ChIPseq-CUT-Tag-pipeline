@@ -236,10 +236,25 @@ def test_only_explicit_blocking_routes_use_fastapi_threadpool() -> None:
         "/api/v1/agent/authoring-sessions/{sid}/run-actions/preview",
         "/api/v1/agent/authoring-sessions/{sid}/run-actions/confirm",
     }
-    assert peri_run_action_paths <= {path for path, _ in route_handlers}
+    # Archive metadata reads SQLite. The data and index handlers also verify
+    # files on disk for both GET and HEAD.
+    archive_list = (
+        "/api/v1/catalog/projects/{project_id}/experiments/{experiment_id}"
+        "/archived-tracks"
+    )
+    archive_version = archive_list + "/{archive_version_id}"
+    archive_paths = {
+        archive_list,
+        archive_version,
+        f"{archive_version}/content",
+        f"{archive_version}/content.tbi",
+    }
+    registered_paths = {path for path, _ in route_handlers}
+    assert (peri_run_action_paths | archive_paths) <= registered_paths
     for path, endpoint in route_handlers:
         if path in {
             *peri_run_action_paths,
+            *archive_paths,
             "/api/v1/workflows",
             "/api/v1/workflows/{workflow_id}",
             "/api/v1/workflows/{workflow_id}/reference-profiles",

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useUiLanguage, type UiLanguage } from '../../lib/uiLanguage';
 import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react';
 import {
   annotationAssembly,
@@ -26,25 +27,39 @@ function statusMessage(
   plan: QueryPlan,
   result: GeneSearch | null,
   release: string,
+  language: UiLanguage,
 ): string | null {
+  const english = language === 'en';
   if (phase === 'failed') {
-    return 'Gene annotation did not load. Coordinates still work.';
+    return english ? 'Gene annotation did not load. Coordinates still work.' : '基因注释加载失败，仍可输入坐标。';
   }
   if (phase === 'unsupported') {
-    const name = assembly.trim() || 'this assembly';
-    return `No bundled gene annotation for ${name}. Coordinates still work.`;
+    const name = assembly.trim() || (english ? 'this assembly' : '当前组装');
+    return english
+      ? `No bundled gene annotation for ${name}. Coordinates still work.`
+      : `${name} 没有内置基因注释，仍可输入坐标。`;
   }
   if (plan.kind === 'empty' || plan.kind === 'coordinate') return null;
-  if (plan.kind === 'coordinate-draft') return 'Coordinates use chrom:start-end.';
-  if (phase === 'loading') return `Loading ${assembly} gene annotation…`;
+  if (plan.kind === 'coordinate-draft') return english ? 'Coordinates use chrom:start-end.' : '坐标格式为 chr:start-end。';
+  if (phase === 'loading') return english ? `Loading ${assembly} gene annotation…` : `正在加载 ${assembly} 的基因注释…`;
   if (!result || result.relation === 'none') {
-    return `No genes match "${plan.query}" in ${release}. Coordinates still work.`;
+    return english
+      ? `No genes match "${plan.query}" in ${release}. Coordinates still work.`
+      : `在 ${release} 中未找到“${plan.query}”，仍可输入坐标。`;
   }
   if (result.relation === 'prefix') {
-    return `No exact gene, alias, or gene id for "${plan.query}". Showing ${result.matches.length} of ${result.total} names that start with it.`;
+    return english
+      ? `No exact gene, alias, or gene id for "${plan.query}". Showing ${result.matches.length} of ${result.total} names that start with it.`
+      : `未找到与“${plan.query}”完全匹配的基因、别名或基因 ID。以此开头的名称共 ${result.total} 个，显示 ${result.matches.length} 个。`;
   }
-  if (result.total === 1) return `${plan.query} matches 1 location. Press Enter or choose it.`;
-  return `${plan.query} matches ${result.total} locations. Choose one. Arrow keys, then Enter.`;
+  if (result.total === 1) {
+    return english
+      ? `${plan.query} matches 1 location. Press Enter or choose it.`
+      : `“${plan.query}”匹配一个位置。按 Enter 或点选即可跳转。`;
+  }
+  return english
+    ? `${plan.query} matches ${result.total} locations. Choose one. Arrow keys, then Enter.`
+    : `“${plan.query}”匹配 ${result.total} 个位置。请点选，或用方向键选择后按 Enter。`;
 }
 
 export default function LocusSearch(props: LocusSearchProps) {
@@ -55,17 +70,18 @@ export default function LocusSearch(props: LocusSearchProps) {
 function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearchProps & {
   annotation: AnnotationAssembly | null;
 }) {
+  const language = useUiLanguage();
   const listId = useId();
   const pendingEnter = useRef<string | null>(null);
   const [draft, setDraft] = useState(() => region.trim());
-  const [blocked, setBlocked] = useState<string | null>(null);
+  const [blockedSequence, setBlockedSequence] = useState<string | null>(null);
   const seenRegion = useRef(region);
   if (seenRegion.current !== region) {
     seenRegion.current = region;
     const next = region.trim();
     setDraft(next);
     if (pendingEnter.current && pendingEnter.current !== next) pendingEnter.current = null;
-    setBlocked(null);
+    setBlockedSequence(null);
   }
   const [pinnedDraft, setPinnedDraft] = useState(draft);
   const [armedIndex, setArmedIndex] = useState<number | null>(null);
@@ -101,11 +117,11 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
   function deliver(match: GeneMatch) {
     const absent = annotation ? missingPinnedSequence(match.locus.chrom, annotation) : null;
     if (absent) {
-      setBlocked(absent);
+      setBlockedSequence(match.locus.chrom);
       return;
     }
     const next = formatRegion(match.locus);
-    setBlocked(null);
+    setBlockedSequence(null);
     setDraft(next);
     onNavigate(next);
   }
@@ -123,11 +139,11 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
     if (!match) return;
     const absent = annotation ? missingPinnedSequence(match.locus.chrom, annotation) : null;
     if (absent) {
-      setBlocked(absent);
+      setBlockedSequence(match.locus.chrom);
       return;
     }
     const next = formatRegion(match.locus);
-    setBlocked(null);
+    setBlockedSequence(null);
     setDraft(next);
     onNavigate(next);
   }, [phase, index, draft, annotation, onNavigate]);
@@ -140,8 +156,8 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
   const active =
     armedIndex !== null && matches.length > 0 ? Math.min(armedIndex, matches.length - 1) : null;
   const status =
-    blocked ??
-    statusMessage(phase, annotation ?? assembly, plan, result, index?.release ?? assembly);
+    (blockedSequence && annotation ? missingPinnedSequence(blockedSequence, annotation, language) : null) ??
+    statusMessage(phase, annotation ?? assembly, plan, result, index?.release ?? assembly, language);
 
   function onChange(event: ChangeEvent<HTMLInputElement>) {
     const next = event.target.value.trim();
@@ -150,7 +166,7 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
     const nextPlan = classifyQuery(next);
     if (annotation && nextPlan.kind === 'gene') setRequested(true);
     if (nextPlan.kind !== 'coordinate') {
-      setBlocked(null);
+      setBlockedSequence(null);
       return;
     }
     pendingEnter.current = null;
@@ -158,10 +174,10 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
     const absent =
       annotation && sequence ? missingPinnedSequence(sequence, annotation) : null;
     if (absent) {
-      setBlocked(absent);
+      setBlockedSequence(sequence);
       return;
     }
-    setBlocked(null);
+    setBlockedSequence(null);
     onNavigate(nextPlan.region);
   }
 
@@ -211,20 +227,27 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
     deliver(match);
   }
 
+  const example = annotation === 'mm10' ? 'Egfr' : 'EGFR';
+  const hint = language === 'en'
+    ? (annotation
+      ? `Enter a gene name (e.g. ${example}) or coordinates (chr:start-end). Press Enter for one match. For multiple matches, click one or use the arrow keys and Enter.`
+      : 'Enter coordinates (chr:start-end).')
+    : (annotation
+      ? `基因名（如 ${example}）或 chr:start-end。多个位置请点选，或用方向键选中后再按 Enter。唯一结果可直接按 Enter。`
+      : '输入坐标 chr:start-end。');
+
   return (
-    <div className="block text-sm">
+    <div className="block text-sm" lang={language}>
       <label className="block">
         <span className="block max-w-md">
-          {annotation
-            ? `基因名（如 ${annotation === 'mm10' ? 'Egfr' : 'EGFR'}）或 chr:start-end。多个位置请点选，或用方向键选中后再按 Enter；唯一结果可直接按 Enter。`
-            : '输入坐标 chr:start-end。'}
+          {hint}
         </span>
         <input
           className="mt-1 w-full max-w-md border border-[var(--color-border)] px-2 py-1"
           value={draft}
           onChange={onChange}
           onKeyDown={onKeyDown}
-          aria-label="Genomic region"
+          aria-label={language === 'en' ? 'Genomic region' : '基因组位置'}
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
@@ -244,16 +267,17 @@ function AssemblySearch({ assembly, region, onNavigate, annotation }: LocusSearc
         <div
           id={listId}
           role="listbox"
-          aria-label="Gene matches"
+          aria-label={language === 'en' ? 'Gene matches' : '基因匹配结果'}
           className="mt-1 max-h-60 w-full max-w-md overflow-auto border border-[var(--color-border)]"
         >
           {matches.map((match, option) => {
             const absent = annotation
               ? missingPinnedSequence(match.locus.chrom, annotation)
               : null;
-            const label = absent
-              ? `${matchLabel(match)} · not in pinned ${annotation}`
-              : matchLabel(match);
+            let label = matchLabel(match, language);
+            if (absent) {
+              label += language === 'en' ? ` · not in pinned ${annotation}` : ` · 超出 ${annotation} 的染色体范围`;
+            }
             const selected = option === active;
             return (
               <button

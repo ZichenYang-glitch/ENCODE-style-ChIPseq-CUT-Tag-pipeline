@@ -8,7 +8,7 @@ import os
 import re
 
 
-_RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+_RANGE = re.compile(r"^bytes=([0-9]*)-([0-9]*)$", re.IGNORECASE | re.ASCII)
 _CHUNK = 64 * 1024
 
 
@@ -48,17 +48,25 @@ def parse_byte_range(header: str | None, size: int) -> ByteRange | None:
     if start_text == "" and end_text == "":
         raise BrowserByteError("invalid_range")
     if start_text == "":
-        suffix = int(end_text)
+        suffix = _range_number(end_text, size)
         if suffix <= 0:
             raise BrowserByteError("unsatisfiable_range")
         if suffix >= size:
             return ByteRange(0, size - 1)
         return ByteRange(size - suffix, size - 1)
-    start = int(start_text)
-    end = size - 1 if end_text == "" else int(end_text)
+    start = _range_number(start_text, size)
+    end = size - 1 if end_text == "" else _range_number(end_text, size)
     if start >= size or start > end:
         raise BrowserByteError("unsatisfiable_range")
     return ByteRange(start, min(end, size - 1))
+
+
+def _range_number(text: str, size: int) -> int:
+    """Positions beyond EOF have the same effect regardless of their digit count."""
+    digits = text.lstrip("0")
+    if len(digits) > len(str(size)):
+        return size
+    return int(digits or "0")
 
 
 def iter_plan_bytes(plan: object, byte_range: ByteRange | None) -> Iterator[bytes]:

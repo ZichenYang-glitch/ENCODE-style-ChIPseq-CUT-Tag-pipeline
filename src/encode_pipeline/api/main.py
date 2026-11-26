@@ -11,6 +11,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from encode_pipeline.api.archived_tracks import (
+    archived_track_json,
+    archived_track_operation,
+)
 from encode_pipeline.api.catalog_models import (
     CatalogErrorResponse,
     CatalogIssueResponse,
@@ -65,6 +69,10 @@ from encode_pipeline.persistence.registered_results import (
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 from encode_pipeline.services.registered_results import RegisteredResultService
+from encode_pipeline.services.archived_tracks import (
+    ArchivedTrackError,
+    build_archived_track_service,
+)
 from encode_pipeline.services.authentication_service import (
     AccountAdministrationService,
     AuthenticationService,
@@ -346,6 +354,11 @@ def create_app(
     # Stub driver is intentionally not attached in production.
 
     app.state.authentication_repository = authentication_repository
+    app.state.archived_track_service = build_archived_track_service(
+        session_factory=create_session_factory(persistence.engine),
+        authentication=authentication_repository,
+        archive_root=worker_settings.archive_root,
+    )
     app.state.registered_result_service = registered_result_service
     app.state.authentication_service = AuthenticationService(
         repository=authentication_repository
@@ -361,6 +374,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(AuthApiError, _handle_auth_api_error)
     app.add_exception_handler(AuthoringRejected, _handle_authoring_rejected)
+    app.add_exception_handler(ArchivedTrackError, _handle_archived_track_error)
     app.add_exception_handler(CatalogError, _handle_catalog_error)
     app.add_exception_handler(
         CatalogBlockRequiresCatalogCommand,
@@ -369,6 +383,30 @@ def create_app(
     app.add_exception_handler(Exception, _handle_internal_server_error)
 
     return app
+
+
+def _handle_archived_track_error(
+    _request: Request,
+    exc: ArchivedTrackError,
+) -> JSONResponse:
+    """Return a sealed-track failure without paths, digests, or other versions."""
+
+    if exc.status_code == 401:
+        body = AuthErrorResponse(
+            issues=[
+                IssueResponse(
+                    code=exc.code,
+                    message=exc.message,
+                    source="api",
+                )
+            ]
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=body.model_dump(mode="json"),
+            headers={"Cache-Control": "private, no-store"},
+        )
+    return archived_track_json(exc.status_code, exc.code, exc.message)
 
 
 def _catalog_error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -424,7 +462,6 @@ async def _handle_auth_api_error(
     exc: AuthApiError,
 ) -> JSONResponse:
     """Return the stable authentication/authorization failure envelope."""
-    del request
     body = AuthErrorResponse(
         issues=[
             IssueResponse(
@@ -434,9 +471,15 @@ async def _handle_auth_api_error(
             )
         ]
     )
+    headers = (
+        {"Cache-Control": "private, no-store"}
+        if archived_track_operation(request)
+        else None
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content=body.model_dump(mode="json"),
+        headers=headers,
     )
 
 
@@ -472,6 +515,12 @@ async def _handle_request_validation_error(
     exc: RequestValidationError,
 ) -> JSONResponse:
     """Return 400 with the PR84 API_REQUEST_INVALID envelope."""
+    if archived_track_operation(request):
+        return archived_track_json(
+            400,
+            "archive_invalid",
+            "The archived track request is invalid.",
+        )
     route = request.scope.get("route")
     operation_id = getattr(route, "operation_id", None)
     if isinstance(operation_id, str) and operation_id.startswith("authoring"):
@@ -650,6 +699,12 @@ async def _handle_internal_server_error(
     exc: Exception,
 ) -> JSONResponse:
     """Return 500 with the PR84 INTERNAL_SERVER_ERROR envelope."""
+    if archived_track_operation(request):
+        return archived_track_json(
+            500,
+            "INTERNAL_SERVER_ERROR",
+            "The archived track is temporarily unavailable.",
+        )
     route = request.scope.get("route")
     if getattr(route, "operation_id", None) == "listArtifactPublications":
         issue = ArtifactPublicationIssueResponse(

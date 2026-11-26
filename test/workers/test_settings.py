@@ -14,6 +14,7 @@ from encode_pipeline.workers.settings import (
     DEFAULT_JOB_TIMEOUT_SECONDS,
     DEFAULT_QUEUE_NAME,
     DEFAULT_REDIS_URL,
+    ARCHIVE_ROOT_ENV,
     ENCODE_CONDA_PREFIX_ENV,
     ENCODE_RUNNER_ROOT_ENV,
     ENCODE_RUNTIME_ROOT_ENV,
@@ -93,6 +94,7 @@ def test_load_worker_settings_uses_local_defaults(tmp_path, monkeypatch):
     assert configured.encode_runtime_root is None
     assert configured.encode_runner_root is None
     assert configured.encode_conda_prefix is None
+    assert configured.archive_root is None
     assert (
         configured.redis_connect_timeout_seconds
         == DEFAULT_REDIS_CONNECT_TIMEOUT_SECONDS
@@ -301,3 +303,28 @@ def test_worker_settings_repr_hides_redis_credentials(tmp_path):
 
     assert secret not in repr(configured)
     assert configured.redis_url.endswith("@redis.internal:6379/0")
+
+
+def test_archive_root_comes_from_encode_pipeline_archive_root(tmp_path):
+    root = tmp_path / "archive"
+    configured = load_worker_settings(
+        {
+            DATABASE_URL_ENV: f"sqlite:///{tmp_path / 'platform.db'}",
+            WORKSPACE_ROOT_ENV: str(tmp_path / "workspaces"),
+            ARCHIVE_ROOT_ENV: f"  {root}  ",
+        }
+    )
+
+    assert configured.archive_root == root
+    assert str(root) not in repr(configured)
+
+
+def test_archive_root_rejects_a_relative_path(tmp_path):
+    with pytest.raises(ValueError, match="archive_root"):
+        load_worker_settings(
+            {
+                DATABASE_URL_ENV: f"sqlite:///{tmp_path / 'platform.db'}",
+                WORKSPACE_ROOT_ENV: str(tmp_path / "workspaces"),
+                ARCHIVE_ROOT_ENV: "relative/archive",
+            }
+        )

@@ -161,6 +161,7 @@ try {
     args: ['--no-proxy-server'],
   });
   const page = await browser.newPage({
+    locale: 'zh-CN',
     baseURL: `http://127.0.0.1:${vitePort}`,
   });
   page.setDefaultTimeout(20_000);

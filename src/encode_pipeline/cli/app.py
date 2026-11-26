@@ -15,6 +15,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ["admin"]:
         return admin.main(arguments[1:])
+    if arguments[:1] == ["archive"]:
+        from encode_pipeline.cli import archive
+
+        return archive.main(arguments[1:])
     if arguments[:1] == ["catalog"]:
         from encode_pipeline.cli import catalog
 

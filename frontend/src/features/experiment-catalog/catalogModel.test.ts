@@ -2,14 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   CATALOG_PAGE_SIZE,
   RUN_INPUT_SCOPE_TEXT,
+  catalogConflictText,
   editingHead,
+  emptySampleRunsText,
   experimentCellTypeLabel,
   experimentListParams,
   experimentTraceText,
   headRevision,
   knownTermSlot,
-  revisionChoices,
   multiSlotLabel,
+  revisionChoices,
+  revisionMarkLabel,
+  revisionNumberLabel,
+  runInputScopeHeading,
+  runInputScopeText,
+  runSampleLine,
   samplesForWrite,
   singleSlotLabel,
   writeSlot,
@@ -17,46 +24,138 @@ import {
 
 describe('catalog display labels', () => {
   it('uses the contract labels and keeps known names pinned', () => {
-    expect(singleSlotLabel({ status: 'known', display_name: 'CUT&Tag' })).toBe(
+    expect(singleSlotLabel({ status: 'known', display_name: 'CUT&Tag' }, 'zh-CN')).toBe(
       'CUT&Tag',
     );
-    expect(singleSlotLabel({ status: 'unknown' })).toBe('未知');
-    expect(singleSlotLabel({ status: 'not_applicable' })).toBe('不适用');
-    expect(singleSlotLabel({ status: 'not_detected' })).toBe('未检出');
-    expect(singleSlotLabel({ status: 'ambiguous' })).toBe('歧义');
-    expect(singleSlotLabel(undefined)).toBe('未分类');
+    expect(singleSlotLabel({ status: 'unknown' }, 'zh-CN')).toBe('未知');
+    expect(singleSlotLabel({ status: 'not_applicable' }, 'zh-CN')).toBe('不适用');
+    expect(singleSlotLabel({ status: 'not_detected' }, 'zh-CN')).toBe('未检出');
+    expect(singleSlotLabel({ status: 'ambiguous' }, 'zh-CN')).toBe('歧义');
+    expect(singleSlotLabel(undefined, 'zh-CN')).toBe('未分类');
     expect(
-      multiSlotLabel({
-        status: 'known',
-        values: [{ display_name: 'regulatory T cell' }],
-      }),
+      multiSlotLabel(
+        {
+          status: 'known',
+          values: [{ display_name: 'regulatory T cell' }],
+        },
+        'zh-CN',
+      ),
     ).toBe('regulatory T cell');
     expect(
-      experimentCellTypeLabel([
-        { catalog_state: 'absent' },
-        {
-          cell_type: {
-            status: 'known',
-            values: [{ display_name: 'keratinocyte' }],
+      experimentCellTypeLabel(
+        [
+          { catalog_state: 'absent' },
+          {
+            cell_type: {
+              status: 'known',
+              values: [{ display_name: 'keratinocyte' }],
+            },
           },
-        },
-      ]),
+        ],
+        'zh-CN',
+      ),
     ).toBe('未分类, keratinocyte');
+    expect(revisionNumberLabel(2, 'zh-CN')).toBe('修订 2');
+    expect(revisionMarkLabel(true, 24, 'zh-CN')).toBe('当前 24');
+    expect(revisionMarkLabel(false, 1, 'zh-CN')).toBe('旧版 1');
+    expect(runSampleLine('smp_treg', 2, 'zh-CN')).toBe('运行样本 smp_treg 修订 2');
+    expect(catalogConflictText('zh-CN')).toBe('冲突。这次提交没有写入。');
+    expect(emptySampleRunsText('zh-CN')).toBe('这条样本修订没有运行结果。');
+    expect(runInputScopeHeading('zh-CN')).toBe('运行输入范围');
+    expect(runInputScopeText('zh-CN')).toBe(RUN_INPUT_SCOPE_TEXT);
   });
 
   it('describes an unresolved experiment trace as unbound', () => {
     expect(
-      experimentTraceText({
-        trace_status: 'unresolved',
-        reason: 'experiment_snapshot_binding_absent',
-      }),
+      experimentTraceText(
+        {
+          trace_status: 'unresolved',
+          reason: 'experiment_snapshot_binding_absent',
+        },
+        'zh-CN',
+      ),
     ).toEqual({
       title: '未绑定',
       detail:
         '这条实验修订没有绑定运行（experiment_snapshot_binding_absent）。这里不列出产物，也不把运行样本写成文件贡献者。',
     });
+    expect(
+      experimentTraceText({ trace_status: 'resolved', reason: null }, 'zh-CN'),
+    ).toEqual({
+      title: 'resolved',
+      detail: '实验追溯状态不是未绑定。若出现产物行，它仍只表示运行输入范围。',
+    });
     expect(RUN_INPUT_SCOPE_TEXT).toContain('运行输入范围');
     expect(RUN_INPUT_SCOPE_TEXT).toContain('不是文件贡献者');
+  });
+
+  it('uses natural English and keeps researcher names and API values', () => {
+    expect(singleSlotLabel({ status: 'known', display_name: 'CUT&Tag' }, 'en')).toBe(
+      'CUT&Tag',
+    );
+    expect(
+      singleSlotLabel({ status: 'known', display_name: '调节性T细胞-批次A' }, 'en'),
+    ).toBe('调节性T细胞-批次A');
+    expect(singleSlotLabel({ status: 'known', display_name: '' }, 'en')).toBe('Known');
+    expect(singleSlotLabel({ status: 'unknown' }, 'en')).toBe('Unknown');
+    expect(singleSlotLabel({ status: 'not_applicable' }, 'en')).toBe('Not applicable');
+    expect(singleSlotLabel({ status: 'not_detected' }, 'en')).toBe('Not detected');
+    expect(singleSlotLabel({ status: 'ambiguous' }, 'en')).toBe('Ambiguous');
+    expect(singleSlotLabel({ status: 'custom_api_status' }, 'en')).toBe(
+      'custom_api_status',
+    );
+    expect(singleSlotLabel(undefined, 'en')).toBe('Unclassified');
+    expect(
+      multiSlotLabel(
+        {
+          status: 'known',
+          values: [{ display_name: 'regulatory T cell' }, { display_name: '角质形成细胞' }],
+        },
+        'en',
+      ),
+    ).toBe('regulatory T cell, 角质形成细胞');
+    expect(
+      experimentCellTypeLabel(
+        [
+          { catalog_state: 'absent' },
+          {
+            cell_type: {
+              status: 'known',
+              values: [{ display_name: 'keratinocyte' }],
+            },
+          },
+        ],
+        'en',
+      ),
+    ).toBe('Unclassified, keratinocyte');
+    expect(
+      experimentTraceText(
+        {
+          trace_status: 'unresolved',
+          reason: 'experiment_snapshot_binding_absent',
+        },
+        'en',
+      ),
+    ).toEqual({
+      title: 'Unbound',
+      detail:
+        'This experiment revision has no bound run (experiment_snapshot_binding_absent). Its trace contains no artifacts or file-level sample attributions.',
+    });
+    expect(experimentTraceText({ trace_status: 'resolved' }, 'en')).toEqual({
+      title: 'resolved',
+      detail:
+        'Each artifact lists the samples used as inputs to its run.',
+    });
+    expect(runInputScopeHeading('en')).toBe('Run input scope');
+    expect(runInputScopeText('en')).toBe(
+      'These samples were inputs to this run. File-level contributions are not recorded here.',
+    );
+    expect(revisionMarkLabel(true, 2, 'en')).toBe('Current revision 2');
+    expect(revisionMarkLabel(false, 1, 'en')).toBe('Earlier revision 1');
+    expect(revisionNumberLabel(2, 'en')).toBe('Revision 2');
+    expect(runSampleLine('smp_treg', 2, 'en')).toBe('Run sample smp_treg revision 2');
+    expect(emptySampleRunsText('en')).toBe('This sample revision has no run results.');
+    expect(catalogConflictText('en')).toBe('Revision conflict. Your changes were not saved.');
   });
 });
 

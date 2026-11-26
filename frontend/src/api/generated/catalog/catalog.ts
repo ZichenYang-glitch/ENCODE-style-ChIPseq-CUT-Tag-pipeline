@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.4.1
  */
 import type {
+  ArchivedTrackListResponse,
+  ArchivedTrackResponse,
   CatalogAdoptProposalHeaders,
   CatalogAdoptProposalRequest,
   CatalogAdoptionReceiptListResponse,
@@ -25,6 +27,7 @@ import type {
   CatalogGetArtifactPublicationExperimentTraceParams,
   CatalogGetSampleRevision200,
   CatalogListAdoptionReceiptsParams,
+  CatalogListArchivedTracksParams,
   CatalogListExperimentRevisionRunResultsParams,
   CatalogListExperimentRevisionsParams,
   CatalogListExperimentsParams,
@@ -53,6 +56,7 @@ import type {
 } from '.././models';
 
 import { fetcher } from '../../fetcher';
+import { blobFetcher } from '../../fetcher';
 
 /**
  * @summary List Experiments
@@ -719,6 +723,181 @@ export const catalogGetArtifactPublicationExperimentTrace = async (projectId: st
   {
     ...options,
     method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * List sealed track versions for one experiment.
+ * @summary Catalog List Archived Tracks
+ */
+export const getCatalogListArchivedTracksUrl = (projectId: string,
+    experimentId: string,
+    params?: CatalogListArchivedTracksParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks?${stringifiedParams}` : `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks`
+}
+
+export const catalogListArchivedTracks = async (projectId: string,
+    experimentId: string,
+    params?: CatalogListArchivedTracksParams, options?: RequestInit): Promise<ArchivedTrackListResponse> => {
+
+  return fetcher<ArchivedTrackListResponse>(getCatalogListArchivedTracksUrl(projectId,experimentId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Return one sealed version. The shape matches a list item.
+ * @summary Catalog Get Archived Track
+ */
+export const getCatalogGetArchivedTrackUrl = (projectId: string,
+    experimentId: string,
+    archiveVersionId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks/${archiveVersionId}`
+}
+
+export const catalogGetArchivedTrack = async (projectId: string,
+    experimentId: string,
+    archiveVersionId: string, options?: RequestInit): Promise<ArchivedTrackResponse> => {
+
+  return fetcher<ArchivedTrackResponse>(getCatalogGetArchivedTrackUrl(projectId,experimentId,archiveVersionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Send one byte window of the sealed data member.
+ * @summary Catalog Read Archived Track Content
+ */
+export const getCatalogReadArchivedTrackContentUrl = (projectId: string,
+    experimentId: string,
+    archiveVersionId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks/${archiveVersionId}/content`
+}
+
+export const catalogReadArchivedTrackContent = async (projectId: string,
+    experimentId: string,
+    archiveVersionId: string, options?: RequestInit): Promise<Blob | Blob> => {
+
+  return blobFetcher<Blob | Blob>(getCatalogReadArchivedTrackContentUrl(projectId,experimentId,archiveVersionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Report the sealed data member's length and range without a body.
+ * @summary Catalog Head Archived Track Content
+ */
+export const getCatalogHeadArchivedTrackContentUrl = (projectId: string,
+    experimentId: string,
+    archiveVersionId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks/${archiveVersionId}/content`
+}
+
+export const catalogHeadArchivedTrackContent = async (projectId: string,
+    experimentId: string,
+    archiveVersionId: string, options?: RequestInit): Promise<Blob | Blob> => {
+
+  return blobFetcher<Blob | Blob>(getCatalogHeadArchivedTrackContentUrl(projectId,experimentId,archiveVersionId),
+  {
+    ...options,
+    method: 'HEAD'
+
+
+  }
+);}
+
+
+/**
+ * Send one byte window of the sealed index member.
+ * @summary Catalog Read Archived Track Index
+ */
+export const getCatalogReadArchivedTrackIndexUrl = (projectId: string,
+    experimentId: string,
+    archiveVersionId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks/${archiveVersionId}/content.tbi`
+}
+
+export const catalogReadArchivedTrackIndex = async (projectId: string,
+    experimentId: string,
+    archiveVersionId: string, options?: RequestInit): Promise<Blob | Blob> => {
+
+  return blobFetcher<Blob | Blob>(getCatalogReadArchivedTrackIndexUrl(projectId,experimentId,archiveVersionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+/**
+ * Report the sealed index member's length and range without a body.
+ * @summary Catalog Head Archived Track Index
+ */
+export const getCatalogHeadArchivedTrackIndexUrl = (projectId: string,
+    experimentId: string,
+    archiveVersionId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/archived-tracks/${archiveVersionId}/content.tbi`
+}
+
+export const catalogHeadArchivedTrackIndex = async (projectId: string,
+    experimentId: string,
+    archiveVersionId: string, options?: RequestInit): Promise<Blob | Blob> => {
+
+  return blobFetcher<Blob | Blob>(getCatalogHeadArchivedTrackIndexUrl(projectId,experimentId,archiveVersionId),
+  {
+    ...options,
+    method: 'HEAD'
 
 
   }

@@ -1,18 +1,42 @@
+import type { UiLanguage } from '../../lib/uiLanguage';
 import type { CatalogListExperimentsParams } from '../../api/generated/models';
 
 export const CATALOG_PAGE_SIZE = 20;
 
-const STATUS_LABELS: Record<string, string> = {
-  unknown: '未知',
-  not_applicable: '不适用',
-  not_detected: '未检出',
-  ambiguous: '歧义',
+const STATUS_LABELS: Record<UiLanguage, Record<string, string>> = {
+  'zh-CN': {
+    unknown: '未知',
+    not_applicable: '不适用',
+    not_detected: '未检出',
+    ambiguous: '歧义',
+  },
+  en: {
+    unknown: 'Unknown',
+    not_applicable: 'Not applicable',
+    not_detected: 'Not detected',
+    ambiguous: 'Ambiguous',
+  },
 };
 
 export const STABLE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$/;
 
 export const RUN_INPUT_SCOPE_TEXT =
   '运行输入范围。关联样本是该次运行的输入范围，不是文件贡献者。';
+
+const RUN_INPUT_SCOPE_TEXT_EN =
+  'These samples were inputs to this run. File-level contributions are not recorded here.';
+
+function unclassifiedLabel(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Unclassified' : '未分类';
+}
+
+function knownFallbackLabel(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Known' : '已知';
+}
+
+function statusLabel(status: string, lang?: UiLanguage): string {
+  return STATUS_LABELS[lang ?? 'zh-CN'][status] ?? status;
+}
 
 export interface ReadableSlot {
   status: string;
@@ -40,25 +64,31 @@ export interface SampleWrite {
   replicate_role: WriteSlot;
 }
 
-export function singleSlotLabel(slot: ReadableSlot | undefined): string {
-  if (slot === undefined) return '未分类';
+export function singleSlotLabel(
+  slot: ReadableSlot | undefined,
+  lang?: UiLanguage,
+): string {
+  if (slot === undefined) return unclassifiedLabel(lang);
   if (slot.status === 'known') {
     return slot.display_name && slot.display_name.length > 0
       ? slot.display_name
-      : '已知';
+      : knownFallbackLabel(lang);
   }
-  return STATUS_LABELS[slot.status] ?? slot.status;
+  return statusLabel(slot.status, lang);
 }
 
-export function multiSlotLabel(slot: ReadableSlot | undefined): string {
-  if (slot === undefined) return '未分类';
+export function multiSlotLabel(
+  slot: ReadableSlot | undefined,
+  lang?: UiLanguage,
+): string {
+  if (slot === undefined) return unclassifiedLabel(lang);
   if (slot.status === 'known') {
     const names = (slot.values ?? [])
       .map((value) => value.display_name)
       .filter((name) => name.length > 0);
-    return names.length > 0 ? names.join(', ') : '已知';
+    return names.length > 0 ? names.join(', ') : knownFallbackLabel(lang);
   }
-  return STATUS_LABELS[slot.status] ?? slot.status;
+  return statusLabel(slot.status, lang);
 }
 
 export function experimentCellTypeLabel(
@@ -66,14 +96,67 @@ export function experimentCellTypeLabel(
     catalog_state?: 'absent';
     cell_type?: ReadableSlot;
   }>,
+  lang?: UiLanguage,
 ): string {
-  if (samples.length === 0) return '未分类';
+  if (samples.length === 0) return unclassifiedLabel(lang);
   const labels = samples.map((sample) =>
     sample.catalog_state === 'absent' || sample.cell_type === undefined
-      ? '未分类'
-      : multiSlotLabel(sample.cell_type),
+      ? unclassifiedLabel(lang)
+      : multiSlotLabel(sample.cell_type, lang),
   );
   return Array.from(new Set(labels)).join(', ');
+}
+
+export function revisionNumberLabel(
+  revisionNumber: number,
+  lang?: UiLanguage,
+): string {
+  return lang === 'en'
+    ? `Revision ${revisionNumber}`
+    : `修订 ${revisionNumber}`;
+}
+
+export function revisionMarkLabel(
+  isCurrent: boolean,
+  revisionNumber: number,
+  lang?: UiLanguage,
+): string {
+  if (lang === 'en') {
+    return isCurrent
+      ? `Current revision ${revisionNumber}`
+      : `Earlier revision ${revisionNumber}`;
+  }
+  return isCurrent ? `当前 ${revisionNumber}` : `旧版 ${revisionNumber}`;
+}
+
+export function runInputScopeHeading(lang?: UiLanguage): string {
+  return lang === 'en' ? 'Run input scope' : '运行输入范围';
+}
+
+export function runInputScopeText(lang?: UiLanguage): string {
+  return lang === 'en' ? RUN_INPUT_SCOPE_TEXT_EN : RUN_INPUT_SCOPE_TEXT;
+}
+
+export function emptySampleRunsText(lang?: UiLanguage): string {
+  return lang === 'en'
+    ? 'This sample revision has no run results.'
+    : '这条样本修订没有运行结果。';
+}
+
+export function runSampleLine(
+  sampleId: string,
+  revisionNumber: number,
+  lang?: UiLanguage,
+): string {
+  return lang === 'en'
+    ? `Run sample ${sampleId} revision ${revisionNumber}`
+    : `运行样本 ${sampleId} 修订 ${revisionNumber}`;
+}
+
+export function catalogConflictText(lang?: UiLanguage): string {
+  return lang === 'en'
+    ? 'Revision conflict. Your changes were not saved.'
+    : '冲突。这次提交没有写入。';
 }
 
 export function writeSlot(slot: ReadableSlot): WriteSlot | null {
@@ -194,18 +277,34 @@ export function revisionChoices<T extends { experiment_revision_id: string }>(
   return [...leading, ...page];
 }
 
-export function experimentTraceText(trace: {
-  trace_status: string;
-  reason?: string | null;
-}): { title: string; detail: string } {
+export function experimentTraceText(
+  trace: {
+    trace_status: string;
+    reason?: string | null;
+  },
+  lang?: UiLanguage,
+): { title: string; detail: string } {
   if (trace.trace_status === 'unresolved') {
     const reason =
       trace.reason === 'experiment_snapshot_binding_absent'
         ? 'experiment_snapshot_binding_absent'
         : (trace.reason ?? 'unresolved');
+    if (lang === 'en') {
+      return {
+        title: 'Unbound',
+        detail: `This experiment revision has no bound run (${reason}). Its trace contains no artifacts or file-level sample attributions.`,
+      };
+    }
     return {
       title: '未绑定',
       detail: `这条实验修订没有绑定运行（${reason}）。这里不列出产物，也不把运行样本写成文件贡献者。`,
+    };
+  }
+  if (lang === 'en') {
+    return {
+      title: trace.trace_status,
+      detail:
+        'Each artifact lists the samples used as inputs to its run.',
     };
   }
   return {
