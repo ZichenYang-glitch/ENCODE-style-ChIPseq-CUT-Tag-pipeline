@@ -873,14 +873,17 @@ class SqlAlchemyExperimentCatalogRepository:
                 include_candidates=True,
             )
 
-    def classification_context(self, experiment_id: str) -> dict[str, Any]:
-        """Current experiment head plus a bounded page of target vocabulary."""
+    def classification_context(
+        self, experiment_id: str, write: CatalogWrite
+    ) -> dict[str, Any]:
+        """Current experiment head and the active curation versions."""
 
         from encode_pipeline.persistence.catalog_proposal_store import (
             read_active_versions,
         )
 
         with self._session_factory() as session:
+            _checked_write_receipt(session, write)
             experiment = session.get(ExperimentRow, experiment_id)
             if experiment is None:
                 raise catalog_not_found()
@@ -893,17 +896,6 @@ class SqlAlchemyExperimentCatalogRepository:
                 raise catalog_not_found()
             payload = interpret_stored_experiment_payload(revision.canonical_payload)
             active = read_active_versions(session)
-            rows = session.scalars(
-                select(CatalogTermRow)
-                .where(
-                    CatalogTermRow.term_type == "target",
-                    CatalogTermRow.archived_at.is_(None),
-                )
-                .order_by(CatalogTermRow.created_at, CatalogTermRow.term_id)
-                .limit(33)
-            ).all()
-            truncated = len(rows) == 33
-            terms = [_target_term_record(session, term.term_id) for term in rows[:32]]
             return {
                 "project_id": experiment.project_id,
                 "experiment_id": experiment.experiment_id,
@@ -914,9 +906,64 @@ class SqlAlchemyExperimentCatalogRepository:
                 "rule_version": active.rule_version,
                 "vocabulary_version": active.vocabulary_version,
                 "projection_version": active.projection_version,
-                "target_terms": terms,
-                "target_terms_truncated": truncated,
             }
+
+    def project_target_terms(self, project_id: str, limit: int) -> list[dict[str, Any]]:
+        """Only offer a vocabulary revision recorded on an active project head."""
+
+        projection = ExperimentCatalogProjectionRow
+        head = ExperimentRevisionHeadRow
+        used_revisions = (
+            select(projection.target_term_revision_id)
+            .join(
+                head, head.experiment_revision_id == projection.experiment_revision_id
+            )
+            .join(ExperimentRow, ExperimentRow.experiment_id == head.experiment_id)
+            .where(
+                head.project_id == project_id,
+                ExperimentRow.archived_at.is_(None),
+                projection.target_status == "known",
+            )
+        )
+        latest_revision = (
+            select(CatalogTermRevisionRow.term_revision_id)
+            .where(CatalogTermRevisionRow.term_id == CatalogTermRow.term_id)
+            .order_by(CatalogTermRevisionRow.revision_number.desc())
+            .limit(1)
+            .correlate(CatalogTermRow)
+            .scalar_subquery()
+        )
+        with self._session_factory() as session:
+            # Read labels from the same snapshot that proved the revision was used.
+            rows = session.execute(
+                select(
+                    CatalogTermRow.term_id,
+                    CatalogTermRevisionRow.term_revision_id,
+                    CatalogTermRevisionRow.display_name,
+                    CatalogTermRevisionRow.aliases_json,
+                )
+                .join(
+                    CatalogTermRevisionRow,
+                    CatalogTermRevisionRow.term_id == CatalogTermRow.term_id,
+                )
+                .where(
+                    CatalogTermRow.term_type == "target",
+                    CatalogTermRow.archived_at.is_(None),
+                    CatalogTermRevisionRow.term_revision_id.in_(used_revisions),
+                    CatalogTermRevisionRow.term_revision_id == latest_revision,
+                )
+                .order_by(CatalogTermRow.created_at, CatalogTermRow.term_id)
+                .limit(limit)
+            )
+            return [
+                {
+                    "term_id": term_id,
+                    "term_revision_id": revision_id,
+                    "display_name": name,
+                    "aliases": json.loads(aliases),
+                }
+                for term_id, revision_id, name, aliases in rows
+            ]
 
     def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None:
         with self._session_factory() as session:
@@ -1325,21 +1372,8 @@ class SqlAlchemyExperimentCatalogRepository:
         try:
             with self._session_factory.begin() as session:
                 _begin_write(session)
-                _require_administrator(session, write.actor_user_id)
-                receipt = session.get(
-                    CatalogWriteReceiptRow,
-                    (write.actor_user_id, write.idempotency_key),
-                )
-                if not write.target_key:
-                    raise ValueError("catalog write target is required")
+                receipt = _checked_write_receipt(session, write)
                 if receipt is not None:
-                    if not matches_committed_catalog_request(
-                        write,
-                        operation=receipt.operation,
-                        target_key=receipt.target_key,
-                        request_sha256=receipt.request_sha256,
-                    ):
-                        raise catalog_idempotency_conflict()
                     return _replay(self, session, receipt)
                 return apply(session)
         except IntegrityError as exc:
@@ -2372,6 +2406,25 @@ def _term_head_id(session: Session, term_id: str) -> str:
     if value is None:
         raise catalog_not_found()
     return str(value)
+
+
+def _checked_write_receipt(
+    session: Session, write: CatalogWrite
+) -> CatalogWriteReceiptRow | None:
+    _require_administrator(session, write.actor_user_id)
+    if not write.target_key:
+        raise ValueError("catalog write target is required")
+    receipt = session.get(
+        CatalogWriteReceiptRow, (write.actor_user_id, write.idempotency_key)
+    )
+    if receipt is not None and not matches_committed_catalog_request(
+        write,
+        operation=receipt.operation,
+        target_key=receipt.target_key,
+        request_sha256=receipt.request_sha256,
+    ):
+        raise catalog_idempotency_conflict()
+    return receipt
 
 
 def _replay(

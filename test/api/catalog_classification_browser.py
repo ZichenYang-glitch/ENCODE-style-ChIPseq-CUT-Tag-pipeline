@@ -20,7 +20,9 @@ from encode_pipeline.deployment.frontend import ManifestStaticApplication
 from encode_pipeline.frontend_assets import verify_frontend_api_contract
 from encode_pipeline.services.authentication_service import AccountAdministrationService
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.catalog_model_client import load_catalog_model
 from encode_pipeline.services.peri_runtime.bound_model import Budget, binding_id
+from encode_pipeline.services.peri_runtime.catalog_classify import CatalogTransportError
 from peri_bound_model_browser import serve_on_loopback, start_bound_owner
 from peri_run_actions_browser import _build_wheel_assets
 from test_experiment_catalog_http import _known
@@ -123,6 +125,26 @@ def test_packaged_catalog_classification(
         httpx.Client(base_url=origin, trust_env=False) as client,
     ):
         seed = seed_catalog(app, client)
+
+        def ask_other(key):
+            experiment = seed["other"]
+            return client.post(
+                f"/api/v1/catalog/projects/{seed['project']}/experiments/"
+                f"{experiment['experiment_id']}/classification-suggestions",
+                headers={"Idempotency-Key": key},
+                json={
+                    "field": "target",
+                    "reason_code": "TARGET_TERM_MATCH",
+                    "experiment_revision_id": experiment["experiment_revision_id"],
+                    "clue": TARGET,
+                    "vocabulary_term_revision_id": seed["target"]["term_revision_id"],
+                },
+            )
+
+        unauthorized = ask_other("before-grant")
+        assert unauthorized.status_code == 409
+        assert unauthorized.json()["issues"][0]["code"] == "catalog_model_unauthorized"
+        assert len(calls) == 0
         grant_id = model.catalog_grant(
             project_id=seed["project"],
             field="experiment.target",
@@ -150,6 +172,10 @@ def test_packaged_catalog_classification(
             ),
         )
         assert finished.returncode == 0, finished.stdout + finished.stderr
+        model.catalog_revoke(grant_id)
+        revoked = ask_other("after-revocation")
+        assert revoked.status_code == 409
+        assert revoked.json()["issues"][0]["code"] == "catalog_model_revoked"
 
     assert len(calls) == 1
     method, path, raw = calls[0]
@@ -165,9 +191,10 @@ def test_packaged_catalog_classification(
         assert block["type"] == "text"
         content = block["text"]
     projection = json.loads(content[content.index("{") :])
+    assert projection == json.loads(finished.stdout)["projection"]
     assert projection == {
         "field": "experiment.target",
-        "reason": "TARGET_TERM_MATCH",
+        "reason_code": "TARGET_TERM_MATCH",
         "clue": TARGET,
         "candidates": [{"label": TARGET, "token": "h3k4me3"}],
     }
@@ -195,3 +222,57 @@ def test_packaged_catalog_classification(
             )
         ] == [1]
     print(finished.stdout.strip())
+
+
+@pytest.mark.parametrize("reply", ["insufficient_evidence", "1"])
+def test_native_classification_decisions_and_reservations(tmp_path, request, reply):
+    database = URL.create("sqlite", database=str(tmp_path / "catalog.sqlite"))
+    env, model, _, calls = start_bound_owner(
+        tmp_path, request, database, model_name="fixture-target", reply=reply
+    )
+    transport = load_catalog_model(env)
+    project = "prj_" + "1" * 32
+    grant = model.catalog_grant(
+        project_id=project,
+        field="experiment.target",
+        binding=binding_id(model.worker({"op": "binding"})),
+        expires=int(time.time()) + 300,
+        budget=Budget(1, 4096, 64, 10, 64, 100, 100, "CNY"),
+    )
+    fields = dict(
+        project_id=project,
+        clue=TARGET,
+        candidates=(("h3k4me3", TARGET),),
+        idempotency_key="decision",
+        projection_digest="a" * 64,
+    )
+    with pytest.raises(CatalogTransportError) as foreign:
+        transport.classify(**(fields | {"project_id": "prj_" + "2" * 32}))
+    assert foreign.value.code == "catalog_model_project_mismatch"
+    assert calls == []
+    if reply == "insufficient_evidence":
+        assert transport.classify(**fields) == reply
+        assert transport.classify(**fields) == reply
+    else:
+        with pytest.raises(CatalogTransportError) as rejected:
+            transport.classify(**fields)
+        assert rejected.value.code == "catalog_model_malformed"
+        with pytest.raises(CatalogTransportError) as replay:
+            transport.classify(**fields)
+        assert replay.value.code == "catalog_model_timeout"
+    with closing(model.db()) as ledger, ledger:
+        ledger.execute(
+            "UPDATE catalog_grants SET expires=? WHERE grant_id=?",
+            (int(time.time()) - 1, grant),
+        )
+        reservation = ledger.execute(
+            "SELECT delivered, decision FROM catalog_reservations WHERE grant_id=?",
+            (grant,),
+        ).fetchone()
+        assert tuple(reservation) == (
+            (1, reply) if reply == "insufficient_evidence" else (0, None)
+        )
+    with pytest.raises(CatalogTransportError) as expired:
+        transport.classify(**(fields | {"idempotency_key": "after-expiry"}))
+    assert expired.value.code == "catalog_model_expired"
+    assert len(calls) == 1

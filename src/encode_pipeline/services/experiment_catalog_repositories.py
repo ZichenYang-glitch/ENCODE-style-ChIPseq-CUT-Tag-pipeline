@@ -114,7 +114,13 @@ class ExperimentCatalogRepository(Protocol):
         self, experiment_id: str, experiment_revision_id: str
     ) -> dict[str, Any]: ...
 
-    def classification_context(self, experiment_id: str) -> dict[str, Any]: ...
+    def classification_context(
+        self, experiment_id: str, write: CatalogWrite
+    ) -> dict[str, Any]: ...
+
+    def project_target_terms(
+        self, project_id: str, limit: int
+    ) -> list[dict[str, Any]]: ...
 
     def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None: ...
 
@@ -835,23 +841,17 @@ class InMemoryExperimentCatalogRepository:
                 include_candidates=True,
             )
 
-    def classification_context(self, experiment_id: str) -> dict[str, Any]:
+    def classification_context(
+        self, experiment_id: str, write: CatalogWrite
+    ) -> dict[str, Any]:
         with self._lock:
+            self._checked_write_receipt(write)
             experiment = self._experiments.get(experiment_id)
             if experiment is None or not experiment.revisions:
                 raise catalog_not_found()
             self._project(experiment.project_id)
             revision = experiment.revisions[-1]
             active = self._active_versions
-            terms = [
-                _memory_target_term(term)
-                for term in sorted(
-                    self._terms.values(),
-                    key=lambda item: (item.created_at, item.term_id),
-                )
-                if term.term_type == "target" and term.archived_at is None
-            ]
-            truncated = len(terms) > 32
             return {
                 "project_id": experiment.project_id,
                 "experiment_id": experiment.experiment_id,
@@ -862,9 +862,30 @@ class InMemoryExperimentCatalogRepository:
                 "rule_version": active.rule_version,
                 "vocabulary_version": active.vocabulary_version,
                 "projection_version": active.projection_version,
-                "target_terms": terms[:32],
-                "target_terms_truncated": truncated,
             }
+
+    def project_target_terms(self, project_id: str, limit: int) -> list[dict[str, Any]]:
+        with self._lock:
+            used = set()
+            for experiment in self._experiments.values():
+                if (
+                    experiment.project_id == project_id
+                    and experiment.archived_at is None
+                ):
+                    target = experiment.revisions[-1].payload.target
+                    if target.term is not None:
+                        used.add(target.term.term_revision_id)
+            terms = sorted(
+                (
+                    term
+                    for term in self._terms.values()
+                    if term.term_type == "target"
+                    and term.archived_at is None
+                    and term.revisions[-1].term_revision_id in used
+                ),
+                key=lambda term: (term.created_at, term.term_id),
+            )
+            return [_memory_target_term(term) for term in terms[:limit]]
 
     def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -1249,21 +1270,25 @@ class InMemoryExperimentCatalogRepository:
         self, write: CatalogWrite, apply: Callable[[], dict[str, Any]]
     ) -> dict[str, Any]:
         with self._lock:
-            if not self._is_administrator(write.actor_user_id):
-                raise administrator_required()
-            receipt = self._receipts.get((write.actor_user_id, write.idempotency_key))
-            if not write.target_key:
-                raise ValueError("catalog write target is required")
+            receipt = self._checked_write_receipt(write)
             if receipt is not None:
-                if not matches_committed_catalog_request(
-                    write,
-                    operation=receipt.operation,
-                    target_key=receipt.target_key,
-                    request_sha256=receipt.request_sha256,
-                ):
-                    raise catalog_idempotency_conflict()
                 return self._replay(receipt)
             return apply()
+
+    def _checked_write_receipt(self, write: CatalogWrite) -> _Receipt | None:
+        if not self._is_administrator(write.actor_user_id):
+            raise administrator_required()
+        if not write.target_key:
+            raise ValueError("catalog write target is required")
+        receipt = self._receipts.get((write.actor_user_id, write.idempotency_key))
+        if receipt is not None and not matches_committed_catalog_request(
+            write,
+            operation=receipt.operation,
+            target_key=receipt.target_key,
+            request_sha256=receipt.request_sha256,
+        ):
+            raise catalog_idempotency_conflict()
+        return receipt
 
     def _replay(self, receipt: _Receipt) -> dict[str, Any]:
         if receipt.operation in {

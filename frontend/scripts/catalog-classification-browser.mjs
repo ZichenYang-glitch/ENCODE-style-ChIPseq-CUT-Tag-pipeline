@@ -17,7 +17,7 @@ async function exercise({ origin, locale, admin, project, selected, other, targe
       name: english ? 'Peri target suggestions' : 'Peri 靶标建议',
     });
     const ask = panel.getByRole('button', {
-      name: english ? /^Ask Peri$/ : /^(向 Peri 请求建议|询问 Peri)$/,
+      name: english ? 'Ask Peri' : '询问 Peri', exact: true,
     });
     const previewButton = panel.getByRole('button', {
       name: english ? 'Preview selected' : '预览所选建议',
@@ -121,6 +121,18 @@ async function exercise({ origin, locale, admin, project, selected, other, targe
     assert.equal(await providerCount(), 1);
     assert.deepEqual(await heads(), before);
 
+    const replay = await page.request.post(generationPath(selected), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': generateKey,
+        'X-CSRF-Token': await generated.request.headerValue('X-CSRF-Token'),
+      },
+      data: generated.request.postData(),
+    });
+    assert.equal(replay.status(), 200);
+    assert.deepEqual(await replay.json(), generated.body);
+    assert.equal(await providerCount(), 1);
+
     const proposalPath = catalog + '/proposals/' + proposal.proposal_id;
     const choice = panel.getByRole('checkbox', { name: new RegExp(label) });
     await expect(choice).not.toBeChecked();
@@ -180,7 +192,7 @@ async function exercise({ origin, locale, admin, project, selected, other, targe
     assert.ok(deniedKey && deniedKey !== generateKey);
     assert.equal(denied.request.postDataJSON().experiment_revision_id, other.experiment_revision_id);
     assert.equal(denied.body.issues[0].code, 'catalog_model_quota_exhausted');
-    await expect(panel.getByRole('alert')).toContainText(/remaining calls|quota|额度|配额/i);
+    await expect(panel.getByRole('alert')).toContainText(english ? /remaining calls|quota/i : /额度/);
     assert.equal(await providerCount(), 1);
     assert.deepEqual(await heads(), after);
     assert.deepEqual(writes, [
@@ -189,6 +201,7 @@ async function exercise({ origin, locale, admin, project, selected, other, targe
     console.log(JSON.stringify({
       locale,
       source: proposal.source,
+      projection: generated.body.projection,
       providerCalls: await providerCount(),
       selectedRevision: revised.revision_number,
       otherRevision: after[other.experiment_id].revision_number,

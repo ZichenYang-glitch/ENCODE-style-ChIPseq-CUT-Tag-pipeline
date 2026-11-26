@@ -17,6 +17,7 @@ from encode_pipeline.platform.catalog_proposal_adoption import (
     build_preview,
     build_proposal_view,
     build_registered_proposal,
+    ensure_current_model_target,
     overlay_experiment_fields,
     overlay_sample_catalog,
     prepare_adoption,
@@ -46,6 +47,7 @@ from encode_pipeline.services.data_registry_repositories import (
 from encode_pipeline.services.experiment_catalog_repositories import (
     _ExperimentRevision,
     _MemoryTermLookup,
+    _memory_target_term,
 )
 
 
@@ -117,9 +119,17 @@ def register_proposal(
         vocabulary_version=vocabulary_version,
         projection_version=projection_version,
     )
+    heads = _heads(repository, proposal)
+    if proposal.source == "peri_bound_model":
+        ensure_current_model_target(
+            proposal,
+            heads,
+            repository._active_versions,
+            lambda term_id: _memory_target_term(repository._terms[term_id]),
+        )
     view = build_proposal_view(
         proposal,
-        heads=_heads(repository, proposal),
+        heads=heads,
         adopted_receipt=None,
         include_candidates=True,
         now=write.now,

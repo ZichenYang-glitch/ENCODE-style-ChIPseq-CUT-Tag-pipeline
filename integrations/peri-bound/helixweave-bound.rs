@@ -229,7 +229,7 @@ async fn classify(
     }
     let projected = json!({
         "field": "experiment.target",
-        "reason": "TARGET_TERM_MATCH",
+        "reason_code": "TARGET_TERM_MATCH",
         "clue": clue,
         "candidates": candidates
             .iter()
@@ -278,7 +278,7 @@ async fn classify(
                 let allowed = decision == "insufficient_evidence"
                     || candidates.iter().any(|(token, _)| *token == decision);
                 if !allowed || decision.bytes().all(|byte| byte.is_ascii_digit()) {
-                    return None;
+                    return Some(json!({"error":"catalog_model_malformed"}));
                 }
                 return Some(json!({
                     "binding": binding,

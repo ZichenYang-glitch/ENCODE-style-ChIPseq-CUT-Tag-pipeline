@@ -19,6 +19,21 @@ interface Props {
   onAdopted: (receipt: CatalogAdoptionReceiptResponse) => void;
 }
 
+const classificationErrorsZh: Readonly<Record<string, string>> = {
+  catalog_model_unbound: '所有者尚未连接分类模型。',
+  catalog_model_unauthorized: '当前课题和模型尚未获得靶标分类授权。',
+  catalog_model_revoked: '所有者已撤销分类授权。',
+  catalog_model_expired: '分类授权已过期。',
+  catalog_model_project_mismatch: '分类授权属于其他课题。',
+  catalog_model_quota_exhausted: '分类授权的剩余额度不足。',
+  catalog_model_timeout: '模型调用超时，本次额度已预留。',
+  catalog_model_malformed: '模型未返回有效的候选靶标或证据不足的决定。',
+  catalog_revision_conflict: '实验或词条修订已更新，请重新选择。',
+  catalog_experiment_archived: '所选实验已归档。',
+  catalog_term_archived: '所选靶标已归档。',
+  catalog_idempotency_conflict: '此请求标识已用于其他内容。',
+};
+
 export function PeriTargetPanel({ projectId, experiment, terms, onAdopted }: Props) {
   const english = useUiLanguage() === 'en';
   const [clue, setClue] = useState('');
@@ -60,10 +75,15 @@ export function PeriTargetPanel({ projectId, experiment, terms, onAdopted }: Pro
         setError(english ? 'Could not load the proposal for this project.' : '无法读取当前课题的建议。');
       }
     } catch (cause) {
-      setError(cause instanceof ApiError
-        ? cause.message
-        : (english ? 'Could not retrieve the suggestion. You can retry the same request.'
-          : '未收到建议，可用同一请求重试。'));
+      if (cause instanceof ApiError) {
+        const message = cause.issues[0]?.path === 'vocabulary_term_revision_id' && cause.code === 'catalog_payload_invalid'
+          ? '请从列表中选择一条具有有效名称或别名的当前靶标词条。'
+          : classificationErrorsZh[cause.code];
+        setError(english ? cause.message : (message ?? cause.message));
+      } else {
+        setError(english ? 'Could not retrieve the suggestion. You can retry the same request.'
+          : '未收到建议，可用同一请求重试。');
+      }
     } finally {
       setBusy(false);
     }
@@ -89,7 +109,7 @@ export function PeriTargetPanel({ projectId, experiment, terms, onAdopted }: Pro
               setTermRevision(event.target.value);
               resetRequest();
             }}>
-              <option value="">{english ? 'Use the active target vocabulary' : '使用当前靶标词表'}</option>
+              <option value="">{english ? 'Use targets recorded in this project' : '使用本课题已记录的靶标'}</option>
               {targets.map((term) => (
                 <option key={term.term_revision_id} value={term.term_revision_id}>{term.display_name}</option>
               ))}
@@ -99,7 +119,7 @@ export function PeriTargetPanel({ projectId, experiment, terms, onAdopted }: Pro
             ? 'Your clue and candidate target labels go to the bound model. Use a target name or alias.'
             : '靶标线索和候选词条名称会发送给已绑定模型。请输入靶标名称或别名。'}</p>
           <Button type="submit" disabled={busy || clue.trim().length < 2 || !!proposal || insufficient}>
-            {busy ? (english ? 'Requesting…' : '请求中…') : (english ? 'Ask Peri' : '向 Peri 请求建议')}
+            {busy ? (english ? 'Requesting…' : '请求中…') : (english ? 'Ask Peri' : '询问 Peri')}
           </Button>
         </fieldset>
       </form>

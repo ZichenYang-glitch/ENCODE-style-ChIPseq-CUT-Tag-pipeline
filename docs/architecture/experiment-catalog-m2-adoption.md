@@ -18,10 +18,18 @@ then compared with the operation, the proposal id, and the body hash.
 - `POST /projects/{project_id}/experiments/{experiment_id}/classification-suggestions`
   asks Peri about the selected experiment revision. An owner grant for this
   project, model binding, and `experiment.target` authorizes the target clue
-  and up to four controlled-vocabulary labels. An accepted answer yields a
+  and up to four controlled-vocabulary labels. Automatic candidates come
+  from current target revisions recorded on active experiments in that
+  project. An administrator may explicitly select one current target from
+  the shared vocabulary, including the first target for a new project.
+  An accepted answer yields a
   pending `peri_bound_model` proposal pinned to the experiment and vocabulary
   revisions. An inconclusive answer yields `insufficient_evidence`.
-  The experiment stays on its current revision through generation and preview.
+  The registration transaction checks the experiment head, target revision
+  and curation versions again. Generation and preview preserve the experiment
+  revision. After another write advances the experiment, generating against
+  the old revision returns a conflict. Its existing proposal and adoption
+  receipt remain available at their own endpoints.
   The owner setup and grant command are documented in
   `integrations/peri-bound/README.md`.
 - `POST /projects/{project_id}/proposals` registers one suggestion. The

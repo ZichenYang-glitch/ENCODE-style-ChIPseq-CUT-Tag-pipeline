@@ -212,6 +212,34 @@ def test_expired_replacement_is_reported_after_an_older_revocation(bound):
     assert _balances(model, replacement) == (1, 0, 0)
 
 
+@pytest.mark.parametrize("invalidation", ["revoked", "expired"])
+def test_grant_must_still_authorize_delivery_after_the_provider_returns(
+    bound, monkeypatch, invalidation
+):
+    worker, model = bound
+    grant_id = _grant(model, worker, PROJECT, requests=1)
+    after_expiry = time.time() + 301
+
+    def worker_with_grant_change(request):
+        result = worker(request)
+        if request["op"] == "classify":
+            if invalidation == "revoked":
+                model.catalog_revoke(grant_id)
+            else:
+                monkeypatch.setattr(time, "time", lambda: after_expiry)
+        return result
+
+    monkeypatch.setattr(model, "worker", worker_with_grant_change)
+    with pytest.raises(CatalogTransportError) as failure:
+        _classify(model)
+    assert failure.value.code == f"catalog_model_{invalidation}"
+    assert _balances(model, grant_id) == (0, 1, 0)
+    with pytest.raises(CatalogTransportError) as retry:
+        _classify(model)
+    assert retry.value.code == "catalog_model_timeout"
+    assert len(worker.sends) == 1
+
+
 def test_cross_project_revocation_expiry_and_timeout_keep_their_counts(bound):
     worker, model = bound
     grant_id = _grant(model, worker, PROJECT, requests=2)

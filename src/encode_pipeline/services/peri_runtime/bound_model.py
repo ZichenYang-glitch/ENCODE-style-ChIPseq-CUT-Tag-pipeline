@@ -423,6 +423,8 @@ class BoundModel:
         if isinstance(reserved, str):
             return reserved
         request, grant_id = reserved
+        with closing(self.db()) as db:
+            self._require_live_catalog_grant(db, grant_id)
         if time.monotonic() > deadline:
             raise CatalogTransportError("catalog_model_timeout")
         response = self._invoke_classify(request)
@@ -633,6 +635,16 @@ class BoundModel:
             )
         return request, grant_id
 
+    @staticmethod
+    def _require_live_catalog_grant(db: sqlite3.Connection, grant_id: str) -> None:
+        row = db.execute(
+            "SELECT revoked, expires FROM catalog_grants WHERE grant_id=?", (grant_id,)
+        ).fetchone()
+        if row is None or row["revoked"]:
+            raise CatalogTransportError("catalog_model_revoked")
+        if row["expires"] <= time.time():
+            raise CatalogTransportError("catalog_model_expired")
+
     def _store_catalog_decision(
         self,
         *,
@@ -643,6 +655,7 @@ class BoundModel:
     ) -> None:
         with closing(self.db()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            self._require_live_catalog_grant(db, grant_id)
             updated = db.execute(
                 """UPDATE catalog_reservations SET delivered=1, decision=?
                 WHERE grant_id=? AND call_key=? AND projection_digest=? AND delivered=0""",
@@ -672,7 +685,7 @@ class BoundModel:
             raise CatalogTransportError("catalog_model_malformed") from None
         except (BridgeDisconnected, OSError, sqlite3.Error, ValueError, TypeError):
             raise CatalogTransportError("catalog_model_timeout") from None
-        if not isinstance(response, dict):
+        if not isinstance(response, dict) or "error" in response:
             raise CatalogTransportError("catalog_model_malformed")
         return response
 

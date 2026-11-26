@@ -11,10 +11,12 @@ from uuid import uuid4
 
 from encode_pipeline.platform.catalog_proposal_adoption import (
     assert_request_within_limit,
+    stable_proposal_id,
 )
 from encode_pipeline.platform.experiment_catalog import (
     CatalogError,
     CatalogWrite,
+    bind_catalog_target,
     catalog_experiment_archived,
     catalog_not_found,
     catalog_payload_invalid,
@@ -391,14 +393,17 @@ class ExperimentCatalogService:
             raw_body,
             "catalogGenerateClassificationSuggestion",
         )
-        context = self._repository.classification_context(experiment_id)
+        write = bind_catalog_target(
+            write, stable_proposal_id(actor_user_id, write.idempotency_key, project_id)
+        )
+        context = self._repository.classification_context(experiment_id, write)
         if context["project_id"] != project_id:
             raise catalog_not_found()
         if context["archived"]:
             raise catalog_experiment_archived()
         if context["experiment_revision_id"] != experiment_revision_id:
             raise catalog_revision_conflict()
-        terms = self._classification_terms(context, vocabulary_term_revision_id)
+        terms = self._classification_terms(project_id, vocabulary_term_revision_id)
         candidates = bind_target_candidates(
             terms, explicit_revision_id=vocabulary_term_revision_id
         )
@@ -410,7 +415,7 @@ class ExperimentCatalogService:
                 path="vocabulary_term_revision_id",
             )
         if vocabulary_term_revision_id is None and (
-            context["target_terms_truncated"]
+            len(terms) > 32
             or len(candidates) > MAX_CLASSIFY_CANDIDATES
             or not candidates
         ):
@@ -420,8 +425,6 @@ class ExperimentCatalogService:
                 "Select one current target term revision to classify.",
                 path="vocabulary_term_revision_id",
             )
-        if len(candidates) > MAX_CLASSIFY_CANDIDATES:
-            candidates = candidates[:MAX_CLASSIFY_CANDIDATES]
         projection = {
             "field": CATALOG_FIELD,
             "reason_code": CATALOG_REASON,
@@ -433,6 +436,7 @@ class ExperimentCatalogService:
         digest = sha256(
             json.dumps(
                 {
+                    "request_sha256": write.request_sha256,
                     "project_id": project_id,
                     "experiment_id": experiment_id,
                     "experiment_revision_id": experiment_revision_id,
@@ -453,7 +457,7 @@ class ExperimentCatalogService:
         try:
             decision = self._catalog_model.classify(
                 project_id=project_id,
-                idempotency_key=write.idempotency_key,
+                idempotency_key=write.target_key,
                 clue=clue,
                 candidates=tuple((item.token, item.label) for item in candidates),
                 projection_digest=digest,
@@ -466,22 +470,17 @@ class ExperimentCatalogService:
 
                 raise catalog_idempotency_conflict() from None
             raise CatalogError(409, exc.code, exc.message) from None
-        confirmed = self._repository.classification_context(experiment_id)
-        if (
-            confirmed["project_id"] != project_id
-            or confirmed["experiment_revision_id"] != experiment_revision_id
-            or confirmed["revision_number"] != context["revision_number"]
-        ):
-            raise catalog_revision_conflict()
         body = _suggestion_envelope(
             context=context,
-            clue=clue,
             projection=projection,
             decision=decision,
-            proposal=None,
         )
         if decision == INSUFFICIENT_EVIDENCE:
-            body["outcome"] = "insufficient_evidence"
+            confirmed = self._repository.classification_context(experiment_id, write)
+            if confirmed["archived"]:
+                raise catalog_experiment_archived()
+            if confirmed["experiment_revision_id"] != experiment_revision_id:
+                raise catalog_revision_conflict()
             return body
         chosen = next((item for item in candidates if item.token == decision), None)
         if chosen is None:
@@ -499,27 +498,17 @@ class ExperimentCatalogService:
             vocabulary_version=context["vocabulary_version"],
             projection_version=context["projection_version"],
         )
-        final = self._repository.classification_context(experiment_id)
-        if (
-            final["experiment_revision_id"] != experiment_revision_id
-            or final["revision_number"] != context["revision_number"]
-        ):
-            raise catalog_revision_conflict()
         body["outcome"] = "proposal"
-        body["decision"] = decision
         body["proposal"] = proposal
         return body
 
     def _classification_terms(
         self,
-        context: Mapping[str, Any],
+        project_id: str,
         vocabulary_term_revision_id: str | None,
     ) -> list[dict[str, Any]]:
         if vocabulary_term_revision_id is None:
-            terms = context["target_terms"]
-            if not isinstance(terms, list):
-                raise catalog_payload_invalid()
-            return terms
+            return self._repository.project_target_terms(project_id, limit=33)
         found = self._repository.lookup_target_term(vocabulary_term_revision_id)
         if found is None:
             raise CatalogError(
@@ -681,10 +670,8 @@ class ExperimentCatalogService:
 def _suggestion_envelope(
     *,
     context: Mapping[str, Any],
-    clue: str,
     projection: dict[str, Any],
     decision: str,
-    proposal: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
         "ok": True,
@@ -697,7 +684,7 @@ def _suggestion_envelope(
         "catalog_revision_changed": False,
         "projection": projection,
         "decision": decision,
-        "proposal": proposal,
+        "proposal": None,
     }
 
 

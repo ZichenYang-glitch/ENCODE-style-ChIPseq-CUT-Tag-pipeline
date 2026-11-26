@@ -182,6 +182,11 @@ def test_generate_preview_and_adopt_without_moving_the_revision_early(
         assert worker.sends == []
 
         service._catalog_model = LedgerCatalogModel(model)
+        needs_term = _post(client, suggestion_path, body, "no-project-targets")
+        assert needs_term.status_code == 422
+        assert needs_term.json()["issues"][0]["path"] == "vocabulary_term_revision_id"
+        assert worker.sends == []
+        body["vocabulary_term_revision_id"] = target["revision"]["term_revision_id"]
         ordinal = _post(
             client,
             suggestion_path,
@@ -410,6 +415,7 @@ def test_generate_preview_and_adopt_without_moving_the_revision_early(
             f"{foreign_body['experiment_id']}/classification-suggestions",
             {
                 "experiment_revision_id": foreign_body["experiment_revision_id"],
+                "vocabulary_term_revision_id": target["revision"]["term_revision_id"],
                 "field": "target",
                 "reason_code": "TARGET_TERM_MATCH",
                 "clue": "H3K4me3",
