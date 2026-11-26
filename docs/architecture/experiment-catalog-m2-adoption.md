@@ -1,8 +1,9 @@
 # M2 catalog adoption over Slice A
 
-An administrator registers an offline suggestion, previews one subset, and
-adopts that subset in a single Slice A transaction. Suggestions are local
-synthetic proposals. This path does not call a model.
+An administrator can register an offline suggestion or ask the bound Peri model
+to suggest an experiment target. Both sources produce a pending proposal.
+The administrator selects the changes, previews them, and explicitly adopts the
+previewed subset in one Slice A transaction.
 
 The reviewed preview contract stays in
 `docs/architecture/experiment-catalog-m2-preview-contract.md`. HTTP adoption
@@ -14,6 +15,15 @@ All routes are under `/api/v1/catalog`. Writes send `Idempotency-Key`.
 The raw body is hashed with the Slice A scope `(actor_user_id, idempotency_key)`,
 then compared with the operation, the proposal id, and the body hash.
 
+- `POST /projects/{project_id}/experiments/{experiment_id}/classification-suggestions`
+  asks Peri about the selected experiment revision. An owner grant for this
+  project, model binding, and `experiment.target` authorizes the target clue
+  and up to four controlled-vocabulary labels. An accepted answer yields a
+  pending `peri_bound_model` proposal pinned to the experiment and vocabulary
+  revisions. An inconclusive answer yields `insufficient_evidence`.
+  The experiment stays on its current revision through generation and preview.
+  The owner setup and grant command are documented in
+  `integrations/peri-bound/README.md`.
 - `POST /projects/{project_id}/proposals` registers one suggestion. The
   proposal id is derived from the actor, the idempotency key, and the project,
   so a lost response retries the same receipt. A retry returns the frozen
