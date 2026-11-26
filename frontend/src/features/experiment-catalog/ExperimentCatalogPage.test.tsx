@@ -23,6 +23,7 @@ import type {
   CatalogTermSummaryResponse,
 } from '../../api/generated/models';
 import { ApiError } from '../../api/fetcher';
+import { setUiLanguage } from '../../lib/uiLanguage';
 import { ExperimentCatalogPage } from './ExperimentCatalogPage';
 
 vi.mock('../../api/generated/catalog/catalog', () => ({
@@ -278,6 +279,7 @@ async function search(user: ReturnType<typeof userEvent.setup>) {
 
 describe('Experiment catalog page', () => {
   beforeEach(() => {
+    setUiLanguage('zh-CN');
     vi.mocked(fetchSessionState).mockResolvedValue({
       ok: true,
       setup_required: false,
@@ -351,6 +353,114 @@ describe('Experiment catalog page', () => {
       PROJECT_ID,
       expect.objectContaining({ cursor: 'catcur_page2', limit: 20 }),
     );
+  });
+
+  it('switches system copy to English and keeps researcher names', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+
+    const heading = await screen.findByRole('heading', { name: 'Experiment catalog' });
+    const header = heading.closest('header');
+    if (header === null) throw new Error('catalog title is missing');
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    const trace = screen.getByRole('region', { name: 'Experiment trace' });
+    expect(await within(trace).findByRole('heading', { name: '未绑定' })).toBeInTheDocument();
+
+    await user.selectOptions(within(header).getByLabelText('语言'), 'en');
+
+    expect(await within(trace).findByRole('heading', { name: 'Unbound' })).toBeInTheDocument();
+    expect(trace).toHaveTextContent('experiment_snapshot_binding_absent');
+    expect(trace).toHaveTextContent('not described as file contributors');
+    expect(trace).not.toHaveTextContent('未绑定');
+    expect(screen.getByRole('heading', { name: 'Treg CUT&Tag v2' })).toBeInTheDocument();
+
+    const result = screen.getByRole('button', { name: /Treg CUT&Tag v2/ });
+    expect(result).toHaveTextContent('CUT&Tag');
+    expect(result).toHaveTextContent('regulatory T cell');
+    expect(result).toHaveTextContent('Revision 2');
+    expect(result).not.toHaveTextContent('修订');
+
+    const detail = screen.getByRole('region', { name: 'Experiment revision' });
+    expect(detail).toHaveTextContent('Current revision 2');
+    expect(detail).toHaveTextContent('H3K27me3');
+    expect(detail).toHaveTextContent('Unknown');
+    expect(detail).toHaveTextContent('treatment');
+    expect(detail).toHaveTextContent(SAMPLE_ID);
+    expect(detail).not.toHaveTextContent('当前');
+    expect(detail).not.toHaveTextContent('未知');
+
+    const scope = screen.getByRole('region', { name: 'Run input scope' });
+    expect(within(scope).getByRole('heading', { name: 'Run input scope' })).toBeInTheDocument();
+    expect(scope).toHaveTextContent(
+      'Associated samples are the input scope of that run, not file contributors.',
+    );
+    expect(scope).toHaveTextContent('run_input_scope');
+    expect(scope).toHaveTextContent('peaks');
+    expect(scope).toHaveTextContent(`Run sample ${SAMPLE_ID} revision 2`);
+    expect(scope).not.toHaveTextContent('运行输入范围');
+    expect(scope).not.toHaveTextContent('运行样本');
+    expect(within(scope).queryByRole('heading', { name: '文件贡献者' })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Revision'), REV_1);
+    expect(await screen.findByRole('heading', { name: 'Treg CUT&Tag v1' })).toBeInTheDocument();
+    expect(detail).toHaveTextContent('Earlier revision 1');
+    expect(detail).toHaveTextContent('Treg CUT&Tag v1');
+    expect(within(header).getByLabelText('Language')).toHaveValue('en');
+  });
+
+  it('reports a revision conflict in English without renaming the saved experiment', async () => {
+    setUiLanguage('en');
+    const winner = experiment({
+      experimentId: EXPERIMENT_ID,
+      revisionId: `expr_${'f'.repeat(32)}`,
+      revisionNumber: 3,
+      displayName: 'Winner',
+    });
+    let conflicted = false;
+    vi.mocked(catalogReviseExperiment).mockImplementation(async () => {
+      conflicted = true;
+      throw new ApiError(
+        409,
+        'catalog_revision_conflict',
+        'The catalog revision changed before this write.',
+      );
+    });
+    vi.mocked(catalogListExperiments).mockImplementation(async () => ({
+      ok: true,
+      project_id: PROJECT_ID,
+      revision_view: 'linked',
+      experiments: conflicted ? [winner] : [currentRevision],
+      next_cursor: null,
+    }));
+    vi.mocked(catalogListExperimentRevisions).mockImplementation(async () => ({
+      experiment_revisions: conflicted
+        ? [olderRevision, currentRevision, winner]
+        : [olderRevision, currentRevision],
+      next_cursor: null,
+    }));
+    const user = userEvent.setup();
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    const revise = await screen.findByRole('form', {
+      name: 'Revise experiment classification',
+    });
+    await user.clear(within(revise).getByLabelText('Display name'));
+    await user.type(within(revise).getByLabelText('Display name'), 'Losing name');
+    await user.click(within(revise).getByRole('button', { name: 'Revise classification' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Conflict. This submission was not written.',
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      'The catalog revision changed before this write.',
+    );
+    expect(await screen.findByRole('heading', { name: 'Winner' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Experiment revision' })).toHaveTextContent(
+      'Current revision 3',
+    );
+    expect(screen.queryByText('Revised classification to Losing name.')).not.toBeInTheDocument();
   });
 
   it('lets an administrator revise the current head without rewriting the old revision', async () => {

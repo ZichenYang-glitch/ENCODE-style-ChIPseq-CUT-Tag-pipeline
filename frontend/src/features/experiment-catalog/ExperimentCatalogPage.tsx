@@ -22,22 +22,30 @@ import type {
 import { ApiError } from '../../api/fetcher';
 import { useAuth } from '../../app/auth';
 import { Button } from '../../components/Button';
+import { UiLanguageSelect, useUiLanguage } from '../../lib/uiLanguage';
 import { ArchivedTrackList } from '../experiment-archive/ArchivedTrackList';
 import {
   CATALOG_PAGE_SIZE,
-  RUN_INPUT_SCOPE_TEXT,
   STABLE_KEY,
+  catalogConflictText,
   collectPages,
+  emptySampleRunsText,
   experimentCellTypeLabel,
   editingHead,
   experimentListParams,
   experimentTraceText,
   knownTermSlot,
   revisionChoices,
+  revisionMarkLabel,
+  revisionNumberLabel,
+  runInputScopeHeading,
+  runInputScopeText,
+  runSampleLine,
   newIdempotencyHeaders,
   samplesForWrite,
   singleSlotLabel,
   writeSlot,
+  type CatalogCopyLanguage,
   type WriteSlot,
 } from './catalogModel';
 
@@ -63,10 +71,10 @@ interface AppliedSearch {
   cellTypeTermIds: string[];
 }
 
-function errorMessage(caught: unknown): string {
+function errorMessage(caught: unknown, lang: CatalogCopyLanguage): string {
   if (caught instanceof ApiError) {
     if (caught.code === 'catalog_revision_conflict') {
-      return '冲突。这次提交没有写入。';
+      return catalogConflictText(lang);
     }
     return caught.message;
   }
@@ -93,6 +101,7 @@ function isPublishedRun(
 
 export function ExperimentCatalogPage() {
   const { loading, principal } = useAuth();
+  const language = useUiLanguage();
   const queryClient = useQueryClient();
   const [projectId, setProjectId] = useState('');
   const [assayTermIds, setAssayTermIds] = useState<string[]>([]);
@@ -334,13 +343,16 @@ export function ExperimentCatalogPage() {
       data-testid="experiment-catalog-page"
       className="min-w-0 flex-1 space-y-4"
     >
-      <header className="space-y-1">
-        <h2 className="text-xl font-semibold">Experiment catalog</h2>
-        <p className="max-w-3xl text-sm text-[var(--color-text-muted)]">
-          {isAdmin
-            ? 'You can record and revise experiment classification.'
-            : 'You can search, page through experiments, and open older revisions. Recording and revising classification is limited to administrators.'}
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold">Experiment catalog</h2>
+          <p className="max-w-3xl text-sm text-[var(--color-text-muted)]">
+            {isAdmin
+              ? 'You can record and revise experiment classification.'
+              : 'You can search, page through experiments, and open older revisions. Recording and revising classification is limited to administrators.'}
+          </p>
+        </div>
+        <UiLanguageSelect />
       </header>
 
       <form
@@ -409,7 +421,7 @@ export function ExperimentCatalogPage() {
         </p>
         {projectsQuery.isError && (
           <p role="alert" className="text-sm text-[var(--color-error)]">
-            {errorMessage(projectsQuery.error)}
+            {errorMessage(projectsQuery.error, language)}
           </p>
         )}
         {projectsQuery.data?.truncated && (
@@ -453,7 +465,7 @@ export function ExperimentCatalogPage() {
           </div>
           {experimentsQuery.isError && (
             <p role="alert" className="text-sm text-[var(--color-error)]">
-              {errorMessage(experimentsQuery.error)}
+              {errorMessage(experimentsQuery.error, language)}
             </p>
           )}
           {experimentsQuery.isSuccess && experiments.length === 0 && (
@@ -475,10 +487,10 @@ export function ExperimentCatalogPage() {
                   onClick={() => openExperiment(experiment.experiment_id)}
                 >
                   <span className="font-medium">{experiment.display_name}</span>
-                  <span className="text-xs text-[var(--color-text-muted)]">
-                    {singleSlotLabel(experiment.assay)} ·{' '}
-                    {experimentCellTypeLabel(experiment.samples)} · 修订{' '}
-                    {experiment.revision_number}
+                  <span className="text-xs text-[var(--color-text-muted)]" lang={language}>
+                    {singleSlotLabel(experiment.assay, language)} ·{' '}
+                    {experimentCellTypeLabel(experiment.samples, language)} ·{' '}
+                    {revisionNumberLabel(experiment.revision_number, language)}
                   </span>
                 </button>
               </li>
@@ -489,6 +501,7 @@ export function ExperimentCatalogPage() {
 
       {selected !== null && head !== null && (
         <RevisionDetail
+          language={language}
           head={head}
           selected={selected}
           revisions={revisions}
@@ -508,11 +521,11 @@ export function ExperimentCatalogPage() {
             if (revision !== undefined) setViewedRevision(revision);
           }}
           trace={traceQuery.data ?? null}
-          traceError={traceQuery.isError ? errorMessage(traceQuery.error) : null}
+          traceError={traceQuery.isError ? errorMessage(traceQuery.error, language) : null}
           sampleRuns={sampleRunsQuery.data?.results ?? null}
           sampleRunsTruncated={sampleRunsQuery.data?.truncated ?? false}
           sampleRunsError={
-            sampleRunsQuery.isError ? errorMessage(sampleRunsQuery.error) : null
+            sampleRunsQuery.isError ? errorMessage(sampleRunsQuery.error, language) : null
           }
         />
       )}
@@ -537,6 +550,7 @@ export function ExperimentCatalogPage() {
 
       {isAdmin && (
         <AdminMaintenance
+          language={language}
           projectId={projectId}
           terms={terms}
           head={head}
@@ -546,7 +560,7 @@ export function ExperimentCatalogPage() {
             setPinnedHead(null);
             setFollowHeadAfter(experimentsUpdatedAt);
             await refreshCatalog();
-            setFormError('冲突。这次提交没有写入。');
+            setFormError(catalogConflictText(language));
           }}
           onRevised={(revision) => {
             setPinnedHead(revision);
@@ -569,6 +583,7 @@ export function ExperimentCatalogPage() {
 }
 
 function RevisionDetail({
+  language,
   head,
   selected,
   revisions,
@@ -584,6 +599,7 @@ function RevisionDetail({
   sampleRunsTruncated,
   sampleRunsError,
 }: {
+  language: CatalogCopyLanguage;
   head: CatalogExperimentResponse | null;
   selected: CatalogExperimentResponse;
   revisions: CatalogExperimentResponse[];
@@ -602,10 +618,13 @@ function RevisionDetail({
   const traceText =
     trace === null
       ? null
-      : experimentTraceText({
-          trace_status: trace.trace_status,
-          reason: trace.reason,
-        });
+      : experimentTraceText(
+          {
+            trace_status: trace.trace_status,
+            reason: trace.reason,
+          },
+          language,
+        );
 
   return (
     <section aria-label="Experiment revision" className="space-y-3 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
@@ -613,13 +632,13 @@ function RevisionDetail({
         <div>
           <h3 className="text-lg font-semibold">{selected.display_name}</h3>
           <p className="text-xs text-[var(--color-text-muted)]">
-            {revisionMark(selected, head)} {selected.revision_number}
+            <span lang={language}>{revisionMark(selected, head, language)}</span>
             {' · '}
-            {singleSlotLabel(selected.assay)}
+            {singleSlotLabel(selected.assay, language)}
             {' · '}
-            {singleSlotLabel(selected.target)}
+            {singleSlotLabel(selected.target, language)}
             {' · '}
-            {singleSlotLabel(selected.batch)}
+            {singleSlotLabel(selected.batch, language)}
           </p>
         </div>
         <div className="block min-w-64 text-sm font-medium">
@@ -635,8 +654,7 @@ function RevisionDetail({
                 key={revision.experiment_revision_id}
                 value={revision.experiment_revision_id}
               >
-                {revisionMark(revision, head)}{' '}
-                {revision.revision_number}: {revision.display_name}
+                {revisionMark(revision, head, language)}: {revision.display_name}
               </option>
             ))}
           </select>
@@ -664,8 +682,8 @@ function RevisionDetail({
       <ul aria-label="Pinned samples" className="space-y-1 text-sm">
         {selected.samples.map((sample) => (
           <li key={sample.sample_revision_id}>
-            {sample.sample_id} · {experimentCellTypeLabel([sample])} ·{' '}
-            {singleSlotLabel(sample.replicate_role)}
+            {sample.sample_id} · {experimentCellTypeLabel([sample], language)} ·{' '}
+            {singleSlotLabel(sample.replicate_role, language)}
           </li>
         ))}
       </ul>
@@ -680,8 +698,12 @@ function RevisionDetail({
         )}
         {traceText !== null && (
           <>
-            <h3 className="text-base font-semibold">{traceText.title}</h3>
-            <p className="mt-1 text-sm">{traceText.detail}</p>
+            <h3 className="text-base font-semibold" lang={language}>
+              {traceText.title}
+            </h3>
+            <p className="mt-1 text-sm" lang={language}>
+              {traceText.detail}
+            </p>
           </>
         )}
       </section>
@@ -689,16 +711,20 @@ function RevisionDetail({
         aria-label="Run input scope"
         className="rounded-[4px] border border-[var(--color-border)] p-3"
       >
-        <h3 className="text-base font-semibold">运行输入范围</h3>
-        <p className="mt-1 text-sm">{RUN_INPUT_SCOPE_TEXT}</p>
+        <h3 className="text-base font-semibold" lang={language}>
+          {runInputScopeHeading(language)}
+        </h3>
+        <p className="mt-1 text-sm" lang={language}>
+          {runInputScopeText(language)}
+        </p>
         {sampleRunsError !== null && (
           <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">
             {sampleRunsError}
           </p>
         )}
         {sampleRuns !== null && sampleRuns.length === 0 && (
-          <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-            这条样本修订没有运行结果。
+          <p className="mt-2 text-sm text-[var(--color-text-muted)]" lang={language}>
+            {emptySampleRunsText(language)}
           </p>
         )}
         {sampleRunsTruncated && (
@@ -717,8 +743,8 @@ function RevisionDetail({
                     <span>{row.artifact_id}</span>
                     <ul className="mt-1 text-xs text-[var(--color-text-muted)]">
                       {row.run_sample_binding.associated_run_samples.map((sample) => (
-                        <li key={sample.sample_revision_id}>
-                          运行样本 {sample.sample_id} 修订 {sample.revision_number}
+                        <li key={sample.sample_revision_id} lang={language}>
+                          {runSampleLine(sample.sample_id, sample.revision_number, language)}
                         </li>
                       ))}
                     </ul>
@@ -766,13 +792,19 @@ function isCurrentRevision(
 }
 
 function revisionMark(
-  revision: { experiment_revision_id: string },
+  revision: { experiment_revision_id: string; revision_number: number },
   head: CatalogExperimentResponse | null,
+  lang: CatalogCopyLanguage,
 ): string {
-  return isCurrentRevision(revision, head) ? '当前' : '旧版';
+  return revisionMarkLabel(
+    isCurrentRevision(revision, head),
+    revision.revision_number,
+    lang,
+  );
 }
 
 function AdminMaintenance({
+  language,
   projectId,
   terms,
   head,
@@ -783,6 +815,7 @@ function AdminMaintenance({
   onCreated,
   refresh,
 }: {
+  language: CatalogCopyLanguage;
   projectId: string;
   terms: readonly CatalogTermSummaryResponse[];
   head: CatalogExperimentResponse | null;
@@ -819,6 +852,7 @@ function AdminMaintenance({
   return (
     <div className="grid gap-4 xl:grid-cols-3">
       <TermForm
+        language={language}
         onError={onError}
         onCreated={async (name) => {
           await refresh();
@@ -826,11 +860,12 @@ function AdminMaintenance({
         }}
       />
       <ExperimentForm
+        language={language}
         projectId={projectId}
         samples={samples}
         samplesStatus={samplesStatus}
         sampleError={
-          samplesQuery.isError ? errorMessage(samplesQuery.error) : null
+          samplesQuery.isError ? errorMessage(samplesQuery.error, language) : null
         }
         assayTerms={assayTerms}
         targetTerms={targetTerms}
@@ -845,6 +880,7 @@ function AdminMaintenance({
       />
       <ReviseForm
         key={head?.experiment_revision_id ?? 'closed'}
+        language={language}
         head={head}
         assayTerms={assayTerms}
         onError={onError}
@@ -860,9 +896,11 @@ function AdminMaintenance({
 }
 
 function TermForm({
+  language,
   onCreated,
   onError,
 }: {
+  language: CatalogCopyLanguage;
   onCreated: (displayName: string) => Promise<void>;
   onError: (message: string | null) => void;
 }) {
@@ -880,7 +918,7 @@ function TermForm({
       onError(null);
       await onCreated(name);
     },
-    onError: (caught) => onError(errorMessage(caught)),
+    onError: (caught) => onError(errorMessage(caught, language)),
   });
 
   return (
@@ -927,6 +965,7 @@ function TermForm({
 }
 
 function ExperimentForm({
+  language,
   projectId,
   samples,
   samplesStatus,
@@ -938,6 +977,7 @@ function ExperimentForm({
   onCreated,
   onError,
 }: {
+  language: CatalogCopyLanguage;
   projectId: string;
   samples: readonly CatalogSampleListResponseSamplesItem[];
   samplesStatus: 'loading' | 'ready' | 'error';
@@ -992,7 +1032,7 @@ function ExperimentForm({
       onError(null);
       await onCreated(revision);
     },
-    onError: (caught) => onError(errorMessage(caught)),
+    onError: (caught) => onError(errorMessage(caught, language)),
   });
 
   return (
@@ -1059,7 +1099,7 @@ function ExperimentForm({
           <option value="">Select a sample revision</option>
           {samples.map((sample) => (
             <option key={sample.sample_revision_id} value={sample.sample_revision_id}>
-              {sample.display_name} · 修订 {sample.revision_number}
+              {sample.display_name} · {revisionNumberLabel(sample.revision_number, language)}
             </option>
           ))}
         </select>
@@ -1113,12 +1153,14 @@ function TermSelect({
 }
 
 function ReviseForm({
+  language,
   head,
   assayTerms,
   onRevised,
   onConflict,
   onError,
 }: {
+  language: CatalogCopyLanguage;
   head: CatalogExperimentResponse | null;
   assayTerms: readonly CatalogTermSummaryResponse[];
   onRevised: (revision: CatalogExperimentResponse) => Promise<void>;
@@ -1182,7 +1224,7 @@ function ReviseForm({
         await onConflict();
         return;
       }
-      onError(errorMessage(caught));
+      onError(errorMessage(caught, language));
     },
   });
 
