@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setUiLanguage } from '../../lib/uiLanguage';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { catalogGetArchivedTrack, catalogListArchivedTracks } from '../../api/archivedTracks';
 import { ArchivedTrackList } from './ArchivedTrackList';
 import {
@@ -31,7 +32,10 @@ function renderList() {
 }
 
 describe('ArchivedTrackList', () => {
+  afterEach(() => localStorage.removeItem('helixweave.ui-language'));
+
   beforeEach(() => {
+    setUiLanguage('zh-CN');
     listMock.mockReset();
     getMock.mockReset();
   });

@@ -22,7 +22,8 @@ describe('archive viewer address', () => {
     const older = sealedTrack(1);
     const href = archivedViewerHref(older);
     const request = archiveViewerRequest(href.slice(href.indexOf('?')));
-    expect(archivedTrackOpenName(older)).toBe('在 WashU 查看 signal.bw 第 1 版');
+    expect(archivedTrackOpenName(older, 'zh-CN')).toBe('在 WashU 查看 signal.bw 第 1 版');
+    expect(archivedTrackOpenName(older, 'en')).toBe('Open version 1 of signal.bw in WashU');
     expect(request).toEqual({
       kind: 'ready',
       projectId: PROJECT_ID,
@@ -57,6 +58,7 @@ describe('archive viewer address', () => {
     const [ruler, data] = archivedHubTracks(indexed, 'https://lab.example/content');
     expect(ruler).toMatchObject({ type: 'ruler' });
     expect(data).toMatchObject({
+      name: 'signal.bw · v1',
       type: 'longrange',
       url: 'https://lab.example/content',
       options: { clampHeight: true },
@@ -65,7 +67,7 @@ describe('archive viewer address', () => {
   });
 
   it('shows run and registered identities without a file path', () => {
-    expect(archivedSourceText(sealedTrack(1))).toBe(
+    expect(archivedSourceText(sealedTrack(1), 'zh-CN')).toBe(
       `运行 run-v1 · 产物 signal · 代次 artifactgen-${'a'.repeat(64)} · 修订 artifactrev-${'b'.repeat(64)}`,
     );
     const registered = sealedTrack(1, {
@@ -77,9 +79,9 @@ describe('archive viewer address', () => {
         index_result_revision_id: `rrev_${'f'.repeat(32)}`,
       },
     });
-    expect(archivedSourceText(registered)).toContain(`登记 rreg_${'c'.repeat(32)}`);
-    expect(archivedSourceText(registered)).toContain(`索引修订 rrev_${'f'.repeat(32)}`);
-    expect(archivedSourceText(registered)).not.toContain('/');
+    expect(archivedSourceText(registered, 'zh-CN')).toContain(`登记 rreg_${'c'.repeat(32)}`);
+    expect(archivedSourceText(registered, 'zh-CN')).toContain(`索引修订 rrev_${'f'.repeat(32)}`);
+    expect(archivedSourceText(registered, 'zh-CN')).not.toContain('/');
   });
 });
 

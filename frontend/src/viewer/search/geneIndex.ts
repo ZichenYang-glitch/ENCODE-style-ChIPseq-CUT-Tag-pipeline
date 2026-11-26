@@ -1,3 +1,4 @@
+import type { UiLanguage } from '../../lib/uiLanguage';
 import humanIndexUrl from './hg38-gene-index.json?url';
 import mouseIndexUrl from './mm10-gene-index.json?url';
 
@@ -196,20 +197,23 @@ export function coordinateSequence(region: string): string | null {
   return matched?.[1] ?? null;
 }
 
-export function missingPinnedSequence(sequence: string, assembly: AnnotationAssembly): string | null {
+export function missingPinnedSequence(sequence: string, assembly: AnnotationAssembly, language: UiLanguage = 'en'): string | null {
   const { sequences, lastAutosome } = annotations[assembly];
   if (sequences.has(sequence)) return null;
+  if (language === 'zh-CN') {
+    return `${assembly} 的染色体列表中没有 ${sequence}（chr1–chr${lastAutosome}、chrX、chrY、chrM）。查看位置未改变。`;
+  }
   return (
     `${sequence} is not a sequence in the pinned ${assembly} genome ` +
     `(chr1-chr${lastAutosome}, chrX, chrY, chrM). The viewer was not moved.`
   );
 }
 
-export function matchLabel(match: GeneMatch): string {
+export function matchLabel(match: GeneMatch, language: UiLanguage): string {
   const { locus } = match;
   const name =
     match.via === 'alias' && match.matchedAlias
-      ? `${match.matchedAlias}, alias of ${locus.symbol}`
+      ? (language === 'en' ? `${match.matchedAlias}, alias of ${locus.symbol}` : `${match.matchedAlias}（${locus.symbol} 的别名）`)
       : locus.symbol;
   return `${name} · ${formatRegion(locus)} · ${locus.strand} · ${locus.geneType} · ${locus.geneId}`;
 }

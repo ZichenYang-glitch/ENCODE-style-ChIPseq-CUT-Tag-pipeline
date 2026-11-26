@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { catalogListArchivedTracks } from '../../api/archivedTracks';
 import { Button } from '../../components/Button';
+import { useUiLanguage } from '../../lib/uiLanguage';
+import { archiveText } from './archiveText';
 import { ArchivedTrackFacts } from './ArchivedTrackFacts';
 import {
   ARCHIVE_PAGE_LIMIT,
@@ -19,6 +21,8 @@ export function ArchivedTrackList({
   projectId: string;
   experimentId: string;
 }) {
+  const language = useUiLanguage();
+  const text = archiveText[language];
   const scope = `${projectId}:${experimentId}`;
   const [scopeKey, setScopeKey] = useState(scope);
   const [offset, setOffset] = useState(0);
@@ -41,26 +45,26 @@ export function ArchivedTrackList({
       ),
   });
 
-  const error = query.isError ? archiveErrorFromUnknown(query.error) : null;
+  const error = query.isError ? archiveErrorFromUnknown(query.error, language) : null;
   const page = query.isSuccess ? query.data : null;
   const nextOffset = page?.next_offset ?? null;
 
   return (
     <section
-      aria-label="已封存轨道"
-      lang="zh-CN"
+      aria-label={text.list}
+      lang={language}
       className="space-y-3 rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
       data-testid="archived-track-list"
       data-project-id={projectId}
       data-experiment-id={experimentId}
     >
       <div>
-        <h3 className="text-lg font-semibold">已封存轨道</h3>
+        <h3 className="text-lg font-semibold">{text.list}</h3>
         <p className="text-sm text-[var(--color-text-muted)]">
-          选择要在 WashU 中查看的结果版本。
+          {text.choose}
         </p>
       </div>
-      {query.isPending ? <p role="status">正在读取已封存版本…</p> : null}
+      {query.isPending ? <p role="status">{text.loadingList}</p> : null}
       {error !== null ? (
         <p role="alert" data-testid="archived-track-error" data-error-code={error.code}>
           {error.message}
@@ -68,11 +72,11 @@ export function ArchivedTrackList({
       ) : null}
       {page !== null && page.items.length === 0 ? (
         <p role="status">
-          {offset > 0 || nextOffset !== null ? '这一页没有可读取的封存版本。' : '这条实验没有已封存轨道。'}
+          {offset > 0 || nextOffset !== null ? text.emptyPage : text.empty}
         </p>
       ) : null}
       {page !== null && page.items.length > 0 ? (
-        <ul aria-label="已封存版本" className="space-y-3">
+        <ul aria-label={text.versions} className="space-y-3">
           {page.items.map((track) => (
             <li
               key={track.archive_version_id}
@@ -80,14 +84,16 @@ export function ArchivedTrackList({
               data-testid="archived-track-version"
               {...archivedTrackDataProps(track)}
             >
-              <ArchivedTrackFacts track={track} />
+              <ArchivedTrackFacts track={track} language={language} />
               <a
                 className="inline-block text-sm text-[var(--color-link)] underline"
                 data-testid="archived-track-open"
                 href={archivedViewerHref(track)}
-                aria-label={archivedTrackOpenName(track)}
+                aria-label={archivedTrackOpenName(track, language)}
               >
-                在 WashU 查看{archivedVersionText(track.version_number)}
+                {language === 'en'
+                  ? `Open version ${track.version_number} in WashU`
+                  : `在 WashU 查看${archivedVersionText(track.version_number, language)}`}
               </a>
             </li>
           ))}
@@ -105,7 +111,7 @@ export function ArchivedTrackList({
               setOffset(previous);
             }}
           >
-            上一页
+            {text.previous}
           </Button>
           <Button
             type="button"
@@ -116,7 +122,7 @@ export function ArchivedTrackList({
               setOffset(nextOffset);
             }}
           >
-            下一页
+            {text.next}
           </Button>
         </div>
       ) : null}

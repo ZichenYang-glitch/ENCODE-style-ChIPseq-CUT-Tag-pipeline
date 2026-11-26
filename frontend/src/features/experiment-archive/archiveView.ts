@@ -1,4 +1,6 @@
 import type { HTMLAttributes } from 'react';
+import type { UiLanguage } from '../../lib/uiLanguage';
+import { archiveText } from './archiveText';
 import type { WashuTrackConfig } from 'wuepgg';
 import { ApiError } from '../../api/fetcher';
 import { ARCHIVE_VERSION_ID, EXPERIMENT_ID, PROJECT_ID } from '../../api/archiveScope';
@@ -31,35 +33,22 @@ export type ArchiveViewerRequest =
       archiveVersionId: string;
     };
 
-const ERROR_TEXT: Record<ArchiveErrorCode, string> = {
-  archive_version_not_found: '这份封存版本不存在。页面没有改读另一版。',
-  archive_version_conflict: '封存版本发生冲突。页面没有改读另一版。',
-  archive_offline: '封存副本离线。页面没有改读另一版。',
-  archive_integrity: '封存副本未通过校验。页面没有改读另一版。',
-  archive_invalid: '封存版本无法读取。页面没有改读另一版。',
-  archive_unauthorized: '无权读取这份封存版本。页面没有改读另一版。',
-};
-
-export function archiveErrorCopy(code: string | null | undefined): {
-  code: ArchiveErrorCode;
-  message: string;
-} {
+export function archiveErrorCopy(code: string | null | undefined, language: UiLanguage = 'en') {
   const known = ARCHIVE_ERROR_CODES.find((item) => item === code) ?? 'archive_invalid';
-  return { code: known, message: ERROR_TEXT[known] };
+  const copy = archiveText[language];
+  return { code: known, message: [copy.errors[known], copy.noFallback].join(language === 'en' ? ' ' : '') };
 }
 
-export function archiveErrorFromUnknown(error: unknown): { code: ArchiveErrorCode; message: string } {
-  if (error instanceof ApiError) {
-    return archiveHttpError(error.status, error.code);
-  }
-  return archiveErrorCopy('archive_invalid');
+export function archiveErrorFromUnknown(error: unknown, language: UiLanguage) {
+  if (error instanceof ApiError) return archiveHttpError(error.status, error.code, language);
+  return archiveErrorCopy('archive_invalid', language);
 }
 
-export function archiveHttpError(status: number, code: string | null) {
-  if (status === 401 || status === 403) return archiveErrorCopy('archive_unauthorized');
-  if (status === 404) return archiveErrorCopy(code ?? 'archive_version_not_found');
-  if (status === 409) return archiveErrorCopy(code ?? 'archive_version_conflict');
-  return archiveErrorCopy(code);
+export function archiveHttpError(status: number, code: string | null, language: UiLanguage = 'en') {
+  if (status === 401 || status === 403) return archiveErrorCopy('archive_unauthorized', language);
+  if (status === 404) return archiveErrorCopy(code ?? 'archive_version_not_found', language);
+  if (status === 409) return archiveErrorCopy(code ?? 'archive_version_conflict', language);
+  return archiveErrorCopy(code, language);
 }
 
 export function archiveViewerRequest(search: string): ArchiveViewerRequest {
@@ -93,32 +82,36 @@ export function archivedViewerHref(
 
 export function archivedTrackOpenName(
   track: Pick<ArchivedTrack, 'display_name' | 'version_number'>,
+  language: UiLanguage,
 ): string {
-  return `在 WashU 查看 ${track.display_name} 第 ${track.version_number} 版`;
+  return language === 'en'
+    ? `Open version ${track.version_number} of ${track.display_name} in WashU`
+    : `在 WashU 查看 ${track.display_name} 第 ${track.version_number} 版`;
 }
 
-export function archivedVersionText(versionNumber: number): string {
-  return `第 ${versionNumber} 版`;
+export function archivedVersionText(versionNumber: number, language: UiLanguage): string {
+  return language === 'en' ? `Version ${versionNumber}` : `第 ${versionNumber} 版`;
 }
 
-export function archivedSourceText(track: ArchivedTrack): string {
+export function archivedSourceText(track: ArchivedTrack, language: UiLanguage): string {
+  const labels = archiveText[language];
   if (track.source.kind === 'run') {
-    const base = `运行 ${track.source.run_id} · 产物 ${track.source.artifact_id} · 代次 ${track.source.generation} · 修订 ${track.source.revision}`;
+    const base = `${labels.run} ${track.source.run_id} · ${labels.artifact} ${track.source.artifact_id} · ${labels.generation} ${track.source.generation} · ${labels.revision} ${track.source.revision}`;
     if (
       track.source.index_artifact_id !== undefined &&
       track.source.index_generation !== undefined &&
       track.source.index_revision !== undefined
     ) {
-      return `${base} · 索引产物 ${track.source.index_artifact_id} · 索引代次 ${track.source.index_generation} · 索引修订 ${track.source.index_revision}`;
+      return `${base} · ${labels.indexArtifact} ${track.source.index_artifact_id} · ${labels.indexGeneration} ${track.source.index_generation} · ${labels.indexRevision} ${track.source.index_revision}`;
     }
     return base;
   }
-  const base = `登记 ${track.source.result_id} · 修订 ${track.source.result_revision_id}`;
+  const base = `${labels.registered} ${track.source.result_id} · ${labels.revision} ${track.source.result_revision_id}`;
   if (
     track.source.index_result_id !== undefined &&
     track.source.index_result_revision_id !== undefined
   ) {
-    return `${base} · 索引登记 ${track.source.index_result_id} · 索引修订 ${track.source.index_result_revision_id}`;
+    return `${base} · ${labels.indexRegistered} ${track.source.index_result_id} · ${labels.indexRevision} ${track.source.index_result_revision_id}`;
   }
   return base;
 }
@@ -135,7 +128,7 @@ export function archivedIndexPath(track: ArchivedTrack): string | null {
 export function archivedHubTracks(track: ArchivedTrack, contentUrl: string, textFile?: File | null): WashuTrackConfig[] {
   const data: WashuTrackConfig = {
     type: track.track_type,
-    name: `${track.display_name} ${archivedVersionText(track.version_number)}`,
+    name: `${track.display_name} · v${track.version_number}`,
     url: contentUrl,
     waitToUpdate: true,
   };

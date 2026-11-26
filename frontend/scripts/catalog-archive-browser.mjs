@@ -2,7 +2,7 @@
 // HELIXWEAVE_PYTHON selects a wheel with the integrated archive feature and
 // freshly packaged frontend. WASHU_FIXTURE_PYTHON uses workflow/envs/deeptools.lock.
 // WASHU_ARCHIVE_DIR optionally selects the parent for a fresh receipt directory.
-// Run `node frontend/scripts/catalog-archive-browser.mjs`.
+// Run `node frontend/scripts/catalog-archive-browser.mjs` to check both UI languages.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
@@ -111,13 +111,30 @@ function viewerIdentity(url, origin, fixture) {
     url.searchParams.get('archive') === fixture.archive_version_id;
 }
 
-async function checkTrackFacts(scope, fixture) {
+const languages = {
+  en: {
+    locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region',
+    version: (n) => `Version ${n}`,
+    source: (item) => `Registered result ${item.result_id} · Revision ${item.result_revision_id}`,
+    action: (n) => `Open version ${n} of ${trackName} in WashU`,
+    offline: 'The archived copy is offline.', denied: 'You do not have access to this archived version.',
+  },
+  'zh-CN': {
+    locale: 'zh-CN', select: '语言', list: '已封存轨道', viewer: '已封存轨道', region: '基因组位置',
+    version: (n) => `第 ${n} 版`,
+    source: (item) => `登记 ${item.result_id} · 修订 ${item.result_revision_id}`,
+    action: (n) => `在 WashU 查看 ${trackName} 第 ${n} 版`,
+    offline: '封存副本离线。', denied: '无权读取这份封存版本。',
+  },
+};
+
+async function checkTrackFacts(scope, fixture, copy) {
   await expect(scope.getByTestId('archived-track-label')).toHaveText(trackName);
   await expect(scope.getByTestId('archived-track-version-label')).toHaveText(
-    `第 ${fixture.version_number} 版`,
+    copy.version(fixture.version_number),
   );
   await expect(scope.getByTestId('archived-track-source')).toHaveText(
-    `登记 ${fixture.source.result_id} · 修订 ${fixture.source.result_revision_id}`,
+    copy.source(fixture.source),
   );
   await expect(scope.getByTestId('archived-track-assembly')).toHaveText('hg38');
   await expect(scope.getByTestId('archived-track-experiment-revision')).toHaveText(
@@ -189,7 +206,7 @@ async function revokeMemberSessions(manifest, userId) {
   }
 }
 
-async function readDenial(page, contentPath, status, viewerCode) {
+async function readDenial(page, contentPath, status, viewerCode, message) {
   const observed = await page.evaluate(async (path) => {
     const response = await fetch(path, {
       headers: { Range: 'bytes=0-0' },
@@ -204,16 +221,21 @@ async function readDenial(page, contentPath, status, viewerCode) {
   await expect(page.getByTestId('archived-track-error')).toHaveAttribute(
     'data-error-code', viewerCode,
   );
+  await expect(page.getByRole('alert')).toContainText(message);
   await expect(page.getByTestId('washu-genome-viewer')).toHaveCount(0);
   return { ...observed, viewer_code: viewerCode };
 }
 
-async function openVersion(browser, manifest, fixture, out, work) {
+async function openVersion(browser, manifest, fixture, out, work, language) {
+  const other = language === 'en' ? 'zh-CN' : 'en';
+  const browserLanguage = fixture.version_number === 1 ? other : language;
+  const copy = languages[language];
   const origin = manifest.api_base;
   const experimentPath = `/api/v1/catalog/projects/${manifest.project_id}/experiments/${manifest.experiment_id}`;
   const descriptorPath = `${experimentPath}/archived-tracks/${fixture.archive_version_id}`;
   const context = await browser.newContext({
     baseURL: origin,
+    locale: languages[browserLanguage].locale,
     viewport: { width: 1440, height: 1000 },
     serviceWorkers: 'block',
   });
@@ -263,6 +285,9 @@ async function openVersion(browser, manifest, fixture, out, work) {
     assert.equal(principal.role, 'member');
     await catalog.getByRole('navigation', { name: 'Primary' })
       .getByRole('link', { name: 'Catalog', exact: true }).click();
+    const chooser = catalog.getByRole('combobox', { name: languages[browserLanguage].select, exact: true });
+    await expect(chooser).toHaveValue(browserLanguage);
+    if (browserLanguage !== 'en') await chooser.selectOption('en');
     const search = catalog.getByRole('form', { name: 'Find experiments' });
     await search.getByLabel('Project').selectOption(manifest.project_id);
     await search.getByRole('button', { name: 'Find experiments' }).click();
@@ -274,18 +299,22 @@ async function openVersion(browser, manifest, fixture, out, work) {
     const row = catalog.getByTestId('archived-track-version').and(
       catalog.locator(`[data-archive-version-id="${fixture.archive_version_id}"]`),
     );
-    await checkTrackFacts(row, fixture);
+    if (language !== 'en') {
+      await catalog.getByRole('combobox', { name: 'Language', exact: true }).selectOption(language);
+    }
+    await expect(catalog.getByRole('region', { name: copy.list })).toBeVisible();
+    await checkTrackFacts(row, fixture, copy);
     if (fixture.version_number === 1) {
       const choices = catalog.getByTestId('archived-track-list');
       for (const number of [1, 2]) {
         await expect(choices.getByRole('link', {
-          name: `在 WashU 查看 ${trackName} 第 ${number} 版`, exact: true,
+          name: copy.action(number), exact: true,
         })).toBeVisible();
       }
-      await choices.screenshot({ path: join(out, 'experiment-versions.png') });
+      await choices.screenshot({ path: join(out, `${language}-experiment-versions.png`) });
     }
     const action = row.getByRole('link', {
-      name: `在 WashU 查看 ${trackName} 第 ${fixture.version_number} 版`,
+      name: copy.action(fixture.version_number),
       exact: true,
     });
     const href = await action.getAttribute('href');
@@ -319,8 +348,10 @@ async function openVersion(browser, manifest, fixture, out, work) {
     assert.equal(selected.has_index, false);
     const viewer = catalog;
     await viewer.waitForURL((url) => viewerIdentity(url, origin, fixture));
-    await checkTrackFacts(viewer.getByTestId('archived-track-viewer'), fixture);
-    const region = viewer.getByRole('textbox', { name: 'Genomic region' });
+    await expect(viewer.getByRole('heading', { name: copy.viewer, exact: true })).toBeVisible();
+    await expect(viewer.getByRole('combobox', { name: copy.select })).toHaveValue(language);
+    await checkTrackFacts(viewer.getByTestId('archived-track-viewer'), fixture, copy);
+    const region = viewer.getByRole('textbox', { name: copy.region });
     await region.fill(targetWindow.region);
     phase = 'target-window';
     await region.press('Enter');
@@ -330,13 +361,14 @@ async function openVersion(browser, manifest, fixture, out, work) {
     const expectedValue = values[fixture.version_number];
     assert.equal(geometry.value, expectedValue);
     await viewer.getByTestId('washu-genome-viewer').screenshot({
-      path: join(out, `v${fixture.version_number}.png`),
+      path: join(out, `${language}-v${fixture.version_number}.png`),
     });
 
     const contentPath = `${descriptorPath}/content`;
     const transcript = await readTranscript(requests, contentPath);
     assert.equal(transcript.reads.length, requests.length, 'archive reads continued after the capture');
     const evidence = {
+      language, browser_locale: languages[browserLanguage].locale,
       version: fixture.version_number,
       archive_version_id: fixture.archive_version_id,
       restored_version_id: fixture.restored_version_id,
@@ -355,14 +387,14 @@ async function openVersion(browser, manifest, fixture, out, work) {
       const offlineRoot = join(work, 'offline-archive');
       await rename(archiveRoot, offlineRoot);
       try {
-        evidence.offline = await readDenial(viewer, contentPath, 409, 'archive_offline');
+        evidence.offline = await readDenial(viewer, contentPath, 409, 'archive_offline', copy.offline);
         assert.equal(evidence.offline.issue, 'archive_offline');
       } finally {
         await rename(offlineRoot, archiveRoot);
       }
       const revoked = await revokeMemberSessions(manifest, principal.user_id);
       evidence.revoked = {
-        ...(await readDenial(viewer, contentPath, 401, 'archive_unauthorized')),
+        ...(await readDenial(viewer, contentPath, 401, 'archive_unauthorized', copy.denied)),
         sessions_revoked: revoked,
       };
       assert(requests.every(({ request }) => request.url() === origin + contentPath),
@@ -412,8 +444,10 @@ try {
   assert.notEqual(fixtures[0].archive_version_id, fixtures[1].archive_version_id);
   browser = await chromium.launch({ args: ['--no-proxy-server'] });
   const evidence = [];
-  for (const fixture of fixtures.toReversed()) {
-    evidence.push(await openVersion(browser, manifest, fixture, out, work));
+  for (const language of Object.keys(languages)) {
+    for (const fixture of fixtures.toReversed()) {
+      evidence.push(await openVersion(browser, manifest, fixture, out, work, language));
+    }
   }
   const receipt = {
     chromium: browser.version(),

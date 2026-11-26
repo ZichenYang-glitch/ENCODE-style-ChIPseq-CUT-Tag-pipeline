@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setUiLanguage } from '../../lib/uiLanguage';
 import LocusSearch from './LocusSearch';
 import { DEFAULT_HG38_ASSEMBLIES, parseGeneIndex } from './geneIndex';
 
@@ -95,7 +96,7 @@ describe('LocusSearch', () => {
       <LocusSearch assembly="hg38" region="chr1:500-2700" onNavigate={onNavigate} />,
     );
     await settleIndex();
-    expect(screen.getByText(/基因名（如 EGFR）或 chr:start-end/)).toBeInTheDocument();
+    expect(screen.getByText(/Enter a gene name \(e\.g\. EGFR\) or coordinates/)).toBeInTheDocument();
     expect(input()).toHaveValue('chr1:500-2700');
     expect(loadIndex).not.toHaveBeenCalled();
     expect(onNavigate).not.toHaveBeenCalled();
@@ -103,6 +104,26 @@ describe('LocusSearch', () => {
     expect(input()).toHaveValue('chr2:3-9');
     expect(onNavigate).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('translates a blocked or ambiguous locus without changing the query or moving the viewer', async () => {
+    const onNavigate = vi.fn();
+    render(<LocusSearch assembly="hg38" region="chr1:1-100" onNavigate={onNavigate} />);
+    fireEvent.change(input(), { target: { value: 'chrUn:2-10' } });
+    expect(screen.getByRole('status')).toHaveTextContent('The viewer was not moved.');
+    act(() => setUiLanguage('zh-CN'));
+    const field = screen.getByRole('textbox', { name: '基因组位置' });
+    expect(field).toHaveValue('chrUn:2-10');
+    expect(screen.getByRole('status')).toHaveTextContent('染色体列表中没有 chrUn');
+    expect(screen.getByText(/基因名（如 EGFR）/)).toBeVisible();
+    fireEvent.change(field, { target: { value: 'IL9R' } });
+    await settleIndex();
+    expect(screen.getByRole('listbox', { name: '基因匹配结果' })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('匹配 2 个位置');
+    act(() => setUiLanguage('en'));
+    expect(input()).toHaveValue('IL9R');
+    expect(screen.getByRole('status')).toHaveTextContent('IL9R matches 2 locations');
+    expect(onNavigate).not.toHaveBeenCalled();
   });
 
   it('navigates as soon as a legal coordinate is typed, and trims it', async () => {

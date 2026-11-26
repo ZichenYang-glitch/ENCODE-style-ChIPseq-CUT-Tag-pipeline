@@ -65,6 +65,7 @@ export function UiLanguageSelect() {
       {language === 'en' ? 'Language' : '语言'}
       <select
         className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1"
+        aria-label={language === 'en' ? 'Language' : '语言'}
         value={language}
         onChange={(event) => setUiLanguage(event.target.value === 'zh-CN' ? 'zh-CN' : 'en')}
       >

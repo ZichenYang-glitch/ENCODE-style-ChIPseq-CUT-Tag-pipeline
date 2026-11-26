@@ -5,6 +5,8 @@ import washUStyles from 'wuepgg/style.css?raw';
 import { catalogGetArchivedTrack } from '../../api/archivedTracks';
 import { sameOriginApiUrl } from '../../api/archiveScope';
 import LocusSearch from '../../viewer/search/LocusSearch';
+import { UiLanguageSelect, useUiLanguage } from '../../lib/uiLanguage';
+import { archiveText } from './archiveText';
 import { ArchivedTrackFacts } from './ArchivedTrackFacts';
 import { preflightArchivedBytes } from './archivedBytes';
 import { observeArchiveWorkerReads } from './archiveWorkerReads';
@@ -17,6 +19,7 @@ import {
   archiveErrorCopy,
   archiveErrorFromUnknown,
   isDrawableRegion,
+  type ArchiveErrorCode,
   type ArchiveViewerRequest,
 } from './archiveView';
 
@@ -25,11 +28,13 @@ import {
 const INITIAL_REGION = 'chr1:1-10000';
 
 export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest }) {
+  const language = useUiLanguage();
+  const text = archiveText[language];
   const ready = request.kind === 'ready' ? request : null;
   const identity = ready?.archiveVersionId ?? '';
   const [seenIdentity, setSeenIdentity] = useState(identity);
   const [region, setRegion] = useState(INITIAL_REGION);
-  const [readError, setReadError] = useState<ReturnType<typeof archiveErrorCopy> | null>(null);
+  const [readError, setReadError] = useState<ArchiveErrorCode | null>(null);
   const [workerScope, setWorkerScope] = useState<string | null>(null);
   if (seenIdentity !== identity) {
     setSeenIdentity(identity);
@@ -79,7 +84,7 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
   useLayoutEffect(() => {
     if (contentUrl === null) return;
     const stop = observeArchiveWorkerReads(contentUrl, indexUrl, (failure) => {
-      setReadError((current) => failure.code === 'archive_unauthorized' ? failure : current ?? failure);
+      setReadError((current) => failure.code === 'archive_unauthorized' ? failure.code : current ?? failure.code);
     });
     setWorkerScope(contentUrl);
     return stop;
@@ -107,21 +112,21 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     [contentUrl, track, bytesQuery.data],
   );
 
-  let error = request.kind === 'invalid' ? archiveErrorCopy('archive_invalid') : null;
-  if (descriptorQuery.isError) error = archiveErrorFromUnknown(descriptorQuery.error);
-  else if (mismatch) error = archiveErrorCopy('archive_version_conflict');
+  let error = request.kind === 'invalid' ? archiveErrorCopy('archive_invalid', language) : null;
+  if (descriptorQuery.isError) error = archiveErrorFromUnknown(descriptorQuery.error, language);
+  else if (mismatch) error = archiveErrorCopy('archive_version_conflict', language);
   else if (track !== null && scaffold === null) {
     error = {
       code: 'archive_invalid',
-      message: '这个组装没有可用的 WashU 染色体列表。轨道没有被改标。页面没有改读另一版。',
+      message: [text.unsupported, text.noFallback].join(language === 'en' ? ' ' : ''),
     };
   } else if (track !== null && contentUrl === null) {
     error = {
       code: 'archive_invalid',
-      message: '封存轨道只能从当前站点读取。页面没有改读另一版。',
+      message: [text.sameOrigin, text.noFallback].join(language === 'en' ? ' ' : ''),
     };
-  } else if (bytesQuery.isError) error = archiveErrorFromUnknown(bytesQuery.error);
-  else if (readError !== null) error = readError;
+  } else if (bytesQuery.isError) error = archiveErrorFromUnknown(bytesQuery.error, language);
+  else if (readError !== null) error = archiveErrorCopy(readError, language);
   const draw =
     error === null && bytesQuery.isSuccess && scaffold !== null &&
     workerScope === contentUrl && isDrawableRegion(region);
@@ -129,8 +134,8 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
 
   return (
     <article
-      aria-label="已封存轨道"
-      lang="zh-CN"
+      aria-label={text.viewer}
+      lang={language}
       className="min-w-0 space-y-3"
       data-testid="archived-track-viewer"
       data-content-path={contentPath ?? ''}
@@ -144,18 +149,21 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
           }
         : {})}
     >
-      <h1 className="text-lg font-semibold">已封存轨道</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">{text.viewer}</h1>
+        <UiLanguageSelect />
+      </header>
       {ready !== null && visibleTrack === null ? (
-        <p data-testid="archived-track-request">封存版本 {ready.archiveVersionId}</p>
+        <p data-testid="archived-track-request">{text.identifier} {ready.archiveVersionId}</p>
       ) : null}
-      {descriptorQuery.isPending && ready !== null ? <p role="status">正在读取这份封存版本…</p> : null}
-      {visibleTrack !== null ? <ArchivedTrackFacts track={visibleTrack} /> : null}
+      {descriptorQuery.isPending && ready !== null ? <p role="status">{text.loadingTrack}</p> : null}
+      {visibleTrack !== null ? <ArchivedTrackFacts track={visibleTrack} language={language} /> : null}
       {error !== null ? (
         <p role="alert" data-testid="archived-track-error" data-error-code={error.code}>
           {error.message}
         </p>
       ) : null}
-      {bytesQuery.isPending && bytesReady ? <p role="status">正在核对封存副本…</p> : null}
+      {bytesQuery.isPending && bytesReady ? <p role="status">{text.verifying}</p> : null}
       {track !== null && scaffold !== null && contentUrl !== null && error === null ? (
         <LocusSearch assembly={track.assembly} region={region} onNavigate={setRegion} />
       ) : null}

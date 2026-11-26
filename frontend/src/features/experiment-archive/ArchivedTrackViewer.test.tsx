@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { runInNewContext } from 'node:vm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setUiLanguage } from '../../lib/uiLanguage';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { catalogGetArchivedTrack, catalogListArchivedTracks } from '../../api/archivedTracks';
 import { ApiError } from '../../api/fetcher';
 import { ArchivedTrackViewer } from './ArchivedTrackViewer';
@@ -62,7 +63,10 @@ function renderViewer(request: ArchiveViewerRequest = ready) {
 }
 
 describe('ArchivedTrackViewer', () => {
+  afterEach(() => localStorage.removeItem('helixweave.ui-language'));
+
   beforeEach(() => {
+    setUiLanguage('zh-CN');
     getMock.mockReset();
     listMock.mockReset();
     vi.unstubAllGlobals();
@@ -93,7 +97,7 @@ describe('ArchivedTrackViewer', () => {
     const initial = await screen.findByTestId('washu-mock-viewer');
     expect(initial).toHaveAttribute('data-track-url', expect.stringContaining(ARCHIVE_V1));
     expect(initial).toHaveAttribute('data-region', 'chr1:1-10000');
-    const locus = screen.getByRole('textbox', { name: 'Genomic region' });
+    const locus = screen.getByRole('textbox', { name: '基因组位置' });
     expect(locus).toHaveValue('chr1:1-10000');
     await user.clear(locus);
     await user.type(locus, 'chr1:100-200');
@@ -109,6 +113,14 @@ describe('ArchivedTrackViewer', () => {
     expect(seen.map((item) => item.url).join(' ')).not.toContain(ARCHIVE_V2);
     expect(document.querySelector('input[type="file"]')).toBeNull();
     expect(screen.queryByTestId('local-track-picker')).not.toBeInTheDocument();
+    const nativeViewer = screen.getByTestId('washu-mock-viewer');
+    const readsBeforeSwitch = seen.length;
+    await user.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    expect(screen.getByRole('heading', { name: 'Archived track' })).toBeVisible();
+    expect(screen.getByTestId('archived-track-version-label')).toHaveTextContent('Version 1');
+    expect(screen.getByRole('textbox', { name: 'Genomic region' })).toHaveValue('chr1:100-200');
+    expect(screen.getByTestId('washu-mock-viewer')).toBe(nativeViewer);
+    expect(seen).toHaveLength(readsBeforeSwitch);
     expect(listMock).not.toHaveBeenCalled();
     expect(getMock).toHaveBeenCalledWith(PROJECT_ID, EXPERIMENT_ID, ARCHIVE_V1, expect.any(Object));
   });
@@ -179,7 +191,11 @@ describe('ArchivedTrackViewer', () => {
     expect(alert).toHaveAttribute('data-error-code', 'archive_offline');
     expect(alert).toHaveTextContent('封存副本离线');
     expect(alert).toHaveTextContent('没有改读另一版');
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+    expect(alert).toHaveTextContent('The archived copy is offline. No other version was opened.');
+    expect(alert).toHaveAttribute('data-error-code', 'archive_offline');
     expect(alert).not.toHaveTextContent('/mnt/archive');
+    expect(getMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('washu-genome-viewer')).not.toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).toBeNull();
   });
