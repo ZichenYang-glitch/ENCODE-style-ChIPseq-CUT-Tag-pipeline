@@ -586,3 +586,76 @@ def test_idr_targets_empty_when_disabled(targets_file):
     assert namespace["_atac_idr_targets"]() == []
     assert namespace["_cuttag_idr_targets"]() == []
     assert namespace["_broad_idr_targets"]() == []
+
+
+@pytest.mark.parametrize(
+    ("assay", "peak_mode", "idr_flag_global", "idr_list_global", "suffix", "seacr"),
+    [
+        (
+            "cuttag",
+            "narrow",
+            "CUTTAG_IDR_ENABLED",
+            "CUTTAG_IDR_EXPERIMENTS",
+            "narrowPeak",
+            True,
+        ),
+        (
+            "chipseq",
+            "broad",
+            "BROAD_CHIPSEQ_IDR_ENABLED",
+            "BROAD_CHIPSEQ_IDR_EXPERIMENTS",
+            "broadPeak",
+            False,
+        ),
+        (
+            "cuttag",
+            "broad",
+            "BROAD_CUTTAG_IDR_ENABLED",
+            "BROAD_CUTTAG_IDR_EXPERIMENTS",
+            "broadPeak",
+            True,
+        ),
+    ],
+    ids=["cuttag-narrow-with-seacr", "chipseq-broad", "cuttag-broad-with-seacr"],
+)
+def test_consensus_targets_excludes_idr_groups_per_experiment_and_preserves_seacr(
+    targets_file,
+    assay,
+    peak_mode,
+    idr_flag_global,
+    idr_list_global,
+    suffix,
+    seacr,
+):
+    namespace = _load_targets_namespace(
+        targets_file,
+        idr_globals={
+            "REPLICATE_ANALYSIS": True,
+            "CONSENSUS_ENABLED": True,
+            "CONSENSUS_EXPERIMENTS": {(assay, peak_mode): ["GRP2", "GRP3"]},
+            "SEACR_CONSENSUS_EXPERIMENTS": ["GRP2", "GRP3"] if seacr else [],
+            "SEACR_MODE": "stringent",
+            idr_flag_global: True,
+            idr_list_global: ["GRP2"],
+        },
+    )
+
+    targets = namespace["_consensus_targets"]()
+    grp2_macs3_final = (
+        f"results/experiments/GRP2/06_reproducibility/final/"
+        f"GRP2.{assay}.macs3.{peak_mode}.replicate_validated.consensus.{suffix}"
+    )
+    grp3_macs3_final = (
+        f"results/experiments/GRP3/06_reproducibility/final/"
+        f"GRP3.{assay}.macs3.{peak_mode}.replicate_validated.consensus.{suffix}"
+    )
+    assert grp2_macs3_final not in targets
+    assert grp3_macs3_final in targets
+
+    if seacr:
+        for exp in ("GRP2", "GRP3"):
+            assert (
+                f"results/experiments/{exp}/06_reproducibility/final/"
+                f"{exp}.cuttag.seacr.stringent.replicate_validated.consensus.bed"
+                in targets
+            )

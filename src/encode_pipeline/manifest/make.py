@@ -13,6 +13,7 @@ import os
 
 import yaml
 
+from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
 from encode_pipeline.config.validate import resolve_blacklist_mode, validate_config
 from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
@@ -1135,31 +1136,51 @@ def _build_idr_rows(samples, outdir, chipseq_idr):
     return rows
 
 
-def _compute_reproducibility_eligibility(config, treatment_samples):
+def _compute_reproducibility_eligibility(config, treatment_samples, idr_flags):
     """Recompute reproducibility eligibility from config + sample sheet.
 
     Must match validate_samples.py and metadata.smk logic. Returns a dict
     with per-mode experiment lists. Does NOT rely on Snakemake globals.
     """
-    repro = config.get("reproducibility", {})
-    repro_enabled = repro.get("enabled", False)
-    consensus_cfg = repro.get("consensus", {})
-    consensus_enabled = repro_enabled and consensus_cfg.get("enabled", True)
-    idr_cfg = repro.get("idr", {})
-    replicate_analysis = config.get("replicate_analysis", True)
+    repro_raw = config.get("reproducibility", {})
+    repro = {} if repro_raw is None else repro_raw
+    if not isinstance(repro, dict):
+        raise ValueError(
+            f"reproducibility must be a mapping, got {type(repro).__name__}"
+        )
+    repro_enabled = _manifest_bool(
+        repro.get("enabled"), False, "reproducibility.enabled"
+    )
+    consensus_raw = repro.get("consensus", {})
+    consensus_cfg = {} if consensus_raw is None else consensus_raw
+    if repro_enabled and not isinstance(consensus_cfg, dict):
+        raise ValueError(
+            f"reproducibility.consensus must be a mapping, "
+            f"got {type(consensus_cfg).__name__}"
+        )
+    consensus_enabled = repro_enabled and _manifest_bool(
+        consensus_cfg.get("enabled"), True, "reproducibility.consensus.enabled"
+    )
+    replicate_analysis = _manifest_bool(
+        config.get("replicate_analysis"), True, "replicate_analysis"
+    )
     cuttag_cfg = config.get("cuttag", {})
-    seacr_cfg = cuttag_cfg.get("seacr", {})
+    seacr_cfg = cuttag_cfg.get("seacr", {}) if isinstance(cuttag_cfg, dict) else {}
     seacr_enabled = (
-        seacr_cfg.get("enabled", False) if isinstance(seacr_cfg, dict) else False
+        _manifest_bool(seacr_cfg.get("enabled"), False, "cuttag.seacr.enabled")
+        if isinstance(seacr_cfg, dict)
+        else False
     )
-    seacr_mode = str(seacr_cfg.get("mode", "stringent"))
+    seacr_mode = (
+        str(seacr_cfg.get("mode", "stringent"))
+        if isinstance(seacr_cfg, dict)
+        else "stringent"
+    )
 
-    atac_narrow_idr = repro_enabled and idr_cfg.get("atac_narrow", False)
-    cuttag_narrow_idr = repro_enabled and idr_cfg.get("cuttag_narrow", False)
-    chipseq_broad_idr = repro_enabled and idr_cfg.get(
-        "chipseq_broad_experimental", False
-    )
-    cuttag_broad_idr = repro_enabled and idr_cfg.get("cuttag_broad_experimental", False)
+    atac_narrow_idr = idr_flags["atac_narrow"]
+    cuttag_narrow_idr = idr_flags["cuttag_narrow"]
+    chipseq_broad_idr = idr_flags["chipseq_broad"]
+    cuttag_broad_idr = idr_flags["cuttag_broad"]
 
     # Group samples by experiment
     exp_samples = {}
@@ -1232,7 +1253,7 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
     }
 
 
-def _build_reproducibility_rows(samples, config, outdir):
+def _build_reproducibility_rows(samples, config, outdir, idr_flags):
     """Stage 66: Emit mode-specific reproducibility manifest rows.
 
     Only user-facing catalog outputs (consensus peak, consensus summary,
@@ -1244,7 +1265,7 @@ def _build_reproducibility_rows(samples, config, outdir):
     """
     rows = []
     treatment = [s for s in samples if s.get("role") == "treatment"]
-    e = _compute_reproducibility_eligibility(config, treatment)
+    e = _compute_reproducibility_eligibility(config, treatment, idr_flags)
 
     if not e["replicate_analysis_enabled"]:
         return rows
@@ -1536,66 +1557,72 @@ def _build_reproducibility_rows(samples, config, outdir):
                 f"{stem}/reproducibility_summary.tsv",
             )
 
-    # Consensus final peaks (modes where IDR is NOT enabled)
+    # Consensus final peaks (per-experiment exclusion of IDR-routed groups)
     if e["repro_enabled"] and e["consensus_enabled"]:
         stem = f"{step}"
 
-        # chipseq broad: consensus final when broad IDR not enabled
-        if not e["chipseq_broad_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(("chipseq", "broad"), [])):
-                meta = _exp_meta(exp)
-                if meta is None:
-                    continue
-                p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(
-                    rows,
-                    "",
-                    exp,
-                    meta["assay"],
-                    meta["target"],
-                    meta["genome"],
-                    "chipseq_macs3_broad_consensus_final_peak",
-                    "cp",
-                    f"{p}/{exp}.chipseq.macs3.broad.replicate_validated.consensus.broadPeak",
-                )
+        # chipseq broad: consensus final for experiments not routed to broad IDR
+        chipseq_broad_idr_set = set(e["chipseq_broad_idr_experiments"])
+        for exp in sorted(e["consensus_experiments"].get(("chipseq", "broad"), [])):
+            if exp in chipseq_broad_idr_set:
+                continue
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            p = f"{stem}/{exp}/06_reproducibility/final"
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "chipseq_macs3_broad_consensus_final_peak",
+                "cp",
+                f"{p}/{exp}.chipseq.macs3.broad.replicate_validated.consensus.broadPeak",
+            )
 
-        # cuttag narrow: consensus final when cuttag narrow IDR not enabled
-        if not e["cuttag_narrow_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(("cuttag", "narrow"), [])):
-                meta = _exp_meta(exp)
-                if meta is None:
-                    continue
-                p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(
-                    rows,
-                    "",
-                    exp,
-                    meta["assay"],
-                    meta["target"],
-                    meta["genome"],
-                    "cuttag_macs3_narrow_consensus_final_peak",
-                    "cp",
-                    f"{p}/{exp}.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak",
-                )
+        # cuttag narrow: consensus final for experiments not routed to narrow IDR
+        cuttag_narrow_idr_set = set(e["cuttag_idr_experiments"])
+        for exp in sorted(e["consensus_experiments"].get(("cuttag", "narrow"), [])):
+            if exp in cuttag_narrow_idr_set:
+                continue
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            p = f"{stem}/{exp}/06_reproducibility/final"
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_narrow_consensus_final_peak",
+                "cp",
+                f"{p}/{exp}.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak",
+            )
 
-        # cuttag broad: consensus final when broad IDR not enabled
-        if not e["cuttag_broad_idr"]:
-            for exp in sorted(e["consensus_experiments"].get(("cuttag", "broad"), [])):
-                meta = _exp_meta(exp)
-                if meta is None:
-                    continue
-                p = f"{stem}/{exp}/06_reproducibility/final"
-                _add_row(
-                    rows,
-                    "",
-                    exp,
-                    meta["assay"],
-                    meta["target"],
-                    meta["genome"],
-                    "cuttag_macs3_broad_consensus_final_peak",
-                    "cp",
-                    f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak",
-                )
+        # cuttag broad: consensus final for experiments not routed to broad IDR
+        cuttag_broad_idr_set = set(e["cuttag_broad_idr_experiments"])
+        for exp in sorted(e["consensus_experiments"].get(("cuttag", "broad"), [])):
+            if exp in cuttag_broad_idr_set:
+                continue
+            meta = _exp_meta(exp)
+            if meta is None:
+                continue
+            p = f"{stem}/{exp}/06_reproducibility/final"
+            _add_row(
+                rows,
+                "",
+                exp,
+                meta["assay"],
+                meta["target"],
+                meta["genome"],
+                "cuttag_macs3_broad_consensus_final_peak",
+                "cp",
+                f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak",
+            )
 
         # SEACR consensus final
         if e["seacr_enabled"]:
@@ -1729,7 +1756,8 @@ def build_manifest_rows(config, samples_path=None):
     replicate_analysis = _manifest_bool(
         config.get("replicate_analysis"), True, "replicate_analysis"
     )
-    chipseq_idr = _manifest_bool(config.get("chipseq_idr"), False, "chipseq_idr")
+    idr_flags = resolve_idr_sample_flags(config, error_cls=ValueError)
+    chipseq_idr = idr_flags["chipseq_narrow"]
     multiqc_enabled = _manifest_bool(config.get("multiqc"), True, "multiqc")
     if "genome_resources" in config:
         genomic_resources = config["genome_resources"]
@@ -1754,6 +1782,10 @@ def build_manifest_rows(config, samples_path=None):
         samples_path,
         use_control=use_control,
         chipseq_idr_enabled=chipseq_idr,
+        reproducibility_idr_atac_narrow=idr_flags["atac_narrow"],
+        reproducibility_idr_cuttag_narrow=idr_flags["cuttag_narrow"],
+        reproducibility_idr_chipseq_broad=idr_flags["chipseq_broad"],
+        reproducibility_idr_cuttag_broad=idr_flags["cuttag_broad"],
     )
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
     has_peak_samples = any(_is_mnase(s) is False for s in treatment_samples)
@@ -1786,7 +1818,11 @@ def build_manifest_rows(config, samples_path=None):
         )
     )
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
-    rows.extend(_build_reproducibility_rows(treatment_samples, config, analysis_outdir))
+    rows.extend(
+        _build_reproducibility_rows(
+            treatment_samples, config, analysis_outdir, idr_flags
+        )
+    )
     rows.extend(
         _build_project_rows(
             analysis_outdir,

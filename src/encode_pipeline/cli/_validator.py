@@ -5,6 +5,7 @@ import os
 import sys
 
 from encode_pipeline.config import validator as validator_module
+from encode_pipeline.config.reproducibility import idr_sample_flags_from_validated
 from encode_pipeline.config.yaml_loader import load_yaml
 
 
@@ -35,31 +36,19 @@ def main(argv=None):
     try:
         validated = validator_module.validate_config(config)
         validator_module.validate_execution_support(validated)
-        repro = validated.get("reproducibility", {})
-        atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
-            "atac_narrow", False
-        )
-        cuttag_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
-            "cuttag_narrow", False
-        )
-        broad_chipseq_idr_enabled = repro.get("enabled", False) and repro.get(
-            "idr", {}
-        ).get("chipseq_broad_experimental", False)
-        broad_cuttag_idr_enabled = repro.get("enabled", False) and repro.get(
-            "idr", {}
-        ).get("cuttag_broad_experimental", False)
+        idr_flags = idr_sample_flags_from_validated(validated)
         # Lazy import to break circular dependency with samples.load.
         from encode_pipeline.samples.load import load_and_validate_samples
 
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
-            chipseq_idr_enabled=validated.get("chipseq_idr", False),
+            chipseq_idr_enabled=idr_flags["chipseq_narrow"],
             strict_inputs=args.strict_inputs,
-            reproducibility_idr_atac_narrow=atac_idr_enabled,
-            reproducibility_idr_cuttag_narrow=cuttag_idr_enabled,
-            reproducibility_idr_chipseq_broad=broad_chipseq_idr_enabled,
-            reproducibility_idr_cuttag_broad=broad_cuttag_idr_enabled,
+            reproducibility_idr_atac_narrow=idr_flags["atac_narrow"],
+            reproducibility_idr_cuttag_narrow=idr_flags["cuttag_narrow"],
+            reproducibility_idr_chipseq_broad=idr_flags["chipseq_broad"],
+            reproducibility_idr_cuttag_broad=idr_flags["cuttag_broad"],
         )
         validator_module.validate_bowtie2_insert_bounds(validated, samples)
         validator_module.validate_picard_reference_resources(validated, samples)
