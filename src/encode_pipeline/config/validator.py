@@ -377,91 +377,11 @@ def validate_config(config: dict) -> dict:
         config.get("tool_parameters", {})
     )
 
-    # chipseq_idr — optional ChIP-seq IDR, default false
-    chipseq_idr_raw = config.get("chipseq_idr", False)
-    if isinstance(chipseq_idr_raw, bool):
-        validated["chipseq_idr"] = chipseq_idr_raw
-    elif str(chipseq_idr_raw).lower() in ("true", "false"):
-        validated["chipseq_idr"] = str(chipseq_idr_raw).lower() == "true"
-    else:
-        raise ValidationError(
-            f"config chipseq_idr must be true or false, got {chipseq_idr_raw!r}"
+    validated.update(
+        reproducibility_validation.validate_idr_config(
+            config, validated["replicate_analysis"], error_cls=ValidationError
         )
-
-    # chipseq_idr requires replicate_analysis
-    if validated["chipseq_idr"] and not validated.get("replicate_analysis", True):
-        raise ValidationError(
-            "config: chipseq_idr=true requires replicate_analysis=true. "
-            "ChIP-seq IDR depends on replicate analysis biorep BAMs and pooled control BAMs."
-        )
-
-    # reproducibility — replicate-validated peak outputs
-    validated["reproducibility"] = _validate_reproducibility(
-        config.get("reproducibility", {}), validated
     )
-
-    # Determine whether ATAC IDR is enabled from validated reproducibility
-    repro = validated["reproducibility"]
-    repro_chipseq_narrow = bool(
-        repro.get("enabled", False)
-        and repro.get("idr", {}).get("chipseq_narrow") is True
-    )
-    if repro_chipseq_narrow:
-        validated["chipseq_idr"] = True
-        if not validated.get("replicate_analysis", True):
-            raise ValidationError(
-                "config: reproducibility.idr.chipseq_narrow=true requires "
-                "replicate_analysis=true."
-            )
-    atac_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
-        "atac_narrow", False
-    )
-
-    # ATAC IDR requires replicate_analysis (ATAC narrow)
-    if atac_idr_enabled and not validated.get("replicate_analysis", True):
-        raise ValidationError(
-            "config: reproducibility.idr.atac_narrow=true requires replicate_analysis=true."
-        )
-
-    # Stage 64: determine whether CUT&Tag IDR is enabled
-    cuttag_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
-        "cuttag_narrow", False
-    )
-
-    # CUT&Tag IDR requires replicate_analysis (Stage 64)
-    if cuttag_idr_enabled and not validated.get("replicate_analysis", True):
-        raise ValidationError(
-            "config: reproducibility.idr.cuttag_narrow=true requires replicate_analysis=true."
-        )
-
-    # Stage 65: determine whether broad IDR is enabled
-    broad_chipseq_idr_enabled = repro.get("enabled", False) and repro.get(
-        "idr", {}
-    ).get("chipseq_broad_experimental", False)
-    broad_cuttag_idr_enabled = repro.get("enabled", False) and repro.get("idr", {}).get(
-        "cuttag_broad_experimental", False
-    )
-
-    # Broad IDR requires replicate_analysis (Stage 65)
-    if (broad_chipseq_idr_enabled or broad_cuttag_idr_enabled) and not validated.get(
-        "replicate_analysis", True
-    ):
-        raise ValidationError(
-            "config: reproducibility.idr.chipseq_broad_experimental=true "
-            "or cuttag_broad_experimental=true requires replicate_analysis=true."
-        )
-
-    # idr settings validated when chipseq_idr or any IDR mode is enabled
-    if (
-        validated["chipseq_idr"]
-        or atac_idr_enabled
-        or cuttag_idr_enabled
-        or broad_chipseq_idr_enabled
-        or broad_cuttag_idr_enabled
-    ):
-        validated["idr"] = _validate_idr_settings(config.get("idr", {}))
-    else:
-        validated["idr"] = {"threshold": 0.05, "rank": "p.value", "seed": 42}
 
     # cuttag — optional CUT&Tag-specific config (Stage 7b)
     validated["cuttag"] = _validate_cuttag_config(config.get("cuttag", {}))

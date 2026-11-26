@@ -6,58 +6,79 @@ from encode_pipeline.config import defaults
 from encode_pipeline.config.coercion import coerce_bool
 
 __all__ = [
+    "idr_sample_flags_from_validated",
     "resolve_idr_sample_flags",
+    "validate_idr_config",
     "validate_idr_settings",
     "validate_reproducibility",
 ]
 
 
+def idr_sample_flags_from_validated(config):
+    """Select sample-validation switches from normalized IDR settings."""
+    idr = config["reproducibility"].get("idr", {})
+    return {
+        "chipseq_narrow": config["chipseq_idr"],
+        "atac_narrow": idr.get("atac_narrow", False),
+        "cuttag_narrow": idr.get("cuttag_narrow", False),
+        "chipseq_broad": idr.get("chipseq_broad_experimental", False),
+        "cuttag_broad": idr.get("cuttag_broad_experimental", False),
+    }
+
+
 def resolve_idr_sample_flags(config, *, error_cls=ValueError):
-    """Resolve the five effective IDR admission booleans from a config mapping."""
+    """Resolve sample admission for callers that receive a raw config or run record."""
     if not isinstance(config, dict):
         raise error_cls(f"config must be a mapping, got {type(config).__name__}")
+    replicate_analysis = coerce_bool(
+        config.get("replicate_analysis", True), "config replicate_analysis", error_cls
+    )
+    normalized = validate_idr_config(
+        config, replicate_analysis, error_cls=error_cls, emit_warnings=False
+    )
+    return idr_sample_flags_from_validated(normalized)
 
+
+def validate_idr_config(
+    config, replicate_analysis, *, error_cls=ValueError, emit_warnings=True
+):
+    """Normalize the IDR and consensus settings that govern replicate admission."""
     chipseq_idr = coerce_bool(
-        config.get("chipseq_idr", False), "chipseq_idr", error_cls=error_cls
+        config.get("chipseq_idr", False), "config chipseq_idr", error_cls
     )
-    repro = config.get("reproducibility", {})
-    if not isinstance(repro, dict):
+    if chipseq_idr and not replicate_analysis:
         raise error_cls(
-            f"reproducibility must be a mapping, got {type(repro).__name__}"
+            "config: chipseq_idr=true requires replicate_analysis=true. "
+            "ChIP-seq IDR depends on replicate analysis biorep BAMs and pooled control BAMs."
         )
 
-    repro_enabled = coerce_bool(
-        repro.get("enabled", False), "reproducibility.enabled", error_cls=error_cls
+    repro = validate_reproducibility(
+        config.get("reproducibility", {}),
+        {"chipseq_idr": chipseq_idr},
+        error_cls=error_cls,
+        emit_warnings=emit_warnings,
     )
-    if not repro_enabled:
-        return {
-            "chipseq_narrow": chipseq_idr,
-            "atac_narrow": False,
-            "cuttag_narrow": False,
-            "chipseq_broad": False,
-            "cuttag_broad": False,
-        }
-
     idr = repro.get("idr", {})
-    if not isinstance(idr, dict):
-        raise error_cls(
-            f"reproducibility.idr must be a mapping, got {type(idr).__name__}"
-        )
+    if not replicate_analysis:
+        for key in ("chipseq_narrow", "atac_narrow", "cuttag_narrow"):
+            if idr.get(key):
+                raise error_cls(
+                    f"config: reproducibility.idr.{key}=true requires replicate_analysis=true."
+                )
+        if idr.get("chipseq_broad_experimental") or idr.get(
+            "cuttag_broad_experimental"
+        ):
+            raise error_cls(
+                "config: reproducibility.idr.chipseq_broad_experimental=true "
+                "or cuttag_broad_experimental=true requires replicate_analysis=true."
+            )
 
-    def _idr_flag(key):
-        return coerce_bool(
-            idr.get(key, False), f"reproducibility.idr.{key}", error_cls=error_cls
-        )
-
-    # This alias alone has a nullable (unconfigured) state in normalized config.
-    alias = idr.get("chipseq_narrow")
-    alias_enabled = alias is not None and _idr_flag("chipseq_narrow")
+    active = chipseq_idr or any(idr.values())
+    settings = validate_idr_settings(config.get("idr", {}) if active else {}, error_cls)
     return {
-        "chipseq_narrow": chipseq_idr or alias_enabled,
-        "atac_narrow": _idr_flag("atac_narrow"),
-        "cuttag_narrow": _idr_flag("cuttag_narrow"),
-        "chipseq_broad": _idr_flag("chipseq_broad_experimental"),
-        "cuttag_broad": _idr_flag("cuttag_broad_experimental"),
+        "chipseq_idr": chipseq_idr or bool(idr.get("chipseq_narrow")),
+        "reproducibility": repro,
+        "idr": settings,
     }
 
 
@@ -102,7 +123,9 @@ def validate_idr_settings(idr, error_cls=ValueError):
     return {"threshold": threshold, "rank": rank, "seed": seed}
 
 
-def validate_reproducibility(raw, validated_config, error_cls=ValueError):
+def validate_reproducibility(
+    raw, validated_config, error_cls=ValueError, *, emit_warnings=True
+):
     """Validate the reproducibility config block and return normalized settings."""
     if not isinstance(raw, dict):
         raise error_cls(f"reproducibility must be a mapping, got {type(raw).__name__}")
@@ -195,8 +218,10 @@ def validate_reproducibility(raw, validated_config, error_cls=ValueError):
             "reproducibility.idr.chipseq_narrow",
             error_cls=error_cls,
         )
-        if not idr_result["chipseq_narrow"] and validated_config.get(
-            "chipseq_idr", False
+        if (
+            emit_warnings
+            and not idr_result["chipseq_narrow"]
+            and validated_config.get("chipseq_idr", False)
         ):
             warnings.warn(
                 "Config contradiction: reproducibility.idr.chipseq_narrow is "
@@ -219,7 +244,7 @@ def validate_reproducibility(raw, validated_config, error_cls=ValueError):
             f"reproducibility.idr.{flag}",
             error_cls=error_cls,
         )
-        if val:
+        if val and emit_warnings:
             warnings.warn(
                 f"Experimental IDR flag enabled: reproducibility.idr.{flag}=true. "
                 "For eligible broad-peak experiments, IDR supplies the primary "

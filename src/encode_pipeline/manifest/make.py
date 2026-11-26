@@ -1136,7 +1136,7 @@ def _build_idr_rows(samples, outdir, chipseq_idr):
     return rows
 
 
-def _compute_reproducibility_eligibility(config, treatment_samples):
+def _compute_reproducibility_eligibility(config, treatment_samples, idr_flags):
     """Recompute reproducibility eligibility from config + sample sheet.
 
     Must match validate_samples.py and metadata.smk logic. Returns a dict
@@ -1177,7 +1177,6 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
         else "stringent"
     )
 
-    idr_flags = resolve_idr_sample_flags(config, error_cls=ValueError)
     atac_narrow_idr = idr_flags["atac_narrow"]
     cuttag_narrow_idr = idr_flags["cuttag_narrow"]
     chipseq_broad_idr = idr_flags["chipseq_broad"]
@@ -1254,7 +1253,7 @@ def _compute_reproducibility_eligibility(config, treatment_samples):
     }
 
 
-def _build_reproducibility_rows(samples, config, outdir):
+def _build_reproducibility_rows(samples, config, outdir, idr_flags):
     """Stage 66: Emit mode-specific reproducibility manifest rows.
 
     Only user-facing catalog outputs (consensus peak, consensus summary,
@@ -1266,7 +1265,7 @@ def _build_reproducibility_rows(samples, config, outdir):
     """
     rows = []
     treatment = [s for s in samples if s.get("role") == "treatment"]
-    e = _compute_reproducibility_eligibility(config, treatment)
+    e = _compute_reproducibility_eligibility(config, treatment, idr_flags)
 
     if not e["replicate_analysis_enabled"]:
         return rows
@@ -1819,7 +1818,11 @@ def build_manifest_rows(config, samples_path=None):
         )
     )
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
-    rows.extend(_build_reproducibility_rows(treatment_samples, config, analysis_outdir))
+    rows.extend(
+        _build_reproducibility_rows(
+            treatment_samples, config, analysis_outdir, idr_flags
+        )
+    )
     rows.extend(
         _build_project_rows(
             analysis_outdir,

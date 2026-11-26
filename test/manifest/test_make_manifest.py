@@ -1802,6 +1802,7 @@ def test_build_reproducibility_rows_excludes_idr_groups_per_experiment(
     consensus_final_type,
     seacr,
 ):
+    from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
     from encode_pipeline.manifest.make import _build_reproducibility_rows
 
     treatment_samples = [
@@ -1841,7 +1842,7 @@ def test_build_reproducibility_rows_excludes_idr_groups_per_experiment(
         cfg["cuttag"] = {"seacr": {"enabled": True, "mode": "stringent"}}
 
     rows = _build_reproducibility_rows(
-        treatment_samples, cfg, str(tmp_path / "results")
+        treatment_samples, cfg, str(tmp_path / "results"), resolve_idr_sample_flags(cfg)
     )
     pairs = {(row["experiment_id"], row["output_type"]) for row in rows}
 

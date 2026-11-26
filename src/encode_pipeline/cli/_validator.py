@@ -5,7 +5,7 @@ import os
 import sys
 
 from encode_pipeline.config import validator as validator_module
-from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
+from encode_pipeline.config.reproducibility import idr_sample_flags_from_validated
 from encode_pipeline.config.yaml_loader import load_yaml
 
 
@@ -36,10 +36,7 @@ def main(argv=None):
     try:
         validated = validator_module.validate_config(config)
         validator_module.validate_execution_support(validated)
-        idr_flags = resolve_idr_sample_flags(
-            validated,
-            error_cls=validator_module.ValidationError,
-        )
+        idr_flags = idr_sample_flags_from_validated(validated)
         # Lazy import to break circular dependency with samples.load.
         from encode_pipeline.samples.load import load_and_validate_samples
 

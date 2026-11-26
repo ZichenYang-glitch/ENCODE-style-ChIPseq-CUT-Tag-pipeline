@@ -25,6 +25,7 @@ _import_checkout_package = runpy.run_path(str(_REPOSITORY_ROOT / "scripts" / "so
 encode_pipeline = _import_checkout_package(_REPOSITORY_ROOT)
 
 from encode_pipeline.config.defaults import BOWTIE2_MAX_INSERT_BY_ASSAY
+from encode_pipeline.config.reproducibility import idr_sample_flags_from_validated
 from encode_pipeline.config.scientific_policy import (
     ANALYSIS_MARKER_SCHEMA_VERSION,
     SCIENTIFIC_POLICY_REVISION,
@@ -88,20 +89,17 @@ GENOME_RESOURCES = VALIDATED_CONFIG.get("genome_resources", {})
 # Reproducibility-driven IDR
 REPRODUCIBILITY_CONFIG = VALIDATED_CONFIG.get("reproducibility", {})
 REPRO_ENABLED = REPRODUCIBILITY_CONFIG.get("enabled", False)
-ATAC_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get("atac_narrow", False)
+IDR_SAMPLE_FLAGS = idr_sample_flags_from_validated(VALIDATED_CONFIG)
+ATAC_IDR_ENABLED = IDR_SAMPLE_FLAGS["atac_narrow"]
 
 # Stage 64: CUT&Tag narrow IDR (supported opt-in)
-CUTTAG_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get("cuttag_narrow", False)
+CUTTAG_IDR_ENABLED = IDR_SAMPLE_FLAGS["cuttag_narrow"]
 
 # Stage 65: broad-peak IDR (experimental opt-in only)
-BROAD_CHIPSEQ_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
-    "chipseq_broad_experimental", False
-)
-BROAD_CUTTAG_IDR_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("idr", {}).get(
-    "cuttag_broad_experimental", False
-)
+BROAD_CHIPSEQ_IDR_ENABLED = IDR_SAMPLE_FLAGS["chipseq_broad"]
+BROAD_CUTTAG_IDR_ENABLED = IDR_SAMPLE_FLAGS["cuttag_broad"]
 BROAD_IDR_ENABLED = BROAD_CHIPSEQ_IDR_ENABLED or BROAD_CUTTAG_IDR_ENABLED
-CHIPSEQ_IDR = bool(VALIDATED_CONFIG.get("chipseq_idr", False))
+CHIPSEQ_IDR = IDR_SAMPLE_FLAGS["chipseq_narrow"]
 
 # Consensus gating (reuses REPRO_ENABLED)
 CONSENSUS_ENABLED = REPRO_ENABLED and REPRODUCIBILITY_CONFIG.get("consensus", {}).get("enabled", True)

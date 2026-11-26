@@ -437,13 +437,70 @@ def test_resolve_idr_sample_flags_rejects_non_mapping_blocks(bad_config, pattern
             },
             "chipseq_narrow",
         ),
+        (
+            {"replicate_analysis": False, "chipseq_idr": True},
+            "requires replicate_analysis",
+        ),
+        *[
+            (
+                {
+                    "replicate_analysis": False,
+                    "reproducibility": {"enabled": True, "idr": {key: True}},
+                },
+                "requires replicate_analysis",
+            )
+            for key in (
+                "chipseq_narrow",
+                "atac_narrow",
+                "cuttag_narrow",
+                "chipseq_broad_experimental",
+                "cuttag_broad_experimental",
+            )
+        ],
+        (
+            {"reproducibility": {"enabled": True, "idr": {"cuttag_narow": True}}},
+            "unknown key 'cuttag_narow'",
+        ),
+        (
+            {
+                "reproducibility": {
+                    "enabled": True,
+                    "mixed_replicate_policy": "per_group_fallback",
+                }
+            },
+            "unknown key 'mixed_replicate_policy'",
+        ),
+        (
+            {"reproducibility": {"enabled": True, "consensus": None}},
+            "consensus must be a mapping",
+        ),
+        ({"chipseq_idr": True, "idr": {"threshold": 0}}, "idr.threshold"),
     ],
 )
 def test_manifest_and_validator_reject_the_same_invalid_idr_setting(
     tmp_path, overrides, field
 ):
     config = _make_config(tmp_path, **overrides)
-    with pytest.raises(ValidationError, match=re.escape(field)):
+    with pytest.raises(ValidationError, match=re.escape(field)) as public:
         validate_config(config)
-    with pytest.raises((ValueError, ValidationError), match=re.escape(field)):
+    with pytest.raises(ValueError) as manifest:
         build_manifest_rows(config)
+    assert str(manifest.value) == str(public.value)
+
+
+def test_manifest_honors_disabled_reproducibility_and_idr_blocks(tmp_path):
+    config = _make_config(
+        tmp_path,
+        reproducibility={
+            "enabled": "false",
+            "mixed_replicate_policy": "per_group_fallback",
+            "consensus": None,
+            "idr": {"cuttag_narow": True},
+        },
+        idr={"threshold": 0},
+    )
+    normalized = validate_config(config)
+    raw_rows, _, _ = build_manifest_rows(config)
+    normalized_rows, _, _ = build_manifest_rows(normalized)
+    assert raw_rows
+    assert raw_rows == normalized_rows

@@ -1136,6 +1136,7 @@ def _validate_scientific_inputs(
     sanitize_errors: bool,
 ) -> Result[dict[str, Any]]:
     """Run the existing config, sample, and resource validators unchanged."""
+    from encode_pipeline.config.reproducibility import idr_sample_flags_from_validated
     from encode_pipeline.config.validate import (
         ValidationError,
         validate_bowtie2_insert_bounds,
@@ -1181,12 +1182,12 @@ def _validate_scientific_inputs(
             sanitize=sanitize_errors,
         )
 
-    flags = _sample_validation_flags(validated_config)
+    flags = idr_sample_flags_from_validated(validated_config)
     try:
         samples = load_and_validate_samples(
             validated_config["samples"],
             use_control=validated_config["use_control"],
-            chipseq_idr_enabled=validated_config.get("chipseq_idr", False),
+            chipseq_idr_enabled=flags["chipseq_narrow"],
             strict_inputs=strict_inputs,
             reproducibility_idr_atac_narrow=flags["atac_narrow"],
             reproducibility_idr_cuttag_narrow=flags["cuttag_narrow"],
@@ -1497,13 +1498,6 @@ def _qc_summary_failure() -> Result[Any]:
             )
         ]
     )
-
-
-def _sample_validation_flags(validated_config: dict[str, Any]) -> dict[str, bool]:
-    from encode_pipeline.config.errors import ValidationError
-    from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
-
-    return resolve_idr_sample_flags(validated_config, error_cls=ValidationError)
 
 
 def _issue_from_exception(

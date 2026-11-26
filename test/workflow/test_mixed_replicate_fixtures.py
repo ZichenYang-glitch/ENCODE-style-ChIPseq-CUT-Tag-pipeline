@@ -7,7 +7,11 @@ or defaults (SCIENTIFIC_POLICY_REVISION stays 7, default admission stays strict)
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from collections import defaultdict
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -18,6 +22,8 @@ from encode_pipeline.config.scientific_policy import SCIENTIFIC_POLICY_REVISION
 from encode_pipeline.errors import ValidationError
 from encode_pipeline.manifest.make import build_manifest_rows
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.samples import replicates
+from encode_pipeline.samples.replicates import validate_replicate_groups
 
 
 SAMPLE_COLUMNS = (
@@ -36,35 +42,6 @@ SAMPLE_COLUMNS = (
     "biological_replicate",
     "technical_replicate",
 )
-
-
-def _expand(pattern, zip=False, **kwargs):
-    import itertools
-
-    builtins_zip = (
-        __builtins__["zip"] if isinstance(__builtins__, dict) else __builtins__.zip
-    )
-
-    def _as_list(value):
-        if isinstance(value, str):
-            return [value]
-        try:
-            iter(value)
-        except TypeError:
-            return [value]
-        return list(value)
-
-    if not kwargs:
-        return [pattern]
-    keys = list(kwargs.keys())
-    values = [_as_list(v) for v in kwargs.values()]
-    if zip:
-        target_len = max(len(v) for v in values)
-        values = [v * target_len if len(v) == 1 else v for v in values]
-        combos = builtins_zip(*values)
-    else:
-        combos = itertools.product(*values)
-    return [pattern.format(**dict(builtins_zip(keys, combo))) for combo in combos]
 
 
 def _write_synthetic_inputs(root: Path) -> dict[str, Path]:
@@ -217,9 +194,6 @@ def test_strict_policy_pure_two_chipseq_idr_and_non_rewrite_identity(
     assert ("GRP2", "chipseq_macs3_narrow_consensus_peak") in pairs
 
     # I-01 / I-01b: marker + effective_config non-rewrite vs threads 1->2 control
-    import subprocess
-    import sys
-
     marker = outdir / ".helixweave/analysis_identity.json"
     eff = outdir / ".helixweave/effective_config.json"
     create = subprocess.run(
@@ -539,14 +513,27 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
 # ---------------------------------------------------------------------------
 
 
+def _validate_candidate_groups(samples, use_control, *idr_args, **idr_kwargs):
+    """Test only: check every group normally and apply strict IDR to the two-replicate group."""
+    validate_replicate_groups(samples, use_control)
+    bioreps = defaultdict(set)
+    for sample in samples:
+        if sample["role"] == "treatment":
+            bioreps[sample["experiment"]].add(sample["biological_replicate"])
+    assert sorted(map(len, bioreps.values())) == [2, 3]
+    idr_samples = [
+        row
+        for row in samples
+        if row["role"] == "control" or len(bioreps[row["experiment"]]) == 2
+    ]
+    validate_replicate_groups(idr_samples, use_control, *idr_args, **idr_kwargs)
+
+
 @pytest.mark.parametrize(
     (
         "assay",
         "peak_mode",
         "idr_key",
-        "idr_flag_global",
-        "idr_list_global",
-        "idr_fn_name",
         "idr_final_type",
         "consensus_final_type",
         "seacr",
@@ -556,9 +543,6 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
             "cuttag",
             "narrow",
             "cuttag_narrow",
-            "CUTTAG_IDR_ENABLED",
-            "CUTTAG_IDR_EXPERIMENTS",
-            "_cuttag_idr_targets",
             "cuttag_macs3_narrow_idr_final_peak",
             "cuttag_macs3_narrow_consensus_final_peak",
             True,
@@ -567,9 +551,6 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
             "chipseq",
             "broad",
             "chipseq_broad_experimental",
-            "BROAD_CHIPSEQ_IDR_ENABLED",
-            "BROAD_CHIPSEQ_IDR_EXPERIMENTS",
-            "_broad_idr_targets",
             "chipseq_macs3_broad_idr_final_peak",
             "chipseq_macs3_broad_consensus_final_peak",
             False,
@@ -578,9 +559,6 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
             "cuttag",
             "broad",
             "cuttag_broad_experimental",
-            "BROAD_CUTTAG_IDR_ENABLED",
-            "BROAD_CUTTAG_IDR_EXPERIMENTS",
-            "_broad_idr_targets",
             "cuttag_macs3_broad_idr_final_peak",
             "cuttag_macs3_broad_consensus_final_peak",
             True,
@@ -591,14 +569,12 @@ def test_cuttag_independent_seacr_coexists_with_macs3_idr_d00_m00(
 def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
     tmp_path,
     tmp_config,
-    repo_root,
+    snakefile,
+    run_validator,
     monkeypatch,
     assay,
     peak_mode,
     idr_key,
-    idr_flag_global,
-    idr_list_global,
-    idr_fn_name,
     idr_final_type,
     consensus_final_type,
     seacr,
@@ -617,7 +593,7 @@ def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
     if seacr:
         extra_cfg["cuttag"] = {"seacr": {"enabled": True, "mode": "stringent"}}
 
-    workdir, _config_path, samples_path, cfg = _build_fixture_workspace(
+    workdir, config_path, samples_path, cfg = _build_fixture_workspace(
         tmp_path,
         tmp_config,
         name=f"cand_{idr_key}",
@@ -630,113 +606,32 @@ def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
     outdir = cfg["outdir"]
     suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
 
-    # A) Verify targets.smk per-group target expansion
-    targets_code = (Path(repo_root) / "workflow/rules/targets.smk").read_text(
-        encoding="utf-8"
+    # Patch only the fixture's replicate admission. The real workflow derives its
+    # experiment lists, expands the final targets and resolves their producing rules.
+    monkeypatch.setattr(
+        replicates, "validate_replicate_groups", _validate_candidate_groups
     )
-    ns = {
-        "OUTDIR": outdir,
-        "expand": _expand,
-        "VALIDATED_CONFIG": {},
-        "TREATMENT_SAMPLE_IDS": [],
-        "ACTIVE_SAMPLE_IDS": [],
-        "PEAK_SAMPLE_IDS": [],
-        "MULTIQC": False,
-        "QC_CONFIG": {},
-        "BLACKLIST_SAMPLES": [],
-        "SAMPLE_MAP": {},
-        "SIGNAL_BW_SAMPLE_IDS": [],
-        "SIGNAL_BW_EXPERIMENTS": [],
-        "REPLICATE_ANALYSIS": True,
-        "PEAK_MULTI_BIOREP_EXPERIMENTS": [],
-        "SEACR_ENABLED": seacr,
-        "SEACR_SAMPLE_IDS": [],
-        "CUTTAG_ACTIVE_SAMPLE_IDS": [],
-        "MNASE_SAMPLE_IDS": [],
-        "MNASE_MULTI_BIOREP_EXPERIMENTS": [],
-        "TSS_GENOMES": [],
-        "TSS_SAMPLE_IDS": [],
-        "MULTI_BIOREP_EXPERIMENTS": [],
-        "_EXP_LIST": [],
-        "_BR_LIST": [],
-        "POOLED_CONTROL_EXPERIMENTS": [],
-        "CONSENSUS_ENABLED": True,
-        "CONSENSUS_EXPERIMENTS": {(assay, peak_mode): ["GRP2", "GRP3"]},
-        "SEACR_CONSENSUS_EXPERIMENTS": ["GRP2", "GRP3"] if seacr else [],
-        "SEACR_MODE": "stringent",
-        "CHIPSEQ_IDR": False,
-        "IDR_EXPERIMENTS": [],
-        "IDR_BIOREP_EXP_LIST": [],
-        "IDR_BIOREP_LIST": [],
-        "IDR_PR_PEAK_EXP": [],
-        "IDR_PR_PEAK_SRC": [],
-        "IDR_PR_PEAK_PR": [],
-        "IDR_SELF_EXP": [],
-        "IDR_SELF_BR": [],
-        "ATAC_IDR_ENABLED": False,
-        "ATAC_IDR_EXPERIMENTS": [],
-        "ATAC_IDR_BIOREP_EXP_LIST": [],
-        "ATAC_IDR_BIOREP_LIST": [],
-        "ATAC_IDR_PR_PEAK_EXP": [],
-        "ATAC_IDR_PR_PEAK_SRC": [],
-        "ATAC_IDR_PR_PEAK_PR": [],
-        "ATAC_IDR_SELF_EXP": [],
-        "ATAC_IDR_SELF_BR": [],
-        "CUTTAG_IDR_ENABLED": False,
-        "CUTTAG_IDR_EXPERIMENTS": [],
-        "CUTTAG_IDR_BIOREP_EXP_LIST": [],
-        "CUTTAG_IDR_BIOREP_LIST": [],
-        "CUTTAG_IDR_PR_PEAK_EXP": [],
-        "CUTTAG_IDR_PR_PEAK_SRC": [],
-        "CUTTAG_IDR_PR_PEAK_PR": [],
-        "CUTTAG_IDR_SELF_EXP": [],
-        "CUTTAG_IDR_SELF_BR": [],
-        "BROAD_CHIPSEQ_IDR_ENABLED": False,
-        "BROAD_CHIPSEQ_IDR_EXPERIMENTS": [],
-        "BROAD_CUTTAG_IDR_ENABLED": False,
-        "BROAD_CUTTAG_IDR_EXPERIMENTS": [],
-        "BROAD_IDR_ENABLED": peak_mode == "broad",
-        "BROAD_IDR_EXPERIMENTS": ["GRP2"] if peak_mode == "broad" else [],
-        "BROAD_IDR_EXPERIMENT_ASSAY": [assay] if peak_mode == "broad" else [],
-        "BROAD_IDR_BIOREP_EXP_LIST": (["GRP2", "GRP2"] if peak_mode == "broad" else []),
-        "BROAD_IDR_BIOREP_LIST": ["1", "2"] if peak_mode == "broad" else [],
-        "BROAD_IDR_BIOREP_ASSAY": [assay, assay] if peak_mode == "broad" else [],
-        "BROAD_IDR_PR_PEAK_EXP": ["GRP2"] * 6 if peak_mode == "broad" else [],
-        "BROAD_IDR_PR_PEAK_SRC": (
-            ["biorep1", "biorep1", "biorep2", "biorep2", "pooled", "pooled"]
-            if peak_mode == "broad"
-            else []
-        ),
-        "BROAD_IDR_PR_PEAK_ASSAY": [assay] * 6 if peak_mode == "broad" else [],
-        "BROAD_IDR_PR_PEAK_PR": ["1", "2"] * 3 if peak_mode == "broad" else [],
-        "BROAD_IDR_SELF_EXP": ["GRP2", "GRP2"] if peak_mode == "broad" else [],
-        "BROAD_IDR_SELF_BR": ["1", "2"] if peak_mode == "broad" else [],
-        "BROAD_IDR_SELF_ASSAY": [assay, assay] if peak_mode == "broad" else [],
-        idr_flag_global: True,
-        idr_list_global: ["GRP2"],
-    }
-    if idr_fn_name == "_cuttag_idr_targets":
-        ns.update(
-            {
-                "CUTTAG_IDR_BIOREP_EXP_LIST": ["GRP2", "GRP2"],
-                "CUTTAG_IDR_BIOREP_LIST": ["1", "2"],
-                "CUTTAG_IDR_PR_PEAK_EXP": ["GRP2"] * 6,
-                "CUTTAG_IDR_PR_PEAK_SRC": [
-                    "biorep1",
-                    "biorep1",
-                    "biorep2",
-                    "biorep2",
-                    "pooled",
-                    "pooled",
-                ],
-                "CUTTAG_IDR_PR_PEAK_PR": ["1", "2"] * 3,
-                "CUTTAG_IDR_SELF_EXP": ["GRP2", "GRP2"],
-                "CUTTAG_IDR_SELF_BR": ["1", "2"],
-            }
-        )
-    exec(compile(targets_code, "targets.smk", "exec"), ns)
+    assert run_validator(config_path).returncode == 0
+    sm = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--snakefile",
+            snakefile,
+            "--configfile",
+            str(config_path),
+            "--profile",
+            "none",
+            "--workflow-profile",
+            "none",
+        ],
+        cwd=workdir,
+        text=True,
+        capture_output=True,
+    )
+    assert sm.returncode == 0, sm.stdout + sm.stderr
+    dag_targets = _parse_summary(sm.stdout)
 
-    dag_targets = ns[idr_fn_name]() + ns["_consensus_targets"]()
     grp2_idr = (
         f"{outdir}/experiments/GRP2/06_reproducibility/final/"
         f"GRP2.{assay}.macs3.{peak_mode}.replicate_validated.idr.{suffix}"
@@ -765,49 +660,6 @@ def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
                 in dag_targets
             )
 
-    # B) Verify consensus.smk per-group final_method & final_output helpers
-    consensus_code = (Path(repo_root) / "workflow/rules/consensus.smk").read_text(
-        encoding="utf-8"
-    )
-    helper_prefix = consensus_code.split("rule consensus_macs3_biorep_peaks:", 1)[0]
-    helper_tail = (
-        "def _consensus_final_method"
-        + consensus_code.split("def _consensus_final_method", 1)[1].split(
-            "# ============================================================================",
-            1,
-        )[0]
-    )
-    cons_ns = {
-        "OUTDIR": outdir,
-        "CHIPSEQ_IDR": False,
-        "IDR_EXPERIMENTS": [],
-        "ATAC_IDR_ENABLED": False,
-        "ATAC_IDR_EXPERIMENTS": [],
-        "CUTTAG_IDR_ENABLED": False,
-        "CUTTAG_IDR_EXPERIMENTS": [],
-        "BROAD_CHIPSEQ_IDR_ENABLED": False,
-        "BROAD_CHIPSEQ_IDR_EXPERIMENTS": [],
-        "BROAD_CUTTAG_IDR_ENABLED": False,
-        "BROAD_CUTTAG_IDR_EXPERIMENTS": [],
-        idr_flag_global: True,
-        idr_list_global: ["GRP2"],
-    }
-    exec(compile(helper_prefix + "\n" + helper_tail, "consensus.smk", "exec"), cons_ns)
-    assert cons_ns["_consensus_final_method"]("GRP2", assay, peak_mode) == "idr"
-    assert cons_ns["_consensus_final_output"]("GRP2", assay, peak_mode) == grp2_idr
-    assert cons_ns["_consensus_final_method"]("GRP3", assay, peak_mode) == "consensus"
-    assert cons_ns["_consensus_final_output"]("GRP3", assay, peak_mode) == grp3_cons
-
-    # C) Verify manifest + read-only consumers (extract_artifacts + WashU catalog)
-    # Test-scoped bypass of strict replicate validation inside manifest/make.py
-    import encode_pipeline.manifest.make as make_mod
-    from encode_pipeline.samples.load import load_and_validate_samples
-
-    def _per_group_load(tsv_path, *, use_control=False, **_kwargs):
-        return load_and_validate_samples(tsv_path, use_control=use_control)
-
-    monkeypatch.setattr(make_mod, "load_and_validate_samples", _per_group_load)
-
     rows, _, _ = build_manifest_rows(cfg, samples_path=str(samples_path))
     pairs = {(r["experiment_id"], r["output_type"]) for r in rows}
     assert ("GRP2", idr_final_type) in pairs
@@ -827,10 +679,12 @@ def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
             ("GRP2", "cuttag_seacr_consensus_final_peak"),
             ("GRP3", "cuttag_seacr_consensus_final_peak"),
         }
-    _materialize_present_outputs(
-        rows,
-        output_types={out_type for _exp, out_type in expected_extract},
-    )
+    final_types = {output_type for _, output_type in expected_extract}
+    manifest_paths = {row["path"] for row in rows if row["output_type"] in final_types}
+    assert manifest_paths == {
+        path for path in dag_targets if ".replicate_validated." in Path(path).name
+    }
+    _materialize_present_outputs(rows, output_types=final_types)
 
     adapter = EncodeStyleWorkflowAdapter()
     extracted = adapter.extract_artifacts(WorkflowInputs(config=cfg), workdir)
@@ -852,3 +706,14 @@ def test_candidate_per_group_routing_dag_manifest_and_readonly_consumers(
         assert desc is not None
         assert desc.wash_u_type == "bed"
         assert desc.role == "interval"
+
+
+if __name__ == "__main__":
+    # Snakemake runs in its own interpreter. Apply the same test-only admission
+    # there while loading the unmodified production Snakefile from its checkout.
+    from snakemake.cli import main
+
+    with patch.object(
+        replicates, "validate_replicate_groups", _validate_candidate_groups
+    ):
+        main(["--dry-run", "--summary", *sys.argv[1:]])
