@@ -147,6 +147,15 @@ def _idr_exp_matches(exp, assay, peak_mode):
     return first["assay"] == assay and first["peak_mode"] == peak_mode
 
 
+def _idr_input_experiment(wildcards, peak_mode):
+    """Resolve an IDR input's group, including for a directly requested intermediate."""
+    experiment = wildcards.experiment
+    route = MIXED_REPLICATE_ROUTES.get(experiment)
+    if route is not None and (route.method != "idr" or not _idr_exp_matches(experiment, wildcards.assay, peak_mode)):
+        raise ValueError(f"Experiment {experiment} has no {wildcards.assay}/{peak_mode} IDR route")
+    return experiment
+
+
 def _build_idr_experiment_lists(enabled, assay, peak_mode, multi_experiments):
     """Build IDR experiment and biorep expansion lists for a single assay profile.
 

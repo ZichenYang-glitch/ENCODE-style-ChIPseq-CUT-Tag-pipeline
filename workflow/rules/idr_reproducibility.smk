@@ -24,20 +24,20 @@
 # ---------------------------------------------------------------------------
 
 
-def _idr_repro_biorep_inputs(wildcards):
+def _idr_repro_biorep_inputs(wildcards, peak_mode):
     """Inputs for the per-biorep IDR-ready MACS3 call."""
-    return idr_biorep_peaks_inputs(wildcards.experiment, int(wildcards.bio_rep))
+    return idr_biorep_peaks_inputs(_idr_input_experiment(wildcards, peak_mode), int(wildcards.bio_rep))
 
 
-def _idr_repro_split_input(wildcards):
+def _idr_repro_split_input(wildcards, peak_mode):
     """Input BAM for pseudoreplicate splitting."""
-    return idr_split_input(wildcards.experiment, wildcards.source)
+    return idr_split_input(_idr_input_experiment(wildcards, peak_mode), wildcards.source)
 
 
-def _idr_repro_pseudorep_inputs(wildcards, source_prefix):
+def _idr_repro_pseudorep_inputs(wildcards, peak_mode, source_prefix):
     """Inputs for the pseudorep IDR-ready MACS3 call."""
     return idr_pseudorep_peaks_inputs(
-        wildcards.experiment,
+        _idr_input_experiment(wildcards, peak_mode),
         wildcards.source,
         wildcards.pr,
         source_prefix=source_prefix,
@@ -55,7 +55,7 @@ def _idr_repro_pseudorep_inputs(wildcards, source_prefix):
 
 rule idr_macs3_biorep_narrow:
     input:
-        lambda wc: _idr_repro_biorep_inputs(wc),
+        lambda wc: _idr_repro_biorep_inputs(wc, "narrow"),
     output:
         f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"idr_peaks/{{experiment}}_{{assay}}_biorep{{bio_rep}}_idr.narrowPeak",
@@ -116,8 +116,8 @@ rule idr_macs3_biorep_narrow:
 
 rule idr_true_replicates_narrow:
     input:
-        peaks1=lambda wc: idr_repro_peak_input(wc.experiment, 0, wc.assay, "narrowPeak"),
-        peaks2=lambda wc: idr_repro_peak_input(wc.experiment, 1, wc.assay, "narrowPeak"),
+        peaks1=lambda wc: idr_repro_peak_input(_idr_input_experiment(wc, "narrow"), 0, wc.assay, "narrowPeak"),
+        peaks2=lambda wc: idr_repro_peak_input(_idr_input_experiment(wc, "narrow"), 1, wc.assay, "narrowPeak"),
     output:
         idr_out=f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"true_replicates/{{experiment}}_{{assay}}_idr.txt",
@@ -173,7 +173,7 @@ rule idr_true_replicates_narrow:
 
 rule idr_split_pseudoreps_narrow:
     input:
-        lambda wc: _idr_repro_split_input(wc),
+        lambda wc: _idr_repro_split_input(wc, "narrow"),
     output:
         pr1=f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/" f"{{experiment}}_{{assay}}_{{source}}.pr1.bam",
         p1i=f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/" f"{{experiment}}_{{assay}}_{{source}}.pr1.bam.bai",
@@ -213,7 +213,7 @@ rule idr_split_pseudoreps_narrow:
 
 rule idr_macs3_pseudorep_narrow:
     input:
-        lambda wc: _idr_repro_pseudorep_inputs(wc, source_prefix=f"{wc.assay}_"),
+        lambda wc: _idr_repro_pseudorep_inputs(wc, "narrow", source_prefix=f"{wc.assay}_"),
     output:
         f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"idr_peaks/{{experiment}}_{{assay}}_{{source}}_pr{{pr}}_idr.narrowPeak",
@@ -277,12 +277,12 @@ rule idr_macs3_pseudorep_narrow:
 rule idr_self_pseudoreps_narrow:
     input:
         peaks1=lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
+            f"{OUTDIR}/experiments/{_idr_input_experiment(wc, 'narrow')}/06_reproducibility/idr/"
             f"idr_peaks/{wc.experiment}_{wc.assay}_"
             f"biorep{wc.bio_rep}_pr1_idr.narrowPeak"
         ),
         peaks2=lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
+            f"{OUTDIR}/experiments/{_idr_input_experiment(wc, 'narrow')}/06_reproducibility/idr/"
             f"idr_peaks/{wc.experiment}_{wc.assay}_"
             f"biorep{wc.bio_rep}_pr2_idr.narrowPeak"
         ),
@@ -347,8 +347,8 @@ rule idr_self_pseudoreps_narrow:
 
 rule idr_pooled_pseudoreps_narrow:
     input:
-        peaks1=lambda wc: idr_pooled_peak_input(wc.experiment, 1, wc.assay, "narrowPeak"),
-        peaks2=lambda wc: idr_pooled_peak_input(wc.experiment, 2, wc.assay, "narrowPeak"),
+        peaks1=lambda wc: idr_pooled_peak_input(_idr_input_experiment(wc, "narrow"), 1, wc.assay, "narrowPeak"),
+        peaks2=lambda wc: idr_pooled_peak_input(_idr_input_experiment(wc, "narrow"), 2, wc.assay, "narrowPeak"),
     output:
         idr_out=f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"pooled_pseudoreplicates/{{experiment}}_{{assay}}_idr.txt",
@@ -529,7 +529,7 @@ rule idr_summary_cuttag_narrow:
 
 rule idr_macs3_biorep_broad:
     input:
-        lambda wc: _idr_repro_biorep_inputs(wc),
+        lambda wc: _idr_repro_biorep_inputs(wc, "broad"),
     output:
         f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"idr_peaks/{{experiment}}_broad_{{assay}}_biorep{{bio_rep}}_idr.broadPeak",
@@ -591,8 +591,8 @@ rule idr_macs3_biorep_broad:
 
 rule idr_true_replicates_broad:
     input:
-        peaks1=lambda wc: idr_repro_peak_input(wc.experiment, 0, wc.assay, "broadPeak"),
-        peaks2=lambda wc: idr_repro_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
+        peaks1=lambda wc: idr_repro_peak_input(_idr_input_experiment(wc, "broad"), 0, wc.assay, "broadPeak"),
+        peaks2=lambda wc: idr_repro_peak_input(_idr_input_experiment(wc, "broad"), 1, wc.assay, "broadPeak"),
     output:
         idr_out=f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"true_replicates/{{experiment}}_broad_{{assay}}_idr.txt",
@@ -648,7 +648,7 @@ rule idr_true_replicates_broad:
 
 rule idr_split_pseudoreps_broad:
     input:
-        lambda wc: _idr_repro_split_input(wc),
+        lambda wc: _idr_repro_split_input(wc, "broad"),
     output:
         pr1=f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/" f"{{experiment}}_broad_{{assay}}_{{source}}.pr1.bam",
         p1i=f"{OUTDIR}/experiments/{{experiment}}/05_pseudorep/"
@@ -690,7 +690,7 @@ rule idr_split_pseudoreps_broad:
 
 rule idr_macs3_pseudorep_broad:
     input:
-        lambda wc: _idr_repro_pseudorep_inputs(wc, source_prefix=f"broad_{wc.assay}_"),
+        lambda wc: _idr_repro_pseudorep_inputs(wc, "broad", source_prefix=f"broad_{wc.assay}_"),
     output:
         f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"idr_peaks/{{experiment}}_broad_{{assay}}_{{source}}_pr{{pr}}_idr.broadPeak",
@@ -754,12 +754,12 @@ rule idr_macs3_pseudorep_broad:
 rule idr_self_pseudoreps_broad:
     input:
         peaks1=lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
+            f"{OUTDIR}/experiments/{_idr_input_experiment(wc, 'broad')}/06_reproducibility/idr/"
             f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
             f"biorep{wc.bio_rep}_pr1_idr.broadPeak"
         ),
         peaks2=lambda wc: (
-            f"{OUTDIR}/experiments/{wc.experiment}/06_reproducibility/idr/"
+            f"{OUTDIR}/experiments/{_idr_input_experiment(wc, 'broad')}/06_reproducibility/idr/"
             f"idr_peaks/{wc.experiment}_broad_{wc.assay}_"
             f"biorep{wc.bio_rep}_pr2_idr.broadPeak"
         ),
@@ -824,8 +824,8 @@ rule idr_self_pseudoreps_broad:
 
 rule idr_pooled_pseudoreps_broad:
     input:
-        peaks1=lambda wc: idr_pooled_peak_input(wc.experiment, 1, wc.assay, "broadPeak"),
-        peaks2=lambda wc: idr_pooled_peak_input(wc.experiment, 2, wc.assay, "broadPeak"),
+        peaks1=lambda wc: idr_pooled_peak_input(_idr_input_experiment(wc, "broad"), 1, wc.assay, "broadPeak"),
+        peaks2=lambda wc: idr_pooled_peak_input(_idr_input_experiment(wc, "broad"), 2, wc.assay, "broadPeak"),
     output:
         idr_out=f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/idr/"
         f"pooled_pseudoreplicates/{{experiment}}_broad_{{assay}}_idr.txt",
