@@ -7,6 +7,7 @@ import { fetchSessionState } from '../../api/authClient';
 import { authoringListProjects } from '../../api/generated/authoring/authoring';
 import {
   catalogCreateExperiment,
+  catalogGenerateClassificationSuggestion,
   catalogCreateTerm,
   catalogListExperimentRevisionRunResults,
   catalogListExperimentRevisions,
@@ -32,6 +33,9 @@ vi.mock('../../api/generated/catalog/catalog', () => ({
   catalogListTerms: vi.fn(),
   catalogListSamples: vi.fn(),
   catalogCreateTerm: vi.fn(),
+  catalogGenerateClassificationSuggestion: vi.fn(),
+  catalogPreviewProposal: vi.fn(),
+  catalogAdoptProposal: vi.fn(),
   catalogCreateExperiment: vi.fn(),
   catalogReviseExperiment: vi.fn(),
 }));
@@ -285,6 +289,38 @@ describe('Experiment catalog page', () => {
     installCatalogReads();
   });
 
+  it('sends one authorized target clue for the selected revision and reuses its request key after a lost response', async () => {
+    const user = userEvent.setup();
+    vi.mocked(catalogGenerateClassificationSuggestion).mockReset()
+      .mockRejectedValueOnce(new Error('lost response'))
+      .mockResolvedValueOnce({
+        ok: true, outcome: 'insufficient_evidence', field: 'target', reason_code: 'TARGET_TERM_MATCH',
+        experiment_id: EXPERIMENT_ID, experiment_revision_id: REV_2, experiment_revision_number: 2,
+        catalog_revision_changed: false, decision: 'insufficient_evidence', proposal: null,
+        projection: { field: 'experiment.target', reason_code: 'TARGET_TERM_MATCH', clue: 'CTCF',
+          candidates: [{ token: 'ctcf', label: 'CTCF' }] },
+      });
+    renderWithRouter(routes, { initialEntries: ['/catalog'] });
+    await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    const ask = await screen.findByRole('button', { name: 'Ask Peri' });
+    expect(ask).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Target clue' }), 'CTCF');
+    await user.selectOptions(screen.getByLabelText('Candidate target'), TARGET_REVISION);
+    await user.click(ask);
+    expect(await screen.findByText(/could not retrieve the suggestion/i)).toBeInTheDocument();
+    await user.click(ask);
+    expect(await screen.findByText(/insufficient evidence to suggest a target/i)).toBeInTheDocument();
+    const [first, retry] = vi.mocked(catalogGenerateClassificationSuggestion).mock.calls;
+    expect(first).toEqual([PROJECT_ID, EXPERIMENT_ID, {
+      experiment_revision_id: REV_2, field: 'target', reason_code: 'TARGET_TERM_MATCH',
+      clue: 'CTCF', vocabulary_term_revision_id: TARGET_REVISION,
+    }, { 'Idempotency-Key': expect.any(String) }]);
+    expect(retry).toEqual(first);
+    expect(screen.queryByRole('button', { name: 'Preview selected' })).toBeNull();
+    expect(catalogReviseExperiment).not.toHaveBeenCalled();
+  });
+
   it('searches, pages, opens an older revision, and shows unbound run scope', async () => {
     const user = userEvent.setup();
     renderWithRouter(routes, { initialEntries: ['/catalog'] });
@@ -413,6 +449,8 @@ describe('Experiment catalog page', () => {
       screen.queryByRole('form', { name: 'Revise experiment classification' }),
     ).not.toBeInTheDocument();
     await search(user);
+    await user.click(await screen.findByRole('button', { name: /Treg CUT&Tag v2/ }));
+    expect(screen.queryByRole('button', { name: 'Ask Peri' })).toBeNull();
     expect(catalogListExperiments).toHaveBeenCalled();
     expect(catalogListSamples).not.toHaveBeenCalled();
   });
