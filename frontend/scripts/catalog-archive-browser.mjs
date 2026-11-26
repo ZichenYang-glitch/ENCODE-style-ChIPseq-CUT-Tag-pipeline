@@ -116,7 +116,7 @@ const languages = {
     locale: 'en-US', select: 'Language', list: 'Archived tracks', viewer: 'Archived track', region: 'Genomic region',
     version: (n) => `Version ${n}`,
     source: (item) => `Registered result ${item.result_id} · Revision ${item.result_revision_id}`,
-    action: (n) => `Open version ${n} of ${trackName} in WashU`,
+    action: (n) => `Open version ${n} in WashU · ${trackName}`,
     offline: 'The archived copy is offline.', denied: 'You do not have access to this archived version.',
   },
   'zh-CN': {

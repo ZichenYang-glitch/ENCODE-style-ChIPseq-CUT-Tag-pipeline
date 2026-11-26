@@ -99,7 +99,11 @@ export function ArchivedTrackViewer({ request }: { request: ArchiveViewerRequest
     const storeId = `helixweave-archive-${identity}`;
     return () => {
       style.remove();
-      localStorage.removeItem(`persist:${storeId}`);
+      try {
+        localStorage.removeItem(`persist:${storeId}`);
+      } catch {
+        // The native viewer has persistence disabled; browser storage can also be unavailable.
+      }
     };
   }, [identity]);
 

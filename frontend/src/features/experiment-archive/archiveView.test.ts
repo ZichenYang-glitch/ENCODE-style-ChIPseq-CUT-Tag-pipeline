@@ -23,7 +23,7 @@ describe('archive viewer address', () => {
     const href = archivedViewerHref(older);
     const request = archiveViewerRequest(href.slice(href.indexOf('?')));
     expect(archivedTrackOpenName(older, 'zh-CN')).toBe('在 WashU 查看 signal.bw 第 1 版');
-    expect(archivedTrackOpenName(older, 'en')).toBe('Open version 1 of signal.bw in WashU');
+    expect(archivedTrackOpenName(older, 'en')).toBe('Open version 1 in WashU · signal.bw');
     expect(request).toEqual({
       kind: 'ready',
       projectId: PROJECT_ID,

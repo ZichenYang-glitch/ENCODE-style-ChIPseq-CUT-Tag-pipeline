@@ -28,3 +28,16 @@ it('remembers an explicit choice and responds to changes from another tab', asyn
   });
   expect(screen.getByRole('combobox', { name: '语言' })).toHaveValue('zh-CN');
 });
+
+it('can switch languages for this page when the browser blocks site storage', async () => {
+  vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['zh-CN']);
+  const unavailable = () => { throw new DOMException('Unavailable', 'SecurityError'); };
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(unavailable);
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(unavailable);
+  render(<UiLanguageSelect />);
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByRole('combobox', { name: '语言' }), 'en');
+  expect(screen.getByRole('combobox', { name: 'Language' })).toHaveValue('en');
+  write.mockRestore();
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Language' }), 'zh-CN');
+});

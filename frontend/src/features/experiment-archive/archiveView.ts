@@ -85,7 +85,7 @@ export function archivedTrackOpenName(
   language: UiLanguage,
 ): string {
   return language === 'en'
-    ? `Open version ${track.version_number} of ${track.display_name} in WashU`
+    ? `Open version ${track.version_number} in WashU · ${track.display_name}`
     : `在 WashU 查看 ${track.display_name} 第 ${track.version_number} 版`;
 }
 
