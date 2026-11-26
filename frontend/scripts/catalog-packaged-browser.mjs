@@ -67,7 +67,7 @@ try {
     headless: true,
     args: ['--no-proxy-server'],
   });
-  const page = await browser.newPage({ baseURL: manifest.api_base });
+  const page = await browser.newPage({ baseURL: manifest.api_base, locale: 'zh-CN' });
   page.setDefaultTimeout(20_000);
 
   const catalogDocument = page.waitForResponse(

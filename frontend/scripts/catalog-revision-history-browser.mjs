@@ -167,7 +167,7 @@ try {
     headless: true,
     args: ['--no-proxy-server'],
   });
-  const page = await browser.newPage({ baseURL: origin });
+  const page = await browser.newPage({ baseURL: origin, locale: 'zh-CN' });
   page.setDefaultTimeout(20_000);
   const report = {
     member_opened_cross_page_revision: false,
