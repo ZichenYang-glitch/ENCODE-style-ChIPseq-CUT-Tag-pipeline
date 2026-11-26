@@ -240,6 +240,24 @@ def test_grant_must_still_authorize_delivery_after_the_provider_returns(
     assert len(worker.sends) == 1
 
 
+def test_revocation_after_reservation_prevents_dispatch(bound, monkeypatch):
+    worker, model = bound
+    grant_id = _grant(model, worker, PROJECT, requests=1)
+    reserve = model._reserve_catalog_call
+
+    def reserve_then_revoke(**kwargs):
+        reservation = reserve(**kwargs)
+        model.catalog_revoke(grant_id)
+        return reservation
+
+    monkeypatch.setattr(model, "_reserve_catalog_call", reserve_then_revoke)
+    with pytest.raises(CatalogTransportError) as refused:
+        _classify(model)
+    assert refused.value.code == "catalog_model_revoked"
+    assert worker.sends == []
+    assert _balances(model, grant_id) == (0, 1, 0)
+
+
 def test_cross_project_revocation_expiry_and_timeout_keep_their_counts(bound):
     worker, model = bound
     grant_id = _grant(model, worker, PROJECT, requests=2)

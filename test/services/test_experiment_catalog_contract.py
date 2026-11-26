@@ -961,6 +961,18 @@ def test_model_shortlist_and_pinned_revision_match_across_catalogs(catalog_stack
         _term(catalog, "target", target)
         for target in ("CTCF", "H2A.Z", "H3K4me3", "H3K27ac", "POLR2A")
     ]
+    for target in targets:
+        key = target["term_id"]
+        _write(
+            catalog.create_experiment,
+            key,
+            project_id=project.project_id,
+            stable_key=key,
+            **_experiment(
+                sample.revision.sample_revision_id,
+                target={"status": "known", **_pin(target)},
+            ),
+        )
     tissue = _term(catalog, "tissue", "Brain")
     pin = _pin(targets[1])["term_revision_id"]
     fields = {
