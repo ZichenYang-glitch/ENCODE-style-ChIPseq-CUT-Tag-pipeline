@@ -28,6 +28,7 @@ MAX_CLASSIFY_REQUEST_BYTES = 2048
 
 _CLUE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{1,63}\Z")
 _TOKEN = re.compile(r"^[a-z][a-z0-9]{0,31}\Z")
+_TARGET_LABEL = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[ ._-][A-Za-z0-9]+)*\Z")
 _ORDINAL_PREFIXES = (
     "number",
     "ordinal",
@@ -113,20 +114,15 @@ def clue_is_auditable(value: object) -> bool:
 
 def _projection_label(display_name: str, aliases: Sequence[str]) -> str | None:
     for raw in (display_name, *aliases):
-        if (
-            isinstance(raw, str)
-            and raw == raw.strip()
-            and 1 <= len(raw) <= 48
-            and not any(ord(character) < 32 for character in raw)
-            and not is_uninformative_clue(raw)
-            and not raw.isdigit()
-        ):
+        if isinstance(raw, str) and evidence_token(raw) is not None:
             return raw
     return None
 
 
 def evidence_token(label: str) -> str | None:
-    token = "".join(character.lower() for character in label if character.isalnum())
+    if len(label) > 48 or _TARGET_LABEL.fullmatch(label) is None:
+        return None
+    token = compact_clue(label)
     if _TOKEN.fullmatch(token) is None or is_uninformative_clue(token):
         return None
     return token

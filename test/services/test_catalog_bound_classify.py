@@ -22,6 +22,7 @@ from encode_pipeline.services.peri_runtime.bound_model import (
 )
 from encode_pipeline.services.peri_runtime.catalog_classify import (
     CatalogTransportError,
+    bind_target_candidates,
     loopback_decision,
 )
 from encode_pipeline.services.peri_runtime.owner import NativeAuthoringBridge
@@ -104,6 +105,27 @@ def _classify(model: BoundModel, **overrides: object) -> str:
     }
     payload.update(overrides)
     return model.classify(**payload)
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["/home/synthetic/run1", "https://example.invalid", "sample@example.invalid"],
+)
+def test_unsafe_target_label_can_only_use_a_safe_vocabulary_alias(bound, label):
+    worker, model = bound
+    grant_id = _grant(model, worker, PROJECT, requests=1)
+    term = {"display_name": label, "term_id": "t1", "term_revision_id": "v1"}
+    assert bind_target_candidates([term], explicit_revision_id="v1") == ()
+    eligible = bind_target_candidates(
+        [{**term, "aliases": ["H2A.Z"]}], explicit_revision_id="v1"
+    )
+    assert [(item.label, item.token) for item in eligible] == [("H2A.Z", "h2az")]
+    for token, unsafe in (("h2az", label), ("h2az", "CTCF")):
+        with pytest.raises(CatalogTransportError) as refused:
+            _classify(model, candidates=((token, unsafe),))
+        assert refused.value.code == "catalog_model_malformed"
+    assert worker.sends == []
+    assert _balances(model, grant_id) == (1, 0, 0)
 
 
 def test_classify_requires_its_own_grant_and_replays_without_another_send(bound):

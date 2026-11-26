@@ -179,17 +179,22 @@ fn classify_clue(value: &Value) -> Option<&str> {
 fn classify_candidate(value: &Value) -> Option<(&str, &str)> {
     let token = token(&value["token"])?;
     let label = value["label"].as_str()?;
-    if token.len() > 32
-        || !token.as_bytes()[0].is_ascii_lowercase()
-        || token.bytes().any(|byte| !(byte.is_ascii_lowercase() || byte.is_ascii_digit()))
-        || token.bytes().all(|byte| byte.is_ascii_digit())
+    if label.len() > 48
+        || !label.starts_with(|ch: char| ch.is_ascii_alphabetic())
+        || !label.split([' ', '.', '_', '-']).all(|part| {
+            !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        })
+        || token.len() > 32
         || uninformative_clue(token)
-        || label.is_empty()
-        || label.len() > 48
-        || label.chars().any(|character| character.is_control())
-        || label.chars().all(|character| character.is_ascii_digit())
-        || uninformative_clue(label)
     {
+        return None;
+    }
+    let derived: String = label
+        .bytes()
+        .filter(u8::is_ascii_alphanumeric)
+        .map(|byte| byte.to_ascii_lowercase() as char)
+        .collect();
+    if derived != token {
         return None;
     }
     Some((token, label))

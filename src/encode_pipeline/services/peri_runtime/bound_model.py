@@ -35,6 +35,7 @@ from encode_pipeline.services.peri_runtime.catalog_classify import (
     accepted_decision,
     classify_worker_request,
     clue_is_auditable,
+    evidence_token,
 )
 
 # For the one fixed prompt + bounded integer and field name. The operator must
@@ -477,10 +478,8 @@ class BoundModel:
             if (
                 not isinstance(token, str)
                 or not isinstance(label, str)
-                or not re.fullmatch(r"[a-z][a-z0-9]{0,31}", token)
+                or evidence_token(label) != token
                 or token in seen
-                or token.isdigit()
-                or not 1 <= len(label) <= 48
             ):
                 raise CatalogTransportError("catalog_model_malformed")
             seen.add(token)
