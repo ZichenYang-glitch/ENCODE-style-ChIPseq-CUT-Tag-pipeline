@@ -136,8 +136,8 @@ describe('ViewerPage', () => {
       `/viewer.html?run=run-1&project=${PROJECT_ID}&experiment=${EXPERIMENT_ID}&archive=${track.archive_version_id}`,
     );
     renderPage();
-    expect(await screen.findByTestId('archived-track-version-label')).toHaveTextContent('第 1 版');
-    expect(screen.getByTestId('archived-track-source')).toHaveTextContent('运行 run-v1');
+    expect(await screen.findByTestId('archived-track-version-label')).toHaveTextContent('Version 1');
+    expect(screen.getByTestId('archived-track-source')).toHaveTextContent('Run run-v1');
     expect(screen.queryByRole('combobox', { name: 'Assembly' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('local-track-picker')).not.toBeInTheDocument();
     expect(sessionMock).not.toHaveBeenCalled();
