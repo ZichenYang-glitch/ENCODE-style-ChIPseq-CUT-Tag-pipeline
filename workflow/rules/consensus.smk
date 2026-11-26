@@ -80,6 +80,29 @@ def _consensus_validate_mode(wildcards):
 # Helper: inputs for consensus per-biorep MACS3
 # ---------------------------------------------------------------------------
 
+def _consensus_route_bioreps(experiment):
+    """Return every treatment biorep when a mixed route fixes the count."""
+    route = _mixed_route(experiment)
+    if route is None:
+        return None
+    expected = _route_n_bioreps(route)
+    bioreps = sorted(_bioreps_for(experiment, "treatment"))
+    if len(bioreps) != expected:
+        raise ValueError(
+            f"Experiment {experiment} mixed route n_bioreps={expected} "
+            f"does not match {len(bioreps)} treatment biological replicates"
+        )
+    return bioreps
+
+
+def _consensus_input_bioreps(experiment):
+    """Biological replicates passed to MACS3 consensus. Routed groups use all of them."""
+    routed = _consensus_route_bioreps(experiment)
+    if routed is not None:
+        return routed
+    return sorted(_bioreps_for(experiment, "treatment"))
+
+
 def _consensus_macs3_inputs(wildcards):
     """Return inputs for consensus per-biorep MACS3 on a biorep BAM.
 
@@ -87,6 +110,13 @@ def _consensus_macs3_inputs(wildcards):
     controls, the pooled control BAM is added as -c.
     """
     _consensus_validate_mode(wildcards)
+    _consensus_guard_macs3_request(wildcards.experiment, final=False)
+    routed_bioreps = _consensus_route_bioreps(wildcards.experiment)
+    if routed_bioreps is not None and int(wildcards.bio_rep) not in routed_bioreps:
+        raise ValueError(
+            f"Biological replicate {wildcards.bio_rep} is not an input for "
+            f"mixed MACS3 consensus of {wildcards.experiment}"
+        )
     exp = wildcards.experiment
     br = int(wildcards.bio_rep)
     inputs = [
@@ -104,7 +134,8 @@ def _consensus_macs3_inputs(wildcards):
 
 def _consensus_biorep_peaks(experiment, assay, peak_mode):
     """Return sorted list of per-biorep consensus peak files for an experiment."""
-    bioreps = sorted(_bioreps_for(experiment, "treatment"))
+    _consensus_guard_macs3_request(experiment, final=False)
+    bioreps = _consensus_input_bioreps(experiment)
     suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
     return [
         f"{OUTDIR}/experiments/{experiment}/06_reproducibility/consensus/"
@@ -118,8 +149,27 @@ def _consensus_biorep_peaks(experiment, assay, peak_mode):
 # Helper: consensus final output for primary-consensus modes
 # ---------------------------------------------------------------------------
 
+def _idr_published_final(experiment, assay, peak_mode):
+    """Path of the IDR file this mode actually publishes."""
+    if assay == "chipseq" and peak_mode == "narrow":
+        return f"{OUTDIR}/experiments/{experiment}/06_idr/final/conservative.narrowPeak"
+    suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
+    return (
+        f"{OUTDIR}/experiments/{experiment}/06_reproducibility/final/"
+        f"{experiment}.{assay}.macs3.{peak_mode}."
+        f"replicate_validated.idr.{suffix}"
+    )
+
+
 def _consensus_final_output(experiment, assay, peak_mode):
     """Return the final consensus output path, or empty string if not primary."""
+    route = _mixed_route(experiment)
+    if route is not None:
+        method = _route_method(route)
+        if method == "consensus":
+            return _macs3_consensus_final_path(experiment, assay, peak_mode)
+        if method == "idr":
+            return _idr_published_final(experiment, assay, peak_mode)
     # Modes where consensus is primary final:
     #   chipseq broad (when IDR not enabled), cuttag narrow (when IDR not enabled),
     #   cuttag broad (when IDR not enabled)
@@ -372,8 +422,7 @@ rule consensus_final:
         f"{{experiment}}.{{assay}}.macs3.{{peak_mode}}."
         f"replicate_validated.consensus.{{suffix}}",
     input:
-        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
-        f"{{experiment}}.{{assay}}.macs3.{{peak_mode}}.consensus.{{suffix}}",
+        lambda wc: _consensus_final_input(wc),
     wildcard_constraints:
         assay     = r"chipseq|cuttag|atac",
         peak_mode = r"narrow|broad",
@@ -390,8 +439,23 @@ rule consensus_final:
 # Helper: determine final_method for consensus summary
 # ---------------------------------------------------------------------------
 
+def _consensus_final_input(wildcards):
+    """Copy the consensus peak only when that file is the published final."""
+    _consensus_validate_mode(wildcards)
+    _consensus_guard_macs3_request(wildcards.experiment, final=True)
+    _consensus_route_bioreps(wildcards.experiment)
+    return (
+        f"{OUTDIR}/experiments/{wildcards.experiment}/06_reproducibility/consensus/"
+        f"{wildcards.experiment}.{wildcards.assay}.macs3.{wildcards.peak_mode}."
+        f"consensus.{wildcards.suffix}"
+    )
+
+
 def _consensus_final_method(experiment, assay, peak_mode):
     """Return the final_method string for compute_consensus.py --final-method."""
+    route = _mixed_route(experiment)
+    if route is not None:
+        return _route_method(route)
     if assay == "chipseq" and peak_mode == "narrow":
         if CHIPSEQ_IDR and experiment in IDR_EXPERIMENTS:
             return "idr"
