@@ -902,8 +902,7 @@ def _consensus_guard_macs3_request(experiment, *, final):
         )
     if final and method != "consensus":
         raise ValueError(
-            f"Experiment {experiment} is not eligible for a MACS3 consensus final: "
-            f"mixed route method is {method}"
+            f"Experiment {experiment} is not eligible for a MACS3 consensus final: mixed route method is {method}"
         )
 
 
@@ -919,8 +918,7 @@ def _consensus_targets():
         suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
         # run_macs3_consensus false drops only that group's MACS3 products.
         scheduled = [
-            exp for exp in exps
-            if exp not in MIXED_REPLICATE_ROUTES or MIXED_REPLICATE_ROUTES[exp].run_macs3_consensus
+            exp for exp in exps if exp not in MIXED_REPLICATE_ROUTES or MIXED_REPLICATE_ROUTES[exp].run_macs3_consensus
         ]
 
         if scheduled:
@@ -944,9 +942,7 @@ def _consensus_targets():
             )
 
         # Final consensus: legacy primary modes, plus routed method=='consensus'.
-        final_exps = [
-            exp for exp in scheduled if _experiment_publishes_macs3_consensus_final(exp, assay, peak_mode)
-        ]
+        final_exps = [exp for exp in scheduled if _experiment_publishes_macs3_consensus_final(exp, assay, peak_mode)]
         if final_exps:
             targets += expand(
                 "{outdir}/experiments/{experiment}/06_reproducibility/final/"
