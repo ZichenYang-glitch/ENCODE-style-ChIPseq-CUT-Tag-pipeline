@@ -16,7 +16,9 @@ from encode_pipeline.api.catalog_models import (
     CatalogAdoptionReceiptResponse,
     CatalogArchiveExperimentResponse,
     CatalogArchiveRequest,
+    CatalogClassificationSuggestionResponse,
     CatalogCreateExperimentRequest,
+    CatalogGenerateClassificationSuggestionRequest,
     CatalogCreateTermRequest,
     CatalogErrorResponse,
     CatalogExperimentListResponse,
@@ -704,6 +706,43 @@ async def list_experiment_run_results(
             ),
         )
     )
+
+
+@router.post(
+    "/projects/{project_id}/experiments/{experiment_id}/classification-suggestions",
+    response_model=CatalogClassificationSuggestionResponse,
+    operation_id="catalogGenerateClassificationSuggestion",
+    responses=_M2_ERRORS,
+)
+async def generate_classification_suggestion(
+    project_id: str,
+    experiment_id: str,
+    request: Request,
+    body: CatalogGenerateClassificationSuggestionRequest,
+    idempotency_key: str = Depends(_idempotency_key),
+    principal: AuthenticatedPrincipal = Depends(require_administrator),
+    service: ExperimentCatalogService = Depends(get_catalog_service),
+) -> JSONResponse:
+    """Create a pending target proposal from the bound model, or decline.
+
+    The catalog revision is not appended here. Preview and adoption stay on
+    their existing routes.
+    """
+
+    content = await run_in_threadpool(
+        service.generate_classification_suggestion,
+        actor_user_id=principal.user_id,
+        idempotency_key=idempotency_key,
+        raw_body=await _raw_body(request),
+        project_id=project_id,
+        experiment_id=experiment_id,
+        experiment_revision_id=body.experiment_revision_id,
+        field=body.field,
+        reason_code=body.reason_code,
+        clue=body.clue,
+        vocabulary_term_revision_id=body.vocabulary_term_revision_id,
+    )
+    return JSONResponse(content=content)
 
 
 @router.post(

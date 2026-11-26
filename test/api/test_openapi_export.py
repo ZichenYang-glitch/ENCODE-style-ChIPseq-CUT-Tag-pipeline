@@ -237,6 +237,10 @@ EXPECTED_OPERATIONS = {
     ): "catalogListExperimentRevisionRunResults",
     (
         "POST",
+        "/api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/classification-suggestions",
+    ): "catalogGenerateClassificationSuggestion",
+    (
+        "POST",
         "/api/v1/catalog/projects/{project_id}/proposals",
     ): "catalogRegisterProposal",
     ("GET", "/api/v1/catalog/proposals/{proposal_id}"): "catalogGetProposal",

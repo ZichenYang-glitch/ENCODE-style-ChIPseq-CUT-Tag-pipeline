@@ -210,6 +210,10 @@ FAULTS = {
         "experiment_catalog_service",
         "list_experiment_run_results",
     ),
+    "catalogGenerateClassificationSuggestion": (
+        "experiment_catalog_service",
+        "generate_classification_suggestion",
+    ),
     "catalogRegisterProposal": (
         "experiment_catalog_service",
         "register_proposal",
@@ -405,6 +409,12 @@ def error_api(tmp_path):
             "catalogReviseSampleCatalog": {
                 "expected_revision_number": 1,
                 "catalog": None,
+            },
+            "catalogGenerateClassificationSuggestion": {
+                "experiment_revision_id": "expr_" + "1" * 32,
+                "field": "target",
+                "reason_code": "TARGET_TERM_MATCH",
+                "clue": "H3K4me3",
             },
             "catalogRegisterProposal": {
                 "source": "offline_suggestion",

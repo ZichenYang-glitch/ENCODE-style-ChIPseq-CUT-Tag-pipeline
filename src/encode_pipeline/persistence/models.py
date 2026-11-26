@@ -3300,7 +3300,7 @@ class CatalogProposalRow(Base):
             name="ck_catalog_proposals_id",
         ),
         CheckConstraint(
-            "source IN ('offline_suggestion', 'agent', 'manual')",
+            "source IN ('offline_suggestion', 'agent', 'manual', 'peri_bound_model')",
             name="ck_catalog_proposals_source",
         ),
         CheckConstraint(

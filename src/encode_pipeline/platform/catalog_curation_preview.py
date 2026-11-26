@@ -571,7 +571,12 @@ class CatalogProposal:
     ) -> "CatalogProposal":
         _check_id("proposal", proposal_id, path="proposal_id")
         _check_id("project", project_id, path="project_id")
-        if source not in {"offline_suggestion", "agent", "manual"}:
+        if source not in {
+            "offline_suggestion",
+            "agent",
+            "manual",
+            "peri_bound_model",
+        }:
             raise catalog_preview_error(
                 422, "catalog_payload_invalid", "Unsupported proposal source."
             )

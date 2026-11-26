@@ -77,6 +77,13 @@ async fn run() -> Option<Value> {
     if r == json!({"op":"binding"}) {
         return Some(binding);
     }
+    if r["op"] == "classify" {
+        if r["binding"] != binding {
+            return None;
+        }
+        // Keep the clue and answer rules aligned with catalog_classify.py.
+        return classify(&r, binding, endpoint, key, model).await;
+    }
     if r["op"] != "suggest" || r["binding"] != binding {
         return None;
     }
@@ -125,6 +132,155 @@ async fn run() -> Option<Value> {
                 return Some(
                     json!({"binding":binding,"value":answer.trim().parse::<i32>().ok()?,"request_model":model,"endpoint":url}),
                 );
+            }
+            peri_model::ModelStreamEvent::Interrupted { .. }
+            | peri_model::ModelStreamEvent::ToolCallDelta { .. } => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn uninformative_clue(value: &str) -> bool {
+    let mut compact = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            compact.push((byte as char).to_ascii_lowercase());
+        }
+    }
+    if compact.is_empty() || compact.bytes().all(|byte| byte.is_ascii_digit()) {
+        return true;
+    }
+    // Longer prefixes first so "number1" is not classified as "num".
+    for prefix in ["number", "ordinal", "candidate", "index", "item", "num", "no"] {
+        if let Some(rest) = compact.strip_prefix(prefix) {
+            if !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn classify_clue(value: &Value) -> Option<&str> {
+    let clue = value.as_str()?;
+    if !(2..=64).contains(&clue.len())
+        || !clue.as_bytes()[0].is_ascii_alphabetic()
+        || !clue
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.:".contains(&byte))
+        || uninformative_clue(clue)
+    {
+        return None;
+    }
+    Some(clue)
+}
+
+fn classify_candidate(value: &Value) -> Option<(&str, &str)> {
+    let token = token(&value["token"])?;
+    let label = value["label"].as_str()?;
+    if token.len() > 32
+        || !token.as_bytes()[0].is_ascii_lowercase()
+        || token.bytes().any(|byte| !(byte.is_ascii_lowercase() || byte.is_ascii_digit()))
+        || token.bytes().all(|byte| byte.is_ascii_digit())
+        || uninformative_clue(token)
+        || label.is_empty()
+        || label.len() > 48
+        || label.chars().any(|character| character.is_control())
+        || label.chars().all(|character| character.is_ascii_digit())
+        || uninformative_clue(label)
+    {
+        return None;
+    }
+    Some((token, label))
+}
+
+async fn classify(
+    request: &Value,
+    binding: Value,
+    endpoint: Url,
+    key: &str,
+    model: &str,
+) -> Option<Value> {
+    if request["field"] != "experiment.target" || request["reason"] != "TARGET_TERM_MATCH" {
+        return None;
+    }
+    let clue = classify_clue(&request["clue"])?;
+    let raw_candidates = request["candidates"].as_array()?;
+    if !(1..=4).contains(&raw_candidates.len()) {
+        return None;
+    }
+    let mut candidates = Vec::new();
+    for candidate in raw_candidates {
+        let (token, label) = classify_candidate(candidate)?;
+        if candidates.iter().any(|(seen, _)| *seen == token) {
+            return None;
+        }
+        candidates.push((token, label));
+    }
+    let limit = u32::try_from(request["output_tokens"].as_u64()?).ok()?;
+    if !(1..=1024).contains(&limit) {
+        return None;
+    }
+    let projected = json!({
+        "field": "experiment.target",
+        "reason": "TARGET_TERM_MATCH",
+        "clue": clue,
+        "candidates": candidates
+            .iter()
+            .map(|(token, label)| json!({"token": token, "label": label}))
+            .collect::<Vec<_>>(),
+    });
+    let prompt = format!(
+        "Choose one candidate token for experiment.target only when the clue identifies that candidate label. Do not answer with a position or index. If the clue does not identify exactly one label, return exactly insufficient_evidence. Return only the token or insufficient_evidence. {projected}"
+    );
+    let model_request =
+        ModelRequest::new(vec![ModelMessage::user_text(prompt)]).with_max_tokens(limit);
+    let config = AnthropicConfig::new(endpoint, key, model)
+        .without_cache()
+        .with_max_tokens(limit)
+        .with_runtime(
+            ModelRuntimeConfig::default().with_retry(RetryConfig::default().with_max_attempts(1)),
+        );
+    let adapter = AnthropicModel::single_request(config).ok()?;
+    let prepared = adapter.prepare_stream(model_request).ok()?;
+    let checkpoint = prepared.checkpoint();
+    if serde_json::to_vec(&checkpoint["body"]).ok()?.len() > 1024 {
+        return None;
+    }
+    let url = checkpoint["endpoint"].as_str()?.to_owned();
+    use futures::StreamExt;
+    let mut stream = prepared.start(CancellationToken::new()).ok()?;
+    let mut text = String::new();
+    while let Some(event) = stream.next().await {
+        match event.ok()? {
+            peri_model::ModelStreamEvent::TextDelta { text: delta } => {
+                text.push_str(&delta);
+                if text.len() > 64 {
+                    return None;
+                }
+            }
+            peri_model::ModelStreamEvent::Completed(response) => {
+                if !matches!(response.stop_reason(), peri_model::StopReason::EndTurn) {
+                    return None;
+                }
+                let answer = if text.is_empty() {
+                    response.assistant_text()?
+                } else {
+                    text
+                };
+                let decision = answer.trim();
+                let allowed = decision == "insufficient_evidence"
+                    || candidates.iter().any(|(token, _)| *token == decision);
+                if !allowed || decision.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return None;
+                }
+                return Some(json!({
+                    "binding": binding,
+                    "decision": decision,
+                    "request_model": model,
+                    "endpoint": url,
+                }));
             }
             peri_model::ModelStreamEvent::Interrupted { .. }
             | peri_model::ModelStreamEvent::ToolCallDelta { .. } => return None,

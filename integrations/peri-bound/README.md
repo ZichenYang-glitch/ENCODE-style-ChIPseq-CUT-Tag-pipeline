@@ -63,3 +63,29 @@ python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/a
 ```
 
 The loopback provider receives one protocol request via Peri’s adapter and returns 7 for a preference of 3. Chromium requests another suggestion before adopting the first. The second turn fails without reaching the provider, and the user can still adopt 7. A separate wire test verifies that redirects, rate limits and a changed binding cannot trigger a second transmission. A paid smoke test requires a separate explicit field grant and spending ceiling and uses a synthetic draft.
+
+## Catalog target classification
+
+The same owner worker and ledger also accept `op=classify` for one controlled-vocabulary choice. This does not replace integer suggestions and does not change the default when the three owner variables are unset. The API process never opens the settings file or the provider key. It forwards a classification only when `HELIXWEAVE_PERI_OWNER_SOCKET` is already set for that owner; otherwise `POST /api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/classification-suggestions` fails closed with `catalog_model_unbound`.
+
+The first slice is `experiment.target` / `TARGET_TERM_MATCH`. The model receives the clue and at most four `{token, label}` candidates. It does not receive term revision ids, experiment records, or draft fields such as `config.threads`. It must return one candidate token or exactly `insufficient_evidence`. A position or index is rejected. A catalog grant is a separate ledger row from an authoring grant:
+
+```sh
+python -m encode_pipeline.services.peri_runtime.model_grant catalog-grant \
+  --project "$PROJECT_ID" --field experiment.target --binding "$BINDING" \
+  --expires "$UNIX_EXPIRY" --requests "$MAX_REQUESTS" \
+  --input-tokens "$TOTAL_INPUT" --output-tokens "$TOTAL_OUTPUT" \
+  --output-per-call "$MAX_OUTPUT" --currency "$CURRENCY" --minor-units "$MAX_COST" \
+  --input-rate "$MAX_INPUT_RATE" --output-rate "$MAX_OUTPUT_RATE"
+python -m encode_pipeline.services.peri_runtime.model_grant catalog-revoke --grant "$GRANT_ID"
+```
+
+A call is reserved before the worker runs. Timeout keeps the reservation. Replaying a delivered decision does not call the worker again. Generation inserts one pending proposal with source `peri_bound_model` and does not preview, select, or adopt it. The existing preview and adoption routes do that, and only adoption appends a catalog revision. Offline `POST /proposals` cannot submit `peri_bound_model`.
+
+Synthetic tests inject a callable worker and a loopback decision. They do not compile Peri, send a provider request, or use a model key:
+
+```sh
+python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -q \
+  test/services/test_catalog_bound_classify.py \
+  test/api/test_catalog_classification_suggestion_http.py
+```

@@ -543,6 +543,69 @@ class CatalogExperimentRunListResponse(BaseModel):
         return self
 
 
+class CatalogClassificationCandidateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    label: str
+
+
+class CatalogClassificationProjectionResponse(BaseModel):
+    """Fields actually handed to the model. Term revision ids stay on the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: Literal["experiment.target"]
+    reason_code: Literal["TARGET_TERM_MATCH"]
+    clue: str
+    candidates: list[CatalogClassificationCandidateResponse]
+
+
+class CatalogGenerateClassificationSuggestionRequest(BaseModel):
+    """One current experiment revision and one auditable target clue.
+
+    The first slice supports only ``target`` / ``TARGET_TERM_MATCH``.
+    ``vocabulary_term_revision_id`` limits the model to that current target
+    term. A numeric or index-shaped clue is rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    experiment_revision_id: str = Field(pattern=r"^expr_[0-9a-f]{32}$")
+    field: Literal["target"]
+    reason_code: Literal["TARGET_TERM_MATCH"]
+    clue: str = Field(min_length=2, max_length=64)
+    vocabulary_term_revision_id: str | None = Field(
+        default=None, pattern=r"^trmv_[0-9a-f]{32}$"
+    )
+
+
+class CatalogClassificationSuggestionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True]
+    outcome: Literal["proposal", "insufficient_evidence"]
+    field: Literal["target"]
+    reason_code: Literal["TARGET_TERM_MATCH"]
+    experiment_id: str
+    experiment_revision_id: str
+    experiment_revision_number: int
+    catalog_revision_changed: Literal[False]
+    projection: CatalogClassificationProjectionResponse
+    decision: str
+    proposal: CatalogProposalResponse | None = None
+
+    @model_validator(mode="after")
+    def outcome_carries_proposal(self) -> "CatalogClassificationSuggestionResponse":
+        if self.outcome == "proposal" and self.proposal is None:
+            raise ValueError("a proposal outcome includes the pending proposal")
+        if self.outcome == "insufficient_evidence" and (
+            self.proposal is not None or self.decision != "insufficient_evidence"
+        ):
+            raise ValueError("insufficient evidence does not include a proposal")
+        return self
+
+
 class CatalogRegisterProposalRequest(BaseModel):
     """Offline suggestion package. The server assigns the proposal id and digest."""
 

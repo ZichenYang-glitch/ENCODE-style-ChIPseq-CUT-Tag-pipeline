@@ -78,6 +78,7 @@ from encode_pipeline.platform.experiment_catalog import (
     interpret_experiment_fields,
     interpret_sample_catalog,
     interpret_stored_experiment_payload,
+    _single_object,
     projection_rows_from_block,
     render_sample_material,
     render_single,
@@ -871,6 +872,63 @@ class SqlAlchemyExperimentCatalogRepository:
                 experiment_revision_id,
                 include_candidates=True,
             )
+
+    def classification_context(self, experiment_id: str) -> dict[str, Any]:
+        """Current experiment head plus a bounded page of target vocabulary."""
+
+        from encode_pipeline.persistence.catalog_proposal_store import (
+            read_active_versions,
+        )
+
+        with self._session_factory() as session:
+            experiment = session.get(ExperimentRow, experiment_id)
+            if experiment is None:
+                raise catalog_not_found()
+            _require_active_project(session, experiment.project_id)
+            head = session.get(ExperimentRevisionHeadRow, experiment_id)
+            if head is None:
+                raise catalog_not_found()
+            revision = session.get(ExperimentRevisionRow, head.experiment_revision_id)
+            if revision is None:
+                raise catalog_not_found()
+            payload = interpret_stored_experiment_payload(revision.canonical_payload)
+            active = read_active_versions(session)
+            rows = session.scalars(
+                select(CatalogTermRow)
+                .where(
+                    CatalogTermRow.term_type == "target",
+                    CatalogTermRow.archived_at.is_(None),
+                )
+                .order_by(CatalogTermRow.created_at, CatalogTermRow.term_id)
+                .limit(33)
+            ).all()
+            truncated = len(rows) == 33
+            terms = [_target_term_record(session, term.term_id) for term in rows[:32]]
+            return {
+                "project_id": experiment.project_id,
+                "experiment_id": experiment.experiment_id,
+                "experiment_revision_id": revision.experiment_revision_id,
+                "revision_number": revision.revision_number,
+                "archived": experiment.archived_at is not None,
+                "target": _single_object(payload.target),
+                "rule_version": active.rule_version,
+                "vocabulary_version": active.vocabulary_version,
+                "projection_version": active.projection_version,
+                "target_terms": terms,
+                "target_terms_truncated": truncated,
+            }
+
+    def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None:
+        with self._session_factory() as session:
+            revision = session.get(CatalogTermRevisionRow, term_revision_id)
+            if revision is None:
+                return None
+            term = session.get(CatalogTermRow, revision.term_id)
+            if term is None or term.term_type != "target":
+                return None
+            record = _target_term_record(session, term.term_id)
+            record["requested_is_head"] = record["term_revision_id"] == term_revision_id
+            return record
 
     def list_sample_run_results(
         self,
@@ -2348,7 +2406,10 @@ def _replay(
             receipt.result_revision_id,
             include_candidates=True,
         )
-    if operation == "catalogRegisterProposal":
+    if operation in {
+        "catalogRegisterProposal",
+        "catalogGenerateClassificationSuggestion",
+    }:
         from encode_pipeline.persistence.catalog_proposal_store import replay_register
 
         return replay_register(
@@ -2365,6 +2426,20 @@ def _replay(
             receipt.idempotency_key,
         )
     raise catalog_idempotency_conflict()
+
+
+def _target_term_record(session: Session, term_id: str) -> dict[str, Any]:
+    revision_id = _term_head_id(session, term_id)
+    body = _term_body(session, term_id, revision_id)
+    revision = body["revision"]
+    return {
+        "term_id": body["term_id"],
+        "term_revision_id": revision["term_revision_id"],
+        "display_name": revision["display_name"],
+        "aliases": list(revision["aliases"]),
+        "archived": body["archived_at"] is not None,
+        "requested_is_head": True,
+    }
 
 
 def _experiment_head_number(session: Session, experiment_id: str) -> int:
