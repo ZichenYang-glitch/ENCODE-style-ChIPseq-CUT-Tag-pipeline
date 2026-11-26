@@ -92,25 +92,17 @@ Hi-TrAC 的 `authoring.py` 投影 `options.mapq`。策略边界是 0 到 255，�
 | ENCODE | 除 `config.threads` 与 `options.cores` 以外的配置、样本计划和参考选择 |
 | bulk RNA-seq | 全部字段；`authoring` 模块没有导出 `project_authoring_fields` |
 
-样本计划已由下文的 adapter 契约处理，公共服务不再为 ENCODE 单独分支。
-
 ## 样本计划（authoring-sample-plan/1）
 
-registry 选中的 workflow adapter 决定样本计划。公共服务仍负责会话、项目内修订、本地路径解析、幂等、校验缓存和 snapshot。
-
-adapter 实现 `WorkflowSamplePlanAdapter` 时提供四件事：
+registry 选中的 workflow adapter 通过 `WorkflowSamplePlanAdapter` 声明样本计划。
 
 | 方法 | 作用 |
 | --- | --- |
 | `supports_workflow_sample_plan` | 是否要求显式样本计划 |
-| `normalize_workflow_sample_plans` | assay、layout、role、peak mode 和配对规则 |
-| `describe_workflow_sample_inputs` | 按输入使用顺序给出 `WorkflowSampleInputBinding` |
+| `normalize_workflow_sample_plans` | 规范化本工作流的字段、输入顺序及行间关系 |
+| `describe_workflow_sample_inputs` | 用项目内样本名生成有序的 `InputFileRevisionSelection` |
 | `materialize_workflow_sample_rows` | 用平台已解析的样本名和路径生成样本行 |
 
-绑定只含样本修订、输入修订和 occurrence。平台据此做项目内核对，并组成已有的 `InputFileRevisionSelection`。occurrence 与 `declare_input_uses` 的读段坐标相同。服务不比较 ENCODE 工作流 ID，也不读取 `reads`。
+公共草稿检查 JSON 行数、键数、样本修订身份及其与 `sample_revision_ids` 的顺序。保存时先由 adapter 规范化输入字段，再对草稿计算摘要。ENCODE 按读段编号排序，保留既有草稿内容和摘要。Hi-TrAC 和 Bulk 沿用旧读段文档格式，允许省略计划，校验仍使用各自的 `samples`。
 
-仍留在共享层的是公开草稿文档：`normalize_draft_content` 限制 `workflow_samples` 的修订身份、读段编号只能是 1 或 2，以及它和 `sample_revision_ids` 的顺序一致。这是所有工作流保存前的文档边界，用来保持已有草稿和幂等，不是 ENCODE 的实验规则。路径是否属于本项目、是否归档、能否打开，也留在平台，因为文件不在工作流字段里。
-
-支持该契约时，缺少计划仍是 `WORKFLOW_SAMPLE_PLAN_REQUIRED`，保存时形状不合法仍是 `INVALID_REQUEST`，计划与修订不符、越项目或已归档输入仍是 `WORKFLOW_SAMPLE_PLAN_INVALID`，路径核验失败仍是 `WORKFLOW_SAMPLE_INPUT_UNAVAILABLE`。输入修订按绑定顺序进入快照。同一修订再次校验仍复用未过期快照。
-
-没有实现该契约的 adapter，包括 Hi-TrAC 和 bulk RNA-seq，不要求样本计划。它们的草稿即使带上 ENCODE 不接受的 `workflow_samples`，仍按各自原有校验处理。方法写在 registry 返回的 adapter 上，不从包里的 `authoring` 模块兜底，因此不必改动已封闭的 Hi-TrAC 文件。
+校验时，平台先解析项目内的样本名。adapter 按 `declare_input_uses` 的顺序提供每个 use 的键、occurrence 和有序输入修订。平台核对项目与归档状态，解析私有路径后交给 adapter 生成样本行。会话、幂等保存和快照复用由平台负责。复用已绑定的快照时还须匹配每个 use 的坐标与成员。ENCODE 的错误码沿用[原草稿契约](../architecture/peri-a1-c1-handoff.md#workflow-sample-plan)。

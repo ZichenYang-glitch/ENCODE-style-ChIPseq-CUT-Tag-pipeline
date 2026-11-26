@@ -16,6 +16,7 @@ import re
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from encode_pipeline.platform.adapters import WorkflowInputs
+from encode_pipeline.platform.input_registry import InputFileRevisionSelection
 from encode_pipeline.platform.results import Result
 from encode_pipeline.platform.snapshots import canonical_workflow_inputs_json
 
@@ -343,34 +344,6 @@ class AuthoringFieldProjectingAdapter(Protocol):
         """Project approved fields from the digested schema document."""
 
 
-@dataclass(frozen=True)
-class WorkflowSampleInputBinding:
-    """One managed revision a sample plan asks the platform to resolve.
-
-    The adapter names the sample revision, the input revision, and the
-    occurrence already used by ``InputFileRevisionSelection``. The platform
-    resolves the project-local sample name and the private file path.
-    """
-
-    sample_revision_id: str
-    input_file_revision_id: str
-    occurrence: int
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.sample_revision_id, str)
-            or _SAMPLE_REVISION_ID.fullmatch(self.sample_revision_id) is None
-        ):
-            raise ValueError("workflow sample revision is missing or repeated")
-        if (
-            not isinstance(self.input_file_revision_id, str)
-            or _INPUT_FILE_REVISION_ID.fullmatch(self.input_file_revision_id) is None
-        ):
-            raise ValueError("workflow sample read is missing or repeated")
-        if type(self.occurrence) is not int or self.occurrence < 0:
-            raise ValueError("workflow sample read is missing or repeated")
-
-
 @runtime_checkable
 class WorkflowSamplePlanAdapter(Protocol):
     """Optional adapter contract for an explicit workflow sample plan.
@@ -393,15 +366,17 @@ class WorkflowSamplePlanAdapter(Protocol):
     def describe_workflow_sample_inputs(
         self,
         plans: Sequence[Mapping[str, Any]],
-    ) -> tuple[WorkflowSampleInputBinding, ...]:
-        """Name managed revisions in input-use order, without filesystem paths."""
+        *,
+        sample_names: Mapping[str, str],
+    ) -> tuple[InputFileRevisionSelection, ...]:
+        """Bind input revisions to the coordinates used by ``declare_input_uses``."""
 
     def materialize_workflow_sample_rows(
         self,
         plans: Sequence[Mapping[str, Any]],
         *,
         sample_names: Mapping[str, str],
-        read_paths: Mapping[str, str],
+        input_paths: Mapping[str, str],
     ) -> Result[list[dict[str, str]]]:
         """Build workflow rows from names and paths the platform resolved."""
 
@@ -477,17 +452,11 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 _SAMPLE_REVISION_ID = re.compile(r"^smpr_[0-9a-f]{32}$")
-_INPUT_FILE_REVISION_ID = re.compile(r"^inpfr_[0-9a-f]{32}$")
-_READ_FIELDS = {"input_file_revision_id", "read"}
 _MAX_WORKFLOW_SAMPLE_KEYS = 32
-_MAX_WORKFLOW_SAMPLE_READS = 8
 
 
 def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
-    """Bound a plan and its revision identities.
-
-    Assay, layout, role, and read pairing belong to the workflow adapter.
-    """
+    """Bound JSON plan rows and their sample identities across workflows."""
 
     if value is None:
         return []
@@ -495,7 +464,6 @@ def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
         raise ValueError("workflow_samples must be a bounded list")
     normalized: list[dict[str, Any]] = []
     seen_samples: set[str] = set()
-    seen_reads: set[str] = set()
     for item in value:
         if not isinstance(item, Mapping) or len(item) > _MAX_WORKFLOW_SAMPLE_KEYS:
             raise ValueError("workflow sample plan has an unexpected shape")
@@ -507,43 +475,10 @@ def _normalize_workflow_samples(value: object) -> list[dict[str, Any]]:
         ):
             raise ValueError("workflow sample revision is missing or repeated")
         seen_samples.add(sample_revision_id)
-        reads = item.get("reads")
-        if (
-            not isinstance(reads, list)
-            or not reads
-            or len(reads) > _MAX_WORKFLOW_SAMPLE_READS
-        ):
-            raise ValueError("workflow sample reads must be explicit")
-        observed: list[dict[str, Any]] = []
-        numbers: list[int] = []
-        for read in reads:
-            if not isinstance(read, Mapping) or set(read) != _READ_FIELDS:
-                raise ValueError("workflow sample read has an unexpected shape")
-            number = read["read"]
-            revision_id = read["input_file_revision_id"]
-            if (
-                number not in {1, 2}
-                or not isinstance(revision_id, str)
-                or _INPUT_FILE_REVISION_ID.fullmatch(revision_id) is None
-                or revision_id in seen_reads
-                or number in numbers
-            ):
-                raise ValueError("workflow sample read is missing or repeated")
-            seen_reads.add(revision_id)
-            numbers.append(number)
-            observed.append({"input_file_revision_id": revision_id, "read": number})
-        payload = {
-            key: item[key] for key in item if key not in {"reads", "sample_revision_id"}
-        }
         try:
-            encoded = json.loads(canonical_json(payload))
+            normalized.append(json.loads(canonical_json(dict(item))))
         except (TypeError, ValueError):
             raise ValueError("workflow sample plan has an unexpected shape") from None
-        if not isinstance(encoded, dict):
-            raise ValueError("workflow sample plan has an unexpected shape")
-        encoded["reads"] = sorted(observed, key=lambda read: int(read["read"]))
-        encoded["sample_revision_id"] = sample_revision_id
-        normalized.append(encoded)
     return normalized
 
 

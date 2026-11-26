@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from encode_pipeline.adapters.authoring_read_plan import normalize_read_plan
 from encode_pipeline.persistence.authoring import (
     AuthoringSessionRecord,
     AuthoringTurnRecord,
@@ -51,7 +52,6 @@ from encode_pipeline.platform.authoring import (
     WORKFLOW_SAMPLE_PLAN_REQUIRED,
     STALE_DRAFT,
     WORKFLOW_UNAVAILABLE,
-    WorkflowSampleInputBinding,
     WorkflowSamplePlanAdapter,
     adopt_request_digest,
     apply_field_changes,
@@ -450,14 +450,18 @@ class AuthoringService:
         schema_digest, projection_digest, _fields = self._identity(current.workflow_id)
         normalized = normalize_draft_content(content)
         planner = _sample_plan_adapter(self._registry.get(current.workflow_id))
-        if planner is not None:
-            try:
-                plans = planner.normalize_workflow_sample_plans(
-                    normalized["workflow_samples"]
-                )
-            except ValueError:
-                raise AuthoringRejected(INVALID_REQUEST) from None
-            normalized = {**normalized, "workflow_samples": plans}
+        # Adapters without a plan contract still accept the original draft format.
+        normalize_plan = (
+            normalize_read_plan
+            if planner is None
+            else planner.normalize_workflow_sample_plans
+        )
+        try:
+            normalized["workflow_samples"] = normalize_plan(
+                normalized["workflow_samples"]
+            )
+        except ValueError:
+            raise AuthoringRejected(INVALID_REQUEST) from None
         record, changed = self._repository.save_draft(
             actor,
             sid,
@@ -813,13 +817,18 @@ class AuthoringService:
                 ),
             )
         samples = record.content["samples"]
-        selections = _stored_input_selections(record.content["input_selections"])
-        planner = _sample_plan_adapter(self._registry.get(record.workflow_id))
+        try:
+            adapter = self._registry.get(record.workflow_id)
+        except KeyError:
+            raise AuthoringRejected(WORKFLOW_UNAVAILABLE) from None
+        planner = _sample_plan_adapter(adapter)
         if planner is not None:
             prepared_samples = self._workflow_sample_rows(record, planner)
             if isinstance(prepared_samples, Result):
                 return PreparedValidation(record.revision, prepared_samples)
             samples, selections = prepared_samples
+        else:
+            selections = _stored_input_selections(record.content["input_selections"])
         if (
             self._storage_pool_config_path is not None
             and getattr(self._validated, "_storage_pool_config_path", None) is None
@@ -875,35 +884,25 @@ class AuthoringService:
         tuple[list[dict[str, str]], tuple[InputFileRevisionSelection, ...]]
         | Result[ValidatedInputSnapshot | None]
     ):
-        plans = list(record.content.get("workflow_samples") or [])
+        plans = record.content.get("workflow_samples")
         if not plans:
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_REQUIRED)
-        if [item["sample_revision_id"] for item in plans] != list(
-            record.content["sample_revision_ids"]
-        ):
-            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
         try:
+            sample_ids = record.content["sample_revision_ids"]
+            if [row["sample_revision_id"] for row in plans] != sample_ids:
+                return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
             plans = planner.normalize_workflow_sample_plans(plans)
-        except ValueError:
-            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
-        try:
-            bindings = tuple(planner.describe_workflow_sample_inputs(plans))
-        except (TypeError, ValueError, KeyError):
-            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
-        if any(not isinstance(item, WorkflowSampleInputBinding) for item in bindings):
-            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
-        try:
-            sample_names, read_paths = self._resolve_workflow_plan(
-                record.project_id,
-                [str(item["sample_revision_id"]) for item in plans],
-                [item.input_file_revision_id for item in bindings],
+            sample_names, input_paths, selections = self._resolve_workflow_plan(
+                record.project_id, sample_ids, planner, plans
             )
         except _PlanRejected as rejected:
             return _authoring_failure(rejected.code)
+        except (TypeError, ValueError, KeyError):
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
         materialized = planner.materialize_workflow_sample_rows(
             plans,
             sample_names=sample_names,
-            read_paths=read_paths,
+            input_paths=input_paths,
         )
         if not isinstance(materialized, Result):
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
@@ -912,14 +911,6 @@ class AuthoringService:
         if materialized.value is None:
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
         try:
-            selections = tuple(
-                InputFileRevisionSelection(
-                    input_use_key=sample_names[binding.sample_revision_id],
-                    occurrence=binding.occurrence,
-                    input_file_revision_ids=(binding.input_file_revision_id,),
-                )
-                for binding in bindings
-            )
             stored = _stored_input_selections(record.content["input_selections"])
         except (TypeError, ValueError, KeyError):
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
@@ -944,14 +935,21 @@ class AuthoringService:
         except (AttributeError, KeyError, LookupError, TypeError, ValueError):
             return False
         expected = tuple(
-            revision_id
+            (
+                selection.input_use_key,
+                selection.occurrence,
+                selection.input_file_revision_ids,
+            )
             for selection in selections
-            for revision_id in selection.input_file_revision_ids
         )
         observed = tuple(
-            member.input_file_revision_id
+            (
+                use.key,
+                use.occurrence,
+                tuple(member.input_file_revision_id for member in use.members),
+            )
             for use in binding.input_uses
-            for member in use.members
+            if use.members
         )
         return observed == expected
 
@@ -959,14 +957,10 @@ class AuthoringService:
         self,
         project_id: str,
         sample_revision_ids: Sequence[str],
-        input_file_revision_ids: Sequence[str],
-    ) -> tuple[dict[str, str], dict[str, str]]:
-        """Resolve project-local sample names and private paths.
-
-        Revision order is the adapter binding order. This method checks
-        project membership and opens files; it does not interpret workflow
-        columns.
-        """
+        planner: WorkflowSamplePlanAdapter,
+        plans: Sequence[Mapping[str, Any]],
+    ) -> tuple[dict[str, str], dict[str, str], tuple[InputFileRevisionSelection, ...]]:
+        """Resolve project sample keys, then the revisions the adapter binds to them."""
 
         registry = self._input_registry
         config_path = self._storage_pool_config_path
@@ -983,15 +977,22 @@ class AuthoringService:
             if revision.project_id != project_id or sample.project_id != project_id:
                 raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID)
             sample_names[revision_id] = sample.stable_key
+        selections = tuple(
+            planner.describe_workflow_sample_inputs(plans, sample_names=sample_names)
+        )
+        if any(not isinstance(item, InputFileRevisionSelection) for item in selections):
+            raise _PlanRejected(WORKFLOW_SAMPLE_PLAN_INVALID)
         try:
             config = load_private_storage_pool_config(config_path)
         except Exception:
             raise _PlanRejected(WORKFLOW_SAMPLE_INPUT_UNAVAILABLE) from None
-        read_paths: dict[str, str] = {}
-        for revision_id in input_file_revision_ids:
-            if revision_id not in read_paths:
-                read_paths[revision_id] = ""
-        for revision_id in read_paths:
+        input_paths: dict[str, str] = {}
+        input_file_revision_ids = (
+            revision_id
+            for selection in selections
+            for revision_id in selection.input_file_revision_ids
+        )
+        for revision_id in dict.fromkeys(input_file_revision_ids):
             try:
                 file_revision = registry.get_input_file_revision(revision_id)
                 input_file = registry.get_input_file(file_revision.input_file_id)
@@ -1014,8 +1015,8 @@ class AuthoringService:
                 ).verified_regular_path(file_revision)
             except InputFileAccessError:
                 raise _PlanRejected(WORKFLOW_SAMPLE_INPUT_UNAVAILABLE) from None
-            read_paths[revision_id] = str(path)
-        return sample_names, read_paths
+            input_paths[revision_id] = str(path)
+        return sample_names, input_paths, selections
 
     def read_tool(
         self,
@@ -1598,11 +1599,7 @@ class _PlanRejected(Exception):
 
 
 def _sample_plan_adapter(adapter: object) -> WorkflowSamplePlanAdapter | None:
-    """Return the registry adapter when it owns sample plans.
-
-    Hi-TrAC and bulk do not implement the protocol, so their drafts keep
-    their own samples and never run another workflow's plan rules.
-    """
+    """Return the registry adapter when it opts in to explicit sample plans."""
 
     if not isinstance(adapter, WorkflowSamplePlanAdapter):
         return None

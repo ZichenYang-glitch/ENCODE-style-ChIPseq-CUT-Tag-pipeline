@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -63,6 +63,9 @@ from encode_pipeline.platform.input_bundles import (
 )
 from encode_pipeline.platform.results import Issue, Result
 from encode_pipeline.platform.registry import WorkflowRegistry
+
+if TYPE_CHECKING:
+    from encode_pipeline.platform.input_registry import InputFileRevisionSelection
 
 
 _WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -365,21 +368,23 @@ class EncodeStyleWorkflowAdapter:
     def describe_workflow_sample_inputs(
         self,
         plans: Sequence[Mapping[str, Any]],
-    ):
+        *,
+        sample_names: Mapping[str, str],
+    ) -> tuple[InputFileRevisionSelection, ...]:
         """Describe managed reads in input-use order. Paths stay on the platform."""
 
         from encode_pipeline.adapters.encode_authoring_samples import (
             describe_encode_workflow_sample_inputs,
         )
 
-        return describe_encode_workflow_sample_inputs(plans)
+        return describe_encode_workflow_sample_inputs(plans, sample_names=sample_names)
 
     def materialize_workflow_sample_rows(
         self,
         plans: Sequence[Mapping[str, Any]],
         *,
         sample_names: Mapping[str, str],
-        read_paths: Mapping[str, str],
+        input_paths: Mapping[str, str],
     ) -> Result[list[dict[str, str]]]:
         """Build ENCODE sample rows from platform-resolved names and paths."""
 
@@ -390,7 +395,7 @@ class EncodeStyleWorkflowAdapter:
         return materialize_encode_sample_rows(
             plans,
             sample_names=sample_names,
-            read_paths=read_paths,
+            read_paths=input_paths,
         )
 
     def declare_input_uses(

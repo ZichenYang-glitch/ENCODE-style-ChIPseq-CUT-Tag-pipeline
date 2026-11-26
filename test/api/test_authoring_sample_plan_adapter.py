@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
-from encode_pipeline.persistence.data_registry import SqlAlchemyDataRegistryRepository
+import pytest
+
+from encode_pipeline.adapters.hitrac_preprocess.adapter import HiTracPreprocessAdapter
+from encode_pipeline.api.main import create_app
 from encode_pipeline.platform.authoring import WorkflowSamplePlanAdapter
+from encode_pipeline.platform.input_registry import InputFileRevisionSelection
+from encode_pipeline.platform.registry import WorkflowRegistry
+from encode_pipeline.platform.results import Result
 from encode_pipeline.services.authoring import _sample_plan_adapter
 from encode_pipeline.services.data_registry import DataRegistryService, SampleImportSpec
 from api_test_client import ApiTestClient
+from conftest import seed_test_authentication
 
 
 WORKFLOW_ID = "encode-style-chipseq-cuttag-atac-mnase"
@@ -23,7 +31,7 @@ def test_declining_or_unrelated_adapters_do_not_own_sample_plans() -> None:
 
 
 def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
-    tmp_path, reference_ready_app
+    tmp_path, reference_ready_app, monkeypatch
 ):
     app = reference_ready_app
     root, project, sample_revision_id, reads = _managed_reads(app, tmp_path)
@@ -34,25 +42,14 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
             {"read": 1, "input_file_revision_id": reads["r1"]},
         ],
     )
-    validated_service = app.state.authoring_service._validated
-    calls = {"count": 0}
-    original = validated_service.validate
-
-    def counting(*args, **kwargs):
-        calls["count"] += 1
-        return original(*args, **kwargs)
-
-    validated_service.validate = counting
+    validated_service = app.state.validated_input_service
+    validate = Mock(wraps=validated_service.validate)
+    monkeypatch.setattr(validated_service, "validate", validate)
     with ApiTestClient(app) as client:
-        created = client.post(
-            "/api/v1/agent/authoring-sessions",
-            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
-        )
-        assert created.status_code == 200, created.text
-        sid = created.json()["sid"]
+        url = _session_url(client, project, WORKFLOW_ID)
         saved = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            url + "/draft",
             json=_draft(
                 0,
                 sample_revision_id,
@@ -61,7 +58,7 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
             ),
         )
         assert saved.status_code == 200, saved.text
-        opened = client.get(f"/api/v1/agent/authoring-sessions/{sid}")
+        opened = client.get(url)
         assert opened.status_code == 200, opened.text
         stored = opened.json()["draft"]["workflow_samples"][0]
         assert stored["assay"] == "chipseq"
@@ -78,7 +75,7 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
         assert str(root) not in opened.text
         resaved = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            url + "/draft",
             json={
                 "expected_revision": opened.json()["draft_revision"],
                 **opened.json()["draft"],
@@ -88,7 +85,7 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
         assert resaved.json()["changed"] is False
         assert resaved.json()["draft_revision"] == opened.json()["draft_revision"]
         validated = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            url + "/validate",
             json={"expected_revision": resaved.json()["draft_revision"]},
         )
         assert validated.status_code == 200, validated.text
@@ -107,16 +104,33 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
         ]
         assert str(root) not in validated.text
         again = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            url + "/validate",
             json={"expected_revision": resaved.json()["draft_revision"]},
         )
         assert again.status_code == 200, again.text
         assert again.json()["ok"] is True
         assert again.json()["snapshot"]["snapshot_id"] == snapshot_id
-        assert calls["count"] == 1
+        validate.assert_called_once()
+        # Same revision IDs under a different use cannot reuse the old snapshot.
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                app.state.registry.get(WORKFLOW_ID),
+                "describe_workflow_sample_inputs",
+                lambda plans, *, sample_names: (
+                    InputFileRevisionSelection("other", 1, (reads["r1"],)),
+                    InputFileRevisionSelection("other", 2, (reads["r2"],)),
+                ),
+            )
+            rebound = client.post(
+                url + "/validate",
+                json={"expected_revision": resaved.json()["draft_revision"]},
+            )
+        assert rebound.json()["ok"] is False
+        assert rebound.json()["snapshot"] is None
+        assert validate.call_count == 2
         mismatched = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            url + "/draft",
             json=_draft(
                 resaved.json()["draft_revision"],
                 sample_revision_id,
@@ -125,21 +139,26 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
                 input_selections=[
                     {
                         "input_use_key": "sample-a",
-                        "occurrence": 0,
+                        "occurrence": 2,
+                        "input_file_revision_ids": [reads["r2"]],
+                    },
+                    {
+                        "input_use_key": "sample-a",
+                        "occurrence": 1,
                         "input_file_revision_ids": [reads["r1"]],
-                    }
+                    },
                 ],
             ),
         )
         assert mismatched.status_code == 200, mismatched.text
         rejected = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            url + "/validate",
             json={"expected_revision": mismatched.json()["draft_revision"]},
         )
         assert rejected.json()["ok"] is False
         assert rejected.json()["snapshot"] is None
         assert rejected.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_INVALID"
-        assert calls["count"] == 1
+        assert validate.call_count == 2
 
 
 def test_empty_materializer_result_is_a_validation_issue(
@@ -189,19 +208,7 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
     reference_ready_app,
 ):
     app = reference_ready_app
-    registry = _registry(app)
-    project = registry.create_project("Sample plan boundary")
-    imported = registry.import_samples(
-        project.project_id,
-        rows=(
-            SampleImportSpec(
-                stable_key="sample-a",
-                display_name="Sample A",
-                attributes={},
-            ),
-        ),
-    )[0]
-    revision_id = imported.revision.sample_revision_id
+    project, revision_id = _project_sample(app)
     encode = app.state.registry.get(WORKFLOW_ID)
     hitrac = app.state.registry.get(HITRAC_WORKFLOW_ID)
     bulk = app.state.registry.get(BULK_WORKFLOW_ID)
@@ -209,13 +216,6 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
     assert encode.supports_workflow_sample_plan() is True
     assert not isinstance(hitrac, WorkflowSamplePlanAdapter)
     assert not isinstance(bulk, WorkflowSamplePlanAdapter)
-    source = (
-        Path(__file__).resolve().parents[2]
-        / "src/encode_pipeline/services/authoring.py"
-    ).read_text(encoding="utf-8")
-    assert "ENCODE_WORKFLOW_ID" not in source
-    assert "encode_authoring_samples" not in source
-    assert '["reads"]' not in source
     illegal = _encode_plan(
         revision_id,
         [{"read": 1, "input_file_revision_id": "inpfr_" + ("a" * 32)}],
@@ -224,14 +224,10 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
         layout="SE",
     )
     with ApiTestClient(app) as client:
-        created = client.post(
-            "/api/v1/agent/authoring-sessions",
-            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
-        )
-        sid = created.json()["sid"]
+        url = _session_url(client, project, WORKFLOW_ID)
         rejected = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            url + "/draft",
             json=_draft(
                 0,
                 revision_id,
@@ -241,12 +237,12 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
         )
         assert rejected.status_code == 422, rejected.text
         assert rejected.json()["reason_code"] == "INVALID_REQUEST"
-        opened = client.get(f"/api/v1/agent/authoring-sessions/{sid}")
+        opened = client.get(url)
         assert opened.json()["draft_revision"] == 0
         assert opened.json()["draft"]["workflow_samples"] == []
         missing = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            url + "/draft",
             json=_draft(
                 0,
                 revision_id,
@@ -256,24 +252,16 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
         )
         assert missing.status_code == 200, missing.text
         checked = client.post(
-            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            url + "/validate",
             json={"expected_revision": missing.json()["draft_revision"]},
         )
         assert checked.json()["ok"] is False
         assert checked.json()["snapshot"] is None
         assert checked.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_REQUIRED"
-        hitrac_session = client.post(
-            "/api/v1/agent/authoring-sessions",
-            json={
-                "project_id": project.project_id,
-                "workflow_id": HITRAC_WORKFLOW_ID,
-            },
-        )
-        assert hitrac_session.status_code == 200, hitrac_session.text
-        hitrac_sid = hitrac_session.json()["sid"]
+        hitrac_url = _session_url(client, project, HITRAC_WORKFLOW_ID)
         saved = client.request(
             "PUT",
-            f"/api/v1/agent/authoring-sessions/{hitrac_sid}/draft",
+            hitrac_url + "/draft",
             json={
                 **_draft(0, revision_id, None, [illegal]),
                 "samples": [
@@ -286,14 +274,155 @@ def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
             },
         )
         assert saved.status_code == 200, saved.text
-        opened_hitrac = client.get(f"/api/v1/agent/authoring-sessions/{hitrac_sid}")
+        opened_hitrac = client.get(hitrac_url)
         assert opened_hitrac.json()["draft"]["workflow_samples"][0]["assay"] == "rna"
         validated = client.post(
-            f"/api/v1/agent/authoring-sessions/{hitrac_sid}/validate",
+            hitrac_url + "/validate",
             json={"expected_revision": saved.json()["draft_revision"]},
         )
         assert validated.status_code == 409, validated.text
         assert validated.json()["issues"][0]["code"] == "REFERENCE_PROFILE_REQUIRED"
+
+
+def test_registered_adapter_can_materialize_other_input_columns(tmp_path, monkeypatch):
+    class FilePlanAdapter(HiTracPreprocessAdapter):
+        def supports_workflow_sample_plan(self):
+            return True
+
+        def normalize_workflow_sample_plans(self, plans):
+            return [dict(plan) for plan in plans]
+
+        def describe_workflow_sample_inputs(self, plans, *, sample_names):
+            return tuple(
+                InputFileRevisionSelection(
+                    "library:" + sample_names[plan["sample_revision_id"]],
+                    0,
+                    tuple(plan["files"]),
+                )
+                for plan in plans
+            )
+
+        def materialize_workflow_sample_rows(self, plans, *, sample_names, input_paths):
+            return Result.success(
+                [
+                    {
+                        "sample_id": sample_names[plan["sample_revision_id"]],
+                        "fastq_1": input_paths[plan["files"][0]],
+                        "fastq_2": input_paths[plan["files"][1]],
+                    }
+                    for plan in plans
+                ]
+            )
+
+    app = create_app(registry=WorkflowRegistry([FilePlanAdapter()]))
+    seed_test_authentication(app)
+    root, project, sample, reads = _managed_reads(app, tmp_path)
+    validated_service = app.state.validated_input_service
+    validate = Mock(wraps=validated_service.validate)
+    monkeypatch.setattr(validated_service, "validate", validate)
+    plan = {"sample_revision_id": sample, "files": [reads["r1"], reads["r2"]]}
+    with ApiTestClient(app) as client:
+        url = _session_url(client, project, HITRAC_WORKFLOW_ID)
+        saved = client.request(
+            "PUT", url + "/draft", json=_draft(0, sample, None, [plan])
+        )
+        assert saved.status_code == 200, saved.text
+        opened = client.get(url)
+        assert opened.json()["draft"]["workflow_samples"] == [plan]
+        validated = client.post(
+            url + "/validate",
+            json={"expected_revision": saved.json()["draft_revision"]},
+        )
+        assert validated.status_code == 409, validated.text
+        assert validated.json()["issues"][0]["code"] == "REFERENCE_PROFILE_REQUIRED"
+        assert str(root) not in opened.text + validated.text
+        validate.assert_called_once()
+        assert validate.call_args.args[1].samples == [
+            {
+                "sample_id": "sample-a",
+                "fastq_1": str(root / "reads" / "s1.fastq.gz"),
+                "fastq_2": str(root / "reads" / "s2.fastq.gz"),
+            }
+        ]
+        assert validate.call_args.kwargs["input_file_revision_selections"] == (
+            InputFileRevisionSelection(
+                "library:sample-a", 0, (reads["r1"], reads["r2"])
+            ),
+        )
+        other_project, other_sample = _project_sample(app)
+        other_url = _session_url(client, other_project, HITRAC_WORKFLOW_ID)
+        foreign_file_plan = {**plan, "sample_revision_id": other_sample}
+        saved = client.request(
+            "PUT",
+            other_url + "/draft",
+            json=_draft(0, other_sample, None, [foreign_file_plan]),
+        )
+        assert saved.status_code == 200, saved.text
+        rejected = client.post(
+            other_url + "/validate",
+            json={"expected_revision": saved.json()["draft_revision"]},
+        )
+        assert rejected.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_INVALID"
+        assert rejected.json()["snapshot"] is None
+        assert str(root) not in rejected.text
+        validate.assert_called_once()
+
+
+@pytest.mark.parametrize("workflow_id", [HITRAC_WORKFLOW_ID, BULK_WORKFLOW_ID])
+def test_workflows_without_plan_support_keep_legacy_read_order(
+    reference_ready_app, workflow_id
+):
+    app = reference_ready_app
+    project, sample = _project_sample(app)
+    read1 = {"read": 1, "input_file_revision_id": "inpfr_" + "a" * 32}
+    read2 = {"read": 2, "input_file_revision_id": "inpfr_" + "b" * 32}
+    plan = {"sample_revision_id": sample, "reads": [read2, read1]}
+    with ApiTestClient(app) as client:
+        url = _session_url(client, project, workflow_id)
+        saved = client.request(
+            "PUT", url + "/draft", json=_draft(0, sample, None, [plan])
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["draft"]["workflow_samples"] == [
+            {**plan, "reads": [read1, read2]}
+        ]
+        revision = saved.json()["draft_revision"]
+        invalid = client.request(
+            "PUT",
+            url + "/draft",
+            json=_draft(
+                revision,
+                sample,
+                None,
+                [{**plan, "reads": [read1, read1]}],
+            ),
+        )
+        assert invalid.status_code == 422, invalid.text
+        assert invalid.json()["reason_code"] == "INVALID_REQUEST"
+        assert client.get(url).json()["draft_revision"] == revision
+        checked = client.post(url + "/validate", json={"expected_revision": revision})
+        assert checked.status_code == 409, checked.text
+        assert checked.json()["issues"][0]["code"] == "REFERENCE_PROFILE_REQUIRED"
+
+
+def test_saved_draft_with_an_unregistered_workflow_returns_its_public_error(
+    reference_ready_app,
+):
+    app = reference_ready_app
+    project, sample = _project_sample(app)
+    with ApiTestClient(app) as client:
+        url = _session_url(client, project, HITRAC_WORKFLOW_ID)
+        saved = client.request("PUT", url + "/draft", json=_draft(0, sample, None, []))
+        assert saved.status_code == 200, saved.text
+    restarted = create_app(registry=WorkflowRegistry(()))
+    seed_test_authentication(restarted)
+    with ApiTestClient(restarted) as client:
+        checked = client.post(
+            url + "/validate",
+            json={"expected_revision": saved.json()["draft_revision"]},
+        )
+        assert checked.status_code == 404, checked.text
+        assert checked.json()["reason_code"] == "WORKFLOW_UNAVAILABLE"
 
 
 class _DecliningSamplePlan:
@@ -303,11 +432,11 @@ class _DecliningSamplePlan:
     def normalize_workflow_sample_plans(self, plans):
         raise AssertionError(plans)
 
-    def describe_workflow_sample_inputs(self, plans):
-        raise AssertionError(plans)
+    def describe_workflow_sample_inputs(self, plans, *, sample_names):
+        raise AssertionError((plans, sample_names))
 
-    def materialize_workflow_sample_rows(self, plans, *, sample_names, read_paths):
-        raise AssertionError((plans, sample_names, read_paths))
+    def materialize_workflow_sample_rows(self, plans, *, sample_names, input_paths):
+        raise AssertionError((plans, sample_names, input_paths))
 
 
 def _managed_reads(app, tmp_path: Path):
@@ -336,18 +465,7 @@ def _managed_reads(app, tmp_path: Path):
     )
     app.state.authoring_service._storage_pool_config_path = config_path
     app.state.validated_input_service._storage_pool_config_path = config_path
-    registry = _registry(app)
-    project = registry.create_project("Managed cohort")
-    imported = registry.import_samples(
-        project.project_id,
-        rows=(
-            SampleImportSpec(
-                stable_key="sample-a",
-                display_name="Private sample",
-                attributes={},
-            ),
-        ),
-    )[0]
+    project, sample_revision_id = _project_sample(app)
     admin = InputRegistryAdminService(
         InputRegistryService(
             repository=app.state.persistence.input_registry_repository
@@ -370,7 +488,7 @@ def _managed_reads(app, tmp_path: Path):
             pool_relative_path=relative,
         )
         registered[name] = created["input_file_revision_id"]
-    return root, project, imported.revision.sample_revision_id, registered
+    return root, project, sample_revision_id, registered
 
 
 def _encode_plan(sample_revision_id: str, reads: list[dict[str, object]], **overrides):
@@ -407,11 +525,26 @@ def _draft(
     }
 
 
-def _registry(app) -> DataRegistryService:
-    from encode_pipeline.persistence import create_session_factory
-
-    return DataRegistryService(
-        repository=SqlAlchemyDataRegistryRepository(
-            create_session_factory(app.state.persistence.engine)
-        )
+def _project_sample(app):
+    registry = DataRegistryService(
+        repository=app.state.persistence.data_registry_repository
     )
+    project = registry.create_project("Sample plan")
+    imported = registry.import_samples(
+        project.project_id,
+        rows=(
+            SampleImportSpec(
+                stable_key="sample-a", display_name="Sample A", attributes={}
+            ),
+        ),
+    )
+    return project, imported[0].revision.sample_revision_id
+
+
+def _session_url(client, project, workflow_id) -> str:
+    response = client.post(
+        "/api/v1/agent/authoring-sessions",
+        json={"project_id": project.project_id, "workflow_id": workflow_id},
+    )
+    assert response.status_code == 200, response.text
+    return "/api/v1/agent/authoring-sessions/" + response.json()["sid"]
