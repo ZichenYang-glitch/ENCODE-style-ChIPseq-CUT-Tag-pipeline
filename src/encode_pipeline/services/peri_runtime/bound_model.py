@@ -53,17 +53,6 @@ CREATE TABLE grants (
 CREATE TABLE reservations (
  instance TEXT NOT NULL, turn TEXT NOT NULL, model TEXT, input_reserved INTEGER, output_reserved INTEGER, minor_reserved INTEGER, adopt_until REAL, delivered INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY (instance,turn));
-CREATE TABLE IF NOT EXISTS catalog_grants (
- grant_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, field TEXT NOT NULL,
- binding TEXT NOT NULL, expires INTEGER NOT NULL, output_cap INTEGER NOT NULL,
- input_rate INTEGER NOT NULL, output_rate INTEGER NOT NULL, requests INTEGER NOT NULL,
- input_left INTEGER NOT NULL, output_left INTEGER NOT NULL, minor_left INTEGER NOT NULL,
- currency TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS catalog_reservations (
- grant_id TEXT NOT NULL, call_key TEXT NOT NULL, projection_digest TEXT NOT NULL,
- model TEXT, input_reserved INTEGER, output_reserved INTEGER, minor_reserved INTEGER,
- delivered INTEGER NOT NULL DEFAULT 0, decision TEXT,
- PRIMARY KEY (grant_id, call_key));
 """
 
 
