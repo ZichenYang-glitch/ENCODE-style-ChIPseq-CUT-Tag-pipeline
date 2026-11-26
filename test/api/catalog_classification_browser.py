@@ -224,8 +224,17 @@ def test_packaged_catalog_classification(
     print(finished.stdout.strip())
 
 
-@pytest.mark.parametrize("reply", ["insufficient_evidence", "1"])
-def test_native_classification_decisions_and_reservations(tmp_path, request, reply):
+@pytest.mark.parametrize(
+    ("reply", "error"),
+    [
+        ("insufficient_evidence", None),
+        ("1", "catalog_model_malformed"),
+        pytest.param(None, "catalog_model_timeout", id="provider-timeout"),
+    ],
+)
+def test_native_classification_decisions_and_reservations(
+    tmp_path, request, reply, error
+):
     database = URL.create("sqlite", database=str(tmp_path / "catalog.sqlite"))
     env, model, _, calls = start_bound_owner(
         tmp_path, request, database, model_name="fixture-target", reply=reply
@@ -250,17 +259,22 @@ def test_native_classification_decisions_and_reservations(tmp_path, request, rep
         transport.classify(**(fields | {"project_id": "prj_" + "2" * 32}))
     assert foreign.value.code == "catalog_model_project_mismatch"
     assert calls == []
-    if reply == "insufficient_evidence":
+    if error is None:
         assert transport.classify(**fields) == reply
         assert transport.classify(**fields) == reply
     else:
         with pytest.raises(CatalogTransportError) as rejected:
             transport.classify(**fields)
-        assert rejected.value.code == "catalog_model_malformed"
+        assert rejected.value.code == error
         with pytest.raises(CatalogTransportError) as replay:
             transport.classify(**fields)
         assert replay.value.code == "catalog_model_timeout"
     with closing(model.db()) as ledger, ledger:
+        balance = ledger.execute(
+            "SELECT requests, input_left, output_left, minor_left FROM catalog_grants WHERE grant_id=?",
+            (grant,),
+        ).fetchone()
+        assert tuple(balance) == (0, 0, 0, 9)
         ledger.execute(
             "UPDATE catalog_grants SET expires=? WHERE grant_id=?",
             (int(time.time()) - 1, grant),

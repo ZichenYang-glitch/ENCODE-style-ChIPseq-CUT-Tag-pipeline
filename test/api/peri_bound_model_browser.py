@@ -41,6 +41,11 @@ def start_bound_owner(tmp_path, request, database_url, *, model_name, reply):
             return True
 
         def do_POST(self):
+            if reply is None:
+                # Hold this loopback request open until the worker deadline closes it.
+                self.connection.settimeout(50)
+                self.connection.recv(1)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()

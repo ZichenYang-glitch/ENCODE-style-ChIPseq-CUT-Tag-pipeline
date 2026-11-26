@@ -102,4 +102,4 @@ export HW_TEST_PERI_NATIVE="$ADMITTED_PERI"
 python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/api/catalog_classification_browser.py
 ```
 
-This opens the packaged catalog in English and Chinese. Each locale uses a temporary SQLite catalog, owner socket and counted loopback provider. The fixture compares the HTTP projection with the native worker's actual request body, replays generation and checks the selected and unselected experiment revisions through adoption.
+This opens the packaged catalog in English and Chinese. Each locale uses a temporary SQLite catalog, owner socket and counted loopback provider. The fixture compares the HTTP projection with the native worker's actual request body, replays generation and checks the selected and unselected experiment revisions through adoption. Additional cases return insufficient evidence, return an invalid ordinal, and hold a provider request open through the worker deadline. Each checks the actual request count and the durable reservation.
