@@ -1500,15 +1500,10 @@ def _qc_summary_failure() -> Result[Any]:
 
 
 def _sample_validation_flags(validated_config: dict[str, Any]) -> dict[str, bool]:
-    repro = validated_config.get("reproducibility", {})
-    idr = repro.get("idr", {})
-    enabled = repro.get("enabled", False)
-    return {
-        "atac_narrow": bool(enabled and idr.get("atac_narrow", False)),
-        "cuttag_narrow": bool(enabled and idr.get("cuttag_narrow", False)),
-        "chipseq_broad": bool(enabled and idr.get("chipseq_broad_experimental", False)),
-        "cuttag_broad": bool(enabled and idr.get("cuttag_broad_experimental", False)),
-    }
+    from encode_pipeline.config.errors import ValidationError
+    from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
+
+    return resolve_idr_sample_flags(validated_config, error_cls=ValidationError)
 
 
 def _issue_from_exception(

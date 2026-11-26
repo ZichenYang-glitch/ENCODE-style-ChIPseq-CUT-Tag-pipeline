@@ -6,6 +6,7 @@ from contextlib import nullcontext
 
 import pytest
 
+from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
 from encode_pipeline.config.validate import ValidationError, validate_config
 
 
@@ -357,3 +358,58 @@ def test_chipseq_narrow_idr_compatibility_switch_warns_on_conflict(tmp_path):
             },
         )
     assert validated["reproducibility"]["idr"]["chipseq_narrow"] is False
+
+
+def test_resolve_idr_sample_flags_handles_aliases_and_disabled_reproducibility():
+    assert resolve_idr_sample_flags(
+        {
+            "chipseq_idr": False,
+            "reproducibility": {
+                "enabled": False,
+                "idr": "not-validated-while-disabled",
+            },
+        }
+    ) == {
+        "chipseq_narrow": False,
+        "atac_narrow": False,
+        "cuttag_narrow": False,
+        "chipseq_broad": False,
+        "cuttag_broad": False,
+    }
+    assert resolve_idr_sample_flags(
+        {
+            "chipseq_idr": "false",
+            "reproducibility": {
+                "enabled": "true",
+                "idr": {
+                    "chipseq_narrow": "true",
+                    "atac_narrow": True,
+                    "cuttag_narrow": False,
+                    "chipseq_broad_experimental": True,
+                    "cuttag_broad_experimental": False,
+                },
+            },
+        }
+    ) == {
+        "chipseq_narrow": True,
+        "atac_narrow": True,
+        "cuttag_narrow": False,
+        "chipseq_broad": True,
+        "cuttag_broad": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "bad_config,pattern",
+    [
+        (["bad"], "config must be a mapping"),
+        ({"reproducibility": "bad"}, "reproducibility must be a mapping"),
+        (
+            {"reproducibility": {"enabled": True, "idr": "bad"}},
+            "reproducibility.idr must be a mapping",
+        ),
+    ],
+)
+def test_resolve_idr_sample_flags_rejects_non_mapping_blocks(bad_config, pattern):
+    with pytest.raises(ValueError, match=pattern):
+        resolve_idr_sample_flags(bad_config)

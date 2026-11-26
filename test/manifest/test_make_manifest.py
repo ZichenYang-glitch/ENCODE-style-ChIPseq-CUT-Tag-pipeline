@@ -1672,3 +1672,183 @@ def test_cli_manifest_derives_analysis_namespace(tmp_config, tmp_path):
     assert by_type["pooled_filtered_peak"]["status"] == "present"
     assert by_type["pooled_qc_summary"]["path"] == str(summary)
     assert by_type["pooled_qc_summary"]["status"] == "present"
+
+
+@pytest.mark.parametrize(
+    ("assay", "peak_mode", "idr_key", "expected_pattern"),
+    [
+        ("chipseq", "narrow", "chipseq_narrow", "ChIP-seq IDR requires exactly 2"),
+        ("atac", "narrow", "atac_narrow", "ATAC narrow.*IDR requires exactly 2"),
+        ("cuttag", "narrow", "cuttag_narrow", "CUT&Tag narrow.*IDR requires exactly 2"),
+        (
+            "chipseq",
+            "broad",
+            "chipseq_broad_experimental",
+            "ChIP-seq broad.*IDR requires exactly 2",
+        ),
+        (
+            "cuttag",
+            "broad",
+            "cuttag_broad_experimental",
+            "CUT&Tag broad.*IDR requires exactly 2",
+        ),
+    ],
+)
+def test_build_manifest_rows_rejects_mixed_2_3_across_all_idr_flags(
+    tmp_config, assay, peak_mode, idr_key, expected_pattern
+):
+    from encode_pipeline.errors import ValidationError
+    from encode_pipeline.manifest.make import build_manifest_rows
+
+    sample_rows = [
+        *_reproducibility_samples(assay, peak_mode, experiment="GRP2"),
+        [
+            "GRP3_1",
+            "R1.fq",
+            "R2.fq",
+            "PE",
+            assay,
+            "H3K27me3" if peak_mode == "broad" else "CTCF",
+            peak_mode,
+            "hs",
+            "/opt/idx/ref",
+            "GRP3",
+            "1",
+        ],
+        [
+            "GRP3_2",
+            "R3.fq",
+            "R4.fq",
+            "PE",
+            assay,
+            "H3K27me3" if peak_mode == "broad" else "CTCF",
+            peak_mode,
+            "hs",
+            "/opt/idx/ref",
+            "GRP3",
+            "2",
+        ],
+        [
+            "GRP3_3",
+            "R5.fq",
+            "R6.fq",
+            "PE",
+            assay,
+            "H3K27me3" if peak_mode == "broad" else "CTCF",
+            peak_mode,
+            "hs",
+            "/opt/idx/ref",
+            "GRP3",
+            "3",
+        ],
+    ]
+    cfg = _base_config()
+    cfg["reproducibility"] = {
+        "enabled": True,
+        "consensus": {"enabled": True},
+        "idr": {idr_key: True},
+    }
+    _, _, samples_path = tmp_config(
+        config=cfg,
+        samples=_make_samples(sample_rows=sample_rows, columns=REPRODUCIBILITY_COLUMNS),
+    )
+
+    with pytest.raises(ValidationError, match=expected_pattern):
+        build_manifest_rows(cfg, samples_path=samples_path)
+
+
+@pytest.mark.parametrize(
+    (
+        "assay",
+        "peak_mode",
+        "idr_key",
+        "idr_final_type",
+        "consensus_final_type",
+        "seacr",
+    ),
+    [
+        (
+            "cuttag",
+            "narrow",
+            "cuttag_narrow",
+            "cuttag_macs3_narrow_idr_final_peak",
+            "cuttag_macs3_narrow_consensus_final_peak",
+            True,
+        ),
+        (
+            "chipseq",
+            "broad",
+            "chipseq_broad_experimental",
+            "chipseq_macs3_broad_idr_final_peak",
+            "chipseq_macs3_broad_consensus_final_peak",
+            False,
+        ),
+        (
+            "cuttag",
+            "broad",
+            "cuttag_broad_experimental",
+            "cuttag_macs3_broad_idr_final_peak",
+            "cuttag_macs3_broad_consensus_final_peak",
+            True,
+        ),
+    ],
+)
+def test_build_reproducibility_rows_excludes_idr_groups_per_experiment(
+    tmp_path,
+    assay,
+    peak_mode,
+    idr_key,
+    idr_final_type,
+    consensus_final_type,
+    seacr,
+):
+    from encode_pipeline.manifest.make import _build_reproducibility_rows
+
+    treatment_samples = [
+        {
+            "id": f"GRP2_{br}",
+            "experiment": "GRP2",
+            "role": "treatment",
+            "assay": assay,
+            "target": "CTCF",
+            "peak_mode": peak_mode,
+            "genome": "hs",
+            "layout": "PE",
+            "biological_replicate": br,
+        }
+        for br in (1, 2)
+    ] + [
+        {
+            "id": f"GRP3_{br}",
+            "experiment": "GRP3",
+            "role": "treatment",
+            "assay": assay,
+            "target": "CTCF",
+            "peak_mode": peak_mode,
+            "genome": "hs",
+            "layout": "PE",
+            "biological_replicate": br,
+        }
+        for br in (1, 2, 3)
+    ]
+    cfg = _base_config()
+    cfg["reproducibility"] = {
+        "enabled": True,
+        "consensus": {"enabled": True},
+        "idr": {idr_key: True},
+    }
+    if seacr:
+        cfg["cuttag"] = {"seacr": {"enabled": True, "mode": "stringent"}}
+
+    rows = _build_reproducibility_rows(
+        treatment_samples, cfg, str(tmp_path / "results")
+    )
+    pairs = {(row["experiment_id"], row["output_type"]) for row in rows}
+
+    assert ("GRP2", idr_final_type) in pairs
+    assert ("GRP2", consensus_final_type) not in pairs
+    assert ("GRP3", consensus_final_type) in pairs
+    assert ("GRP3", idr_final_type) not in pairs
+    if seacr:
+        assert ("GRP2", "cuttag_seacr_consensus_final_peak") in pairs
+        assert ("GRP3", "cuttag_seacr_consensus_final_peak") in pairs

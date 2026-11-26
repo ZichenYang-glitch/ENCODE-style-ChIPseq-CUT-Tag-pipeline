@@ -922,7 +922,7 @@ def _consensus_targets():
                 "{experiment}.{assay}.macs3.{peak_mode}."
                 "replicate_validated.consensus.{suffix}",
                 outdir=OUTDIR,
-                experiment=exps,
+                experiment=final_exps,
                 assay=[assay],
                 peak_mode=[peak_mode],
                 suffix=[suffix],

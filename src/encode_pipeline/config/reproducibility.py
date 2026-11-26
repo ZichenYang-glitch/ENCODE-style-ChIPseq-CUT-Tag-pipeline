@@ -5,7 +5,67 @@ import warnings
 from encode_pipeline.config import defaults
 from encode_pipeline.config.coercion import coerce_bool
 
-__all__ = ["validate_idr_settings", "validate_reproducibility"]
+__all__ = [
+    "resolve_idr_sample_flags",
+    "validate_idr_settings",
+    "validate_reproducibility",
+]
+
+
+def resolve_idr_sample_flags(config, *, error_cls=ValueError):
+    """Resolve the five effective IDR admission booleans from a config mapping."""
+    if not isinstance(config, dict):
+        raise error_cls(f"config must be a mapping, got {type(config).__name__}")
+
+    chipseq_raw = config.get("chipseq_idr", False)
+    chipseq_idr = (
+        False
+        if chipseq_raw is None
+        else coerce_bool(chipseq_raw, "chipseq_idr", error_cls=error_cls)
+    )
+
+    repro_raw = config.get("reproducibility", {})
+    repro = {} if repro_raw is None else repro_raw
+    if not isinstance(repro, dict):
+        raise error_cls(
+            f"reproducibility must be a mapping, got {type(repro).__name__}"
+        )
+
+    enabled_raw = repro.get("enabled", False)
+    repro_enabled = (
+        False
+        if enabled_raw is None
+        else coerce_bool(enabled_raw, "reproducibility.enabled", error_cls=error_cls)
+    )
+    if not repro_enabled:
+        return {
+            "chipseq_narrow": chipseq_idr,
+            "atac_narrow": False,
+            "cuttag_narrow": False,
+            "chipseq_broad": False,
+            "cuttag_broad": False,
+        }
+
+    idr_raw = repro.get("idr", {})
+    idr = {} if idr_raw is None else idr_raw
+    if not isinstance(idr, dict):
+        raise error_cls(
+            f"reproducibility.idr must be a mapping, got {type(idr).__name__}"
+        )
+
+    def _idr_flag(key):
+        raw = idr.get(key)
+        if raw is None:
+            return False
+        return coerce_bool(raw, f"reproducibility.idr.{key}", error_cls=error_cls)
+
+    return {
+        "chipseq_narrow": chipseq_idr or _idr_flag("chipseq_narrow"),
+        "atac_narrow": _idr_flag("atac_narrow"),
+        "cuttag_narrow": _idr_flag("cuttag_narrow"),
+        "chipseq_broad": _idr_flag("chipseq_broad_experimental"),
+        "cuttag_broad": _idr_flag("cuttag_broad_experimental"),
+    }
 
 
 def validate_idr_settings(idr, error_cls=ValueError):
