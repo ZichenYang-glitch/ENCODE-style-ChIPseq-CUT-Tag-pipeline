@@ -867,78 +867,17 @@ def _broad_idr_targets():
     )
 
 
-def _mixed_replicate_routes():
-    """Return the Snakefile route table, or {} when mixed mode is unset."""
-    routes = globals().get("MIXED_REPLICATE_ROUTES", {})
-    if not routes:
-        return {}
-    if not isinstance(routes, dict):
-        raise ValueError("MIXED_REPLICATE_ROUTES must be a dict of experiment names to routes")
-    return routes
-
-
-def _route_attr(route, name, default=None):
-    if isinstance(route, dict):
-        return route.get(name, default)
-    return getattr(route, name, default)
-
-
-def _mixed_route(experiment):
-    return _mixed_replicate_routes().get(experiment)
-
-
-def _route_method(route):
-    method = _route_attr(route, "method", None)
-    if method not in ("idr", "consensus"):
-        raise ValueError(f"Mixed replicate route method must be 'idr' or 'consensus', got {method!r}")
-    return method
-
-
-def _route_runs_macs3(route):
-    value = _route_attr(route, "run_macs3_consensus", None)
-    if not isinstance(value, bool):
-        raise ValueError(f"Mixed replicate route run_macs3_consensus must be a bool, got {value!r}")
-    return value
-
-
-def _route_n_bioreps(route):
-    value = _route_attr(route, "n_bioreps", None)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"Mixed replicate route n_bioreps must be an int, got {value!r}")
-    return value
-
-
-def _mixed_route_runs_macs3_consensus(experiment):
-    """Unrouted experiments keep auxiliary MACS3 consensus."""
-    route = _mixed_route(experiment)
-    if route is None:
-        return True
-    _route_method(route)
-    return _route_runs_macs3(route)
-
-
-def _legacy_consensus_is_primary_final(experiment, assay, peak_mode):
-    """Original primary-final selection used when an experiment has no route."""
-    if assay == "chipseq" and peak_mode == "broad" and BROAD_CHIPSEQ_IDR_ENABLED:
-        return experiment not in set(BROAD_CHIPSEQ_IDR_EXPERIMENTS)
-    if assay == "cuttag" and peak_mode == "broad" and BROAD_CUTTAG_IDR_ENABLED:
-        return experiment not in set(BROAD_CUTTAG_IDR_EXPERIMENTS)
-    if assay == "cuttag" and peak_mode == "narrow" and CUTTAG_IDR_ENABLED:
-        return experiment not in set(CUTTAG_IDR_EXPERIMENTS)
-    if (
-        (assay == "chipseq" and peak_mode == "broad")
-        or (assay == "cuttag" and peak_mode == "narrow")
-        or (assay == "cuttag" and peak_mode == "broad")
-    ):
-        return True
-    return False
-
-
 def _experiment_publishes_macs3_consensus_final(experiment, assay, peak_mode):
-    route = _mixed_route(experiment)
+    route = MIXED_REPLICATE_ROUTES.get(experiment)
     if route is not None:
-        return _route_method(route) == "consensus" and _route_runs_macs3(route)
-    return _legacy_consensus_is_primary_final(experiment, assay, peak_mode)
+        return route.method == "consensus"
+    if assay == "chipseq" and peak_mode == "broad":
+        return not BROAD_CHIPSEQ_IDR_ENABLED or experiment not in BROAD_CHIPSEQ_IDR_EXPERIMENTS
+    if assay == "cuttag" and peak_mode == "broad":
+        return not BROAD_CUTTAG_IDR_ENABLED or experiment not in BROAD_CUTTAG_IDR_EXPERIMENTS
+    if assay == "cuttag" and peak_mode == "narrow":
+        return not CUTTAG_IDR_ENABLED or experiment not in CUTTAG_IDR_EXPERIMENTS
+    return False
 
 
 def _macs3_consensus_final_path(experiment, assay, peak_mode):
@@ -952,11 +891,11 @@ def _macs3_consensus_final_path(experiment, assay, peak_mode):
 
 def _consensus_guard_macs3_request(experiment, *, final):
     """Reject a handwritten MACS3 target that contradicts its mixed route."""
-    route = _mixed_route(experiment)
+    route = MIXED_REPLICATE_ROUTES.get(experiment)
     if route is None:
         return
-    method = _route_method(route)
-    if not _route_runs_macs3(route):
+    method = route.method
+    if not route.run_macs3_consensus:
         raise ValueError(
             f"Experiment {experiment} is not eligible for MACS3 consensus "
             f"under its mixed route (run_macs3_consensus is false; method is {method})"
@@ -979,7 +918,10 @@ def _consensus_targets():
             continue
         suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
         # run_macs3_consensus false drops only that group's MACS3 products.
-        scheduled = [exp for exp in exps if _mixed_route_runs_macs3_consensus(exp)]
+        scheduled = [
+            exp for exp in exps
+            if exp not in MIXED_REPLICATE_ROUTES or MIXED_REPLICATE_ROUTES[exp].run_macs3_consensus
+        ]
 
         if scheduled:
             # Consensus peak + summary

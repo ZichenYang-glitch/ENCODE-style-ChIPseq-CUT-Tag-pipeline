@@ -28,6 +28,12 @@ return "retain" if assay == "cuttag" else "exclude"
 
 QC 说明在 `docs/qc-interpretation.md`：QC 是描述性的，不是统一的通过/失败门。运行页的 QC 徽章如果出现，要回到产生该指标的工具去读，不能直接当成科学验收。
 
+### 显式启用的 2/3 重复混合策略
+
+`test/workflow/test_mixed_replicate_fixtures.py` 从公开校验、任务图和产物清单检验每个实验组的最终峰归属。合成窄峰的执行用例给三份独立生物重复输入同一位点、仅第二和第三份共享的位点、仅同一份重复中重叠的位点。默认阈值下前两个位点保留，最后一个剔除。设为三份支持时仅保留第一处。二重复 ChIP 组在同次运行由原 IDR 汇总规则生成 conservative 和 optimal 两份文件。
+
+合成记录用于验证软件行为。历史严格模式的运行身份仍用修订 7，混合模式的身份另含显式策略。实验室数据上的表现需单独测量。[配置和产物说明](../reproducibility-policy.md#same-run-with-two--and-three-replicate-groups)。
+
 ### 版本化的科学记录
 
 后续测量以这两份记录为准：

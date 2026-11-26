@@ -164,10 +164,9 @@ def describe_browser_artifact(
             "interval",
             "peak_intervals",
             "IDR peaks",
-            "Peaks are ordered by IDR rank. The copied score is the IDR score "
-            "used for that ranking, not the number of supporting biological "
-            "replicates and not a contact count.",
-            "idr_rank",
+            "Column 5 contains the scaled IDR score from the peak file. A higher "
+            "score indicates a lower estimated irreproducible discovery rate.",
+            "idr_scaled_score",
         )
     if workflow_id == _ENCODE_WORKFLOW and output_type in _CONSENSUS_PEAK_OUTPUTS:
         return _derivative(
@@ -175,9 +174,8 @@ def describe_browser_artifact(
             "interval",
             "peak_intervals",
             "Consensus peaks",
-            "The copied score is biological-replicate support: 1000 times the "
-            "fraction of this group's biological replicates that support the "
-            "interval. It is not an IDR rank and not a contact count.",
+            "Column 5 gives biological-replicate support as a fraction of the "
+            "group's replicates, multiplied by 1000 and rounded.",
             "consensus_biorep_support",
         )
     if (

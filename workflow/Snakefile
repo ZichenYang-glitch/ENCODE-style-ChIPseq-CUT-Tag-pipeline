@@ -438,7 +438,9 @@ def _check_effective_config_record(record, marker_identity):
             "Effective configuration record was created by a different scientific "
             "policy revision; use a fresh outdir for this workflow version."
         )
-    if MIXED_REPLICATE_ROUTES and recorded.get("resolved_reproducibility_by_experiment") != _mixed_replicate_record():
+    if MIXED_REPLICATE_ROUTES and (
+        recorded.get("resolved_reproducibility_by_experiment") != _mixed_replicate_record()
+    ):
         raise WorkflowError("Recorded mixed replicate routes do not match the experiment groups; use a fresh outdir.")
     recomputed = _analysis_identity_payload(recorded["config"], _analysis_samples_identity())
     encoded = json.dumps(recomputed, sort_keys=True, separators=(",", ":")).encode()

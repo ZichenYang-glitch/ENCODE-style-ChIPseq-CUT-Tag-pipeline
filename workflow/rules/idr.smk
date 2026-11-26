@@ -14,6 +14,11 @@
 #   chipseq_idr_summary      — reproducibility QC + final peaks (pseudoreplicates and final peaks)
 
 
+# The historical rules accept arbitrary experiment wildcards. In mixed runs
+# only paired ChIP IDR groups may produce these files, including named targets.
+_CHIPSEQ_IDR_GROUPS = {"experiment": wildcard_choices(IDR_EXPERIMENTS)} if MIXED_REPLICATE_ROUTES else {}
+
+
 # ---------------------------------------------------------------------------
 # Helper: inputs for macs3_idr_biorep
 # ---------------------------------------------------------------------------
@@ -47,6 +52,7 @@ rule macs3_idr_biorep:
         macs3_args = lambda wc: _idr_macs3_args(wc),
         sample     = lambda wc: f"{wc.experiment}_biorep{wc.bio_rep}_idr",
     wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
         bio_rep = r"\d+",
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_biorep{{bio_rep}}.idr.macs3.log",
@@ -109,6 +115,8 @@ def _idr_peak_input(experiment, index):
 # ---------------------------------------------------------------------------
 
 rule idr_true_replicates:
+    wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
     output:
         idr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/idr.txt",
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/true_replicates/idr.thresholded.narrowPeak",
@@ -214,6 +222,7 @@ rule split_pseudoreps:
         script = f"{workflow.basedir}/../scripts/split_pseudoreps.py",
         seed = IDR_SEED,
     wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
         source = r"pooled|biorep\d+",
     log:
         f"{OUTDIR}/experiments/{{experiment}}/logs/{{experiment}}_{{source}}.split.log",
@@ -247,6 +256,7 @@ rule macs3_idr_pseudorep:
         macs3_args = lambda wc: _idr_macs3_args(wc),
         sample     = lambda wc: f"{wc.experiment}_{wc.source}_pr{wc.pr}_idr",
     wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
         source = r"pooled|biorep\d+",
         pr     = r"[12]",
     log:
@@ -306,6 +316,7 @@ rule idr_self_pseudoreps:
             f"{wc.experiment}.idr.self.biorep{wc.bio_rep}.thr.log"
         ),
     wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
         bio_rep = r"\d+",
     conda:
         "../envs/idr.yml",
@@ -343,6 +354,8 @@ rule idr_self_pseudoreps:
 # ---------------------------------------------------------------------------
 
 rule idr_pooled_pseudoreps:
+    wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
     output:
         idr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.txt",
         thr_out = f"{OUTDIR}/experiments/{{experiment}}/06_idr/pooled_pseudoreplicates/idr.thresholded.narrowPeak",
@@ -396,6 +409,8 @@ rule idr_pooled_pseudoreps:
 # ---------------------------------------------------------------------------
 
 rule chipseq_idr_summary:
+    wildcard_constraints:
+        **_CHIPSEQ_IDR_GROUPS,
     output:
         summary      = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/reproducibility_summary.tsv",
         conservative = f"{OUTDIR}/experiments/{{experiment}}/06_idr/final/conservative.narrowPeak",

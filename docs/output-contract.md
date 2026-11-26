@@ -290,11 +290,15 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `idr_*` | `chipseq_idr: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
 | `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + ≥2 treatment bioreps + assay/peak_mode match |
 | `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `replicate_analysis: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
-| `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
-| `chipseq_macs3_narrow_consensus_final_peak`, `atac_macs3_narrow_consensus_final_peak` | same consensus gates, and only when `resolve_mixed_replicate_routes` returns `method: consensus` for that experiment. Missing `mixed_replicate_policy` and explicit `strict` do not record these rows |
-| routed MACS3 `*_consensus_peak` and `*_consensus_summary` | omitted for that experiment when its route has `run_macs3_consensus: false`, so a two-replicate auxiliary consensus cannot be read from the manifest. Unrouted experiments keep the previous gate |
-| `cuttag_seacr_*` | unchanged by the MACS3 route. A PE CUT&Tag SEACR final stays with the SEACR caller |
+| MACS3 `*_consensus_final_peak` | Consensus is enabled and supplies the primary final for this experiment. The assay, peak mode and reproducibility policy determine eligibility. |
+| `chipseq_macs3_narrow_consensus_final_peak`, `atac_macs3_narrow_consensus_final_peak` | A three-biological-replicate narrow-peak group in a run with explicit `per_group_fallback` and the corresponding IDR method enabled. All three contribute to the consensus. |
+| Routed MACS3 `*_consensus_peak` and `*_consensus_summary` | With a minimum of three, a two-replicate IDR group skips the auxiliary consensus. The effective configuration records the reason. |
+| `cuttag_seacr_*` | PE CUT&Tag with SEACR enabled retains a separate consensus BED under its own caller. Each such group must meet the configured support threshold. |
 | `multiqc_report` | `multiqc: true` |
+
+In WashU, column 5 of a consensus peak is 1000 times the fraction of distinct
+biological replicates supporting that interval, rounded to the nearest integer.
+Column 5 of an IDR final records the scaled IDR value. [IDR output format](https://github.com/nboley/idr#output-file-format).
 
 ## Known Assumptions
 

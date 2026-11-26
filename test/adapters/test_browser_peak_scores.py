@@ -1,4 +1,4 @@
-"""WashU descriptions distinguish IDR rank from consensus support."""
+"""WashU descriptions distinguish scaled IDR score from consensus support."""
 
 from encode_pipeline.adapters.browser.catalog import describe_browser_artifact
 
@@ -31,8 +31,8 @@ def test_idr_peaks_expose_rank_including_chipseq_finals():
         assert described is not None
         assert described.wash_u_type == "bed"
         assert described.role == "interval"
-        assert described.score_meaning == "idr_rank"
-        assert "IDR rank" in described.detail
+        assert described.score_meaning == "idr_scaled_score"
+        assert "scaled IDR score" in described.detail
         assert described.label == "IDR peaks"
 
 

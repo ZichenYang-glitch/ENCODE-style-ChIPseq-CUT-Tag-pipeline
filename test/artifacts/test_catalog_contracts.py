@@ -208,9 +208,7 @@ def test_manifest_output_types_exist_in_catalog():
     assert not missing, f"Manifest output_types missing from catalog: {sorted(missing)}"
 
 
-def test_catalog_output_types_appear_in_generated_manifests(
-    tmp_config, tmp_path, monkeypatch
-):
+def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path):
     catalog = load_catalog(str(INVENTORY_PATH))
     catalog_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
 
@@ -951,31 +949,15 @@ def test_catalog_output_types_appear_in_generated_manifests(
         tmp_config,
     )
 
-    # Routed ChIP/ATAC narrow consensus finals exist only when the shared
-    # route says so. The samples module owns that decision; this scenario
-    # supplies the route the manifest is required to record.
-    chip_route = type(
-        "Route",
-        (),
-        {"method": "consensus", "n_bioreps": 3, "run_macs3_consensus": True},
-    )()
-    atac_route = type(
-        "Route",
-        (),
-        {"method": "consensus", "n_bioreps": 3, "run_macs3_consensus": True},
-    )()
-
-    def _narrow_consensus_routes(samples, config, idr_flags):
-        del samples, config, idr_flags
-        return {"CHIP3": chip_route, "ATAC3": atac_route}
-
-    monkeypatch.setattr(
-        "encode_pipeline.manifest.make._resolve_mixed_replicate_routes",
-        _narrow_consensus_routes,
-    )
+    # Generate the new narrow finals from admitted mixed experiments.
     routed_rows = []
-    for experiment, assay in (("CHIP3", "chipseq"), ("ATAC3", "atac")):
-        for biorep in ("1", "2", "3"):
+    for experiment, assay, count in (
+        ("CHIP2", "chipseq", 2),
+        ("CHIP3", "chipseq", 3),
+        ("ATAC3", "atac", 3),
+    ):
+        for i in range(1, count + 1):
+            biorep = str(i)
             routed_rows.append(
                 "\t".join(
                     [
@@ -996,7 +978,13 @@ def test_catalog_output_types_appear_in_generated_manifests(
     routed_types = _run_manifest(
         {
             "replicate_analysis": True,
-            "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+            "chipseq_idr": True,
+            "reproducibility": {
+                "enabled": True,
+                "mixed_replicate_policy": "per_group_fallback",
+                "idr": {"atac_narrow": True},
+                "consensus": {"enabled": True},
+            },
         },
         "\t".join(columns_full) + "\n" + "\n".join(routed_rows) + "\n",
         tmp_config,

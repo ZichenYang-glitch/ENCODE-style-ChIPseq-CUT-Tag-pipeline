@@ -58,6 +58,7 @@ def _load_targets_namespace(targets_file, idr_globals=None):
         "OUTDIR": "results",
         "expand": _expand,
         "VALIDATED_CONFIG": {},
+        "MIXED_REPLICATE_ROUTES": {},
         "TREATMENT_SAMPLE_IDS": [],
         "ACTIVE_SAMPLE_IDS": [],
         "PEAK_SAMPLE_IDS": [],

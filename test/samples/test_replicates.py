@@ -621,3 +621,54 @@ def test_custom_error_cls_is_respected():
     ]
     with pytest.raises(CustomError):
         validate_replicate_groups(samples, use_control=False, error_cls=CustomError)
+
+
+def test_mixed_routing_counts_independent_treatment_bioreps_only():
+    from encode_pipeline.samples.mixed_replicates import resolve_mixed_replicate_routes
+
+    samples = [
+        *_treatment_group(
+            experiment="pair",
+            assay="chipseq",
+            peak_mode="narrow",
+            biological_replicates=(2, 4),
+        ),
+        *_treatment_group(
+            experiment="trio",
+            assay="chipseq",
+            peak_mode="narrow",
+            biological_replicates=(1, 3, 7),
+        ),
+        _sample(
+            sid="extra_library",
+            experiment="pair",
+            biological_replicate=2,
+            technical_replicate=2,
+        ),
+        _sample(sid="input", experiment="pair", role="control", biological_replicate=8),
+    ]
+    config = {
+        "reproducibility": {
+            "enabled": True,
+            "mixed_replicate_policy": "per_group_fallback",
+            "consensus": {"enabled": True, "min_replicates": 3},
+        }
+    }
+    validate_replicate_groups(
+        samples,
+        use_control=False,
+        chipseq_idr_enabled=True,
+        mixed_replicate_config=config,
+    )
+    routes = resolve_mixed_replicate_routes(samples, config, {"chipseq_narrow": True})
+    assert routes["pair"].as_record() == {
+        "caller": "macs3",
+        "n_bioreps": 2,
+        "route": "idr",
+        "auxiliary_consensus_skipped": "insufficient_biological_replicates",
+    }
+    assert routes["trio"].as_record() == {
+        "caller": "macs3",
+        "n_bioreps": 3,
+        "route": "consensus",
+    }
