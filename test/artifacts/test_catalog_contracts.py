@@ -208,7 +208,9 @@ def test_manifest_output_types_exist_in_catalog():
     assert not missing, f"Manifest output_types missing from catalog: {sorted(missing)}"
 
 
-def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path):
+def test_catalog_output_types_appear_in_generated_manifests(
+    tmp_config, tmp_path, monkeypatch
+):
     catalog = load_catalog(str(INVENTORY_PATH))
     catalog_mots = {a.manifest_output_type for a in catalog if a.manifest_output_type}
 
@@ -948,6 +950,60 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
         + "\n",
         tmp_config,
     )
+
+    # Routed ChIP/ATAC narrow consensus finals exist only when the shared
+    # route says so. The samples module owns that decision; this scenario
+    # supplies the route the manifest is required to record.
+    chip_route = type(
+        "Route",
+        (),
+        {"method": "consensus", "n_bioreps": 3, "run_macs3_consensus": True},
+    )()
+    atac_route = type(
+        "Route",
+        (),
+        {"method": "consensus", "n_bioreps": 3, "run_macs3_consensus": True},
+    )()
+
+    def _narrow_consensus_routes(samples, config, idr_flags):
+        del samples, config, idr_flags
+        return {"CHIP3": chip_route, "ATAC3": atac_route}
+
+    monkeypatch.setattr(
+        "encode_pipeline.manifest.make._resolve_mixed_replicate_routes",
+        _narrow_consensus_routes,
+    )
+    routed_rows = []
+    for experiment, assay in (("CHIP3", "chipseq"), ("ATAC3", "atac")):
+        for biorep in ("1", "2", "3"):
+            routed_rows.append(
+                "\t".join(
+                    [
+                        f"{experiment}_{biorep}",
+                        "R1.fq",
+                        "R2.fq",
+                        "PE",
+                        assay,
+                        "CTCF",
+                        "narrow",
+                        "hs",
+                        "/idx",
+                        experiment,
+                        biorep,
+                    ]
+                )
+            )
+    routed_types = _run_manifest(
+        {
+            "replicate_analysis": True,
+            "reproducibility": {"enabled": True, "consensus": {"enabled": True}},
+        },
+        "\t".join(columns_full) + "\n" + "\n".join(routed_rows) + "\n",
+        tmp_config,
+    )
+    assert "chipseq_macs3_narrow_consensus_final_peak" in routed_types
+    assert "atac_macs3_narrow_consensus_final_peak" in routed_types
+    all_types |= routed_types
 
     missing = []
     for mot in sorted(catalog_mots):

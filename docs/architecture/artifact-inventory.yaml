@@ -1123,7 +1123,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output; not primary final (ChIP-seq IDR is final)
+  notes: Consensus catalog output. Not a primary final when mixed_replicate_policy is missing or strict. Omitted from the manifest when a route sets run_macs3_consensus false.
 
 - id: chipseq_macs3_narrow_consensus_summary
   description: ChIP-seq narrow consensus summary TSV
@@ -1179,7 +1179,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output
+  notes: Consensus catalog output. Omitted from the manifest when a route sets run_macs3_consensus false. SEACR products are unaffected.
 
 - id: cuttag_macs3_narrow_consensus_summary
   description: CUT&Tag narrow consensus summary TSV
@@ -1235,7 +1235,7 @@ artifacts:
   pipeline_done: false
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled
-  notes: Consensus catalog output; ATAC narrow consensus is secondary when ATAC IDR is enabled
+  notes: Consensus catalog output. Not a primary final when mixed_replicate_policy is missing or strict. Omitted from the manifest when a route sets run_macs3_consensus false.
 
 - id: atac_macs3_narrow_consensus_summary
   description: ATAC narrow consensus summary TSV
@@ -1380,6 +1380,34 @@ artifacts:
   rule_all: true
   config_gate: reproducibility.enabled and reproducibility.consensus.enabled (broad IDR not enabled)
   notes: Primary final when broad IDR is not enabled
+
+- id: chipseq_macs3_narrow_consensus_final_peak
+  description: ChIP-seq narrow consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: chipseq
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: chipseq_macs3_narrow_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: per_group_fallback route method consensus for this ChIP-seq narrow group
+  notes: Absent when mixed_replicate_policy is missing or strict. Recorded only for the routed experiment; other groups are not included.
+
+- id: atac_macs3_narrow_consensus_final_peak
+  description: ATAC narrow consensus final validated peak
+  scope: experiment
+  level: pooled_experiment
+  assay_gate: atac
+  path_template: results/experiments/<experiment>/06_reproducibility/final/<experiment>.atac.macs3.narrow.replicate_validated.consensus.narrowPeak
+  producing_rule: consensus_final
+  tool: cp
+  manifest_output_type: atac_macs3_narrow_consensus_final_peak
+  pipeline_done: false
+  rule_all: true
+  config_gate: per_group_fallback route method consensus for this ATAC narrow group
+  notes: Absent when mixed_replicate_policy is missing or strict. Recorded only for the routed experiment; other groups are not included.
 
 - id: cuttag_seacr_consensus_final_peak
   description: CUT&Tag SEACR consensus final validated peak

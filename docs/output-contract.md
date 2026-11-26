@@ -162,6 +162,8 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
 | `chipseq_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
+| `chipseq_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
+| `atac_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.atac.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
 | `cuttag_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
 | `cuttag_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
 | `cuttag_seacr_consensus_final_peak` | cp | consensus_final_seacr | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` | implemented |
@@ -289,6 +291,9 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + ≥2 treatment bioreps + assay/peak_mode match |
 | `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `replicate_analysis: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
 | `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
+| `chipseq_macs3_narrow_consensus_final_peak`, `atac_macs3_narrow_consensus_final_peak` | same consensus gates, and only when `resolve_mixed_replicate_routes` returns `method: consensus` for that experiment. Missing `mixed_replicate_policy` and explicit `strict` do not record these rows |
+| routed MACS3 `*_consensus_peak` and `*_consensus_summary` | omitted for that experiment when its route has `run_macs3_consensus: false`, so a two-replicate auxiliary consensus cannot be read from the manifest. Unrouted experiments keep the previous gate |
+| `cuttag_seacr_*` | unchanged by the MACS3 route. A PE CUT&Tag SEACR final stays with the SEACR caller |
 | `multiqc_report` | `multiqc: true` |
 
 ## Known Assumptions

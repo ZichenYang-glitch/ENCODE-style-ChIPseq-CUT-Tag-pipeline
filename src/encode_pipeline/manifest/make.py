@@ -8,6 +8,7 @@ Output columns:
 """
 
 import csv
+import inspect
 import json
 import os
 
@@ -1056,7 +1057,104 @@ def _build_experiment_rows(
     return rows
 
 
-def _build_idr_rows(samples, outdir, chipseq_idr):
+def _route_method(routes, experiment):
+    """Return a routed method, or None when this experiment is not routed."""
+    if not routes:
+        return None
+    route = routes.get(experiment)
+    if route is None:
+        return None
+    return route.method
+
+
+def _skip_auxiliary_macs3_consensus(routes, experiment):
+    """True when the route says this group's MACS3 consensus file is omitted."""
+    if not routes:
+        return False
+    route = routes.get(experiment)
+    return route is not None and not bool(route.run_macs3_consensus)
+
+
+def _emit_macs3_consensus_final(routes, experiment, idr_members):
+    """Choose the MACS3 consensus final using the route when one exists."""
+    method = _route_method(routes, experiment)
+    if method == "consensus":
+        return True
+    if method == "idr":
+        return False
+    return experiment not in idr_members
+
+
+def _reproducibility_mapping(config):
+    if not isinstance(config, dict):
+        return None
+    reproducibility = config.get("reproducibility")
+    if not isinstance(reproducibility, dict):
+        return None
+    return reproducibility
+
+
+def _reproducibility_enabled(config):
+    """Parent gate already used by the manifest. A disabled block is ignored."""
+    reproducibility = _reproducibility_mapping(config)
+    if reproducibility is None:
+        return False
+    return _manifest_bool(
+        reproducibility.get("enabled"), False, "reproducibility.enabled"
+    )
+
+
+def _requests_per_group_fallback(config):
+    """Whether an enabled config names the mixed policy.
+
+    This is only the import guard for a checkout that does not yet contain
+    the samples module. Route selection stays in that module.
+    """
+    reproducibility = _reproducibility_mapping(config)
+    if reproducibility is None or not _reproducibility_enabled(config):
+        return False
+    return reproducibility.get("mixed_replicate_policy") not in (None, "strict")
+
+
+def _resolve_mixed_replicate_routes(samples, config, idr_flags):
+    """Delegate to the shared route module. Strict and missing keys are empty."""
+    if not _reproducibility_enabled(config):
+        return {}
+    try:
+        from encode_pipeline.samples.mixed_replicates import (
+            resolve_mixed_replicate_routes,
+        )
+    except ImportError as exc:
+        if _requests_per_group_fallback(config):
+            raise ImportError(
+                "per_group_fallback requires "
+                "encode_pipeline.samples.mixed_replicates"
+            ) from exc
+        return {}
+    return resolve_mixed_replicate_routes(samples, config, idr_flags)
+
+
+def _load_manifest_samples(samples_path, *, use_control, idr_flags, config):
+    """Load samples, passing the mixed-route config once the loader accepts it."""
+    arguments = {
+        "use_control": use_control,
+        "chipseq_idr_enabled": idr_flags["chipseq_narrow"],
+        "reproducibility_idr_atac_narrow": idr_flags["atac_narrow"],
+        "reproducibility_idr_cuttag_narrow": idr_flags["cuttag_narrow"],
+        "reproducibility_idr_chipseq_broad": idr_flags["chipseq_broad"],
+        "reproducibility_idr_cuttag_broad": idr_flags["cuttag_broad"],
+        "mixed_replicate_config": config,
+    }
+    parameters = inspect.signature(load_and_validate_samples).parameters
+    accepts_mixed = "mixed_replicate_config" in parameters or any(
+        item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values()
+    )
+    if not accepts_mixed:
+        arguments.pop("mixed_replicate_config")
+    return load_and_validate_samples(samples_path, **arguments)
+
+
+def _build_idr_rows(samples, outdir, chipseq_idr, routes=None):
     """IDR rows using validated sample dicts + ChIP-seq IDR DAG gating logic.
 
     Matches Snakefile ChIP-seq IDR semantics:
@@ -1083,6 +1181,8 @@ def _build_idr_rows(samples, outdir, chipseq_idr):
             continue
         first = exp_samples[exp][0]
         if first.get("assay") != "chipseq" or first.get("peak_mode") != "narrow":
+            continue
+        if _route_method(routes, exp) == "consensus":
             continue
 
         assay = first.get("assay", "")
@@ -1253,7 +1353,64 @@ def _compute_reproducibility_eligibility(config, treatment_samples, idr_flags):
     }
 
 
-def _build_reproducibility_rows(samples, config, outdir, idr_flags):
+def _add_routed_narrow_consensus_finals(rows, eligibility, routes, exp_meta, step):
+    """Promote ChIP-seq and ATAC narrow consensus when the route says so.
+
+    Strict and missing-key runs pass an empty route map and add no rows.
+    """
+    if not routes:
+        return
+
+    chipseq_narrow = eligibility["consensus_experiments"].get(
+        ("chipseq", "narrow"), []
+    )
+    for exp in sorted(chipseq_narrow):
+        if _route_method(routes, exp) != "consensus":
+            continue
+        meta = exp_meta(exp)
+        if meta is None:
+            continue
+        path = (
+            f"{step}/{exp}/06_reproducibility/final/"
+            f"{exp}.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak"
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            meta["assay"],
+            meta["target"],
+            meta["genome"],
+            "chipseq_macs3_narrow_consensus_final_peak",
+            "cp",
+            path,
+        )
+
+    atac_narrow = eligibility["consensus_experiments"].get(("atac", "narrow"), [])
+    for exp in sorted(atac_narrow):
+        if _route_method(routes, exp) != "consensus":
+            continue
+        meta = exp_meta(exp)
+        if meta is None:
+            continue
+        path = (
+            f"{step}/{exp}/06_reproducibility/final/"
+            f"{exp}.atac.macs3.narrow.replicate_validated.consensus.narrowPeak"
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            meta["assay"],
+            meta["target"],
+            meta["genome"],
+            "atac_macs3_narrow_consensus_final_peak",
+            "cp",
+            path,
+        )
+
+
+def _build_reproducibility_rows(samples, config, outdir, idr_flags, routes=None):
     """Stage 66: Emit mode-specific reproducibility manifest rows.
 
     Only user-facing catalog outputs (consensus peak, consensus summary,
@@ -1269,6 +1426,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if not e["replicate_analysis_enabled"]:
         return rows
+    if routes is None:
+        routes = _resolve_mixed_replicate_routes(samples, config, idr_flags)
 
     def _exp_meta(exp_id):
         exp_samples = [s for s in treatment if s.get("experiment") == exp_id]
@@ -1285,6 +1444,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
     if e["repro_enabled"] and e["consensus_enabled"]:
         for (assay, peak_mode), exps in sorted(e["consensus_experiments"].items()):
             for exp in sorted(exps):
+                if _skip_auxiliary_macs3_consensus(routes, exp):
+                    continue
                 meta = _exp_meta(exp)
                 if meta is None:
                     continue
@@ -1443,6 +1604,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if e["atac_narrow_idr"]:
         for exp in sorted(e["atac_idr_experiments"]):
+            if _route_method(routes, exp) == "consensus":
+                continue
             meta = _exp_meta(exp)
             if meta is None:
                 continue
@@ -1472,6 +1635,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if e["cuttag_narrow_idr"]:
         for exp in sorted(e["cuttag_idr_experiments"]):
+            if _route_method(routes, exp) == "consensus":
+                continue
             meta = _exp_meta(exp)
             if meta is None:
                 continue
@@ -1501,6 +1666,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if e["chipseq_broad_idr"]:
         for exp in sorted(e["chipseq_broad_idr_experiments"]):
+            if _route_method(routes, exp) == "consensus":
+                continue
             meta = _exp_meta(exp)
             if meta is None:
                 continue
@@ -1530,6 +1697,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if e["cuttag_broad_idr"]:
         for exp in sorted(e["cuttag_broad_idr_experiments"]):
+            if _route_method(routes, exp) == "consensus":
+                continue
             meta = _exp_meta(exp)
             if meta is None:
                 continue
@@ -1564,7 +1733,7 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
         # chipseq broad: consensus final for experiments not routed to broad IDR
         chipseq_broad_idr_set = set(e["chipseq_broad_idr_experiments"])
         for exp in sorted(e["consensus_experiments"].get(("chipseq", "broad"), [])):
-            if exp in chipseq_broad_idr_set:
+            if not _emit_macs3_consensus_final(routes, exp, chipseq_broad_idr_set):
                 continue
             meta = _exp_meta(exp)
             if meta is None:
@@ -1585,7 +1754,7 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
         # cuttag narrow: consensus final for experiments not routed to narrow IDR
         cuttag_narrow_idr_set = set(e["cuttag_idr_experiments"])
         for exp in sorted(e["consensus_experiments"].get(("cuttag", "narrow"), [])):
-            if exp in cuttag_narrow_idr_set:
+            if not _emit_macs3_consensus_final(routes, exp, cuttag_narrow_idr_set):
                 continue
             meta = _exp_meta(exp)
             if meta is None:
@@ -1606,7 +1775,7 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
         # cuttag broad: consensus final for experiments not routed to broad IDR
         cuttag_broad_idr_set = set(e["cuttag_broad_idr_experiments"])
         for exp in sorted(e["consensus_experiments"].get(("cuttag", "broad"), [])):
-            if exp in cuttag_broad_idr_set:
+            if not _emit_macs3_consensus_final(routes, exp, cuttag_broad_idr_set):
                 continue
             meta = _exp_meta(exp)
             if meta is None:
@@ -1623,6 +1792,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
                 "cp",
                 f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak",
             )
+
+        _add_routed_narrow_consensus_finals(rows, e, routes, _exp_meta, step)
 
         # SEACR consensus final
         if e["seacr_enabled"]:
@@ -1778,15 +1949,13 @@ def build_manifest_rows(config, samples_path=None):
 
     samples_path = samples_path or config.get("samples", "config/samples.tsv")
     use_control = _manifest_bool(config.get("use_control"), False, "use_control")
-    samples = load_and_validate_samples(
+    samples = _load_manifest_samples(
         samples_path,
         use_control=use_control,
-        chipseq_idr_enabled=chipseq_idr,
-        reproducibility_idr_atac_narrow=idr_flags["atac_narrow"],
-        reproducibility_idr_cuttag_narrow=idr_flags["cuttag_narrow"],
-        reproducibility_idr_chipseq_broad=idr_flags["chipseq_broad"],
-        reproducibility_idr_cuttag_broad=idr_flags["cuttag_broad"],
+        idr_flags=idr_flags,
+        config=config,
     )
+    routes = _resolve_mixed_replicate_routes(samples, config, idr_flags)
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
     has_peak_samples = any(_is_mnase(s) is False for s in treatment_samples)
 
@@ -1817,10 +1986,12 @@ def build_manifest_rows(config, samples_path=None):
             blacklist_mode=blacklist_mode,
         )
     )
-    rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
+    rows.extend(
+        _build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr, routes)
+    )
     rows.extend(
         _build_reproducibility_rows(
-            treatment_samples, config, analysis_outdir, idr_flags
+            treatment_samples, config, analysis_outdir, idr_flags, routes
         )
     )
     rows.extend(
