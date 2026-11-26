@@ -142,6 +142,49 @@ def test_public_encode_sample_plan_round_trip_reuses_the_snapshot(
         assert calls["count"] == 1
 
 
+def test_empty_materializer_result_is_a_validation_issue(
+    tmp_path, reference_ready_app, monkeypatch
+):
+    from encode_pipeline.platform.results import Result
+
+    app = reference_ready_app
+    _, project, sample_id, reads = _managed_reads(app, tmp_path)
+    plan = _encode_plan(
+        sample_id,
+        [
+            {"read": 1, "input_file_revision_id": reads["r1"]},
+            {"read": 2, "input_file_revision_id": reads["r2"]},
+        ],
+    )
+    adapter = app.state.registry.get(WORKFLOW_ID)
+    monkeypatch.setattr(
+        type(adapter),
+        "materialize_workflow_sample_rows",
+        lambda *a, **k: Result.success(None),
+    )
+    with ApiTestClient(app) as client:
+        session = client.post(
+            "/api/v1/agent/authoring-sessions",
+            json={"project_id": project.project_id, "workflow_id": WORKFLOW_ID},
+        )
+        sid = session.json()["sid"]
+        draft = client.request(
+            "PUT",
+            f"/api/v1/agent/authoring-sessions/{sid}/draft",
+            json=_draft(
+                0, sample_id, app.state.test_reference_profile.revision_id, [plan]
+            ),
+        )
+        assert draft.status_code == 200, draft.text
+        response = client.post(
+            f"/api/v1/agent/authoring-sessions/{sid}/validate",
+            json={"expected_revision": draft.json()["draft_revision"]},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["snapshot"] is None
+        assert response.json()["issues"][0]["code"] == "WORKFLOW_SAMPLE_PLAN_INVALID"
+
+
 def test_public_draft_keeps_encode_plan_errors_off_other_workflows(
     reference_ready_app,
 ):
@@ -263,9 +306,7 @@ class _DecliningSamplePlan:
     def describe_workflow_sample_inputs(self, plans):
         raise AssertionError(plans)
 
-    def materialize_workflow_sample_rows(
-        self, plans, *, sample_names, read_paths
-    ):
+    def materialize_workflow_sample_rows(self, plans, *, sample_names, read_paths):
         raise AssertionError((plans, sample_names, read_paths))
 
 

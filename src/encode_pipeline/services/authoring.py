@@ -905,13 +905,11 @@ class AuthoringService:
             sample_names=sample_names,
             read_paths=read_paths,
         )
-        if (
-            not isinstance(materialized, Result)
-            or materialized.is_failure
-            or materialized.value is None
-        ):
-            if isinstance(materialized, Result):
-                return Result.failure(materialized.issues)
+        if not isinstance(materialized, Result):
+            return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
+        if materialized.is_failure:
+            return Result.failure(materialized.issues)
+        if materialized.value is None:
             return _authoring_failure(WORKFLOW_SAMPLE_PLAN_INVALID)
         try:
             selections = tuple(
