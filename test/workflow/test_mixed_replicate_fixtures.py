@@ -187,7 +187,8 @@ def _assert_final_track(item):
     assert (desc.wash_u_type, desc.role) == ("bed", "interval")
     reading = f"{desc.detail} {desc.score_meaning}".lower()
     if "idr" in item.output_type:
-        assert "idr" in reading or "rank" in reading
+        assert "idr" in reading
+        assert any(term in reading for term in ("scal", "1000", "log2"))
     else:
         assert "support" in reading and "replicate" in reading
 
@@ -782,14 +783,15 @@ def test_per_group_fallback_chipseq_narrow_preserves_idr_and_promotes_3rep_conse
     assert str(grp3_cons_peak) in dag_targets
     assert str(grp3_cons_summary) in dag_targets
     assert str(grp3_cons_final) in dag_targets
-    assert (
-        str(outdir / "experiments/GRP3/06_idr/final/conservative.narrowPeak")
-        not in dag_targets
-    )
-    assert (
-        str(outdir / "experiments/GRP3/06_idr/final/optimal.narrowPeak")
-        not in dag_targets
-    )
+    for filename in (
+        "conservative.narrowPeak",
+        "optimal.narrowPeak",
+        "reproducibility_summary.tsv",
+    ):
+        wrong_final = outdir / "experiments/GRP3/06_idr/final" / filename
+        assert str(wrong_final) not in dag_targets
+        direct = run_snakemake(config_path, extra_args=[str(wrong_final)])
+        assert direct.returncode != 0, wrong_final
 
     _assert_three_replicate_command(
         run_snakemake, config_path, grp3_cons_peak, minimum=2
