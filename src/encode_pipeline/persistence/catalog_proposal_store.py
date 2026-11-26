@@ -18,6 +18,7 @@ from encode_pipeline.persistence.experiment_catalog import (
     _insert_experiment_revision,
     _require_active_project,
     _sample_revision_row,
+    _target_term_record,
     sync_sample_revision_state,
 )
 from encode_pipeline.persistence.models import (
@@ -43,6 +44,7 @@ from encode_pipeline.platform.catalog_proposal_adoption import (
     build_preview,
     build_proposal_view,
     build_registered_proposal,
+    ensure_current_model_target,
     overlay_experiment_fields,
     overlay_sample_catalog,
     prepare_adoption,
@@ -151,9 +153,18 @@ def register_proposal(
         projection_version=projection_version,
     )
     lookup = SessionTermLookup(session)
+    heads = _heads(session, proposal)
+    model_source = proposal.source if proposal.source == "peri_bound_model" else None
+    if model_source is not None:
+        ensure_current_model_target(
+            proposal,
+            heads,
+            active,
+            lambda term_id: _target_term_record(session, term_id),
+        )
     view = build_proposal_view(
         proposal,
-        heads=_heads(session, proposal),
+        heads=heads,
         adopted_receipt=None,
         include_candidates=True,
         now=write.now,
@@ -164,7 +175,8 @@ def register_proposal(
             proposal_id=proposal.proposal_id,
             project_id=proposal.project_id,
             created_by_user_id=proposal.created_by_user_id,
-            source=proposal.source,
+            source="agent" if model_source is not None else proposal.source,
+            model_source=model_source,
             rule_version=proposal.rule_version,
             vocabulary_version=proposal.vocabulary_version,
             projection_version=proposal.projection_version,

@@ -1,6 +1,6 @@
 """Opt-in Chromium + qualified native owner + real Peri model worker; loopback only."""
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -26,15 +26,26 @@ from peri_run_actions_browser import _build_wheel_assets
 from test_peri_run_actions import WORKFLOW, peri_case  # noqa: F401
 
 
-def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # noqa: F811
-    client, sid, project, _, _ = peri_case
-    app = client.app
+def start_bound_owner(tmp_path, request, database_url, *, model_name, reply):
+    """Run the real owner and worker against one counted loopback provider."""
+    assert Path(database_url.database).resolve().is_relative_to(tmp_path.resolve())
     seen = []
 
     class Provider(BaseHTTPRequestHandler):
+        def parse_request(self):
+            if not super().parse_request():
+                return False
+            # Count all methods, including an unexpected provider probe or malformed JSON.
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            seen.append((self.command, self.path, body))
+            return True
+
         def do_POST(self):
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            seen.append((self.path, body))
+            if reply is None:
+                # Hold this loopback request open until the worker deadline closes it.
+                self.connection.settimeout(50)
+                self.connection.recv(1)
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -49,7 +60,7 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
                 ),
                 (
                     "content_block_delta",
-                    {"index": 0, "delta": {"type": "text_delta", "text": "7"}},
+                    {"index": 0, "delta": {"type": "text_delta", "text": reply}},
                 ),
                 ("content_block_stop", {"index": 0}),
                 (
@@ -89,7 +100,7 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
                             "id": "fixture",
                             "type": "anthropic",
                             "apiKey": "fixture-only",
-                            "models": {"fable": "fixture-number"},
+                            "models": {"fable": model_name},
                             "baseUrl": f"http://127.0.0.1:{provider.server_port}",
                         }
                     ],
@@ -103,13 +114,11 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
         "#!/bin/sh\nexec " + shlex.quote(str(worker)) + ' "$@" --loopback-test\n'
     )
     shim.chmod(0o700)
-    url = app.state.persistence.engine.url
-    assert Path(url.database).is_relative_to(tmp_path)
     env = {
         **os.environ,
         "HELIXWEAVE_PERI_BINARY": os.environ["HW_TEST_PERI_NATIVE"],
         "HELIXWEAVE_PERI_OWNER_SOCKET": str(Path(root.name) / "owner.sock"),
-        "ENCODE_PIPELINE_DATABASE_URL": str(url),
+        "ENCODE_PIPELINE_DATABASE_URL": str(database_url),
         "HELIXWEAVE_PERI_MODEL_LEDGER": str(tmp_path / "ledger.db"),
         "HELIXWEAVE_PERI_MODEL_SETTINGS": str(settings),
         "HELIXWEAVE_PERI_MODEL_WORKER": str(shim),
@@ -137,14 +146,11 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
     ):
         time.sleep(0.05)
     assert bridge.status().available
-    app.state.authoring_service._bridge = bridge
-    app.mount(
-        "/",
-        ManifestStaticApplication(_build_wheel_assets(repo_root, tmp_path)),
-        name="frontend",
-    )
-    p = app.state.auth_cookie_policy
-    a, b = app.state.test_auth_tokens
+    return env, model, bridge, seen
+
+
+@contextmanager
+def serve_on_loopback(app):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         sock.listen()
@@ -156,63 +162,85 @@ def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # no
             while not srv.started and time.monotonic() < end:
                 time.sleep(0.02)
             assert srv.started
-            grant = [
-                sys.executable,
-                "-m",
-                "encode_pipeline.services.peri_runtime.model_grant",
-                "grant",
-                "--platform-db",
-                url.database,
-                "--sid",
-                sid,
-                "--field",
-                "config.threads",
-                "--binding",
-                binding_id(model.worker({"op": "binding"})),
-                "--expires",
-                str(int(time.time()) + 120),
-                "--requests",
-                "1",
-                "--input-tokens",
-                "4096",
-                "--output-tokens",
-                "128",
-                "--output-per-call",
-                "128",
-                "--currency",
-                "CNY",
-                "--minor-units",
-                "1",
-                "--input-rate",
-                "100",
-                "--output-rate",
-                "100",
-            ]
-            result = subprocess.run(
-                ["node", "e2e/peri-bound-model.acceptance.mjs"],
-                cwd=Path(repo_root) / "frontend",
-                env=env,
-                input=json.dumps(
-                    {
-                        "url": f"http://127.0.0.1:{sock.getsockname()[1]}",
-                        "workflow": WORKFLOW,
-                        "projectId": project,
-                        "grant": grant,
-                        "session": [p.session_cookie.name, a],
-                        "csrf": [p.csrf_cookie.name, b],
-                    }
-                ),
-                capture_output=True,
-                text=True,
-                timeout=65,
-            )
-            assert result.returncode == 0, result.stdout + result.stderr
-            print(result.stdout)
+            yield f"http://127.0.0.1:{sock.getsockname()[1]}"
         finally:
             srv.should_exit = True
             thread.join(timeout=10)
+            assert not thread.is_alive(), "Loopback API did not stop"
+
+
+def test_browser_to_bound_worker(peri_case, repo_root, tmp_path, request):  # noqa: F811
+    client, sid, project, _, _ = peri_case
+    app = client.app
+    url = app.state.persistence.engine.url
+    env, model, bridge, seen = start_bound_owner(
+        tmp_path, request, url, model_name="fixture-number", reply="7"
+    )
+    app.state.authoring_service._bridge = bridge
+    app.mount(
+        "/",
+        ManifestStaticApplication(_build_wheel_assets(repo_root, tmp_path)),
+        name="frontend",
+    )
+    p = app.state.auth_cookie_policy
+    a, b = app.state.test_auth_tokens
+    with serve_on_loopback(app) as origin:
+        grant = [
+            sys.executable,
+            "-m",
+            "encode_pipeline.services.peri_runtime.model_grant",
+            "grant",
+            "--platform-db",
+            url.database,
+            "--sid",
+            sid,
+            "--field",
+            "config.threads",
+            "--binding",
+            binding_id(model.worker({"op": "binding"})),
+            "--expires",
+            str(int(time.time()) + 120),
+            "--requests",
+            "1",
+            "--input-tokens",
+            "4096",
+            "--output-tokens",
+            "128",
+            "--output-per-call",
+            "128",
+            "--currency",
+            "CNY",
+            "--minor-units",
+            "1",
+            "--input-rate",
+            "100",
+            "--output-rate",
+            "100",
+        ]
+        result = subprocess.run(
+            ["node", "e2e/peri-bound-model.acceptance.mjs"],
+            cwd=Path(repo_root) / "frontend",
+            env=env,
+            input=json.dumps(
+                {
+                    "url": origin,
+                    "workflow": WORKFLOW,
+                    "projectId": project,
+                    "grant": grant,
+                    "session": [p.session_cookie.name, a],
+                    "csrf": [p.csrf_cookie.name, b],
+                }
+            ),
+            capture_output=True,
+            text=True,
+            timeout=65,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        print(result.stdout)
     assert len(seen) == 1
-    path, body = seen[0]
+    method, path, raw = seen[0]
+    assert method == "POST"
+    body = json.loads(raw)
     assert (
         path == "/v1/messages"
         and body["model"] == "fixture-number"

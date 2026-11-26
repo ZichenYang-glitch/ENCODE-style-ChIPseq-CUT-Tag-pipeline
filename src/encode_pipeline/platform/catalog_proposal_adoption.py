@@ -350,6 +350,29 @@ def ensure_active_versions(
             )
 
 
+def ensure_current_model_target(
+    proposal: CatalogProposal,
+    heads: Mapping[str, TargetHead],
+    active: ActiveCurationVersions,
+    current_term: Callable[[str], Mapping[str, Any]],
+) -> None:
+    """Validate the model's pins while holding the proposal registration write lock."""
+
+    ensure_active_versions(proposal, active)
+    (item,) = proposal.items
+    head = _require_head(heads, item, proposal.project_id)
+    if head.archived:
+        raise catalog_experiment_archived()
+    if _conflict(item, head):
+        raise catalog_revision_conflict()
+    target = item.after["target"]
+    term = current_term(target["term_id"])
+    if term["archived"]:
+        raise catalog_term_archived()
+    if term["term_revision_id"] != target["term_revision_id"]:
+        raise catalog_revision_conflict()
+
+
 def verify_item_references(
     item: ProposalItem,
     project_id: str,

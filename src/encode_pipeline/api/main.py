@@ -63,6 +63,7 @@ from encode_pipeline.persistence.registered_results import (
     SqlAlchemyRegisteredResultRepository,
 )
 from encode_pipeline.services.data_registry import DataRegistryService
+from encode_pipeline.services.catalog_model_client import load_catalog_model
 from encode_pipeline.services.experiment_catalog import ExperimentCatalogService
 from encode_pipeline.services.registered_results import RegisteredResultService
 from encode_pipeline.services.authentication_service import (
@@ -317,7 +318,8 @@ def create_app(
         storage_pool_config_path=worker_settings.storage_pool_config,
     )
     app.state.experiment_catalog_service = ExperimentCatalogService(
-        repository=persistence.catalog_repository
+        repository=persistence.catalog_repository,
+        catalog_model=load_catalog_model(settings_environment),
     )
 
     def _drop_authoring_natives(digests: tuple[str, ...]) -> None:

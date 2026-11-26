@@ -31,6 +31,21 @@ def main() -> None:
     ):
         g.add_argument("--" + name, required=True, type=int)
     commands.add_parser("revoke").add_argument("--instance", required=True)
+    catalog = commands.add_parser("catalog-grant")
+    for name in ("project", "field", "binding", "currency"):
+        catalog.add_argument("--" + name, required=True)
+    for name in (
+        "expires",
+        "requests",
+        "input-tokens",
+        "output-tokens",
+        "minor-units",
+        "output-per-call",
+        "input-rate",
+        "output-rate",
+    ):
+        catalog.add_argument("--" + name, required=True, type=int)
+    commands.add_parser("catalog-revoke").add_argument("--grant", required=True)
     args = parser.parse_args()
     model = configured_model(os.environ)
     if model is None:
@@ -49,6 +64,44 @@ def main() -> None:
                 != 1
             ):
                 parser.error("unknown instance")
+    elif args.command == "catalog-revoke":
+        try:
+            model.catalog_revoke(args.grant)
+        except ValueError:
+            parser.error("unknown catalog grant")
+    elif args.command == "catalog-grant":
+        if args.binding != binding_id(model.worker({"op": "binding"})):
+            parser.error("binding changed")
+        if args.field != "experiment.target":
+            parser.error("catalog grants only authorize experiment.target")
+        try:
+            grant_id = model.catalog_grant(
+                project_id=args.project,
+                field=args.field,
+                binding=args.binding,
+                expires=args.expires,
+                budget=Budget(
+                    args.requests,
+                    args.input_tokens,
+                    args.output_tokens,
+                    args.minor_units,
+                    args.output_per_call,
+                    args.input_rate,
+                    args.output_rate,
+                    args.currency,
+                ),
+            )
+        except ValueError:
+            parser.error("invalid catalog grant")
+        print(
+            json.dumps(
+                {
+                    "grant_id": grant_id,
+                    "field": args.field,
+                    "project_id": args.project,
+                }
+            )
+        )
     else:
         if args.binding != binding_id(model.worker({"op": "binding"})):
             parser.error("binding changed")

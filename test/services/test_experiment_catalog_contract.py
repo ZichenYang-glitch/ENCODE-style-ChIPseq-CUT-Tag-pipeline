@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from itertools import count
 import json
+from unittest.mock import Mock
 
 import pytest
 
@@ -14,6 +15,7 @@ from encode_pipeline.persistence.experiment_catalog import (
 )
 from encode_pipeline.persistence.migrations import upgrade_database
 from encode_pipeline.persistence.models import UserAccountRow
+from encode_pipeline.platform.catalog_proposal_adoption import stable_proposal_id
 from encode_pipeline.platform.experiment_catalog import CatalogError
 from encode_pipeline.services.data_registry import DataRegistryService
 from encode_pipeline.services.data_registry_repositories import (
@@ -135,6 +137,154 @@ def _experiment(sample_revision_id, **overrides):
             }
         ],
     } | overrides
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        ("rename_term", "catalog_revision_conflict"),
+        ("archive_term", "catalog_term_archived"),
+        ("revise_experiment", "catalog_revision_conflict"),
+        ("archive_experiment", "catalog_experiment_archived"),
+    ],
+)
+def test_model_checks_pins_in_the_proposal_registration_transaction(
+    catalog_stack, monkeypatch, change, error
+):
+    data, catalog = catalog_stack
+    project = data.create_project("Synthetic review")
+    sample = data.import_sample(
+        project.project_id, stable_key="sample", display_name="Sample", attributes={}
+    )
+    fields = _experiment(sample.revision.sample_revision_id)
+    experiment = _write(
+        catalog.create_experiment,
+        "experiment",
+        project_id=project.project_id,
+        stable_key="synthetic",
+        **fields,
+    )
+    target = _term(catalog, "target", "H2A.Z")
+    model = Mock()
+    model.classify.return_value = "h2az"
+    monkeypatch.setattr(catalog, "_catalog_model", model)
+    body = {
+        "project_id": project.project_id,
+        "experiment_id": experiment["experiment_id"],
+        "experiment_revision_id": experiment["experiment_revision_id"],
+        "field": "target",
+        "reason_code": "TARGET_TERM_MATCH",
+        "clue": "H2A.Z",
+        "vocabulary_term_revision_id": target["revision"]["term_revision_id"],
+    }
+
+    with pytest.raises(CatalogError) as collision:
+        _write(catalog.generate_classification_suggestion, "experiment", **body)
+    assert collision.value.code == "catalog_idempotency_conflict"
+    model.classify.assert_not_called()
+
+    register = catalog._repository.register_proposal
+
+    def register_after_change(*args, **kwargs):
+        term_args = {"term_id": target["term_id"], "expected_revision_number": 1}
+        experiment_args = {
+            "experiment_id": experiment["experiment_id"],
+            "expected_revision_number": 1,
+        }
+        if change == "rename_term":
+            _write(
+                catalog.revise_term,
+                "edit",
+                **term_args,
+                change_kind="editorial",
+                display_name="Updated target",
+                aliases=[],
+                namespace=None,
+                accession=None,
+            )
+        elif change == "archive_term":
+            _write(catalog.archive_term, "edit", **term_args)
+        elif change == "revise_experiment":
+            _write(
+                catalog.revise_experiment,
+                "edit",
+                **experiment_args,
+                **(fields | {"display_name": "Updated experiment"}),
+            )
+        else:
+            _write(catalog.archive_experiment, "edit", **experiment_args)
+        return register(*args, **kwargs)
+
+    monkeypatch.setattr(catalog._repository, "register_proposal", register_after_change)
+    with pytest.raises(CatalogError) as conflict:
+        _write(catalog.generate_classification_suggestion, "generate", **body)
+    assert conflict.value.code == error
+    model.classify.assert_called_once()
+    with pytest.raises(CatalogError) as missing:
+        catalog.get_proposal(
+            proposal_id=stable_proposal_id(ACTOR, "generate", project.project_id),
+            include_candidates=True,
+        )
+    assert missing.value.code == "catalog_not_found"
+
+
+def test_implicit_candidates_come_from_current_target_pins_in_the_selected_project(
+    catalog_stack, monkeypatch
+):
+    data, catalog = catalog_stack
+    local = data.create_project("Selected")
+    other = data.create_project("Other")
+
+    def record(project, key, target=None):
+        sample = data.import_sample(
+            project.project_id, stable_key=key, display_name=key, attributes={}
+        )
+        return _write(
+            catalog.create_experiment,
+            key,
+            project_id=project.project_id,
+            stable_key=key,
+            **_experiment(
+                sample.revision.sample_revision_id,
+                target={"status": "known", **_pin(target)} if target else UNKNOWN,
+            ),
+        )
+
+    first = _term(catalog, "target", "H3K4me3")
+    second = _term(catalog, "target", "H2A.Z")
+    record(other, "foreign", second)
+    record(local, "local", first)
+    selected = record(local, "selected")
+    model = Mock()
+    model.classify.return_value = "insufficient_evidence"
+    monkeypatch.setattr(catalog, "_catalog_model", model)
+    body = {
+        "project_id": local.project_id,
+        "experiment_id": selected["experiment_id"],
+        "experiment_revision_id": selected["experiment_revision_id"],
+        "field": "target",
+        "reason_code": "TARGET_TERM_MATCH",
+        "clue": "H3K4",
+        "vocabulary_term_revision_id": None,
+    }
+    result = _write(catalog.generate_classification_suggestion, "first", **body)
+    assert result["outcome"] == "insufficient_evidence"
+    assert model.classify.call_args.kwargs["candidates"] == (("h3k4me3", "H3K4me3"),)
+    _write(
+        catalog.revise_term,
+        "edit",
+        term_id=first["term_id"],
+        expected_revision_number=1,
+        change_kind="editorial",
+        display_name="Revised label",
+        aliases=[],
+        namespace=None,
+        accession=None,
+    )
+    with pytest.raises(CatalogError) as missing:
+        _write(catalog.generate_classification_suggestion, "second", **body)
+    assert missing.value.path == "vocabulary_term_revision_id"
+    model.classify.assert_called_once()
 
 
 def test_term_paging_rejects_removed_cursor_and_keeps_archived_history(catalog_stack):
@@ -783,3 +933,85 @@ def test_rebuild_preserves_pinned_experiment_revision_and_catalogued_sample(
         with pytest.raises(CatalogError) as failure:
             rebuild(missing)
         assert failure.value.code == "catalog_not_found"
+
+
+def test_model_shortlist_and_pinned_revision_match_across_catalogs(catalog_stack):
+    data, catalog = catalog_stack
+    calls = []
+
+    class InsufficientModel:
+        def classify(self, **request):
+            calls.append(request)
+            return "insufficient_evidence"
+
+    catalog._catalog_model = InsufficientModel()
+    project = data.create_project("Vocabulary projection")
+    foreign = data.create_project("Other project")
+    sample = data.import_sample(
+        project.project_id, stable_key="test", display_name="Test", attributes={}
+    )
+    experiment = _write(
+        catalog.create_experiment,
+        "experiment",
+        project_id=project.project_id,
+        stable_key="experiment",
+        **_experiment(sample.revision.sample_revision_id),
+    )
+    targets = [
+        _term(catalog, "target", target)
+        for target in ("CTCF", "H2A.Z", "H3K4me3", "H3K27ac", "POLR2A")
+    ]
+    for target in targets:
+        key = target["term_id"]
+        _write(
+            catalog.create_experiment,
+            key,
+            project_id=project.project_id,
+            stable_key=key,
+            **_experiment(
+                sample.revision.sample_revision_id,
+                target={"status": "known", **_pin(target)},
+            ),
+        )
+    tissue = _term(catalog, "tissue", "Brain")
+    pin = _pin(targets[1])["term_revision_id"]
+    fields = {
+        "project_id": project.project_id,
+        "experiment_id": experiment["experiment_id"],
+        "experiment_revision_id": experiment["experiment_revision_id"],
+        "field": "target",
+        "reason_code": "TARGET_TERM_MATCH",
+        "clue": "H2A.Z",
+        "vocabulary_term_revision_id": None,
+    }
+    for i, (overrides, code) in enumerate(
+        (
+            ({}, "catalog_payload_invalid"),
+            ({"project_id": foreign.project_id}, "catalog_not_found"),
+            (
+                {"experiment_revision_id": "expr_" + "9" * 32},
+                "catalog_revision_conflict",
+            ),
+            ({"field": "batch"}, "catalog_payload_invalid"),
+            (
+                {"vocabulary_term_revision_id": _pin(tissue)["term_revision_id"]},
+                "catalog_payload_invalid",
+            ),
+        )
+    ):
+        with pytest.raises(CatalogError) as refused:
+            _write(
+                catalog.generate_classification_suggestion,
+                f"refused-{i}",
+                **(fields | overrides),
+            )
+        assert refused.value.code == code
+    assert not calls
+    result = _write(
+        catalog.generate_classification_suggestion,
+        "pinned",
+        **(fields | {"vocabulary_term_revision_id": pin}),
+    )
+    assert result["outcome"] == "insufficient_evidence" and result["proposal"] is None
+    assert result["experiment_revision_id"] == experiment["experiment_revision_id"]
+    assert [call["candidates"] for call in calls] == [(("h2az", "H2A.Z"),)]

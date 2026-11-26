@@ -5,18 +5,37 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from typing import Any
 from uuid import uuid4
 
 from encode_pipeline.platform.catalog_proposal_adoption import (
     assert_request_within_limit,
+    stable_proposal_id,
 )
 from encode_pipeline.platform.experiment_catalog import (
+    CatalogError,
     CatalogWrite,
+    bind_catalog_target,
+    catalog_experiment_archived,
+    catalog_not_found,
     catalog_payload_invalid,
+    catalog_revision_conflict,
+    catalog_term_archived,
     parse_page_filters,
     parse_page_limit,
     validate_idempotency_key,
+)
+from encode_pipeline.services.peri_runtime.catalog_classify import (
+    CATALOG_FIELD,
+    CATALOG_REASON,
+    INSUFFICIENT_EVIDENCE,
+    MAX_CLASSIFY_CANDIDATES,
+    MODEL_PROPOSAL_SOURCE,
+    BoundCandidate,
+    CatalogTransportError,
+    bind_target_candidates,
+    clue_is_auditable,
 )
 
 
@@ -38,8 +57,10 @@ class ExperimentCatalogService:
         experiment_revision_id_factory: Callable[[], str] | None = None,
         sample_revision_id_factory: Callable[[], str] | None = None,
         adoption_receipt_id_factory: Callable[[], str] | None = None,
+        catalog_model: Any | None = None,
     ) -> None:
         self._repository = repository
+        self._catalog_model = catalog_model
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
         self._term_id_factory = term_id_factory or (lambda: _prefixed_id("term_"))
         self._term_revision_id_factory = term_revision_id_factory or (
@@ -303,6 +324,13 @@ class ExperimentCatalogService:
         projection_version: str | None,
     ) -> dict[str, Any]:
         assert_request_within_limit(raw_body)
+        if source == MODEL_PROPOSAL_SOURCE:
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "Offline registration cannot claim a model source.",
+                path="source",
+            )
         return self._repository.register_proposal(
             self._write(
                 actor_user_id,
@@ -317,6 +345,183 @@ class ExperimentCatalogService:
             vocabulary_version=vocabulary_version,
             projection_version=projection_version,
         )
+
+    def generate_classification_suggestion(
+        self,
+        *,
+        actor_user_id: str,
+        idempotency_key: str | None,
+        raw_body: bytes,
+        project_id: str,
+        experiment_id: str,
+        experiment_revision_id: str,
+        field: str,
+        reason_code: str,
+        clue: str,
+        vocabulary_term_revision_id: str | None,
+    ) -> dict[str, Any]:
+        """Ask the bound model for one target term, then store a pending proposal.
+
+        Generation does not preview, select, or adopt, and it does not append
+        an experiment revision.
+        """
+
+        assert_request_within_limit(raw_body)
+        if self._catalog_model is None:
+            raise CatalogError(
+                409,
+                "catalog_model_unbound",
+                "The owner has no bound model for catalog classification.",
+            )
+        if not clue_is_auditable(clue):
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "Classification clue must name evidence, not an ordinal.",
+                path="clue",
+            )
+        if field != "target" or reason_code != "TARGET_TERM_MATCH":
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "This slice only classifies experiment target.",
+                path="field",
+            )
+        write = self._write(
+            actor_user_id,
+            idempotency_key,
+            raw_body,
+            "catalogGenerateClassificationSuggestion",
+        )
+        write = bind_catalog_target(
+            write, stable_proposal_id(actor_user_id, write.idempotency_key, project_id)
+        )
+        context = self._repository.classification_context(experiment_id, write)
+        if context["project_id"] != project_id:
+            raise catalog_not_found()
+        if context["archived"]:
+            raise catalog_experiment_archived()
+        if context["experiment_revision_id"] != experiment_revision_id:
+            raise catalog_revision_conflict()
+        terms = self._classification_terms(project_id, vocabulary_term_revision_id)
+        candidates = bind_target_candidates(
+            terms, explicit_revision_id=vocabulary_term_revision_id
+        )
+        if vocabulary_term_revision_id is not None and len(candidates) != 1:
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "The selected target term has no auditable evidence token.",
+                path="vocabulary_term_revision_id",
+            )
+        if vocabulary_term_revision_id is None and (
+            len(terms) > 32
+            or len(candidates) > MAX_CLASSIFY_CANDIDATES
+            or not candidates
+        ):
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "Select one current target term revision to classify.",
+                path="vocabulary_term_revision_id",
+            )
+        projection = {
+            "field": CATALOG_FIELD,
+            "reason_code": CATALOG_REASON,
+            "clue": clue,
+            "candidates": [
+                {"token": item.token, "label": item.label} for item in candidates
+            ],
+        }
+        digest = sha256(
+            json.dumps(
+                {
+                    "request_sha256": write.request_sha256,
+                    "project_id": project_id,
+                    "experiment_id": experiment_id,
+                    "experiment_revision_id": experiment_revision_id,
+                    "clue": clue,
+                    "vocabulary_term_revision_id": vocabulary_term_revision_id,
+                    "candidates": [
+                        {
+                            "token": item.token,
+                            "term_revision_id": item.term_revision_id,
+                        }
+                        for item in candidates
+                    ],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        try:
+            decision = self._catalog_model.classify(
+                project_id=project_id,
+                idempotency_key=write.target_key,
+                clue=clue,
+                candidates=tuple((item.token, item.label) for item in candidates),
+                projection_digest=digest,
+            )
+        except CatalogTransportError as exc:
+            if exc.code == "catalog_idempotency_conflict":
+                from encode_pipeline.platform.experiment_catalog import (
+                    catalog_idempotency_conflict,
+                )
+
+                raise catalog_idempotency_conflict() from None
+            raise CatalogError(409, exc.code, exc.message) from None
+        body = _suggestion_envelope(
+            context=context,
+            projection=projection,
+            decision=decision,
+        )
+        if decision == INSUFFICIENT_EVIDENCE:
+            confirmed = self._repository.classification_context(experiment_id, write)
+            if confirmed["archived"]:
+                raise catalog_experiment_archived()
+            if confirmed["experiment_revision_id"] != experiment_revision_id:
+                raise catalog_revision_conflict()
+            return body
+        chosen = next((item for item in candidates if item.token == decision), None)
+        if chosen is None:
+            raise CatalogError(
+                409,
+                "catalog_model_malformed",
+                "The model response was not a bound candidate or insufficient evidence.",
+            )
+        proposal = self._repository.register_proposal(
+            write,
+            project_id=project_id,
+            source=MODEL_PROPOSAL_SOURCE,
+            items=[_target_proposal_item(context, chosen, clue)],
+            rule_version=context["rule_version"],
+            vocabulary_version=context["vocabulary_version"],
+            projection_version=context["projection_version"],
+        )
+        body["outcome"] = "proposal"
+        body["proposal"] = proposal
+        return body
+
+    def _classification_terms(
+        self,
+        project_id: str,
+        vocabulary_term_revision_id: str | None,
+    ) -> list[dict[str, Any]]:
+        if vocabulary_term_revision_id is None:
+            return self._repository.project_target_terms(project_id, limit=33)
+        found = self._repository.lookup_target_term(vocabulary_term_revision_id)
+        if found is None:
+            raise CatalogError(
+                422,
+                "catalog_payload_invalid",
+                "The selected vocabulary revision is not a target term.",
+                path="vocabulary_term_revision_id",
+            )
+        if found["archived"]:
+            raise catalog_term_archived()
+        if not found["requested_is_head"]:
+            raise catalog_revision_conflict()
+        return [found]
 
     def get_proposal(
         self,
@@ -460,3 +665,63 @@ class ExperimentCatalogService:
             "cursor": query.get("cursor"),
             "limit": parse_page_limit(query.get("limit")),
         }
+
+
+def _suggestion_envelope(
+    *,
+    context: Mapping[str, Any],
+    projection: dict[str, Any],
+    decision: str,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "outcome": "insufficient_evidence",
+        "field": "target",
+        "reason_code": "TARGET_TERM_MATCH",
+        "experiment_id": context["experiment_id"],
+        "experiment_revision_id": context["experiment_revision_id"],
+        "experiment_revision_number": context["revision_number"],
+        "catalog_revision_changed": False,
+        "projection": projection,
+        "decision": decision,
+        "proposal": None,
+    }
+
+
+def _target_proposal_item(
+    context: Mapping[str, Any], chosen: BoundCandidate, clue: str
+) -> dict[str, Any]:
+    return {
+        "item_id": "target",
+        "target_kind": "experiment",
+        "target_id": context["experiment_id"],
+        "base_revision_id": context["experiment_revision_id"],
+        "base_revision_number": context["revision_number"],
+        "allowed_fields": ["target"],
+        "before": {"target": context["target"]},
+        "after": {
+            "target": {
+                "status": "known",
+                "term_id": chosen.term_id,
+                "term_revision_id": chosen.term_revision_id,
+            }
+        },
+        "citations": {
+            "rule_version": context["rule_version"],
+            "vocabulary_version": context["vocabulary_version"],
+            "reason_codes": ["TARGET_TERM_MATCH"],
+            "source_refs": [
+                {
+                    "kind": "experiment_revision",
+                    "ref_id": context["experiment_revision_id"],
+                    "evidence_token": clue,
+                },
+                {
+                    "kind": "term_revision",
+                    "ref_id": chosen.term_revision_id,
+                    "term_revision_id": chosen.term_revision_id,
+                    "evidence_token": chosen.token,
+                },
+            ],
+        },
+    }

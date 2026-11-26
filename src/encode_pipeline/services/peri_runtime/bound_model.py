@@ -1,8 +1,14 @@
-"""Owner-only, opt-in numeric suggestions from a separately bound Peri model worker."""
+"""Owner-only, opt-in suggestions from a separately bound Peri model worker.
+
+Numeric draft suggestions and catalog target classification share the worker
+process and the ledger file. They do not share grants. A ``config.threads``
+grant cannot authorize ``experiment.target``, and a catalog grant cannot
+authorize a draft turn.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 import hashlib
@@ -10,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+from secrets import token_hex
 import sqlite3
 import subprocess
 import time
@@ -18,6 +25,17 @@ from encode_pipeline.services.authoring_bridge import (
     BridgeDisconnected,
     BridgeTurnRefused,
     BridgeTurnRequest,
+)
+from encode_pipeline.services.peri_runtime.catalog_classify import (
+    CATALOG_FIELD,
+    INSUFFICIENT_EVIDENCE,
+    MAX_CLASSIFY_CANDIDATES,
+    MAX_CLASSIFY_REQUEST_BYTES,
+    CatalogTransportError,
+    accepted_decision,
+    classify_worker_request,
+    clue_is_auditable,
+    evidence_token,
 )
 
 # For the one fixed prompt + bounded integer and field name. The operator must
@@ -273,6 +291,430 @@ class BoundModel:
                 "changes": [{"field_token": field, "value": v}],
             }
         )
+
+    def _ensure_catalog_schema(self) -> None:
+        with closing(self.db()) as db:
+            db.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS catalog_grants (
+                 grant_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, field TEXT NOT NULL,
+                 binding TEXT NOT NULL, expires INTEGER NOT NULL, output_cap INTEGER NOT NULL,
+                 input_rate INTEGER NOT NULL, output_rate INTEGER NOT NULL,
+                 requests INTEGER NOT NULL, input_left INTEGER NOT NULL,
+                 output_left INTEGER NOT NULL, minor_left INTEGER NOT NULL,
+                 currency TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE IF NOT EXISTS catalog_reservations (
+                 grant_id TEXT NOT NULL, call_key TEXT NOT NULL,
+                 projection_digest TEXT NOT NULL, model TEXT,
+                 input_reserved INTEGER, output_reserved INTEGER, minor_reserved INTEGER,
+                 delivered INTEGER NOT NULL DEFAULT 0, decision TEXT,
+                 PRIMARY KEY (grant_id, call_key));
+                """
+            )
+
+    def catalog_grant(
+        self,
+        *,
+        project_id: str,
+        field: str,
+        binding: str,
+        expires: int,
+        budget: Budget,
+    ) -> str:
+        """Authorize one project field. Draft fields such as config.threads are refused."""
+
+        budget.validate()
+        if (
+            field != CATALOG_FIELD
+            or not re.fullmatch(r"prj_[0-9a-f]{32}", project_id)
+            or not re.fullmatch(r"[a-f0-9]{64}", binding)
+            or type(expires) is not int
+            or expires <= time.time()
+        ):
+            raise ValueError("invalid_grant")
+        grant_id = "catg_" + token_hex(16)
+        self._ensure_catalog_schema()
+        with closing(self.db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            active = db.execute(
+                """SELECT 1 FROM catalog_grants
+                WHERE project_id=? AND field=? AND binding=? AND revoked=0 AND expires>?""",
+                (project_id, field, binding, int(time.time())),
+            ).fetchone()
+            if active is not None:
+                raise ValueError("invalid_grant")
+            db.execute(
+                """INSERT INTO catalog_grants (
+                    grant_id, project_id, field, binding, expires, output_cap,
+                    input_rate, output_rate, requests, input_left, output_left,
+                    minor_left, currency, revoked
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                (
+                    grant_id,
+                    project_id,
+                    field,
+                    binding,
+                    expires,
+                    budget.output_per_call,
+                    budget.input_rate,
+                    budget.output_rate,
+                    budget.requests,
+                    budget.input_tokens,
+                    budget.output_tokens,
+                    budget.minor_units,
+                    budget.currency,
+                ),
+            )
+        return grant_id
+
+    def catalog_revoke(self, grant_id: str) -> None:
+        self._ensure_catalog_schema()
+        with closing(self.db()) as db, db:
+            if (
+                db.execute(
+                    "UPDATE catalog_grants SET revoked=1 WHERE grant_id=? AND revoked=0",
+                    (grant_id,),
+                ).rowcount
+                != 1
+            ):
+                raise ValueError("unknown_grant")
+
+    def classify(
+        self,
+        *,
+        project_id: str,
+        idempotency_key: str,
+        clue: str,
+        candidates: Sequence[tuple[str, str]],
+        projection_digest: str,
+    ) -> str:
+        """Reserve one catalog call, then ask the worker. Timeouts stay charged.
+
+        A stored decision for the same key and projection is returned without
+        another worker call. Draft grants are not consulted.
+        """
+
+        pairs = tuple(candidates)
+        self._validate_classify_inputs(
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            clue=clue,
+            candidates=pairs,
+            projection_digest=projection_digest,
+        )
+        self._ensure_catalog_schema()
+        replay = self._catalog_replay(project_id, idempotency_key, projection_digest)
+        if replay is not None:
+            return replay
+        if not self._project_has_catalog_grant(project_id):
+            self._raise_without_project_grant(project_id)
+        binding = self._read_binding()
+        identity = binding_id(binding)
+        deadline = time.monotonic() + 35
+        reserved = self._reserve_catalog_call(
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            projection_digest=projection_digest,
+            clue=clue,
+            candidates=pairs,
+            binding=binding,
+            identity=identity,
+        )
+        if isinstance(reserved, str):
+            return reserved
+        request, grant_id = reserved
+        with closing(self.db()) as db:
+            self._require_live_catalog_grant(db, grant_id)
+        if time.monotonic() > deadline:
+            raise CatalogTransportError("catalog_model_timeout")
+        response = self._invoke_classify(request)
+        accepted = accepted_decision(response.get("decision"), pairs)
+        if response.get("binding") != binding or accepted is None:
+            raise CatalogTransportError("catalog_model_malformed")
+        if time.monotonic() > deadline:
+            raise CatalogTransportError("catalog_model_timeout")
+        try:
+            rebound = binding_id(self._read_binding())
+        except CatalogTransportError:
+            raise CatalogTransportError("catalog_model_timeout") from None
+        if rebound != identity or time.monotonic() > deadline:
+            raise CatalogTransportError("catalog_model_timeout")
+        self._store_catalog_decision(
+            grant_id=grant_id,
+            idempotency_key=idempotency_key,
+            projection_digest=projection_digest,
+            decision=accepted,
+        )
+        return accepted
+
+    def _validate_classify_inputs(
+        self,
+        *,
+        project_id: str,
+        idempotency_key: str,
+        clue: str,
+        candidates: tuple[tuple[str, str], ...],
+        projection_digest: str,
+    ) -> None:
+        if (
+            not re.fullmatch(r"prj_[0-9a-f]{32}", project_id)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", idempotency_key)
+            or not re.fullmatch(r"[a-f0-9]{64}", projection_digest)
+            or not clue_is_auditable(clue)
+            or not 1 <= len(candidates) <= MAX_CLASSIFY_CANDIDATES
+        ):
+            raise CatalogTransportError("catalog_model_malformed")
+        seen: set[str] = set()
+        for token, label in candidates:
+            if (
+                not isinstance(token, str)
+                or not isinstance(label, str)
+                or evidence_token(label) != token
+                or token in seen
+            ):
+                raise CatalogTransportError("catalog_model_malformed")
+            seen.add(token)
+
+    def _catalog_replay(
+        self,
+        project_id: str,
+        idempotency_key: str,
+        projection_digest: str,
+        *,
+        db: sqlite3.Connection | None = None,
+    ) -> str | None:
+        owned = db is None
+        connection = self.db() if owned else db
+        assert connection is not None
+        try:
+            if owned:
+                connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT r.projection_digest, r.delivered, r.decision
+                FROM catalog_reservations AS r
+                JOIN catalog_grants AS g ON g.grant_id = r.grant_id
+                WHERE r.call_key=? AND g.project_id=? AND g.field=?""",
+                (idempotency_key, project_id, CATALOG_FIELD),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["projection_digest"] != projection_digest:
+                raise CatalogTransportError("catalog_idempotency_conflict")
+            if (
+                row["delivered"] == 1
+                and isinstance(row["decision"], str)
+                and (
+                    row["decision"] == INSUFFICIENT_EVIDENCE
+                    or re.fullmatch(r"[a-z][a-z0-9]{0,31}", row["decision"])
+                )
+            ):
+                return str(row["decision"])
+            raise CatalogTransportError("catalog_model_timeout")
+        finally:
+            if owned:
+                connection.commit()
+                connection.close()
+
+    def _project_has_catalog_grant(self, project_id: str) -> bool:
+        with closing(self.db()) as db:
+            return (
+                db.execute(
+                    "SELECT 1 FROM catalog_grants WHERE project_id=? AND field=?",
+                    (project_id, CATALOG_FIELD),
+                ).fetchone()
+                is not None
+            )
+
+    def _raise_without_project_grant(self, project_id: str) -> None:
+        with closing(self.db()) as db:
+            other = db.execute(
+                "SELECT 1 FROM catalog_grants WHERE project_id!=? AND field=?",
+                (project_id, CATALOG_FIELD),
+            ).fetchone()
+        if other is not None:
+            raise CatalogTransportError("catalog_model_project_mismatch")
+        raise CatalogTransportError("catalog_model_unauthorized")
+
+    def _read_binding(self) -> dict:
+        try:
+            binding = self.worker({"op": "binding"})
+        except CatalogTransportError:
+            raise
+        except (BridgeDisconnected, OSError, sqlite3.Error, ValueError, TypeError):
+            raise CatalogTransportError("catalog_model_unbound") from None
+        if not isinstance(binding, dict) or not isinstance(binding.get("model"), str):
+            raise CatalogTransportError("catalog_model_unbound")
+        return binding
+
+    def _reserve_catalog_call(
+        self,
+        *,
+        project_id: str,
+        idempotency_key: str,
+        projection_digest: str,
+        clue: str,
+        candidates: tuple[tuple[str, str], ...],
+        binding: dict,
+        identity: str,
+    ) -> tuple[dict[str, object], str] | str:
+        with closing(self.db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            replay = self._catalog_replay(
+                project_id,
+                idempotency_key,
+                projection_digest,
+                db=db,
+            )
+            if replay is not None:
+                return replay
+            rows = db.execute(
+                """SELECT * FROM catalog_grants
+                WHERE project_id=? AND field=? AND binding=? ORDER BY rowid DESC""",
+                (project_id, CATALOG_FIELD, identity),
+            ).fetchall()
+            sane = [row for row in rows if _catalog_grant_sane(row)]
+            now = int(time.time())
+            active = [
+                row for row in sane if row["revoked"] == 0 and row["expires"] > now
+            ]
+            if len(active) > 1:
+                raise CatalogTransportError("catalog_model_malformed")
+            if not active:
+                if not sane:
+                    raise CatalogTransportError("catalog_model_unauthorized")
+                # Report the last grant issued for this binding when all are inactive.
+                if sane[0]["revoked"] == 1:
+                    raise CatalogTransportError("catalog_model_revoked")
+                raise CatalogTransportError("catalog_model_expired")
+            row = active[0]
+            cap = int(row["output_cap"])
+            request = classify_worker_request(
+                binding=binding,
+                clue=clue,
+                candidates=candidates,
+                output_tokens=cap,
+            )
+            if len(json.dumps(request).encode()) > MAX_CLASSIFY_REQUEST_BYTES:
+                raise CatalogTransportError("catalog_model_malformed")
+            amount = (
+                row["input_rate"] * INPUT_RESERVE + row["output_rate"] * cap + 999999
+            ) // 1000000
+            updated = db.execute(
+                """UPDATE catalog_grants SET requests=requests-1, input_left=input_left-?,
+                output_left=output_left-?, minor_left=minor_left-?
+                WHERE grant_id=? AND revoked=0 AND expires>? AND requests>=1
+                AND input_left>=? AND output_left>=? AND minor_left>=?""",
+                (
+                    INPUT_RESERVE,
+                    cap,
+                    amount,
+                    row["grant_id"],
+                    now,
+                    INPUT_RESERVE,
+                    cap,
+                    amount,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise CatalogTransportError("catalog_model_quota_exhausted")
+            grant_id = str(row["grant_id"])
+            db.execute(
+                """INSERT INTO catalog_reservations (
+                    grant_id, call_key, projection_digest, model,
+                    input_reserved, output_reserved, minor_reserved
+                ) VALUES (?,?,?,?,?,?,?)""",
+                (
+                    grant_id,
+                    idempotency_key,
+                    projection_digest,
+                    binding["model"],
+                    INPUT_RESERVE,
+                    cap,
+                    amount,
+                ),
+            )
+        return request, grant_id
+
+    @staticmethod
+    def _require_live_catalog_grant(db: sqlite3.Connection, grant_id: str) -> None:
+        row = db.execute(
+            "SELECT revoked, expires FROM catalog_grants WHERE grant_id=?", (grant_id,)
+        ).fetchone()
+        if row is None or row["revoked"]:
+            raise CatalogTransportError("catalog_model_revoked")
+        if row["expires"] <= time.time():
+            raise CatalogTransportError("catalog_model_expired")
+
+    def _store_catalog_decision(
+        self,
+        *,
+        grant_id: str,
+        idempotency_key: str,
+        projection_digest: str,
+        decision: str,
+    ) -> None:
+        with closing(self.db()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_live_catalog_grant(db, grant_id)
+            updated = db.execute(
+                """UPDATE catalog_reservations SET delivered=1, decision=?
+                WHERE grant_id=? AND call_key=? AND projection_digest=? AND delivered=0""",
+                (decision, grant_id, idempotency_key, projection_digest),
+            )
+            if updated.rowcount == 1:
+                return
+            stored = db.execute(
+                """SELECT delivered, decision FROM catalog_reservations
+                WHERE grant_id=? AND call_key=? AND projection_digest=?""",
+                (grant_id, idempotency_key, projection_digest),
+            ).fetchone()
+            if (
+                stored is not None
+                and stored["delivered"] == 1
+                and stored["decision"] == decision
+            ):
+                return
+            raise CatalogTransportError("catalog_model_timeout")
+
+    def _invoke_classify(self, request: dict[str, object]) -> dict:
+        try:
+            response = self.worker(request)
+        except CatalogTransportError as exc:
+            if exc.code == "catalog_model_timeout":
+                raise
+            raise CatalogTransportError("catalog_model_malformed") from None
+        except (BridgeDisconnected, OSError, sqlite3.Error, ValueError, TypeError):
+            raise CatalogTransportError("catalog_model_timeout") from None
+        if not isinstance(response, dict) or "error" in response:
+            raise CatalogTransportError("catalog_model_malformed")
+        return response
+
+
+def _catalog_grant_sane(row: sqlite3.Row) -> bool:
+    if not isinstance(row["currency"], str) or not re.fullmatch(
+        "[A-Z]{3}", row["currency"]
+    ):
+        return False
+    if row["field"] != CATALOG_FIELD or row["revoked"] not in {0, 1}:
+        return False
+    return (
+        all(
+            type(row[key]) is int and 0 <= row[key] <= _MAX
+            for key in (
+                "requests",
+                "input_left",
+                "output_left",
+                "minor_left",
+                "output_cap",
+                "input_rate",
+                "output_rate",
+                "expires",
+            )
+        )
+        and 1 <= row["output_cap"] <= 1024
+        and row["input_rate"] >= 1
+        and row["output_rate"] >= 1
+    )
 
 
 def configured_model(env: Mapping[str, str]) -> BoundModel | None:

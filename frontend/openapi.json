@@ -6564,6 +6564,152 @@
         }
       }
     },
+    "/api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/classification-suggestions": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Generate Classification Suggestion",
+        "description": "Create a pending target proposal from the bound model, or decline.\n\nThe catalog revision is not appended here. Preview and adoption stay on\ntheir existing routes.",
+        "operationId": "catalogGenerateClassificationSuggestion",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "experiment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Experiment Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+              "description": "Required key for one catalog write.",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required key for one catalog write."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogGenerateClassificationSuggestionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogClassificationSuggestionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          }
+        }
+      }
+    },
     "/api/v1/catalog/projects/{project_id}/proposals": {
       "post": {
         "tags": [
@@ -11649,6 +11795,136 @@
         ],
         "title": "CatalogAssociatedRunSampleResponse"
       },
+      "CatalogClassificationCandidateResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "label"
+        ],
+        "title": "CatalogClassificationCandidateResponse"
+      },
+      "CatalogClassificationProjectionResponse": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "const": "experiment.target",
+            "title": "Field"
+          },
+          "reason_code": {
+            "type": "string",
+            "const": "TARGET_TERM_MATCH",
+            "title": "Reason Code"
+          },
+          "clue": {
+            "type": "string",
+            "title": "Clue"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogClassificationCandidateResponse"
+            },
+            "type": "array",
+            "title": "Candidates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "reason_code",
+          "clue",
+          "candidates"
+        ],
+        "title": "CatalogClassificationProjectionResponse",
+        "description": "Fields actually handed to the model. Term revision ids stay on the server."
+      },
+      "CatalogClassificationSuggestionResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ok"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "proposal",
+              "insufficient_evidence"
+            ],
+            "title": "Outcome"
+          },
+          "field": {
+            "type": "string",
+            "const": "target",
+            "title": "Field"
+          },
+          "reason_code": {
+            "type": "string",
+            "const": "TARGET_TERM_MATCH",
+            "title": "Reason Code"
+          },
+          "experiment_id": {
+            "type": "string",
+            "title": "Experiment Id"
+          },
+          "experiment_revision_id": {
+            "type": "string",
+            "title": "Experiment Revision Id"
+          },
+          "experiment_revision_number": {
+            "type": "integer",
+            "title": "Experiment Revision Number"
+          },
+          "catalog_revision_changed": {
+            "type": "boolean",
+            "const": false,
+            "title": "Catalog Revision Changed"
+          },
+          "projection": {
+            "$ref": "#/components/schemas/CatalogClassificationProjectionResponse"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogProposalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ok",
+          "outcome",
+          "field",
+          "reason_code",
+          "experiment_id",
+          "experiment_revision_id",
+          "experiment_revision_number",
+          "catalog_revision_changed",
+          "projection",
+          "decision"
+        ],
+        "title": "CatalogClassificationSuggestionResponse"
+      },
       "CatalogClassifiedExperimentSampleResponse": {
         "properties": {
           "sample_id": {
@@ -12587,6 +12863,53 @@
           "next_cursor"
         ],
         "title": "CatalogExperimentRunListResponse"
+      },
+      "CatalogGenerateClassificationSuggestionRequest": {
+        "properties": {
+          "experiment_revision_id": {
+            "type": "string",
+            "pattern": "^expr_[0-9a-f]{32}$",
+            "title": "Experiment Revision Id"
+          },
+          "field": {
+            "type": "string",
+            "const": "target",
+            "title": "Field"
+          },
+          "reason_code": {
+            "type": "string",
+            "const": "TARGET_TERM_MATCH",
+            "title": "Reason Code"
+          },
+          "clue": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Clue"
+          },
+          "vocabulary_term_revision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^trmv_[0-9a-f]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vocabulary Term Revision Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "experiment_revision_id",
+          "field",
+          "reason_code",
+          "clue"
+        ],
+        "title": "CatalogGenerateClassificationSuggestionRequest",
+        "description": "One current experiment revision and one auditable target clue.\n\nThe first slice supports only ``target`` / ``TARGET_TERM_MATCH``.\n``vocabulary_term_revision_id`` limits the model to that current target\nterm. A numeric or index-shaped clue is rejected."
       },
       "CatalogIssueResponse": {
         "properties": {

@@ -20,6 +20,9 @@ import time
 from typing import Any
 
 from encode_pipeline.platform.authoring import BRIDGE_UNAVAILABLE, CONNECTION_LOST
+from encode_pipeline.services.peri_runtime.catalog_classify import (
+    CatalogTransportError,
+)
 from encode_pipeline.services.authoring_bridge import (
     BridgeAdmission,
     BridgeDisconnected,
@@ -104,6 +107,19 @@ class RemoteAuthoringBridge:
         except BridgeDisconnected:
             return
 
+    def classify_catalog(self, **fields: object) -> str:
+        epoch = self.owner_epoch()
+        try:
+            payload = self._call("classify_catalog", owner_epoch=epoch, **fields)
+        except CatalogTransportError:
+            raise
+        except BridgeDisconnected:
+            raise CatalogTransportError("catalog_model_unbound") from None
+        decision = payload.get("decision")
+        if not isinstance(decision, str) or not decision:
+            raise CatalogTransportError("catalog_model_malformed")
+        return decision
+
     def drop_authorizations(self, digests: tuple[str, ...]) -> int:
         payload = self._call("drop_auth", session_digests=list(digests))
         closed = payload.get("closed")
@@ -138,6 +154,13 @@ class RemoteAuthoringBridge:
             and payload.get("error") == "turn_refused"
         ):
             raise BridgeTurnRefused
+        if (
+            method == "classify_catalog"
+            and isinstance(payload, dict)
+            and payload.get("ok") is False
+            and isinstance(payload.get("error"), str)
+        ):
+            raise CatalogTransportError(payload["error"])
         if not isinstance(payload, dict) or payload.get("ok") is not True:
             raise BridgeDisconnected
         return payload
@@ -376,7 +399,10 @@ class OwnerServer:
             current = self._bridge.owner_epoch()
         except BridgeDisconnected:
             return {"ok": False, "error": "unavailable"}
-        if method in {"open", "turn", "close", "check_adoption"} and epoch != current:
+        if (
+            method in {"open", "turn", "close", "check_adoption", "classify_catalog"}
+            and epoch != current
+        ):
             return {"ok": False, "error": "epoch_rejected"}
         try:
             if method == "open":
@@ -392,6 +418,12 @@ class OwnerServer:
                 except BridgeTurnRefused:
                     return {"ok": False, "error": "turn_refused"}
                 return {"ok": True, "answer": answer}
+            if method == "classify_catalog":
+                try:
+                    classified = self._bridge.classify_catalog(payload)
+                except CatalogTransportError as exc:
+                    return {"ok": False, "error": exc.code}
+                return {"ok": True, "decision": classified["decision"]}
             if method == "check_adoption":
                 self._bridge.check_adoption(
                     payload["sid"],

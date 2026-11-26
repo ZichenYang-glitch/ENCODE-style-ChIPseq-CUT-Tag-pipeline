@@ -14,6 +14,7 @@ import type {
   CatalogArchiveExperimentResponse,
   CatalogArchiveRequest,
   CatalogArchiveTermHeaders,
+  CatalogClassificationSuggestionResponse,
   CatalogCreateExperimentHeaders,
   CatalogCreateExperimentRequest,
   CatalogCreateTermHeaders,
@@ -22,6 +23,8 @@ import type {
   CatalogExperimentResponse,
   CatalogExperimentRevisionListResponse,
   CatalogExperimentRunListResponse,
+  CatalogGenerateClassificationSuggestionHeaders,
+  CatalogGenerateClassificationSuggestionRequest,
   CatalogGetArtifactPublicationExperimentTraceParams,
   CatalogGetSampleRevision200,
   CatalogListAdoptionReceiptsParams,
@@ -546,6 +549,38 @@ export const catalogListExperimentRevisionRunResults = async (projectId: string,
     method: 'GET'
 
 
+  }
+);}
+
+
+/**
+ * Create a pending target proposal from the bound model, or decline.
+
+The catalog revision is not appended here. Preview and adoption stay on
+their existing routes.
+ * @summary Generate Classification Suggestion
+ */
+export const getCatalogGenerateClassificationSuggestionUrl = (projectId: string,
+    experimentId: string,) => {
+
+
+
+
+  return `/api/v1/catalog/projects/${projectId}/experiments/${experimentId}/classification-suggestions`
+}
+
+export const catalogGenerateClassificationSuggestion = async (projectId: string,
+    experimentId: string,
+    catalogGenerateClassificationSuggestionRequest: CatalogGenerateClassificationSuggestionRequest,
+    headers: CatalogGenerateClassificationSuggestionHeaders, options?: RequestInit): Promise<CatalogClassificationSuggestionResponse> => {
+
+  return fetcher<CatalogClassificationSuggestionResponse>(getCatalogGenerateClassificationSuggestionUrl(projectId,experimentId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',...headers, ...options?.headers },
+    body: JSON.stringify(
+      catalogGenerateClassificationSuggestionRequest,)
   }
 );}
 

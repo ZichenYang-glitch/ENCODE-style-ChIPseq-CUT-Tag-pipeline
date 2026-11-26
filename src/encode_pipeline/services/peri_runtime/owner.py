@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -22,6 +22,9 @@ from encode_pipeline.services.authoring_bridge import (
     BridgeTurnRequest,
 )
 from encode_pipeline.services.peri_runtime.bound_model import BoundModel
+from encode_pipeline.services.peri_runtime.catalog_classify import (
+    CatalogTransportError,
+)
 from encode_pipeline.services.peri_runtime.identity import binary_matches
 from encode_pipeline.services.peri_runtime.isolation import (
     isolation_paths_exist,
@@ -178,6 +181,43 @@ class NativeAuthoringBridge:
         if not self._accepts_forwarding(request) or not text:
             raise BridgeDisconnected
         return text
+
+    def classify_catalog(self, payload: Mapping[str, object]) -> dict[str, str]:
+        """Run one catalog classification on the bound worker. Not a draft turn."""
+
+        if self._bound_model is None:
+            raise CatalogTransportError("catalog_model_unbound")
+        raw_candidates = payload.get("candidates")
+        if not isinstance(raw_candidates, list):
+            raise CatalogTransportError("catalog_model_malformed")
+        candidates: list[tuple[str, str]] = []
+        for item in raw_candidates:
+            if not isinstance(item, dict):
+                raise CatalogTransportError("catalog_model_malformed")
+            token = item.get("token")
+            label = item.get("label")
+            if not isinstance(token, str) or not isinstance(label, str):
+                raise CatalogTransportError("catalog_model_malformed")
+            candidates.append((token, label))
+        project_id = payload.get("project_id")
+        idempotency_key = payload.get("idempotency_key")
+        clue = payload.get("clue")
+        projection_digest = payload.get("projection_digest")
+        if (
+            not isinstance(project_id, str)
+            or not isinstance(idempotency_key, str)
+            or not isinstance(clue, str)
+            or not isinstance(projection_digest, str)
+        ):
+            raise CatalogTransportError("catalog_model_malformed")
+        decision = self._bound_model.classify(
+            project_id=project_id,
+            idempotency_key=idempotency_key,
+            clue=clue,
+            candidates=tuple(candidates),
+            projection_digest=projection_digest,
+        )
+        return {"decision": decision}
 
     def check_adoption(
         self, sid: str, epoch: str, instance: str, generation: int, turn: str

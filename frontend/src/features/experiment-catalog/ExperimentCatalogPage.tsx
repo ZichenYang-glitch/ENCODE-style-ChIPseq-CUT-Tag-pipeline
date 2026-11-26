@@ -22,6 +22,7 @@ import type {
 import { ApiError } from '../../api/fetcher';
 import { useAuth } from '../../app/auth';
 import { Button } from '../../components/Button';
+import { PeriTargetPanel } from './PeriTargetPanel';
 import {
   CATALOG_PAGE_SIZE,
   RUN_INPUT_SCOPE_TEXT,
@@ -515,6 +516,22 @@ export function ExperimentCatalogPage() {
           }
         />
       )}
+
+      {isAdmin && applied && projectId === applied.projectId && head && selected &&
+        selected.experiment_revision_id === head.experiment_revision_id && (
+          <PeriTargetPanel
+            key={head.experiment_revision_id}
+            projectId={applied.projectId}
+            experiment={head}
+            terms={terms}
+            onAdopted={(receipt) => {
+              setNotice(`Peri · ${receipt.receipt_id}`);
+              setPinnedHead(null);
+              setFollowHeadAfter(experimentsUpdatedAt);
+              void refreshCatalog();
+            }}
+          />
+        )}
 
       {notice !== null && (
         <p role="status" className="text-sm text-[var(--color-text)]">

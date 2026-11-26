@@ -63,3 +63,43 @@ python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/a
 ```
 
 The loopback provider receives one protocol request via Peri’s adapter and returns 7 for a preference of 3. Chromium requests another suggestion before adopting the first. The second turn fails without reaching the provider, and the user can still adopt 7. A separate wire test verifies that redirects, rate limits and a changed binding cannot trigger a second transmission. A paid smoke test requires a separate explicit field grant and spending ceiling and uses a synthetic draft.
+
+## Catalog target classification
+
+The same owner worker and ledger also accept `op=classify` for one controlled-vocabulary choice. This does not replace integer suggestions and does not change the default when the three owner variables are unset. The API process never opens the settings file or the provider key. It forwards a classification only when `HELIXWEAVE_PERI_OWNER_SOCKET` is already set for that owner; otherwise `POST /api/v1/catalog/projects/{project_id}/experiments/{experiment_id}/classification-suggestions` fails closed with `catalog_model_unbound`.
+
+The first slice is `experiment.target` / `TARGET_TERM_MATCH`. The model receives the clue and at most four `{token, label}` candidates. It does not receive term revision ids, experiment records, or draft fields such as `config.threads`. It must return one candidate token or exactly `insufficient_evidence`. A position or index is rejected. A catalog grant is a separate ledger row from an authoring grant:
+
+```sh
+python -m encode_pipeline.services.peri_runtime.model_grant catalog-grant \
+  --project "$PROJECT_ID" --field experiment.target --binding "$BINDING" \
+  --expires "$UNIX_EXPIRY" --requests "$MAX_REQUESTS" \
+  --input-tokens "$TOTAL_INPUT" --output-tokens "$TOTAL_OUTPUT" \
+  --output-per-call "$MAX_OUTPUT" --currency "$CURRENCY" --minor-units "$MAX_COST" \
+  --input-rate "$MAX_INPUT_RATE" --output-rate "$MAX_OUTPUT_RATE"
+python -m encode_pipeline.services.peri_runtime.model_grant catalog-revoke --grant "$GRANT_ID"
+```
+
+The default candidates are current target revisions already recorded on active experiment heads in the selected project. The API inspects up to 32 such revisions and offers up to four uniquely labeled choices. If either bound is exceeded or no eligible candidate exists, the administrator selects one current target explicitly from the deployment vocabulary. This also works for the first experiment in a new project. The worker sends the display name or an eligible alias, the corresponding token, the clue, field and reason code.
+
+The owner reserves the call before sending. It checks the same grant at dispatch and again when recording a decision. Expiry, revocation or timeout during a call keeps the reservation and leaves the decision undelivered. A retry of that reservation reports a timeout. A delivered decision replays for the same administrator, project, key and input without spending another request. Registration rechecks the experiment, chosen term and curation versions in the proposal write transaction. A concurrent edit can therefore return a conflict after an authorized call was charged.
+
+Generation registers a pending `peri_bound_model` proposal or returns `insufficient_evidence`. The administrator selects a change, previews it and adopts it to append an experiment revision. Offline registration accepts only its original sources.
+
+Run the grant and HTTP regressions with the synthetic worker:
+
+```sh
+python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -q \
+  test/services/test_catalog_bound_classify.py \
+  test/api/test_catalog_classification_suggestion_http.py
+```
+
+To verify the transport, build the worker from this checkout using the owner build instructions above and install the frontend's locked Node dependencies and Playwright Chromium. Point the fixture at the built binary and the admitted native Peri executable:
+
+```sh
+export HW_TEST_PERI_MODEL_WORKER="$BUILD_DIR/target/debug/examples/helixweave-bound"
+export HW_TEST_PERI_NATIVE="$ADMITTED_PERI"
+python -I -S scripts/checkout_bootstrap.py --repository-root . pytest -qs test/api/catalog_classification_browser.py
+```
+
+This opens the packaged catalog in English and Chinese. Each locale uses a temporary SQLite catalog, owner socket and counted loopback provider. The fixture compares the HTTP projection with the native worker's actual request body, replays generation and checks the selected and unselected experiment revisions through adoption. Additional cases return insufficient evidence, return an invalid ordinal, and hold a provider request open through the worker deadline. Each checks the actual request count and the durable reservation.

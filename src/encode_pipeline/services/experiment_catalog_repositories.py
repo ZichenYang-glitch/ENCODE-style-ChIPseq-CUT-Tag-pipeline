@@ -38,6 +38,7 @@ from encode_pipeline.platform.experiment_catalog import (
     catalog_cursor_not_found,
     catalog_experiment_archived,
     catalog_idempotency_conflict,
+    _single_object,
     matches_committed_catalog_request,
     ExperimentRevisionFreezeSource,
     build_experiment_revision_payload_digest,
@@ -112,6 +113,16 @@ class ExperimentCatalogRepository(Protocol):
     def get_experiment_revision(
         self, experiment_id: str, experiment_revision_id: str
     ) -> dict[str, Any]: ...
+
+    def classification_context(
+        self, experiment_id: str, write: CatalogWrite
+    ) -> dict[str, Any]: ...
+
+    def project_target_terms(
+        self, project_id: str, limit: int
+    ) -> list[dict[str, Any]]: ...
+
+    def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None: ...
 
     def list_sample_run_results(self, **kwargs: Any) -> dict[str, Any]: ...
 
@@ -215,6 +226,18 @@ class ExperimentTraceEvidence(Protocol):
         experiment_revision_id: str,
         payload_digest: str,
     ) -> list[dict[str, Any]] | None: ...
+
+
+def _memory_target_term(term: _Term) -> dict[str, Any]:
+    head = term.revisions[-1]
+    return {
+        "term_id": term.term_id,
+        "term_revision_id": head.term_revision_id,
+        "display_name": head.display_name,
+        "aliases": list(head.aliases),
+        "archived": term.archived_at is not None,
+        "requested_is_head": True,
+    }
 
 
 class InMemoryExperimentCatalogRepository:
@@ -818,6 +841,64 @@ class InMemoryExperimentCatalogRepository:
                 include_candidates=True,
             )
 
+    def classification_context(
+        self, experiment_id: str, write: CatalogWrite
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._checked_write_receipt(write)
+            experiment = self._experiments.get(experiment_id)
+            if experiment is None or not experiment.revisions:
+                raise catalog_not_found()
+            self._project(experiment.project_id)
+            revision = experiment.revisions[-1]
+            active = self._active_versions
+            return {
+                "project_id": experiment.project_id,
+                "experiment_id": experiment.experiment_id,
+                "experiment_revision_id": revision.experiment_revision_id,
+                "revision_number": revision.revision_number,
+                "archived": experiment.archived_at is not None,
+                "target": _single_object(revision.payload.target),
+                "rule_version": active.rule_version,
+                "vocabulary_version": active.vocabulary_version,
+                "projection_version": active.projection_version,
+            }
+
+    def project_target_terms(self, project_id: str, limit: int) -> list[dict[str, Any]]:
+        with self._lock:
+            used = set()
+            for experiment in self._experiments.values():
+                if (
+                    experiment.project_id == project_id
+                    and experiment.archived_at is None
+                ):
+                    target = experiment.revisions[-1].payload.target
+                    if target.term is not None:
+                        used.add(target.term.term_revision_id)
+            terms = sorted(
+                (
+                    term
+                    for term in self._terms.values()
+                    if term.term_type == "target"
+                    and term.archived_at is None
+                    and term.revisions[-1].term_revision_id in used
+                ),
+                key=lambda term: (term.created_at, term.term_id),
+            )
+            return [_memory_target_term(term) for term in terms[:limit]]
+
+    def lookup_target_term(self, term_revision_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            revision = self._term_revisions.get(term_revision_id)
+            if revision is None:
+                return None
+            term = self._terms.get(revision.term_id)
+            if term is None or term.term_type != "target":
+                return None
+            record = _memory_target_term(term)
+            record["requested_is_head"] = record["term_revision_id"] == term_revision_id
+            return record
+
     def list_sample_run_results(
         self,
         *,
@@ -1189,21 +1270,25 @@ class InMemoryExperimentCatalogRepository:
         self, write: CatalogWrite, apply: Callable[[], dict[str, Any]]
     ) -> dict[str, Any]:
         with self._lock:
-            if not self._is_administrator(write.actor_user_id):
-                raise administrator_required()
-            receipt = self._receipts.get((write.actor_user_id, write.idempotency_key))
-            if not write.target_key:
-                raise ValueError("catalog write target is required")
+            receipt = self._checked_write_receipt(write)
             if receipt is not None:
-                if not matches_committed_catalog_request(
-                    write,
-                    operation=receipt.operation,
-                    target_key=receipt.target_key,
-                    request_sha256=receipt.request_sha256,
-                ):
-                    raise catalog_idempotency_conflict()
                 return self._replay(receipt)
             return apply()
+
+    def _checked_write_receipt(self, write: CatalogWrite) -> _Receipt | None:
+        if not self._is_administrator(write.actor_user_id):
+            raise administrator_required()
+        if not write.target_key:
+            raise ValueError("catalog write target is required")
+        receipt = self._receipts.get((write.actor_user_id, write.idempotency_key))
+        if receipt is not None and not matches_committed_catalog_request(
+            write,
+            operation=receipt.operation,
+            target_key=receipt.target_key,
+            request_sha256=receipt.request_sha256,
+        ):
+            raise catalog_idempotency_conflict()
+        return receipt
 
     def _replay(self, receipt: _Receipt) -> dict[str, Any]:
         if receipt.operation in {
@@ -1237,7 +1322,10 @@ class InMemoryExperimentCatalogRepository:
                 receipt.result_revision_id,
                 include_candidates=True,
             )
-        if receipt.operation == "catalogRegisterProposal":
+        if receipt.operation in {
+            "catalogRegisterProposal",
+            "catalogGenerateClassificationSuggestion",
+        }:
             from encode_pipeline.services.catalog_proposal_memory import (
                 replay_register,
             )

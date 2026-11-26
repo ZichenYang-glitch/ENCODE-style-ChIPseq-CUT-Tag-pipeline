@@ -3346,6 +3346,14 @@ class CatalogProposalRow(Base):
     project_id: Mapped[str] = mapped_column(String(36), nullable=False)
     created_by_user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
+    model_source: Mapped[str | None] = mapped_column(
+        String(32),
+        CheckConstraint(
+            "model_source IS NULL OR (source = 'agent' AND model_source = 'peri_bound_model')",
+            name="ck_catalog_proposals_model_source",
+        ),
+        nullable=True,
+    )
     rule_version: Mapped[str] = mapped_column(String(64), nullable=False)
     vocabulary_version: Mapped[str] = mapped_column(String(64), nullable=False)
     projection_version: Mapped[str] = mapped_column(String(64), nullable=False)
