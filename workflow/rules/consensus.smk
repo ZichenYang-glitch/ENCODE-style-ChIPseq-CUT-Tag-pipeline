@@ -87,7 +87,7 @@ def _consensus_macs3_inputs(wildcards):
     controls, the pooled control BAM is added as -c.
     """
     _consensus_validate_mode(wildcards)
-    _consensus_guard_macs3_request(wildcards.experiment, final=False)
+    _consensus_guard_macs3_request(wildcards.experiment)
     if wildcards.experiment in MIXED_REPLICATE_ROUTES and int(wildcards.bio_rep) not in _bioreps_for(
         wildcards.experiment, "treatment"
     ):
@@ -112,7 +112,7 @@ def _consensus_macs3_inputs(wildcards):
 
 def _consensus_biorep_peaks(experiment, assay, peak_mode):
     """Return sorted list of per-biorep consensus peak files for an experiment."""
-    _consensus_guard_macs3_request(experiment, final=False)
+    _consensus_guard_macs3_request(experiment)
     bioreps = sorted(_bioreps_for(experiment, "treatment"))
     suffix = "narrowPeak" if peak_mode == "narrow" else "broadPeak"
     return [
@@ -419,9 +419,12 @@ rule consensus_final:
 
 def _consensus_final_input(wildcards):
     """Copy the consensus peak only when that file is the published final."""
-    if wildcards.experiment in MIXED_REPLICATE_ROUTES:
-        _consensus_validate_mode(wildcards)
-        _consensus_guard_macs3_request(wildcards.experiment, final=True)
+    _consensus_validate_mode(wildcards)
+    if wildcards.experiment not in MACS3_CONSENSUS_FINALS:
+        raise ValueError(
+            f"Experiment {wildcards.experiment} is not eligible for a MACS3 consensus final "
+            f"for {wildcards.assay}/{wildcards.peak_mode}"
+        )
     return (
         f"{OUTDIR}/experiments/{wildcards.experiment}/06_reproducibility/consensus/"
         f"{wildcards.experiment}.{wildcards.assay}.macs3.{wildcards.peak_mode}."
@@ -487,6 +490,14 @@ def _consensus_seacr_validate(wildcards):
             f"SEACR consensus mode mismatch for {wildcards.experiment}: "
             f"target has {wildcards.mode}, config has {SEACR_MODE}"
         )
+
+
+def _consensus_seacr_final_input(wildcards):
+    _consensus_seacr_validate(wildcards)
+    return (
+        f"{OUTDIR}/experiments/{wildcards.experiment}/06_reproducibility/consensus/"
+        f"{wildcards.experiment}.cuttag.seacr.{wildcards.mode}.consensus.bed"
+    )
 
 
 def _consensus_seacr_bedgraph_input(wildcards):
@@ -665,8 +676,7 @@ rule consensus_final_seacr:
         f"{{experiment}}.cuttag.seacr.{{mode}}."
         f"replicate_validated.consensus.bed",
     input:
-        f"{OUTDIR}/experiments/{{experiment}}/06_reproducibility/consensus/"
-        f"{{experiment}}.cuttag.seacr.{{mode}}.consensus.bed",
+        _consensus_seacr_final_input,
     wildcard_constraints:
         mode = r"stringent|relaxed",
     shell:

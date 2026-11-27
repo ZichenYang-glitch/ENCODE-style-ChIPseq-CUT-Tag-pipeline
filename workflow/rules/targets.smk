@@ -870,7 +870,7 @@ def _broad_idr_targets():
 def _experiment_publishes_macs3_consensus_final(experiment, assay, peak_mode):
     route = MIXED_REPLICATE_ROUTES.get(experiment)
     if route is not None:
-        return route.method == "consensus"
+        return route.run_macs3_consensus and route.method == "consensus"
     if assay == "chipseq" and peak_mode == "broad":
         return not BROAD_CHIPSEQ_IDR_ENABLED or experiment not in BROAD_CHIPSEQ_IDR_EXPERIMENTS
     if assay == "cuttag" and peak_mode == "broad":
@@ -889,20 +889,22 @@ def _macs3_consensus_final_path(experiment, assay, peak_mode):
     )
 
 
-def _consensus_guard_macs3_request(experiment, *, final):
-    """Reject a handwritten MACS3 target that contradicts its mixed route."""
+# The same publication list drives rule all and direct requests for final files.
+MACS3_CONSENSUS_FINALS = {
+    experiment: _macs3_consensus_final_path(experiment, assay, peak_mode)
+    for (assay, peak_mode), experiments in CONSENSUS_EXPERIMENTS.items()
+    for experiment in experiments
+    if _experiment_publishes_macs3_consensus_final(experiment, assay, peak_mode)
+}
+
+
+def _consensus_guard_macs3_request(experiment):
+    """Check whether the mixed route permits the auxiliary MACS3 computation."""
     route = MIXED_REPLICATE_ROUTES.get(experiment)
-    if route is None:
-        return
-    method = route.method
-    if not route.run_macs3_consensus:
+    if route is not None and not route.run_macs3_consensus:
         raise ValueError(
             f"Experiment {experiment} is not eligible for MACS3 consensus "
-            f"under its mixed route (run_macs3_consensus is false; method is {method})"
-        )
-    if final and method != "consensus":
-        raise ValueError(
-            f"Experiment {experiment} is not eligible for a MACS3 consensus final: mixed route method is {method}"
+            f"under its mixed route (run_macs3_consensus is false; method is {route.method})"
         )
 
 
@@ -941,19 +943,7 @@ def _consensus_targets():
                 peak_mode=[peak_mode],
             )
 
-        # Final consensus: legacy primary modes, plus routed method=='consensus'.
-        final_exps = [exp for exp in scheduled if _experiment_publishes_macs3_consensus_final(exp, assay, peak_mode)]
-        if final_exps:
-            targets += expand(
-                "{outdir}/experiments/{experiment}/06_reproducibility/final/"
-                "{experiment}.{assay}.macs3.{peak_mode}."
-                "replicate_validated.consensus.{suffix}",
-                outdir=OUTDIR,
-                experiment=final_exps,
-                assay=[assay],
-                peak_mode=[peak_mode],
-                suffix=[suffix],
-            )
+        targets.extend(MACS3_CONSENSUS_FINALS[exp] for exp in exps if exp in MACS3_CONSENSUS_FINALS)
 
     # Stage 63: SEACR consensus targets
     if SEACR_CONSENSUS_EXPERIMENTS:

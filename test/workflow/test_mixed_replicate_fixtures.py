@@ -859,6 +859,98 @@ def test_mixed_pipeline_assigns_each_published_final_to_its_group(
         assert desc.label and desc.detail and desc.score_meaning
 
 
+def test_named_consensus_finals_match_default_dag_and_manifest(
+    tmp_path, tmp_config, run_snakemake, snakemake_executable, snakefile
+):
+    work, config_path, samples_path, cfg, _ = _build_fixture_workspace(
+        tmp_path,
+        tmp_config,
+        name="named_finals",
+        groups=[
+            ("CHIP2", "chipseq", "narrow", (1, 2), "PE"),
+            ("ATAC3", "atac", "narrow", (1, 2, 3), "PE"),
+            ("CUT3", "cuttag", "narrow", (1, 2, 3), "PE"),
+            ("CUT1", "cuttag", "narrow", (1,), "PE"),
+        ],
+        extra_config={
+            "chipseq_idr": True,
+            "reproducibility": {
+                "enabled": True,
+                "mixed_replicate_policy": "per_group_fallback",
+                "consensus": {"enabled": True, "min_replicates": 2},
+                "idr": {"atac_narrow": False, "cuttag_narrow": False},
+            },
+            "cuttag": {"seacr": {"enabled": True, "mode": "stringent"}},
+        },
+    )
+    dag = run_snakemake(config_path, extra_args=["--summary"])
+    assert dag.returncode == 0, dag.stdout + dag.stderr
+    scheduled = _parse_summary(dag.stdout)
+    rows, _, _ = build_manifest_rows(cfg, samples_path=str(samples_path))
+    manifest_paths = {row["path"] for row in rows}
+    outdir = Path(cfg["outdir"])
+    seed_run_identity(work, snakemake_executable, snakefile, config_path, str(outdir))
+
+    peaks = {
+        "bed": b"chr1\t100\t200\tpeak1\t667\t.\n",
+        "broadPeak": b"chr1\t100\t200\tpeak1\t667\t.\t5\t-1\t-1\n",
+        "narrowPeak": b"chr1\t100\t200\tpeak1\t667\t.\t5\t-1\t-1\t50\n",
+    }
+    ineligible = "not eligible for a MACS3 consensus final"
+    for group, assay_caller_mode, suffix, rejection in [
+        ("ATAC3", "atac.macs3.narrow", "narrowPeak", ineligible),
+        ("CUT3", "cuttag.macs3.narrow", "narrowPeak", None),
+        ("CUT1", "cuttag.macs3.narrow", "narrowPeak", ineligible),
+        ("CHIP2", "chipseq.macs3.narrow", "narrowPeak", ineligible),
+        ("CUT3", "atac.macs3.narrow", "narrowPeak", "assay wildcard mismatch"),
+        ("CUT3", "cuttag.macs3.narrow", "broadPeak", "suffix wildcard mismatch"),
+        ("CUT3", "cuttag.seacr.stringent", "bed", None),
+        ("CUT3", "cuttag.seacr.relaxed", "bed", "SEACR consensus mode mismatch"),
+        ("ATAC3", "cuttag.seacr.stringent", "bed", "not eligible for SEACR consensus"),
+    ]:
+        publishes = rejection is None
+        base = outdir / "experiments" / group / "06_reproducibility"
+        stem = f"{group}.{assay_caller_mode}"
+        source = base / "consensus" / f"{stem}.consensus.{suffix}"
+        final = base / "final" / f"{stem}.replicate_validated.consensus.{suffix}"
+        assert (str(final) in scheduled) == publishes, final
+        assert (str(final) in manifest_paths) == publishes, final
+        # Stage each source so a named request exercises the publication rule itself.
+        source.parent.mkdir(parents=True, exist_ok=True)
+        peak = peaks[suffix]
+        source.write_bytes(peak)
+        result = subprocess.run(
+            [
+                snakemake_executable,
+                "-s",
+                snakefile,
+                "--configfile",
+                str(config_path),
+                "--workflow-profile",
+                "none",
+                "--cores",
+                "1",
+                "--allowed-rules",
+                "consensus_final",
+                "consensus_final_seacr",
+                "--",
+                str(final),
+            ],
+            cwd=work,
+            capture_output=True,
+            text=True,
+        )
+        output = result.stdout + result.stderr
+        assert source.read_bytes() == peak
+        if rejection is None:
+            assert result.returncode == 0, output
+            assert final.read_bytes() == peak
+        else:
+            assert result.returncode != 0, final
+            assert rejection in output
+            assert not final.exists(), final
+
+
 @pytest.mark.parametrize("cuttag_idr", [True, False], ids=["idr-on", "idr-off"])
 def test_per_group_fallback_min3_rejects_pe_cuttag_seacr_with_2_replicates(
     tmp_path, tmp_config, run_validator, run_snakemake, cuttag_idr

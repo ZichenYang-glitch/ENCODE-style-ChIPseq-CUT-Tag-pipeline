@@ -48,6 +48,10 @@ at least `min_replicates` distinct biological replicates.
   peak modes with at least two treatment bioreps **when enabled**. Default
   targets also require `reproducibility.enabled`, its consensus child switch
   and `replicate_analysis`; the parent defaults to false.
+- Requesting a consensus peak under `06_reproducibility/final/` by file name
+  uses the default workflow's publication rules for that experiment, caller and
+  peak mode. An auxiliary peak under `consensus/` can exist even when its
+  experiment publishes IDR or has no final peak.
 
 ### 2.3 IDR (Irreproducible Discovery Rate)
 

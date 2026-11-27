@@ -377,7 +377,7 @@ Lints for rule consensus_final (line 397, workflow/rules/consensus.smk):
       https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#integrated-package-management
       https://snakemake.readthedocs.io/en/latest/snakefiles/deployment.html#running-jobs-in-containers
 
-Lints for rule consensus_seacr_bedgraph (line 529, workflow/rules/consensus.smk):
+Lints for rule consensus_seacr_bedgraph (line 540, workflow/rules/consensus.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -386,7 +386,7 @@ Lints for rule consensus_seacr_bedgraph (line 529, workflow/rules/consensus.smk)
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule consensus_seacr_biorep_peaks (line 551, workflow/rules/consensus.smk):
+Lints for rule consensus_seacr_biorep_peaks (line 562, workflow/rules/consensus.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
@@ -395,7 +395,7 @@ Lints for rule consensus_seacr_biorep_peaks (line 551, workflow/rules/consensus.
       Also see:
       https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#log-files
 
-Lints for rule consensus_final_seacr (line 662, workflow/rules/consensus.smk):
+Lints for rule consensus_final_seacr (line 673, workflow/rules/consensus.smk):
     * No log directive defined:
       Without a log directive, all output will be printed to the terminal. In
       distributed environments, this means that errors are harder to discover.
