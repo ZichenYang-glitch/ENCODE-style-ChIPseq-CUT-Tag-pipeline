@@ -39,12 +39,17 @@ def main(argv=None):
         idr_flags = idr_sample_flags_from_validated(validated)
         # Lazy import to break circular dependency with samples.load.
         from encode_pipeline.samples.load import load_and_validate_samples
+        from encode_pipeline.samples.mixed_replicates import (
+            mixed_replicate_notice,
+            resolve_mixed_replicate_routes,
+        )
 
         samples = load_and_validate_samples(
             validated["samples"],
             use_control=validated["use_control"],
             chipseq_idr_enabled=idr_flags["chipseq_narrow"],
             strict_inputs=args.strict_inputs,
+            mixed_replicate_config=validated,
             reproducibility_idr_atac_narrow=idr_flags["atac_narrow"],
             reproducibility_idr_cuttag_narrow=idr_flags["cuttag_narrow"],
             reproducibility_idr_chipseq_broad=idr_flags["chipseq_broad"],
@@ -67,6 +72,10 @@ def main(argv=None):
     except validator_module.ValidationError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)
+
+    routes = resolve_mixed_replicate_routes(samples, validated, idr_flags)
+    if routes:
+        print(f"WARNING: {mixed_replicate_notice(routes)}", file=sys.stderr)
 
     n_treatment = sum(1 for s in samples if s["role"] == "treatment")
     n_control = sum(1 for s in samples if s["role"] == "control")

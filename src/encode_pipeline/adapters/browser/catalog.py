@@ -23,25 +23,37 @@ _SIGNAL_OUTPUTS = frozenset(
         "pooled_ppois_bw",
     }
 )
-_INTERVAL_OUTPUTS = frozenset(
+_IDR_PEAK_OUTPUTS = frozenset(
     {
-        "macs3_peak",
-        "pooled_macs3_peak",
-        "pooled_filtered_peak",
+        "idr_conservative",
+        "idr_optimal",
+        "cuttag_macs3_narrow_idr_final_peak",
+        "atac_macs3_narrow_idr_final_peak",
+        "chipseq_macs3_broad_idr_final_peak",
+        "cuttag_macs3_broad_idr_final_peak",
+    }
+)
+_CONSENSUS_PEAK_OUTPUTS = frozenset(
+    {
         "chipseq_macs3_narrow_consensus_peak",
         "chipseq_macs3_broad_consensus_peak",
         "cuttag_macs3_narrow_consensus_peak",
         "cuttag_macs3_broad_consensus_peak",
         "atac_macs3_narrow_consensus_peak",
         "cuttag_seacr_consensus_peak",
-        "cuttag_macs3_narrow_idr_final_peak",
-        "atac_macs3_narrow_idr_final_peak",
-        "chipseq_macs3_broad_idr_final_peak",
-        "cuttag_macs3_broad_idr_final_peak",
+        "chipseq_macs3_narrow_consensus_final_peak",
+        "atac_macs3_narrow_consensus_final_peak",
         "chipseq_macs3_broad_consensus_final_peak",
         "cuttag_macs3_narrow_consensus_final_peak",
         "cuttag_macs3_broad_consensus_final_peak",
         "cuttag_seacr_consensus_final_peak",
+    }
+)
+_INTERVAL_OUTPUTS = frozenset(
+    {
+        "macs3_peak",
+        "pooled_macs3_peak",
+        "pooled_filtered_peak",
     }
 )
 _ANNOTATION_OUTPUTS = frozenset({"gene_annotation_bed", "refbed"})
@@ -145,6 +157,26 @@ def describe_browser_artifact(
             "Annotation",
             "Intervals from an annotation artifact for this run.",
             "annotation_label",
+        )
+    if workflow_id == _ENCODE_WORKFLOW and output_type in _IDR_PEAK_OUTPUTS:
+        return _derivative(
+            "bed",
+            "interval",
+            "peak_intervals",
+            "IDR peaks",
+            "Column 5 contains the scaled IDR score from the peak file. A higher "
+            "score indicates a lower estimated irreproducible discovery rate.",
+            "idr_scaled_score",
+        )
+    if workflow_id == _ENCODE_WORKFLOW and output_type in _CONSENSUS_PEAK_OUTPUTS:
+        return _derivative(
+            "bed",
+            "interval",
+            "peak_intervals",
+            "Consensus peaks",
+            "Column 5 gives biological-replicate support as a fraction of the "
+            "group's replicates, multiplied by 1000 and rounded.",
+            "consensus_biorep_support",
         )
     if (
         workflow_id == _ENCODE_WORKFLOW and output_type in _INTERVAL_OUTPUTS

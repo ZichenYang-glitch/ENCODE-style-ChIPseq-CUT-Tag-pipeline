@@ -163,9 +163,11 @@ chipseq_idr: false
 #   rank: "p.value"
 
 # Reproducibility policy for replicate-validated peak outputs.
-# Does not affect ChIP-seq narrow IDR controlled by chipseq_idr.
+# For a new narrow-peak 2/3 run, enable reproducibility, consensus and the
+# relevant IDR switch and select per_group_fallback in a fresh outdir.
 # reproducibility:
 #   enabled: false
+#   mixed_replicate_policy: strict
 #   consensus:
 #     enabled: true
 #     min_replicates: 2

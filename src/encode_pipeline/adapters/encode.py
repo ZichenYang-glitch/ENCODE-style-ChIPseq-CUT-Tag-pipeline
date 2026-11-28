@@ -1149,6 +1149,10 @@ def _validate_scientific_inputs(
         validate_reference_control_admission,
     )
     from encode_pipeline.samples.load import load_and_validate_samples
+    from encode_pipeline.samples.mixed_replicates import (
+        mixed_replicate_notice,
+        resolve_mixed_replicate_routes,
+    )
 
     # Platform reference-capable runs inject genome_resources before this
     # point. They may not downgrade admission via caller config.
@@ -1188,6 +1192,7 @@ def _validate_scientific_inputs(
             validated_config["samples"],
             use_control=validated_config["use_control"],
             chipseq_idr_enabled=flags["chipseq_narrow"],
+            mixed_replicate_config=validated_config,
             strict_inputs=strict_inputs,
             reproducibility_idr_atac_narrow=flags["atac_narrow"],
             reproducibility_idr_cuttag_narrow=flags["cuttag_narrow"],
@@ -1240,6 +1245,22 @@ def _validate_scientific_inputs(
         )
 
     issues: list[Issue] = []
+    routes = resolve_mixed_replicate_routes(samples, validated_config, flags)
+    if routes:
+        issues.append(
+            Issue(
+                code="ENCODE_MIXED_REPLICATE_METHODS",
+                message=(
+                    "Per-group MACS3 reproducibility is active. The run record lists the method and "
+                    "biological replicate count for each routed experiment."
+                    if sanitize_errors
+                    else mixed_replicate_notice(routes)
+                ),
+                severity="warning",
+                source="samples",
+                path="samples",
+            )
+        )
     if not validated_config["use_control"] and any(
         sample.get("role") == "control"
         or sample.get("control_sample")

@@ -131,6 +131,7 @@
       "additionalProperties": true,
       "properties": {
         "enabled": { "type": ["boolean", "string"] },
+        "mixed_replicate_policy": { "type": "string", "enum": ["strict", "per_group_fallback"] },
         "consensus": { "type": "object", "additionalProperties": true },
         "idr": { "type": "object", "additionalProperties": true }
       }

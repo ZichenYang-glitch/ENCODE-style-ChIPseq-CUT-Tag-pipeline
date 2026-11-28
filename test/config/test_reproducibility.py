@@ -468,7 +468,7 @@ def test_resolve_idr_sample_flags_rejects_non_mapping_blocks(bad_config, pattern
                     "mixed_replicate_policy": "per_group_fallback",
                 }
             },
-            "unknown key 'mixed_replicate_policy'",
+            "requires an enabled narrow-peak MACS3 IDR method",
         ),
         (
             {"reproducibility": {"enabled": True, "consensus": None}},
@@ -493,7 +493,7 @@ def test_manifest_honors_disabled_reproducibility_and_idr_blocks(tmp_path):
         tmp_path,
         reproducibility={
             "enabled": "false",
-            "mixed_replicate_policy": "per_group_fallback",
+            "mixed_replicate_policy": "strict",
             "consensus": None,
             "idr": {"cuttag_narow": True},
         },
@@ -504,3 +504,36 @@ def test_manifest_honors_disabled_reproducibility_and_idr_blocks(tmp_path):
     normalized_rows, _, _ = build_manifest_rows(normalized)
     assert raw_rows
     assert raw_rows == normalized_rows
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_explicit_strict_has_the_exact_historical_normalization(enabled):
+    from encode_pipeline.config.reproducibility import validate_reproducibility
+
+    strict = {"enabled": enabled, "mixed_replicate_policy": "strict"}
+    assert validate_reproducibility(strict, {}) == validate_reproducibility(
+        {"enabled": enabled}, {}
+    )
+
+
+@pytest.mark.parametrize(
+    "repro, reason",
+    [
+        ({"enabled": False}, "requires reproducibility.enabled"),
+        (
+            {"enabled": True, "consensus": {"enabled": False}},
+            "requires reproducibility.consensus.enabled",
+        ),
+        ({"enabled": True, "consensus": {"min_replicates": 2.5}}, "min_replicates"),
+        ({"enabled": True, "consensus": {"min_replicates": 4}}, "must be 2 or 3"),
+        ({"enabled": False, "mixed_replicate_policy": None}, "must be 'strict'"),
+        ({"enabled": True, "mixed_replicate_policy": "auto"}, "must be 'strict'"),
+    ],
+)
+def test_mixed_policy_is_explicit_and_validated_before_dormant_settings(repro, reason):
+    from encode_pipeline.config.reproducibility import validate_reproducibility
+
+    with pytest.raises(ValueError, match=reason):
+        validate_reproducibility(
+            {"mixed_replicate_policy": "per_group_fallback", **repro}, {}
+        )

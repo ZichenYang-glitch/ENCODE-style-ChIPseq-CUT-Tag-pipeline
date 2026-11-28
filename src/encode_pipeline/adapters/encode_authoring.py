@@ -241,6 +241,37 @@ def _config_schema() -> dict[str, object]:
                 ),
                 default=False,
             ),
+            "reproducibility": {
+                "type": "object",
+                "properties": {
+                    "enabled": _boolean_or_string_schema(default=False),
+                    "mixed_replicate_policy": {
+                        "type": "string",
+                        "enum": ["strict", "per_group_fallback"],
+                        "description": (
+                            "In a fresh run, opt into two-replicate IDR and "
+                            "three-replicate consensus for enabled narrow-peak methods."
+                        ),
+                    },
+                    "consensus": {
+                        "type": "object",
+                        "properties": {
+                            "enabled": _boolean_or_string_schema(default=True),
+                            "min_replicates": {"type": "integer", "minimum": 2},
+                        },
+                        "additionalProperties": True,
+                    },
+                    "idr": {
+                        "type": "object",
+                        "properties": {
+                            mode: _boolean_or_string_schema(default=False)
+                            for mode in ("atac_narrow", "cuttag_narrow")
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+                "additionalProperties": True,
+            },
             "qc": {
                 "type": "object",
                 "default": {},

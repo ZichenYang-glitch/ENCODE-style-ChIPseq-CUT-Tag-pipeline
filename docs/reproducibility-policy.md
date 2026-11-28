@@ -48,6 +48,10 @@ at least `min_replicates` distinct biological replicates.
   peak modes with at least two treatment bioreps **when enabled**. Default
   targets also require `reproducibility.enabled`, its consensus child switch
   and `replicate_analysis`; the parent defaults to false.
+- Requesting a consensus peak under `06_reproducibility/final/` by file name
+  uses the default workflow's publication rules for that experiment, caller and
+  peak mode. An auxiliary peak under `consensus/` can exist even when its
+  experiment publishes IDR or has no final peak.
 
 ### 2.3 IDR (Irreproducible Discovery Rate)
 
@@ -91,6 +95,48 @@ ChIP-seq narrow IDR path; `reproducibility` controls consensus and expanded IDR 
 | 4 | cuttag | broad | MACS3 | IDR when experimental flag enabled; consensus otherwise | Consensus fallback/report | Experimental opt-in only |
 | 5 | cuttag | — | SEACR | Consensus | No IDR planned | SEACR IDR is outside the current policy |
 | 6 | atac | narrow | MACS3 | IDR (when enabled) | Consensus | ATAC narrow IDR uses same narrowPeak IDR machinery |
+
+### Same run with two- and three-replicate groups
+
+Explicitly enable `reproducibility.mixed_replicate_policy: per_group_fallback`
+in a fresh output directory. This example routes ChIP-seq narrow peaks:
+
+```yaml
+outdir: results_mixed
+replicate_analysis: true
+chipseq_idr: true
+reproducibility:
+  enabled: true
+  mixed_replicate_policy: per_group_fallback
+  consensus:
+    enabled: true
+    min_replicates: 2
+```
+
+For ATAC or CUT&Tag narrow peaks enable the corresponding
+`reproducibility.idr.atac_narrow` or `reproducibility.idr.cuttag_narrow` switch.
+The run requires at least one eligible two-replicate IDR experiment. Count
+distinct biological replicates of treatment samples after grouping technical
+replicates. Each enabled narrow-peak MACS3 group must have two or three.
+
+| Biological replicates in the experiment | MACS3 final | Optional MACS3 output |
+| --- | --- | --- |
+| 2 | The existing IDR result. ChIP-seq narrow retains both conservative and optimal peaks under its own `06_idr/final/`. | A secondary consensus is available at a threshold of two. With a threshold of three the run records why this secondary output was skipped. |
+| 3 | A consensus computed from all three per-replicate calls. With the default threshold a retained component has support from at least two distinct biological replicates. | Set `min_replicates: 3` to require support from all three. |
+
+The three-replicate group's final is published under its own
+`06_reproducibility/final/`. Paired-end CUT&Tag with SEACR enabled also
+publishes its independently requested SEACR consensus BED. A required
+SEACR or other consensus with too few replicates fails sample admission.
+Broad IDR keeps its existing experimental eligibility rules.
+
+Each opted-in run records the MACS3 route and biological replicate count under
+`resolved_reproducibility_by_experiment` in its effective configuration. Its
+identity includes the explicit policy. An omitted setting and explicit
+`strict` both reuse the historical strict identity. Resuming a run requires
+the same identity and output directory. IDR rank agreement and consensus
+support measure different quantities. For between-group comparisons, count
+each biological replicate over a common set of genomic regions.
 
 ## 4. Output Paths
 
@@ -156,11 +202,10 @@ results/experiments/<exp>/06_idr/
 | cuttag | macs3 | broad | Consensus (when broad IDR not enabled) | `<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` |
 | cuttag | seacr | `<mode>` | Consensus | `<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` |
 | atac | macs3 | narrow | IDR (when `reproducibility.idr.atac_narrow: true`) | `<exp>.atac.macs3.narrow.replicate_validated.idr.narrowPeak` |
-| atac | macs3 | narrow | Consensus (when ATAC IDR not enabled) | Consensus under `consensus/`; no `final/` output until IDR enabled |
+| chipseq / atac | macs3 | narrow | Three-replicate group routed to consensus in mixed mode | `<exp>.<assay>.macs3.narrow.replicate_validated.consensus.narrowPeak` |
+| atac | macs3 | narrow | Strict consensus-only | `consensus/` |
 
-For chipseq narrow, `06_reproducibility/reproducibility_summary.tsv` records
-the primary final source as `../06_idr/final/conservative.narrowPeak`.
-No symlinks or copies are created into `06_reproducibility/final/`.
+The ChIP-seq narrow IDR summary and both IDR final peak sets belong to the experiment’s `06_idr/final/` directory.
 
 ### 4.5 Consensus Summary TSV Schema
 
@@ -273,8 +318,7 @@ When `reproducibility.enabled: true`:
   warning. Its claim that consensus remains primary is stale; the current DAG
   and manifest select the eligible IDR artifact as final, as described above.
   The wording mismatch is tracked in [Known Issues](../KNOWN_ISSUES.md#scientific-scope).
-- If `reproducibility.enabled: false`: all sub-keys are ignored for DAG
-  purposes with no validation errors.
+- With `reproducibility.enabled: false`, strict runs ignore dormant DAG settings. An explicit `per_group_fallback` requires the master and consensus switches.
 
 ## 6. Current non-goals
 

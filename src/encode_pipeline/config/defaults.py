@@ -79,7 +79,9 @@ MNASE_CALLERS = frozenset({"danpos3", "inps", "sem"})
 
 IDR_KEYS = frozenset({"seed", "threshold", "rank"})
 
-REPRODUCIBILITY_TOP_KEYS = frozenset({"enabled", "consensus", "idr"})
+REPRODUCIBILITY_TOP_KEYS = frozenset(
+    {"enabled", "consensus", "idr", "mixed_replicate_policy"}
+)
 REPRODUCIBILITY_CONSENSUS_KEYS = frozenset(
     {"enabled", "min_replicates", "reciprocal_overlap"}
 )

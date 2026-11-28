@@ -17,6 +17,7 @@ from encode_pipeline.config.reproducibility import resolve_idr_sample_flags
 from encode_pipeline.config.validate import resolve_blacklist_mode, validate_config
 from encode_pipeline.qc.histone import classify_histone_target
 from encode_pipeline.samples.load import load_and_validate_samples
+from encode_pipeline.samples.mixed_replicates import resolve_mixed_replicate_routes
 
 
 _NA = "NA"
@@ -1253,7 +1254,64 @@ def _compute_reproducibility_eligibility(config, treatment_samples, idr_flags):
     }
 
 
-def _build_reproducibility_rows(samples, config, outdir, idr_flags):
+def _add_routed_narrow_consensus_finals(rows, eligibility, routes, exp_meta, step):
+    """Promote ChIP-seq and ATAC narrow consensus when the route says so.
+
+    Strict and missing-key runs pass an empty route map and add no rows.
+    """
+    if not routes:
+        return
+
+    chipseq_narrow = eligibility["consensus_experiments"].get(("chipseq", "narrow"), [])
+    for exp in sorted(chipseq_narrow):
+        route = routes.get(exp)
+        if route is None or route.method != "consensus":
+            continue
+        meta = exp_meta(exp)
+        if meta is None:
+            continue
+        path = (
+            f"{step}/{exp}/06_reproducibility/final/"
+            f"{exp}.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak"
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            meta["assay"],
+            meta["target"],
+            meta["genome"],
+            "chipseq_macs3_narrow_consensus_final_peak",
+            "cp",
+            path,
+        )
+
+    atac_narrow = eligibility["consensus_experiments"].get(("atac", "narrow"), [])
+    for exp in sorted(atac_narrow):
+        route = routes.get(exp)
+        if route is None or route.method != "consensus":
+            continue
+        meta = exp_meta(exp)
+        if meta is None:
+            continue
+        path = (
+            f"{step}/{exp}/06_reproducibility/final/"
+            f"{exp}.atac.macs3.narrow.replicate_validated.consensus.narrowPeak"
+        )
+        _add_row(
+            rows,
+            "",
+            exp,
+            meta["assay"],
+            meta["target"],
+            meta["genome"],
+            "atac_macs3_narrow_consensus_final_peak",
+            "cp",
+            path,
+        )
+
+
+def _build_reproducibility_rows(samples, config, outdir, idr_flags, routes=None):
     """Stage 66: Emit mode-specific reproducibility manifest rows.
 
     Only user-facing catalog outputs (consensus peak, consensus summary,
@@ -1269,6 +1327,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
 
     if not e["replicate_analysis_enabled"]:
         return rows
+    if routes is None:
+        routes = resolve_mixed_replicate_routes(samples, config, idr_flags)
 
     def _exp_meta(exp_id):
         exp_samples = [s for s in treatment if s.get("experiment") == exp_id]
@@ -1285,6 +1345,9 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
     if e["repro_enabled"] and e["consensus_enabled"]:
         for (assay, peak_mode), exps in sorted(e["consensus_experiments"].items()):
             for exp in sorted(exps):
+                route = routes.get(exp)
+                if route is not None and not route.run_macs3_consensus:
+                    continue
                 meta = _exp_meta(exp)
                 if meta is None:
                     continue
@@ -1624,6 +1687,8 @@ def _build_reproducibility_rows(samples, config, outdir, idr_flags):
                 f"{p}/{exp}.cuttag.macs3.broad.replicate_validated.consensus.broadPeak",
             )
 
+        _add_routed_narrow_consensus_finals(rows, e, routes, _exp_meta, step)
+
         # SEACR consensus final
         if e["seacr_enabled"]:
             for exp in sorted(e["seacr_consensus_experiments"]):
@@ -1781,12 +1846,14 @@ def build_manifest_rows(config, samples_path=None):
     samples = load_and_validate_samples(
         samples_path,
         use_control=use_control,
+        mixed_replicate_config=config,
         chipseq_idr_enabled=chipseq_idr,
         reproducibility_idr_atac_narrow=idr_flags["atac_narrow"],
         reproducibility_idr_cuttag_narrow=idr_flags["cuttag_narrow"],
         reproducibility_idr_chipseq_broad=idr_flags["chipseq_broad"],
         reproducibility_idr_cuttag_broad=idr_flags["cuttag_broad"],
     )
+    routes = resolve_mixed_replicate_routes(samples, config, idr_flags)
     treatment_samples = [s for s in samples if s.get("role") == "treatment"]
     has_peak_samples = any(_is_mnase(s) is False for s in treatment_samples)
 
@@ -1820,7 +1887,7 @@ def build_manifest_rows(config, samples_path=None):
     rows.extend(_build_idr_rows(treatment_samples, analysis_outdir, chipseq_idr))
     rows.extend(
         _build_reproducibility_rows(
-            treatment_samples, config, analysis_outdir, idr_flags
+            treatment_samples, config, analysis_outdir, idr_flags, routes
         )
     )
     rows.extend(

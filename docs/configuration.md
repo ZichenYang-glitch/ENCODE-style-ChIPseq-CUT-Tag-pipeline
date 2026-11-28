@@ -346,6 +346,12 @@ idr:
   `--use-conda`, keeping IDR's older Python dependency constraints out of the
   core environment.
 
+For a fresh mixed 2/3 run set `reproducibility.mixed_replicate_policy:
+per_group_fallback` with reproducibility, consensus and the appropriate narrow IDR
+method enabled. The two-replicate experiment uses IDR. The three-replicate
+experiment publishes its own consensus final. See the [configuration example and
+output rules](reproducibility-policy.md#same-run-with-two--and-three-replicate-groups).
+
 ### ChIP-seq narrow IDR (`chipseq_idr`) gating summary
 
 | Condition | Required |

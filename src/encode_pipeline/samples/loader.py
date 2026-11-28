@@ -25,6 +25,7 @@ def load_and_validate_samples(
     reproducibility_idr_cuttag_narrow: bool = False,
     reproducibility_idr_chipseq_broad: bool = False,
     reproducibility_idr_cuttag_broad: bool = False,
+    mixed_replicate_config: dict | None = None,
 ) -> list[dict]:
     """Load and validate a sample sheet TSV.
 
@@ -116,6 +117,7 @@ def load_and_validate_samples(
         reproducibility_idr_cuttag_narrow=reproducibility_idr_cuttag_narrow,
         reproducibility_idr_chipseq_broad=reproducibility_idr_chipseq_broad,
         reproducibility_idr_cuttag_broad=reproducibility_idr_cuttag_broad,
+        mixed_replicate_config=mixed_replicate_config,
         error_cls=ValidationError,
     )
 

@@ -157,11 +157,13 @@ PE-only; SE does not declare them. `qc.picard_metrics` also requires
 | `chipseq_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_chipseq_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
 | `cuttag_macs3_broad_idr_final_peak` | idr_reproducibility_summary.py | idr_summary_cuttag_broad | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.idr.broadPeak` | implemented |
 
-#### Consensus final outputs (primary when no IDR)
+#### Primary consensus finals by experiment and caller
 
 | output_type | method | rule | path | status |
 | :--- | :--- | :--- | :--- | :--- |
 | `chipseq_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
+| `chipseq_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.chipseq.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
+| `atac_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.atac.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
 | `cuttag_macs3_narrow_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.narrow.replicate_validated.consensus.narrowPeak` | implemented |
 | `cuttag_macs3_broad_consensus_final_peak` | cp | consensus_final | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.macs3.broad.replicate_validated.consensus.broadPeak` | implemented |
 | `cuttag_seacr_consensus_final_peak` | cp | consensus_final_seacr | `results/experiments/<exp>/06_reproducibility/final/<exp>.cuttag.seacr.<mode>.replicate_validated.consensus.bed` | implemented |
@@ -288,8 +290,18 @@ sample_id	experiment_id	assay	target	genome	output_type	method	path	status	qc_fl
 | `idr_*` | `chipseq_idr: true` + `chipseq` + `narrow` + exactly 2 treatment bioreps |
 | `*_consensus_peak`, `*_consensus_summary` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + ≥2 treatment bioreps + assay/peak_mode match |
 | `*_idr_final_peak`, `*_idr_summary` | `reproducibility.enabled: true` + `replicate_analysis: true` + respective IDR config flag + assay/peak_mode match + exactly 2 treatment bioreps |
-| `*_consensus_final_peak` | `reproducibility.enabled: true` + `reproducibility.consensus.enabled: true` + `replicate_analysis: true` + respective IDR NOT enabled for that mode + ≥2 treatment bioreps |
+| MACS3 `*_consensus_final_peak` | Consensus is enabled and supplies the primary final for this experiment. The assay, peak mode and reproducibility policy determine eligibility. |
+| `chipseq_macs3_narrow_consensus_final_peak`, `atac_macs3_narrow_consensus_final_peak` | A three-biological-replicate narrow-peak group in a run with explicit `per_group_fallback` and the corresponding IDR method enabled. All three contribute to the consensus. |
+| Routed MACS3 `*_consensus_peak` and `*_consensus_summary` | With a minimum of three, a two-replicate IDR group skips the auxiliary consensus. The effective configuration records the reason. |
+| `cuttag_seacr_*` | PE CUT&Tag with SEACR enabled retains a separate consensus BED under its own caller. Each such group must meet the configured support threshold. |
 | `multiqc_report` | `multiqc: true` |
+
+In WashU, column 5 of a consensus peak is 1000 times the fraction of distinct
+biological replicates supporting that interval, rounded to the nearest integer.
+For three biological replicates, support from two gives 667 and support from all
+three gives 1000. Column 5 of an IDR final records the scaled IDR value. The
+run's `idr.rank` setting selects the input field used to rank peaks before IDR.
+[IDR output format](https://github.com/nboley/idr#output-file-format)
 
 ## Known Assumptions
 

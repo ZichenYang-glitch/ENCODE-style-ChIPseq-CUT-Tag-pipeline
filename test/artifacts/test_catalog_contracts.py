@@ -949,6 +949,50 @@ def test_catalog_output_types_appear_in_generated_manifests(tmp_config, tmp_path
         tmp_config,
     )
 
+    # Generate the new narrow finals from admitted mixed experiments.
+    routed_rows = []
+    for experiment, assay, count in (
+        ("CHIP2", "chipseq", 2),
+        ("CHIP3", "chipseq", 3),
+        ("ATAC3", "atac", 3),
+    ):
+        for i in range(1, count + 1):
+            biorep = str(i)
+            routed_rows.append(
+                "\t".join(
+                    [
+                        f"{experiment}_{biorep}",
+                        "R1.fq",
+                        "R2.fq",
+                        "PE",
+                        assay,
+                        "CTCF",
+                        "narrow",
+                        "hs",
+                        "/idx",
+                        experiment,
+                        biorep,
+                    ]
+                )
+            )
+    routed_types = _run_manifest(
+        {
+            "replicate_analysis": True,
+            "chipseq_idr": True,
+            "reproducibility": {
+                "enabled": True,
+                "mixed_replicate_policy": "per_group_fallback",
+                "idr": {"atac_narrow": True},
+                "consensus": {"enabled": True},
+            },
+        },
+        "\t".join(columns_full) + "\n" + "\n".join(routed_rows) + "\n",
+        tmp_config,
+    )
+    assert "chipseq_macs3_narrow_consensus_final_peak" in routed_types
+    assert "atac_macs3_narrow_consensus_final_peak" in routed_types
+    all_types |= routed_types
+
     missing = []
     for mot in sorted(catalog_mots):
         if "<N>" in mot:
