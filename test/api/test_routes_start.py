@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator
 import socket
-from threading import Event, Thread, Timer
+from threading import Event, Thread
 import time
 
 import fastapi.routing
@@ -239,6 +239,7 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
     record = service.create_run(WORKFLOW_ID, WorkflowInputs(config={}))
     service.transition_run(record.run_id, RunStatus.VALIDATING)
     planned = service.transition_run(record.run_id, RunStatus.PLANNED)
+    guard_seconds = 10
     entered = Event()
     release = Event()
 
@@ -246,8 +247,9 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
         def start_run(self, run_id, **_kwargs):
             assert run_id == planned.run_id
             entered.set()
-            if not release.wait(timeout=2):  # pragma: no cover - test deadlock guard
-                raise RuntimeError("submission test gate timed out")
+            # This also times out if the submission runs directly on the event loop.
+            if not release.wait(timeout=guard_seconds):
+                raise AssertionError("probe did not release the waiting submission")
             return planned
 
     app.state.run_submission_service = BlockingSubmissionService()
@@ -256,42 +258,42 @@ def test_start_run_submission_does_not_block_the_api_event_loop(tmp_path):
     async def event_loop_probe():
         return {"ok": True}
 
-    async def exercise() -> tuple[httpx.Response, httpx.Response, float]:
+    async def exercise() -> tuple[httpx.Response, httpx.Response]:
         transport = httpx.ASGITransport(app=app)
         async with seeded_auth_async_client(
             app,
             transport=transport,
             base_url="http://testserver",
         ) as client:
-            started_at = time.monotonic()
             start_task = asyncio.create_task(
                 client.post(f"/api/v1/runs/{planned.run_id}/start")
             )
-            entered_deadline = time.monotonic() + 2
-            while not entered.is_set() and time.monotonic() < entered_deadline:
-                await asyncio.sleep(0.001)
-            assert entered.is_set()
-            probe_response = await client.get("/event-loop-probe")
-            probe_elapsed = time.monotonic() - started_at
-            release.set()
-            start_response = await start_task
-            return start_response, probe_response, probe_elapsed
+            try:
+                assert await asyncio.to_thread(entered.wait, guard_seconds), (
+                    "start request did not reach the submission service"
+                )
+                probe_response = await asyncio.wait_for(
+                    client.get("/event-loop-probe"), timeout=guard_seconds
+                )
+                assert not start_task.done(), (
+                    "start returned before submission was released"
+                )
+            finally:
+                release.set()
+                start_response = await asyncio.wait_for(
+                    start_task, timeout=guard_seconds
+                )
+            return start_response, probe_response
 
-    # A regression to an async route doing synchronous submission blocks the
-    # event loop until this independent thread releases the service gate.
-    deadlock_guard = Timer(1.0, release.set)
-    deadlock_guard.start()
     try:
-        start_response, probe_response, probe_elapsed = asyncio.run(exercise())
+        start_response, probe_response = asyncio.run(exercise())
     finally:
-        release.set()
-        deadlock_guard.cancel()
         app.state.run_queue.close()
         app.state.persistence.close()
 
     assert start_response.status_code == 202
+    assert probe_response.status_code == 200
     assert probe_response.json() == {"ok": True}
-    assert probe_elapsed < 0.75
 
 
 def test_start_run_real_redis_read_timeout_is_bounded_and_sanitized(
